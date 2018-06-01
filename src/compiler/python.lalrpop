@@ -1,0 +1,261 @@
+// See also: file:///usr/share/doc/python/html/reference/grammar.html?highlight=grammar
+use super::ast;
+use super::lexer;
+use std::iter::FromIterator;
+
+grammar;
+
+pub Program: ast::Program = {
+  <lines:FileLine*> => ast::Program { statements: Vec::from_iter(lines.into_iter().filter_map(|e| e)) },
+};
+
+// A file line either has a declaration, or an empty newline:
+FileLine: Option<ast::Statement> = {
+    <s:Statement> => Some(s),
+    "\n" => None,
+};
+
+Suite: Vec<ast::Statement> = {
+  <s:SimpleStatement> => vec![s],
+  "\n" indent <s:Statement+> dedent => s,
+};
+
+Statement: ast::Statement = {
+  SimpleStatement,
+  CompoundStatement,
+};
+
+SimpleStatement: ast::Statement = {
+  <s:SmallStatement> "\n" => s,
+};
+
+SmallStatement: ast::Statement = {
+  // <e:Expression> => ast::Statement::Expression { expression: e },
+  ExpressionStatement,
+  "pass" => ast::Statement::Pass,
+  FlowStatement,
+  ImportStatement,
+  AssertStatement,
+};
+
+ExpressionStatement: ast::Statement = {
+  <e:TestList> <e2:AssignSuffix*> => {
+    //match e2 {
+    //  None => ast::Statement::Expression { expression: e },
+    //  Some(e3) => ast::Statement::Expression { expression: e },
+    //}
+    if e2.len() > 0 {
+      // Dealing with assignment here
+      // TODO: for rhs in e2 {
+       let rhs = e2.into_iter().next().unwrap();
+       // ast::Expression::Tuple { elements: e2.into_iter().next().unwrap()
+       let v = rhs.into_iter().next().unwrap();
+       let lhs = ast::Statement::Assign { targets: e, value: v };
+      lhs
+    } else {
+      if e.len() > 1 {
+        panic!("Not good?");
+        // ast::Statement::Expression { expression: e[0] }
+      } else {
+        ast::Statement::Expression { expression: e.into_iter().next().unwrap() }
+      }
+    }
+  },
+};
+
+AssignSuffix: Vec<ast::Expression> = {
+    "=" <e:TestList> => e,
+};
+
+FlowStatement: ast::Statement = {
+  "break" => ast::Statement::Break,
+  "continue" => ast::Statement::Continue,
+  "return" <t:TestList?> => ast::Statement::Return { value: t},
+  // raise
+  // yield
+};
+
+ImportStatement: ast::Statement = {
+  "import" <n:DottedName> => ast::Statement::Import { name: n },
+};
+
+DottedName: String = {
+  <n:name> => n,
+};
+
+AssertStatement: ast::Statement = {
+  "assert" <t:Test> <m: ("," Test)?> => ast::Statement::Assert {
+    test: t,
+    msg: match m {
+      Some(e) => Some(e.1),
+      None => None,
+    }
+  },
+};
+
+CompoundStatement: ast::Statement = {
+  "if" <e:Test> ":" <s:Suite> => ast::Statement::If { test: e, body: s },
+  "while" <e:Test> ":" <s:Suite> => ast::Statement::While { test: e, body: s },
+  "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> => ast::Statement::For { target: e, iter: t, body: s, or_else: None },
+  "def" <i:Identifier> "(" ")" ":" <s:Suite> => ast::Statement::FunctionDef { name: i, body: s },
+  WithStatement,
+};
+
+WithStatement: ast::Statement = {
+  "with" <t:Test> "as" <e:Expression> ":" <s:Suite> => ast::Statement::With { items: t, body: s },
+};
+
+Test: ast::Expression = {
+  <e:OrTest> => e,
+};
+
+OrTest: ast::Expression = {
+  <e:AndTest> => e,
+};
+
+AndTest: ast::Expression = {
+  <e:NotTest> => e,
+};
+
+NotTest: ast::Expression = {
+  <e:Expression> => e,
+};
+
+Expression: ast::Expression = {
+  <e1:Expression> "|" <e2:XorExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitOr, b: Box::new(e2) },
+  <e:XorExpression> => e,
+};
+
+XorExpression: ast::Expression = {
+  <e1:XorExpression> "^" <e2:AndExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitXor, b: Box::new(e2) },
+  <e:AndExpression> => e,
+};
+
+AndExpression: ast::Expression = {
+  <e1:AndExpression> "&" <e2:ArithmaticExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitAnd, b: Box::new(e2) },
+  <e:ArithmaticExpression> => e,
+};
+
+ArithmaticExpression: ast::Expression = {
+  <a:ArithmaticExpression> <op:AddOp> <b:Term> => ast::Expression::Binop { a: Box::new(a), op: op, b: Box::new(b) },
+  Term,
+};
+
+AddOp: ast::Operator = {
+  "+" => ast::Operator::Add,
+  "-" => ast::Operator::Sub,
+};
+
+Term: ast::Expression = {
+  <a:Term> <op:MulOp> <b:Factor> => ast::Expression::Binop { a: Box::new(a), op: op, b: Box::new(b) },
+  Factor,
+};
+
+MulOp: ast::Operator = {
+  "*" => ast::Operator::Mult,
+  "/" => ast::Operator::Div,
+  "//" => ast::Operator::FloorDiv,
+  "%" => ast::Operator::Mod,
+  "@" => ast::Operator::MatMult,
+};
+
+Factor: ast::Expression = {
+  <e:Power> => e,
+};
+
+Power: ast::Expression = {
+  <e:Atom>  => e,
+};
+
+Atom: ast::Expression = {
+  <f:Atom>  "(" <a:FunctionArguments> ")" => ast::Expression::Call { function: Box::new(f), args: a },
+  <s:String> => ast::Expression::String { value: s },
+  <n:Number> => ast::Expression::Number { value: n },
+  <i:Identifier> => ast::Expression::Identifier { name: i },
+  "[" <e:TestList> "]" => ast::Expression::List { elements: e },
+  "(" <e:Expression> ")" => e,
+  "True" => ast::Expression::True,
+  "False" => ast::Expression::False,
+  "None" => ast::Expression::None,
+};
+
+ExpressionList: Vec<ast::Expression> = {
+  <e: Comma<Expression>> => e,
+};
+
+TestList: Vec<ast::Expression> = {
+  <e1:Test> <e2: ("," Test)*> => {
+    let mut l = vec![e1];
+    l.extend(e2.into_iter().map(|x| x.1));
+    l
+  }
+};
+
+FunctionArguments: Vec<ast::Expression> = {
+  <e: Comma<Expression>> => e,
+};
+
+Comma<T>: Vec<T> = {
+    <items: (<T> ",")*> <last: T?> => {
+        let mut items = items;
+        items.extend(last);
+        items
+    }
+};
+
+Number: i32 = <s:number> => s;
+String: String = {
+  <s:string> => s,
+};
+Identifier: String = <s:name> => s;
+
+// Hook external lexer:
+extern {
+    type Location = usize;
+    type Error = lexer::LexicalError;
+
+    enum lexer::Tok {
+        indent => lexer::Tok::Indent,
+        dedent => lexer::Tok::Dedent,
+        "+" => lexer::Tok::Plus,
+        "-" => lexer::Tok::Minus,
+        ":" => lexer::Tok::Colon,
+        "," => lexer::Tok::Comma,
+        "*" => lexer::Tok::Star,
+        "&" => lexer::Tok::Amper,
+        "@" => lexer::Tok::At,
+        "%" => lexer::Tok::Percent,
+        "//" => lexer::Tok::DoubleSlash,
+        "^" => lexer::Tok::CircumFlex,
+        "|" => lexer::Tok::Vbar,
+        "/" => lexer::Tok::Slash,
+        "(" => lexer::Tok::Lpar,
+        ")" => lexer::Tok::Rpar,
+        "[" => lexer::Tok::Lsqb,
+        "]" => lexer::Tok::Rsqb,
+        "=" => lexer::Tok::Equal,
+        "+=" => lexer::Tok::PlusEqual,
+        "-=" => lexer::Tok::MinusEqual,
+        "assert" => lexer::Tok::Assert,
+        "import" => lexer::Tok::Import,
+        "break" => lexer::Tok::Break,
+        "continue" => lexer::Tok::Break,
+        "return" => lexer::Tok::Return,
+        "pass" => lexer::Tok::Pass,
+        "if" => lexer::Tok::If,
+        "while" => lexer::Tok::While,
+        "for" => lexer::Tok::For,
+        "in" => lexer::Tok::In,
+        "with" => lexer::Tok::With,
+        "as" => lexer::Tok::As,
+        "def" => lexer::Tok::Def,
+        "class" => lexer::Tok::Class,
+        "True" => lexer::Tok::True,
+        "False" => lexer::Tok::False,
+        "None" => lexer::Tok::None,
+        number => lexer::Tok::Number { value: <i32> },
+        string => lexer::Tok::String { value: <String> },
+        name => lexer::Tok::Name { name: <String> },
+        "\n" => lexer::Tok::Newline,
+    }
+}
