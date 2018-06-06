@@ -1,5 +1,5 @@
 [package]
-name = "rustpython"
+name = "rustpython_vm"
 version = "0.1.0"
 authors = ["Shing Lyu <shing.lyu@gmail.com>"]
 

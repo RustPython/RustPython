@@ -1,6 +1,8 @@
 [package]
-name = "RustPython"
+name = "rustpython"
 version = "0.1.0"
 authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
 
 [dependencies]
+rustpython_parser = {path = "parser"}
+rustpython_vm = {path = "vm/RustPython"}
