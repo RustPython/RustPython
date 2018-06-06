@@ -1,1 +1,0 @@
-{"co_consts": [{"Int": 1}, {"NoneType": null}], "co_name": "<module>", "co_code": [[3, "BUILD_LIST", 0], [3, "STORE_NAME", 0], [3, "LOAD_NAME", 0], [3, "LOAD_ATTR", 1], [3, "LOAD_CONST", 0], [3, "CALL_FUNCTION", 1], [1, "POP_TOP", null], [3, "LOAD_CONST", 1], [1, "RETURN_VALUE", null]], "co_varnames": [], "co_names": ["x", "append"]}

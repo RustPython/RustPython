@@ -1,1 +1,0 @@
-{"co_names": [], "co_varnames": [], "co_code": [[3, "LOAD_CONST", 0], [3, "LOAD_CONST", 1], [3, "BUILD_LIST", 2], [1, "POP_TOP", null], [3, "LOAD_CONST", 2], [1, "RETURN_VALUE", null]], "co_consts": [{"Str": "a"}, {"Int": 1}, {"NoneType": null}], "co_name": "<module>"}
