@@ -1,7 +1,7 @@
 # RustPython
 A Python Interpreter written in Rust :snake: :scream: :metal:.
 
-# Usage
+# Usage (Not implemented yet)
 
 To test RustPython, do the following:
 
