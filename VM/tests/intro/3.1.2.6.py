@@ -1,0 +1,1 @@
+assert 'Python' == 'Py' 'thon'

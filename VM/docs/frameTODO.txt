@@ -1,0 +1,13 @@
+Create a frame class
+change the environment to locals
+turn run into run_code -> run_frame
+
+TEST
+
+Create a function class
+implement MAKE_FUNCTION
+implement CALL_FUNCTION
+implement RETURN_VALUE
+
+TEST function
+

@@ -1,0 +1,11 @@
+[package]
+name = "rustpython"
+version = "0.1.0"
+authors = ["Shing Lyu <shing.lyu@gmail.com>"]
+
+[dependencies]
+log = "0.3"
+env_logger = "0.3"
+serde = "0.8.22"
+serde_derive = "0.8"
+serde_json = "0.8"

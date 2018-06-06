@@ -1,0 +1,1 @@
+print('C:\some\name')
