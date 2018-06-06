@@ -21,9 +21,13 @@ An alternative implementation of python virtual machine that are compatible with
 
 We are in the process of merging the two implementation to form a single implementation.
 
+# Community
+
+Chat with us on [gitter][gitter].
+
 # Credit
 The initial work was based on [windelbouwman/rspython](https://github.com/windelbouwman/rspython) and [shinglyu/RustPython](https://github.com/shinglyu/RustPython)
 
 [rspython]: https://github.com/windelbouwman/rspython
 [rustpython]: https://github.com/shinglyu/RustPython
-
+[gitter]: https://gitter.im/rustpython/Lobby
