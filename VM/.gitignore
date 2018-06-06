@@ -1,0 +1,4 @@
+venv/
+tests/*.bytecode
+RustPython/Cargo.lock
+RustPython/target

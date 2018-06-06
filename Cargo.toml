@@ -1,17 +1,6 @@
-
 [package]
 name = "RustPython"
-version = "0.0.1"
-authors = [ "Shing Lyu", "Windel Bouwman" ]
-build = "build.rs"
-
-[build-dependencies]
-lalrpop="0.15.1"
+version = "0.1.0"
+authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
 
 [dependencies]
-clap="2.20.0"
-lalrpop-util="0.15.1"
-regex="0.2.2"
-log="0.4.1"
-env_logger="0.5.10"
-
