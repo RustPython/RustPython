@@ -56,7 +56,7 @@ impl VirtualMachine {
 
         loop {
             // for instruction in code.instructions {
-            if self.program_counter > current_frame.instructions.len() {
+            if self.program_counter >= current_frame.instructions.len() {
                 break;
             }
 
