@@ -1,15 +1,13 @@
-#[macro_use]
-extern crate log;
 extern crate env_logger;
+extern crate py_code_object;
 extern crate rustpython_vm;
-#[macro_use]
-extern crate serde_derive;
 extern crate serde_json;
 
 use rustpython_vm::*;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
+use py_code_object::PyCodeObject;
 
 fn main() {
     env_logger::init().unwrap();
@@ -22,6 +20,7 @@ fn main() {
     let mut s = String::new();
     f.read_to_string(&mut s).unwrap();
     // println!("Read string");
+    // TODO: Extract this so we don't depend on json
     let code: PyCodeObject = match serde_json::from_str(&s) {
         Ok(c) => c,
         Err(_) => panic!("Fail to parse the bytecode")

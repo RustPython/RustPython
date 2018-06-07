@@ -1,40 +1,17 @@
 #[macro_use]
 extern crate log;
 extern crate env_logger;
-
-#[macro_use]
-extern crate serde_derive;
 extern crate serde_json;
+extern crate py_code_object;
 
 //extern crate eval; use eval::eval::*;
 use std::collections::HashMap;
 use std::cell::RefCell;
-use std::env;
-use std::fs::File;
-use std::io::prelude::*;
 use std::rc::Rc;
 use std::ops::Deref;
+use py_code_object::{Function, NativeType, PyCodeObject};
 
 mod builtins;
-
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub enum NativeType{
-    NoneType,
-    Boolean(bool),
-    Int(i32),
-    Float(f64),
-    Str(String),
-    Unicode(String),
-    #[serde(skip_serializing, skip_deserializing)]
-    List(RefCell<Vec<NativeType>>),
-    Tuple(Vec<NativeType>),
-    Iter(Vec<NativeType>), // TODO: use Iterator instead
-    Code(PyCodeObject),
-    Function(Function),
-    Slice(Option<i32>, Option<i32>, Option<i32>), // start, stop, step
-    #[serde(skip_serializing, skip_deserializing)]
-    NativeFunction(fn(Vec<Rc<NativeType>>) -> NativeType ),
-}
 
 const CMP_OP: &'static [&'static str] = &[">",
                                           "<=",
@@ -83,19 +60,6 @@ impl Frame {
             }
         }
         last_offset
-    }
-}
-
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-pub struct Function {
-    code: PyCodeObject
-}
-
-impl Function {
-    fn new(code: PyCodeObject) -> Function {
-        Function {
-            code: code
-        }
     }
 }
 
@@ -770,198 +734,6 @@ impl VirtualMachine {
         } // end match
     } // end dispatch function
 }
-
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct PyCodeObject {
-    co_consts: Vec<NativeType>,
-    co_names: Vec<String>,
-    co_code: Vec<(usize, String, Option<usize>)>, //size, name, args
-    co_varnames: Vec<String>,
-}
-
-
-/*
-fn parse_native_type(val_str: &str) -> Result<NativeType, ()> {
-    // println!("{:?}", val_str);
-    match val_str {
-        "None" => Ok(NativeType::NoneType),
-        "True" => Ok(NativeType::Boolean(true)),
-        "False" => Ok(NativeType::Boolean(false)),
-        _ => {
-            if let Ok(int) = val_str.parse::<i32>() {
-                return Ok(NativeType::Int(int))
-            }
-
-            if let Ok(float) = val_str.parse::<f64>() {
-                return Ok(NativeType::Float(float))
-            }
-
-            if val_str.starts_with("\'") && val_str.ends_with("\'") {
-                return Ok(NativeType::Str(val_str[1..val_str.len()-1].to_string()))
-            }
-
-            if val_str.starts_with("u\'") && val_str.ends_with("\'") {
-                return Ok(NativeType::Unicode(val_str[2..val_str.len()-1].to_string()))
-            }
-
-            if val_str.starts_with("(") && val_str.ends_with(")") {
-                return Ok(NativeType::Str(val_str[1..val_str.len()-1].to_string()))
-            }
-
-            Err(())
-        }
-
-    }
-}
-
-fn parse_bytecode(s: &str) -> Code {
-    let lines: Vec<&str> = s.split('\n').collect();
-
-    let (metadata, ops) = lines.split_at(2);
-    // Parsing the first line CONSTS
-    let consts_str: &str = metadata[0]; // line 0 is empty
-    let values_str = &consts_str[("CONSTS: (".len())..(consts_str.len()-1)];
-    let values: Vec<&str> = values_str.split(",").collect();
-    // We need better type definition here
-    let consts: Vec<NativeType>= values.into_iter()
-                                       .map(|x| x.trim())
-                                       .filter(|x| x.len() > 0)
-                                       .map(|x| parse_native_type(x).unwrap())
-                                       .collect();
-
-    // Parsing the second line NAMES
-    let names_str: &str = metadata[1]; // line 0 is empty
-    let values_str = &names_str[("NAMES: (".len())..(names_str.len()-1)];
-    let values: Vec<&str> = values_str.split(",").collect();
-    // We are assuming the first and last chars are \'
-    let names: Vec<&str>= values.into_iter().map(|x| x.trim())
-                                       .filter(|x| x.len() > 0)
-        .map(|x| &x[1..(x.len()-1)]).collect();
-
-    // Parsing the op_codes
-    let op_codes: Vec<(&str, Option<usize>)>= ops.into_iter()
-                                               .map(|x| x.trim())
-                                               .filter(|x| x.len() > 0)
-                                               .map(|x| {
-                                                   let op: Vec<&str> = x.split(", ").collect();
-                                                   // println!("{:?}", op);
-                                                   (op[0], op[1].parse::<usize>().ok())
-                                               }).collect();
-    
-
-    Code {
-        consts: consts,
-        op_codes: op_codes,
-        names: names,
-    }
-}
-*/
-
-/*
-#[test]
-fn test_parse_native_type() {
-
-    assert_eq!(NativeType::NoneType, parse_native_type("None").unwrap());
-    assert_eq!(NativeType::Boolean(true), parse_native_type("True").unwrap());
-    assert_eq!(NativeType::Boolean(false), parse_native_type("False").unwrap());
-    assert_eq!(NativeType::Int(3), parse_native_type("3").unwrap());
-    assert_eq!(NativeType::Float(3.0), parse_native_type("3.0").unwrap());
-    assert_eq!(NativeType::Float(3.5), parse_native_type("3.5").unwrap());
-    assert_eq!(NativeType::Str("foo".to_string()), parse_native_type("\'foo\'").unwrap());
-    assert_eq!(NativeType::Unicode("foo".to_string()), parse_native_type("u\'foo\'").unwrap());
-}
-
-#[test]
-fn test_parse_bytecode() {
-
-    let input = "CONSTS: (1, None, 2)
-NAMES: ('a', 'b')
-SetLineno, 1
-LOAD_CONST, 2
-PRINT_ITEM, None
-PRINT_NEWLINE, None
-LOAD_CONST, None
-RETURN_VALUE, None
-        ";
-    let expected = Code { // Fill me with a more sensible data
-        consts: vec![NativeType::Int(1), NativeType::NoneType, NativeType::Int(2)], 
-        names: vec!["a", "b"],
-        op_codes: vec![
-            ("SetLineno", Some(1)),
-            ("LOAD_CONST", Some(2)),
-            ("PRINT_ITEM", None),
-            ("PRINT_NEWLINE", None),
-            ("LOAD_CONST", None),
-            ("RETURN_VALUE", None)
-        ]
-    };
-
-    assert_eq!(expected, parse_bytecode(input));
-}
-
-#[test]
-fn test_single_const_tuple() {
-    let input = "CONSTS: (None,)
-NAMES: ()
-SetLineno, 1
-LOAD_CONST, 0
-RETURN_VALUE, None
-";
-    let expected = Code { // Fill me with a more sensible data
-        consts: vec![NativeType::NoneType], 
-        names: vec![],
-        op_codes: vec![
-            ("SetLineno", Some(1)),
-            ("LOAD_CONST", Some(0)),
-            ("RETURN_VALUE", None)
-        ]
-    };
-
-    assert_eq!(expected, parse_bytecode(input));
-}
-
-#[test]
-fn test_vm() {
-
-    let code = PyCodeObject {
-        co_consts: vec![NativeType::Int(1), NativeType::NoneType, NativeType::Int(2)], 
-        co_names: vec![],
-        co_code: vec![
-            (3, "LOAD_CONST".to_string(), Some(2)),
-            (1, "PRINT_ITEM".to_string(), None),
-            (1, "PRINT_NEWLINE".to_string(), None),
-            (3, "LOAD_CONST".to_string(), None),
-            (1, "RETURN_VALUE".to_string(), None)
-        ]
-    };
-    let mut vm = VirtualMachine::new();
-    assert_eq!((), vm.exec(&code));
-}
-
-
-#[test]
-fn test_parse_jsonbytecode() {
-
-let input = "{\"co_consts\":[{\"Int\":1},\"NoneType\",{\"Int\":2}],\"co_names\":[\"print\"],\"co_code\":[[3,\"LOAD_CONST\",2],[1,\"PRINT_ITEM\",null],[1,\"PRINT_NEWLINE\",null],[3,\"LOAD_CONST\",null],[1,\"RETURN_VALUE\",null]]}";
-// let input = "{\"co_names\": [\"print\"], \"co_code\": [[\"LOAD_CONST\", 0], [\"LOAD_CONST\", 0], [\"COMPARE_OP\", 2], [\"POP_JUMP_IF_FALSE\", 25], [\"LOAD_NAME\", 0], [\"LOAD_CONST\", 1], [\"CALL_FUNCTION\", 1], [\"POP_TOP\", null], [\"JUMP_FORWARD\", 10], [\"LOAD_NAME\", 0], [\"LOAD_CONST\", 2], [\"CALL_FUNCTION\", 1], [\"POP_TOP\", null], [\"LOAD_CONST\", 0], [\"LOAD_CONST\", 3], [\"COMPARE_OP\", 2], [\"POP_JUMP_IF_FALSE\", 60], [\"LOAD_NAME\", 0], [\"LOAD_CONST\", 1], [\"CALL_FUNCTION\", 1], [\"POP_TOP\", null], [\"JUMP_FORWARD\", 10], [\"LOAD_NAME\", 0], [\"LOAD_CONST\", 2], [\"CALL_FUNCTION\", 1], [\"POP_TOP\", null], [\"LOAD_CONST\", 4], [\"RETURN_VALUE\", null]], \"co_consts\": [{\"Int\": 1}, {\"Str\": \"equal\"}, {\"Str\": \"not equal\"}, {\"Int\": 2}, {\"NoneType\": null}]}";
-
-    let expected = PyCodeObject { // Fill me with a more sensible data
-        co_consts: vec![NativeType::Int(1), NativeType::NoneType, NativeType::Int(2)], 
-        co_names: vec!["print".to_string()],
-        co_code: vec![
-            (3, "LOAD_CONST".to_string(), Some(2)),
-            (1, "PRINT_ITEM".to_string(), None),
-            (1, "PRINT_NEWLINE".to_string(), None),
-            (3, "LOAD_CONST".to_string(), None),
-            (1, "RETURN_VALUE".to_string(), None)
-        ]
-    };
-    println!("{}", serde_json::to_string(&expected).unwrap());
-
-    let deserialized: PyCodeObject = serde_json::from_str(&input).unwrap();
-    assert_eq!(expected, deserialized)
-}
-*/
 
 #[test]
 fn test_tuple_serialization(){
