@@ -1,8 +1,11 @@
 [package]
 name = "rustpython"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
 
 [dependencies]
+log="0.4.1"
+env_logger="0.5.10"
+clap = "2.31.2"
 rustpython_parser = {path = "parser"}
 rustpython_vm = {path = "vm/RustPython"}

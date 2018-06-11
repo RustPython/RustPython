@@ -6,13 +6,13 @@ mod ast;
 mod token;
 mod lexer;
 mod compile;
+pub mod compile_py_code_object;
 mod bytecode;
 mod builtins;
 mod pyobject;
 mod vm;
 
 pub use self::parser::parse;
-pub use self::compile::compile;
 pub use self::vm::evaluate;
 
 

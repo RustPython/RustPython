@@ -33,6 +33,17 @@ pub struct PyCodeObject {
     pub co_varnames: Vec<String>,
 }
 
+impl PyCodeObject {
+    pub fn new() -> PyCodeObject {
+        PyCodeObject {
+            co_consts: Vec::<NativeType>::new(),
+            co_names: Vec::<String>::new(),
+            co_code: Vec::<(usize, String, Option<usize>)>::new(), //size, name, args
+            co_varnames: Vec::<String>::new(),
+        }
+    }
+}
+
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct Function {
     pub code: PyCodeObject

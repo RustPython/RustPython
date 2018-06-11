@@ -9,8 +9,9 @@ lalrpop="0.15.1"
 
 [dependencies]
 clap="2.20.0"
-lalrpop-util="0.15.1"
-regex="0.2.2"
-log="0.4.1"
 env_logger="0.5.10"
+lalrpop-util="0.15.1"
+log="0.4.1"
+py_code_object = { path = "../py_code_object" }
+regex="0.2.2"
 

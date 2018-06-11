@@ -145,6 +145,7 @@ impl VirtualMachine {
             //while curr_frame.lasti < curr_frame.code.co_code.len() {
             let op_code = {
                 let curr_frame = self.curr_frame();
+                if curr_frame.code.co_code.len() == 0 { panic!("Trying to run an empty frame. Check if the bytecode is empty"); }
                 let op_code = curr_frame.code.co_code[curr_frame.lasti].clone();
                 curr_frame.lasti += 1;
                 op_code

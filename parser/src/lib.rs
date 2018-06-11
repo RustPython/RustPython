@@ -1,4 +1,4 @@
 #[macro_use]
 extern crate log;
 
-mod compiler;
+pub mod compiler;
