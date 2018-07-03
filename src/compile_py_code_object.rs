@@ -4,7 +4,7 @@
 extern crate rustpython_parser;
 extern crate py_code_object;
 use rustpython_parser::compiler::ast;
-use self::py_code_object::{PyCodeObject};
+use self::py_code_object::{PyCodeObject, NativeType};
 
 struct Compiler {
     code_object: PyCodeObject,
@@ -66,12 +66,33 @@ impl Compiler {
                 // self.emit(Instruction::CallFunction { count: count });
             }
             ast::Expression::Identifier { name } => {
-                panic!("What to emit?");
-                // self.emit(Instruction::LoadName { name });
+                // panic!("What to emit?");
+                let i = self.emit_name(name);
+                self.emit("LOAD_NAME".to_string(), Some(i));
+            }
+            ast::Expression::Number { value } => {
+                // panic!("What to emit?");
+                let i = self.emit_const(value);
+                self.emit("LOAD_CONST".to_string(), Some(i));
             }
             _ => {
                 panic!("Not impl {:?}", expression);
             }
         }
+    }
+
+    fn emit_name(&mut self, name: String) -> usize {
+        self.code_object.co_names.push(name);
+        // TODO: is this index in vector?
+        0
+    }
+
+    fn emit_const(&mut self, value: i32) -> usize {
+        self.code_object.co_consts.push(NativeType::Int ( value ));
+        0
+    }
+
+    fn emit(&mut self, instruction: String, arg: Option<usize>) {
+        self.code_object.co_code.push((0, instruction, arg));
     }
 }
