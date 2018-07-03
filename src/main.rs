@@ -7,6 +7,7 @@ extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 
+mod compile_py_code_object;
 use clap::{Arg, App};
 use std::path::Path;
 use rustpython_parser::compiler;
@@ -37,7 +38,7 @@ fn main() {
   match compiler::parse(filepath) {
     Ok(program) => {
       debug!("Got ast: {:?}", program);
-      let bytecode = compiler::compile_py_code_object::compile(program);
+      let bytecode = compile_py_code_object::compile(program);
       debug!("Code object: {:?}", bytecode);
       let mut vm = VirtualMachine::new();
       vm.run_code(bytecode);

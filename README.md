@@ -7,7 +7,7 @@ To test RustPython, do the following:
 
     git clone https://github.com/RustPython/RustPython
     cd RustPython
-    cargo run my_script.py
+    cargo run demo.py
 
 Or use pip to install extra modules:
 
