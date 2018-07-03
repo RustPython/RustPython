@@ -1,6 +1,8 @@
 # RustPython
 A Python Interpreter written in Rust :snake: :scream: :metal:.
 
+[![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
+
 # Usage (Not implemented yet)
 
 To test RustPython, do the following:

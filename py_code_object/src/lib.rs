@@ -29,6 +29,7 @@ pub enum NativeType{
 pub struct PyCodeObject {
     pub co_consts: Vec<NativeType>,
     pub co_names: Vec<String>,
+    // TODO: use vector of bytecode objects instead of strings?
     pub co_code: Vec<(usize, String, Option<usize>)>, //size, name, args
     pub co_varnames: Vec<String>,
 }

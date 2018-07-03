@@ -5,14 +5,14 @@ mod python;
 pub mod ast;
 mod token;
 mod lexer;
-mod compile;
-mod bytecode;
+// mod compile;
+// mod bytecode;
 mod builtins;
 mod pyobject;
-mod vm;
+// mod vm;
 
 pub use self::parser::parse;
-pub use self::vm::evaluate;
+// pub use self::vm::evaluate;
 
 
 // Mimic eval code objects:
