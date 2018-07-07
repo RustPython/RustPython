@@ -42,15 +42,19 @@ def parse_co_code_to_str(c):
     )
 
 
-def main():
-
-    filename = sys.argv[1]
+def compile_to_bytecode(filename, out_file=None):
     with open(filename, 'rU') as f:
         code = f.read()
 
     code = compile(code, filename, "exec")
 
-    print(CodeEncoder().encode(code))
+    print(CodeEncoder().encode(code), file=out_file)
+
+
+def main():
+    filename = sys.argv[1]
+    compile_to_bytecode(filename)
+
 
 if __name__ == "__main__":
     main()
