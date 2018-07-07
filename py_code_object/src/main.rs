@@ -3,7 +3,12 @@ extern crate py_code_object;
 extern crate rustpython_vm;
 extern crate serde_json;
 
-use rustpython_vm::*;
+#[macro_use]
+extern crate log;
+
+mod convert;
+
+use rustpython_vm::evaluate;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -21,12 +26,12 @@ fn main() {
     f.read_to_string(&mut s).unwrap();
     // println!("Read string");
     // TODO: Extract this so we don't depend on json
-    let code: PyCodeObject = match serde_json::from_str(&s) {
+    let cpython_code: PyCodeObject = match serde_json::from_str(&s) {
         Ok(c) => c,
         Err(_) => panic!("Fail to parse the bytecode")
     };
 
-    let mut vm = VirtualMachine::new();
-    vm.run_code(code);
-    // println!("Done");
+    let code = convert::convert(cpython_code);
+
+    evaluate(code);
 }

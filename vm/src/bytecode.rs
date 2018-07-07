@@ -59,6 +59,7 @@ pub enum Constant {
     Integer { value: i32 }, // TODO: replace by arbitrary big int math.
     // TODO: Float { value: f64 },
     String { value: String },
+    None,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +83,7 @@ pub enum BinaryOperator {
 pub enum UnaryOperator {
     Not,
     Minus,
+    Plus,
 }
 
 /*

@@ -171,6 +171,7 @@ impl VirtualMachine {
                     &bytecode::Constant::Integer { ref value } => { PyObject::Integer { value: *value } },
                     // &bytecode::Constant::Float
                     &bytecode::Constant::String { ref value } => { PyObject::String { value: value.clone() } },
+                    &bytecode::Constant::None => { PyObject::None },
                 };
                 frame.stack.push(obj.into_ref().clone());
             },
