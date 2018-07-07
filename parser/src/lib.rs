@@ -6,7 +6,5 @@ mod python;
 pub mod ast;
 mod token;
 mod lexer;
-// mod builtins;
-// mod pyobject;
 
 pub use self::parser::parse;
