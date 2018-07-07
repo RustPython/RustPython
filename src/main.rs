@@ -7,11 +7,12 @@ extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 
-mod compile_py_code_object;
+// mod compile_py_code_object;
+mod compile;
 use clap::{Arg, App};
 use std::path::Path;
 use rustpython_parser::parse;
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::evaluate;
 
 
 fn main() {
@@ -38,10 +39,9 @@ fn main() {
   match parse(filepath) {
     Ok(program) => {
       debug!("Got ast: {:?}", program);
-      let bytecode = compile_py_code_object::compile(program);
+      let bytecode = compile::compile(program);
       debug!("Code object: {:?}", bytecode);
-      let mut vm = VirtualMachine::new();
-      vm.run_code(bytecode);
+      evaluate(bytecode);
     },
     Err(msg) => error!("Parsing went horribly wrong: {}", msg),
   }

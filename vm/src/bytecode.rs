@@ -12,7 +12,7 @@ let call_function = 0x64;
  */
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
@@ -29,7 +29,7 @@ impl CodeObject {
 
 pub type Label = usize;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instruction {
     LoadName { name: String },
     StoreName { name: String },
@@ -43,6 +43,7 @@ pub enum Instruction {
     Break,
     Jump { target: Label },
     JumpIf { target: Label },
+    MakeFunction { code: CodeObject },
     CallFunction { count: usize },
     ForIter,
     ReturnValue,
@@ -53,14 +54,14 @@ pub enum Instruction {
     BuildMap { size: usize },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Constant {
-    Integer { value: i32 },
+    Integer { value: i32 }, // TODO: replace by arbitrary big int math.
     // TODO: Float { value: f64 },
     String { value: String },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinaryOperator {
     Power,
     Multiply,
@@ -77,7 +78,7 @@ pub enum BinaryOperator {
     Or,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UnaryOperator {
     Not,
     Minus,

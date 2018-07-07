@@ -2,8 +2,11 @@
  * Take an AST and transform it into bytecode
  */
 
-use super::ast;
-use super::bytecode::{self, CodeObject, Instruction};
+extern crate rustpython_parser;
+extern crate rustpython_vm;
+
+use rustpython_parser::ast;
+use rustpython_vm::bytecode::{self, CodeObject, Instruction};
 
 struct Compiler {
     code_object: CodeObject,

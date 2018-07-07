@@ -1,36 +1,45 @@
 
-// A function which takes CPython bytecode (from json) and transforms
-// this into RustPython bytecode. This to decouple RustPython from CPython
-// internal bytecode representations.
+// extern crate py_code_object;
+use std::collections::HashMap;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::ops::Deref;
 
-use super::bytecode::{self, CodeObject, Instruction};
 
-pub fn convert(cpython_bytecode: CPythonByteCode) -> ByteCode {
-    let c = Converter::new();
-    c.convert(c)
+const CMP_OP: &'static [&'static str] = &[">",
+                                          "<=",
+                                          "==",
+                                          "!=",
+                                          ">",
+                                          ">=",
+                                          "in",
+                                          "not in",
+                                          "is",
+                                          "is not",
+                                          "exception match",
+                                          "BAD"
+                                         ];
+
+impl Frame {
+    /// Get the current bytecode offset calculated from curr_frame.lasti
+    fn get_bytecode_offset(&self) -> Option<usize> {
+        // Linear search the labels HashMap, inefficient. Consider build a reverse HashMap
+        let mut last_offset = None;
+        for (offset, instr_idx) in self.labels.iter() {
+            if *instr_idx == self.lasti {
+                last_offset = Some(*offset)
+            }
+        }
+        last_offset
+    }
 }
 
 
-// TODO: think of an appropriate name for this thing:
-pub struct Converter {
+pub struct VirtualMachine{
     frames: Vec<Frame>,
 }
 
-impl Converter {
-    pub fn new() -> Converter {
-        Converter {
-            frames: vec![],
-        }
-    }
-
-    fn curr_frame(&mut self) -> &mut Frame {
-        self.frames.last_mut().unwrap()
-    }
-
-    fn pop_frame(&mut self) {
-        self.frames.pop().unwrap();
-    }
-
+impl VirtualMachine {
     fn unwind(&mut self, reason: String) {
         let curr_frame = self.curr_frame();
         let curr_block = curr_frame.blocks[curr_frame.blocks.len()-1].clone(); // use last?
@@ -121,43 +130,48 @@ impl Converter {
         // check if there are any leftover frame, fail if any
     }
 
-    fn dispatch(&mut self, op_code: (usize, String, Option<usize>)) {
-        {
-            debug!("stack:{:?}", self.curr_frame().stack);
-            debug!("env  :{:?}", self.curr_frame().locals);
-            debug!("Executing op code: {:?}", op_code);
-        }
+    fn dispatch(&mut self, op_code: (usize, String, Option<usize>)) -> Option<String> {
         match (op_code.1.as_ref(), op_code.2) {
             ("LOAD_CONST", Some(consti)) => {
                 // println!("Loading const at index: {}", consti);
                 let curr_frame = self.curr_frame();
-                let value = curr_frame.code.co_consts[consti].clone();
-                self.emit(LoadConst(None));
+                curr_frame.stack.push(Rc::new(curr_frame.code.co_consts[consti].clone()));
+                None
             },
 
             // TODO: universal stack element type
             ("LOAD_CONST", None) => {
-                self.emit(LoadConst(None));
+                // println!("Loading const at index: {}", consti);
+                self.curr_frame().stack.push(Rc::new(NativeType::NoneType));
+                None
             },
             ("POP_TOP", None) => {
-                self.emit(Pop(None));
+                self.curr_frame().stack.pop();
+                None
             },
             ("LOAD_FAST", Some(var_num)) => {
+                // println!("Loading const at index: {}", consti);
                 let curr_frame = self.curr_frame();
                 let ref name = curr_frame.code.co_varnames[var_num];
                 curr_frame.stack.push(curr_frame.locals.get::<str>(name).unwrap().clone());
+                None
             },
             ("STORE_NAME", Some(namei)) => {
                 // println!("Loading const at index: {}", consti);
                 let curr_frame = self.curr_frame();
                 curr_frame.locals.insert(curr_frame.code.co_names[namei].clone(), curr_frame.stack.pop().unwrap().clone());
+                None
             },
             ("LOAD_NAME", Some(namei)) => {
                 // println!("Loading const at index: {}", consti);
                 let curr_frame = self.curr_frame();
-                &curr_frame.code.co_names[namei]
-                let name = code.clone();
-                self.emit(Instruction::LoadName { name });
+                if let Some(code) = curr_frame.locals.get::<str>(&curr_frame.code.co_names[namei]) {
+                    curr_frame.stack.push(code.clone());
+                }
+                else {
+                    panic!("Can't find symbol {:?} in the current frame", &curr_frame.code.co_names[namei]);
+                }
+                None
             },
             ("LOAD_GLOBAL", Some(namei)) => {
                 // We need to load the underlying value the name points to, but stuff like
@@ -166,10 +180,18 @@ impl Converter {
                 let curr_frame = self.curr_frame();
                 let name = &curr_frame.code.co_names[namei];
                 curr_frame.stack.push(curr_frame.globals.get::<str>(name).unwrap().clone());
+                None
             },
 
             ("BUILD_LIST", Some(count)) => {
-                self.emit(Instruction::BuildList { size: count });
+                let curr_frame = self.curr_frame();
+                let mut vec = vec!();
+                for _ in 0..count {
+                    vec.push((*curr_frame.stack.pop().unwrap()).clone());
+                }
+                vec.reverse();
+                curr_frame.stack.push(Rc::new(NativeType::List(RefCell::new(vec))));
+                None
             },
 
             ("BUILD_SLICE", Some(count)) => {
@@ -197,11 +219,47 @@ impl Converter {
             },
 
             ("GET_ITER", None) => {
-                self.emit(Instruction::GetIter);
+                let curr_frame = self.curr_frame();
+                let tos = curr_frame.stack.pop().unwrap();
+                let iter = match *tos {
+                    //TODO: is this clone right?
+                    // Return a Iterator instead              vvv
+                    NativeType::Tuple(ref vec) => NativeType::Iter(vec.clone()),
+                    NativeType::List(ref vec) => NativeType::Iter(vec.borrow().clone()),
+                    _ => panic!("TypeError: object is not iterable")
+                };
+                curr_frame.stack.push(Rc::new(iter));
+                None
             },
 
             ("FOR_ITER", Some(delta)) => {
-                self.emit(Instruction::ForIter);
+                // This function should be rewrote to use Rust native iterator
+                let curr_frame = self.curr_frame();
+                let tos = curr_frame.stack.pop().unwrap();
+                let result = match *tos {
+                    NativeType::Iter(ref v) =>  {
+                        if v.len() > 0 {
+                            Some(v.clone()) // Unnessary clone here
+                        }
+                        else {
+                            None
+                        }
+                    }
+                    _ => panic!("FOR_ITER: Not an iterator")
+                };
+                if let Some(vec) = result {
+                    let (first, rest) = vec.split_first().unwrap();
+                    // Unnessary clone here
+                    curr_frame.stack.push(Rc::new(NativeType::Iter(rest.to_vec())));
+                    curr_frame.stack.push(Rc::new(first.clone()));
+                }
+                else {
+                    // Iterator was already poped in the first line of this function
+                    let last_offset = curr_frame.get_bytecode_offset().unwrap();
+                    curr_frame.lasti = curr_frame.labels.get(&(last_offset + delta)).unwrap().clone();
+
+                }
+                None
             },
 
             ("COMPARE_OP", Some(cmp_op_i)) => {
@@ -324,24 +382,176 @@ impl Converter {
             },
 
             ("BINARY_ADD", None) => {
-                self.emit(Instruction::BinaryOperation { op: BinaryOperator::Add });
+                let curr_frame = self.curr_frame();
+                let v1 = curr_frame.stack.pop().unwrap();
+                let v2 = curr_frame.stack.pop().unwrap();
+                match (v1.deref(), v2.deref()) {
+                    (&NativeType::Int(ref v1i), &NativeType::Int(ref v2i)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Int(v2i + v1i)));
+                    }
+                    (&NativeType::Float(ref v1f), &NativeType::Int(ref v2i)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Float(*v2i as f64 + v1f)));
+                    } 
+                    (&NativeType::Int(ref v1i), &NativeType::Float(ref v2f)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Float(v2f + *v1i as f64)));
+                    }
+                    (&NativeType::Float(ref v1f), &NativeType::Float(ref v2f)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Float(v2f + v1f)));
+                    }
+                    (&NativeType::Str(ref str1), &NativeType::Str(ref str2)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Str(format!("{}{}", str2, str1))));
+                    }
+                    (&NativeType::List(ref l1), &NativeType::List(ref l2)) => {
+                        let mut new_l = l2.clone();
+                        // TODO: remove unnessary copy
+                        new_l.borrow_mut().append(&mut l1.borrow().clone());
+                        curr_frame.stack.push(Rc::new(NativeType::List(new_l)));
+
+                    }
+                    _ => panic!("TypeError in BINARY_ADD")
+                }
+                None
             },
             ("BINARY_POWER", None) => {
-                self.emit(Instruction::BinaryOperation { op: BinaryOperator::Power });
+                let curr_frame = self.curr_frame();
+                let v1 = curr_frame.stack.pop().unwrap();
+                let v2 = curr_frame.stack.pop().unwrap();
+                match (v1.deref(), v2.deref()) {
+                    (&NativeType::Int(v1i), &NativeType::Int(v2i)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Int(v2i.pow(v1i as u32))));
+                    }
+                    (&NativeType::Float(v1f), &NativeType::Int(v2i)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Float((v2i as f64).powf(v1f))));
+                    } 
+                    (&NativeType::Int(v1i), &NativeType::Float(v2f)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Float(v2f.powi(v1i))));
+                    }
+                    (&NativeType::Float(v1f), &NativeType::Float(v2f)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Float(v2f.powf(v1f))));
+                    }
+                    _ => panic!("TypeError in BINARY_POWER")
+                }
+                None
             },
             ("BINARY_MULTIPLY", None) => {
-                self.emit(Instruction::BinaryOperation { op: BinaryOperator::Multiply });
+                let curr_frame = self.curr_frame();
+                let v1 = curr_frame.stack.pop().unwrap();
+                let v2 = curr_frame.stack.pop().unwrap();
+                match (v1.deref(), v2.deref()) {
+                    (&NativeType::Int(v1i), &NativeType::Int(v2i)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Int(v2i * v1i)));
+                    },
+                    /*
+                    (NativeType::Float(v1f), NativeType::Int(v2i)) => {
+                        curr_frame.stack.push(NativeType::Float((v2i as f64) * v1f));
+                    },
+                    (NativeType::Int(v1i), NativeType::Float(v2f)) => {
+                        curr_frame.stack.push(NativeType::Float(v2f * (v1i as f64)));
+                    },
+                    (NativeType::Float(v1f), NativeType::Float(v2f)) => {
+                        curr_frame.stack.push(NativeType::Float(v2f * v1f));
+                    },
+                    */
+                    //TODO: String multiply
+                    _ => panic!("TypeError in BINARY_MULTIPLY")
+                }
+                None
             },
             ("BINARY_TRUE_DIVIDE", None) => {
-                self.emit(Instruction::BinaryOperation { op: BinaryOperator::TrueDivide });
+                let curr_frame = self.curr_frame();
+                let v1 = curr_frame.stack.pop().unwrap();
+                let v2 = curr_frame.stack.pop().unwrap();
+                match (v1.deref(), v2.deref()) {
+                    (&NativeType::Int(v1i), &NativeType::Int(v2i)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Int(v2i / v1i)));
+                    },
+                    _ => panic!("TypeError in BINARY_DIVIDE")
+                }
+                None
             },
             ("BINARY_MODULO", None) => {
-                self.emit(Instruction::BinaryOperation { op: BinaryOperator::Modulo });
+                let curr_frame = self.curr_frame();
+                let v1 = curr_frame.stack.pop().unwrap();
+                let v2 = curr_frame.stack.pop().unwrap();
+                match (v1.deref(), v2.deref()) {
+                    (&NativeType::Int(v1i), &NativeType::Int(v2i)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Int(v2i % v1i)));
+                    },
+                    _ => panic!("TypeError in BINARY_MODULO")
+                }
+                None
             },
             ("BINARY_SUBTRACT", None) => {
-                self.emit(Instruction::BinaryOperation { op: BinaryOperator::Subtract });
+                let curr_frame = self.curr_frame();
+                let v1 = curr_frame.stack.pop().unwrap();
+                let v2 = curr_frame.stack.pop().unwrap();
+                match (v1.deref(), v2.deref()) {
+                    (&NativeType::Int(v1i), &NativeType::Int(v2i)) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Int(v2i - v1i)));
+                    },
+                    _ => panic!("TypeError in BINARY_SUBSTRACT")
+                }
+                None
             },
 
+            ("BINARY_SUBSCR", None) => {
+                let curr_frame = self.curr_frame();
+                let tos = curr_frame.stack.pop().unwrap();
+                let tos1 = curr_frame.stack.pop().unwrap();
+                debug!("tos: {:?}, tos1: {:?}", tos, tos1);
+                match (tos1.deref(), tos.deref()) {
+                    (&NativeType::List(ref l), &NativeType::Int(ref index)) => {
+                        let pos_index = (index + l.borrow().len() as i32) % l.borrow().len() as i32;
+                        curr_frame.stack.push(Rc::new(l.borrow()[pos_index as usize].clone()))
+                    },
+                    (&NativeType::List(ref l), &NativeType::Slice(ref opt_start, ref opt_stop, ref opt_step)) => {
+                        let start = match opt_start {
+                            &Some(start) => ((start + l.borrow().len() as i32) % l.borrow().len() as i32) as usize,
+                            &None => 0,
+                        };
+                        let stop = match opt_stop {
+                            &Some(stop) => ((stop + l.borrow().len() as i32) % l.borrow().len() as i32) as usize,
+                            &None => l.borrow().len() as usize,
+                        };
+                        let step = match opt_step {
+                            //Some(step) => step as usize,
+                            &None => 1 as usize,
+                            _ => unimplemented!(),
+                        };
+                        // TODO: we could potentially avoid this copy and use slice
+                        curr_frame.stack.push(Rc::new(NativeType::List(RefCell::new(l.borrow()[start..stop].to_vec()))));
+                    },
+                    (&NativeType::Tuple(ref t), &NativeType::Int(ref index)) => curr_frame.stack.push(Rc::new(t[*index as usize].clone())),
+                    (&NativeType::Str(ref s), &NativeType::Int(ref index)) => {
+                        let idx = (index + s.len() as i32) % s.len() as i32;
+                        curr_frame.stack.push(Rc::new(NativeType::Str(s.chars().nth(idx as usize).unwrap().to_string())));
+                    },
+                    (&NativeType::Str(ref s), &NativeType::Slice(ref opt_start, ref opt_stop, ref opt_step)) => {
+                        let start = match opt_start {
+                            &Some(start) if start > s.len()  as i32 => s.len(),
+                            &Some(start) if start <= s.len() as i32 => ((start + s.len() as i32) % s.len() as i32) as usize,
+                            &Some(_) => panic!("Bad start index for string slicing"),
+                            &Some(start) => ((start + s.len() as i32) % s.len() as i32) as usize,
+                            &None => 0,
+                        };
+                        let stop = match opt_stop {
+                            &Some(stop) if stop > s.len() as i32 => s.len(),
+                            &Some(stop) if stop <= s.len() as i32 => ((stop + s.len() as i32) % s.len() as i32) as usize, // Do we need this modding?
+                            &Some(_) => panic!("Bad stop index for string slicing"),
+                            &None => s.len() as usize,
+                        };
+                        let step = match opt_step {
+                            //Some(step) => step as usize,
+                            &None => 1 as usize,
+                            _ => unimplemented!(),
+                        };
+                        curr_frame.stack.push(Rc::new(NativeType::Str(s[start..stop].to_string())));
+                    },
+                    // TODO: implement other Slice possibilities
+                    _ => panic!("TypeError: indexing type {:?} with index {:?} is not supported (yet?)", tos1, tos)
+                };
+                None
+            },
             ("ROT_TWO", None) => {
                 let curr_frame = self.curr_frame();
                 let tos = curr_frame.stack.pop().unwrap();
@@ -351,18 +561,32 @@ impl Converter {
                 None
             }
             ("UNARY_NEGATIVE", None) => {
-                self.emit(Instruction::UnaryOperation { op: UnaryOperator::Minus });
+                let curr_frame = self.curr_frame();
+                let v = curr_frame.stack.pop().unwrap();
+                match v.deref() {
+                    &NativeType::Int(v1i) => {
+                        curr_frame.stack.push(Rc::new(NativeType::Int(-v1i)));
+                    },
+                    _ => panic!("TypeError in UINARY_NEGATIVE")
+                }
+                None
             },
             ("UNARY_POSITIVE", None) => {
-                self.emit(Instruction::UnaryOperation { op: UnaryOperator::Plus });
+                let curr_frame = self.curr_frame();
+                let v = curr_frame.stack.pop().unwrap();
+                // Any case that is not just push back?
+                curr_frame.stack.push(v);
+                None
             },
             ("PRINT_ITEM", None) => {
                 let curr_frame = self.curr_frame();
                 // TODO: Print without the (...)
                 println!("{:?}", curr_frame.stack.pop().unwrap());
+                None
             },
             ("PRINT_NEWLINE", None) => {
                 print!("\n");
+                None
             },
             ("MAKE_FUNCTION", Some(argc)) => {
                 // https://docs.python.org/3.4/library/dis.html#opcode-MAKE_FUNCTION
@@ -462,8 +686,10 @@ impl Converter {
             }
         } // end match
     } // end dispatch function
+}
 
-    fn emit(&mut self, instruction: Instruction) {
-        self.code_object.instructions.push(instruction);
-    }
+#[test]
+fn test_tuple_serialization(){
+    let tuple = NativeType::Tuple(vec![NativeType::Int(1),NativeType::Int(2)]);
+    println!("{}", serde_json::to_string(&tuple).unwrap());
 }

@@ -1,7 +1,11 @@
-use NativeType;
-use std::rc::Rc;
 use std::ops::Deref;
+use std::io::{self, Write};
 
+use super::pyobject::PyObjectRef;
+
+
+/*
+ * Original impl:
 pub fn print(args: Vec<Rc<NativeType>>) -> NativeType {
     for elem in args {
         // TODO: figure out how python's print vectors
@@ -32,7 +36,20 @@ pub fn print(args: Vec<Rc<NativeType>>) -> NativeType {
     }
     NativeType::NoneType
 }
+*/
 
+pub fn print(args: Vec<PyObjectRef>) {
+    // println!("Woot: {:?}", args);
+    trace!("print called with {:?}", args);
+    for a in args {
+        print!("{} ", a.borrow_mut().str());
+    }
+    println!();
+    io::stdout().flush().unwrap();
+}
+
+/*
+ * TODO
 pub fn len(args: Vec<Rc<NativeType>>) -> NativeType {
     if args.len() != 1 {
         panic!("len(s) expects exactly one parameter");
@@ -45,3 +62,12 @@ pub fn len(args: Vec<Rc<NativeType>>) -> NativeType {
     };
     NativeType::Int(len as i32)
 }
+*/
+
+pub fn fill_scope() {
+    // scope[String::from("print")] = print;
+}
+
+fn any() {}
+
+fn all() {}

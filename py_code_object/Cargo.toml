@@ -9,3 +9,4 @@ env_logger = "0.3"
 serde = "0.8.22"
 serde_derive = "0.8"
 serde_json = "0.8"
+rustpython_vm = {path = "../vm"}

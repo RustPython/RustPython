@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::ops::{Add, Mul, Sub};
+use super::bytecode;
 
 /* Python objects and references.
 
@@ -37,6 +38,9 @@ pub enum PyObject {
     Iterator {
         position: usize,
         iterated_obj: PyObjectRef,
+    },
+    Code {
+        code: bytecode::CodeObject,
     },
     None,
     RustFunction {
