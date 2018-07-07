@@ -7,15 +7,20 @@ A Python Interpreter written in Rust :snake: :scream: :metal:.
 
 To test RustPython, do the following:
 
-    git clone https://github.com/RustPython/RustPython
-    cd RustPython
-    cargo run demo.py
+    $ git clone https://github.com/RustPython/RustPython
+    $ cd RustPython
+    $ cargo run demo.py
+    42
 
 Or use pip to install extra modules:
 
-    cargo run -m pip install requests
+    $ cargo run -m pip install requests
 
 # Code organization
+
+    - parser: python lexing, parsing and ast
+    - vm: python virtual machine
+    - src: using the other subcrates to bring rustpython to life.
 
 The files in the top level directory are from [windelbouwman/rspython][rspython] which contains an implementation of the parser and vm in `src/`
 
@@ -28,6 +33,7 @@ We are in the process of merging the two implementation to form a single impleme
 Chat with us on [gitter][gitter].
 
 # Credit
+
 The initial work was based on [windelbouwman/rspython](https://github.com/windelbouwman/rspython) and [shinglyu/RustPython](https://github.com/shinglyu/RustPython)
 
 [rspython]: https://github.com/windelbouwman/rspython
