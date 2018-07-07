@@ -1,5 +1,5 @@
 venv/
 tests/*.bytecode
-RustPython/Cargo.lock
-RustPython/target
+Cargo.lock
 python_compiler/target
+target/
