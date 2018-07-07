@@ -3,7 +3,7 @@
  */
 extern crate rustpython_parser;
 extern crate py_code_object;
-use rustpython_parser::compiler::ast;
+use rustpython_parser::ast;
 use self::py_code_object::{PyCodeObject, NativeType};
 
 struct Compiler {
