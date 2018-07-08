@@ -14,8 +14,9 @@ import compile_code
 
 
 logger = logging.getLogger('tests')
-TEST_DIR = os.path.abspath(os.path.join('..', 'tests'))
-CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join('..', 'vm', 'RustPython'))
+THIS_DIR = '.'
+TEST_DIR = os.path.abspath(os.path.join(THIS_DIR, '..', 'tests'))
+CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(THIS_DIR))
 
 
 @contextlib.contextmanager
@@ -34,8 +35,11 @@ def perform_test(filename):
         compile_code.compile_to_bytecode(filename, out_file=f)
 
     # Step2: run cpython bytecode:
+    env = os.environ.copy()
+    env['RUST_LOG'] = 'debug'
+    env['RUST_BACKTRACE'] = '1'
     with pushd(CPYTHON_RUNNER_DIR):
-        subprocess.check_call(['cargo', 'run', bytecode_filename])
+        subprocess.check_call(['cargo', 'run', bytecode_filename], env=env)
 
 
 def create_test_function(cls, filename):

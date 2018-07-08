@@ -44,13 +44,16 @@ struct Frame {
     locals: HashMap<String, PyObjectRef>, // Variables
     labels: HashMap<usize, usize>, // Maps label id to line number, just for speedup
     lasti: usize, // index of last instruction ran
-    // return_value: NativeType,
-    why: String, //Not sure why we need this //Maybe use a enum if we have fininte options
     // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
 }
 
 struct VirtualMachine {
     frames: Vec<Frame>,
+}
+
+enum ExeResult {
+    Value { value: PyObjectRef },
+    Exception,
 }
 
 impl Frame {
@@ -78,8 +81,6 @@ impl Frame {
             locals: locals,
             labels: labels,
             lasti: 0,
-            // return_value: NativeType::NoneType,
-            why: "none".to_string(),
         }
     }
 
@@ -130,7 +131,12 @@ impl VirtualMachine {
             }
 
             //while curr_frame.lasti < curr_frame.code.co_code.len() {
-            self.execute_instruction();
+            let result = self.execute_instruction();
+            match result {
+                None => {},
+                Some(ExeResult::Value { value }) => { break; },
+                Some(ExeResult::Exception) => { panic!("TODO"); }
+            }
             /*if curr_frame.blocks.len() > 0 {
               self.manage_block_stack(&why);
               }
@@ -139,6 +145,7 @@ impl VirtualMachine {
             //    break;
             //}
         }
+
         let return_value = {
             //let curr_frame = self.frames.last_mut().unwrap();
             // self.curr_frame().return_value.clone()
@@ -149,23 +156,40 @@ impl VirtualMachine {
         return_value.into_ref().clone()
     }
 
-    fn execute_binop(&mut self, frame: &mut Frame, op: &bytecode::BinaryOperator) {
+    fn execute_binop(&mut self, op: &bytecode::BinaryOperator) {
+        let frame = self.frames.last_mut().unwrap();
+        let b_ref = frame.stack.pop().unwrap();
+        let a_ref = frame.stack.pop().unwrap();
+        let b = &*b_ref.borrow();
+        let a = &*a_ref.borrow();
+        let result = match op {
+            &bytecode::BinaryOperator::Subtract => a - b,
+            &bytecode::BinaryOperator::Add => a + b,
+            &bytecode::BinaryOperator::Multiply => a * b,
+            // &bytecode::BinaryOperator::Div => a / b,
+            _ => panic!("NOT IMPL {:?}", op),
+        };
+        frame.stack.push(result.into_ref());
     }
 
     // Execute a single instruction:
-    fn execute_instruction(&mut self) {
-        let frame = self.current_frame();
+    fn execute_instruction(&mut self) -> Option<ExeResult> {
+        // let frame = self.frames.last_mut().unwrap();
+        let instruction = {
+            let frame = self.current_frame();
+            // TODO: an immutable reference is enough, we should not
+            // clone the instruction.
+            let ins2 = ((*frame.code).instructions[frame.lasti]).clone();
+            frame.lasti += 1;
+            ins2
+        };
 
-        // let current_frame = self.current_frame();
-        let ins2 = ((*frame.code).instructions[frame.lasti]).clone();
-        let instruction = &ins2;
-        frame.lasti += 1;
         {
-            debug!("stack:{:?}", frame.stack);
-            debug!("env  :{:?}", frame.locals);
+            debug!("stack:{:?}", self.current_frame().stack);
+            debug!("env  :{:?}", self.current_frame().locals);
             debug!("Executing op code: {:?}", instruction);
         }
-        match instruction {
+        match &instruction {
             &bytecode::Instruction::LoadConst { ref value } => {
                 let obj = match value {
                     &bytecode::Constant::Integer { ref value } => { PyObject::Integer { value: *value } },
@@ -173,65 +197,69 @@ impl VirtualMachine {
                     &bytecode::Constant::String { ref value } => { PyObject::String { value: value.clone() } },
                     &bytecode::Constant::None => { PyObject::None },
                 };
-                frame.stack.push(obj.into_ref().clone());
+                self.current_frame().stack.push(obj.into_ref().clone());
+                None
             },
             &bytecode::Instruction::LoadName { ref name } => {
                 // Lookup name in scope and put it onto the stack!
-                let obj = &frame.locals[name];
-                frame.stack.push(obj.clone());
+                let obj = self.current_frame().locals[name].clone();
+                self.current_frame().stack.push(obj);
+                None
             },
             &bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:
-                let obj = frame.stack.pop().unwrap();
-                frame.locals.insert(name.clone(), obj);
+                let obj = self.current_frame().stack.pop().unwrap();
+                self.current_frame().locals.insert(name.clone(), obj);
+                None
             },
             &bytecode::Instruction::Pop => {
                 // Pop value from stack and ignore.
-                frame.stack.pop();
+                self.current_frame().stack.pop();
+                None
             },
             &bytecode::Instruction::BuildList { size } => {
-                let elements = frame.pop_multiple(size);
+                let elements = self.current_frame().pop_multiple(size);
                 let list_obj = PyObject::List { elements: elements }.into_ref();
-                frame.stack.push(list_obj);
+                self.current_frame().stack.push(list_obj);
+                None
             },
             &bytecode::Instruction::BuildTuple { size } => {
-                let elements = frame.pop_multiple(size);
+                let elements = self.current_frame().pop_multiple(size);
                 let list_obj = PyObject::Tuple { elements: elements }.into_ref();
-                frame.stack.push(list_obj);
+                self.current_frame().stack.push(list_obj);
+                None
             },
             &bytecode::Instruction::BuildMap { size } => {
                 let mut elements = Vec::new();
                 for _x in 0..size {
-                    let key = frame.stack.pop().unwrap();
-                    let obj = frame.stack.pop().unwrap();
+                    let key = self.current_frame().stack.pop().unwrap();
+                    let obj = self.current_frame().stack.pop().unwrap();
                     elements.push((key,obj));
                 }
                 panic!("To be implemented!")
                 //let list_obj = PyObject::Tuple { elements: elements }.into_ref();
                 //frame.stack.push(list_obj);
             },
+            &bytecode::Instruction::BuildSlice { size } => {
+                assert!(size == 2 || size == 3);
+                let elements = self.current_frame().pop_multiple(size);
+                let list_obj = PyObject::Slice { elements: elements }.into_ref();
+                self.current_frame().stack.push(list_obj);
+                None
+            },
             &bytecode::Instruction::BinaryOperation { ref op } => {
-                let b_ref = frame.stack.pop().unwrap();
-                let a_ref = frame.stack.pop().unwrap();
-                let b = &*b_ref.borrow();
-                let a = &*a_ref.borrow();
-                let result = match op {
-                    &bytecode::BinaryOperator::Subtract => a - b,
-                    &bytecode::BinaryOperator::Add => a + b,
-                    &bytecode::BinaryOperator::Multiply => a * b,
-                    // &bytecode::BinaryOperator::Div => a / b,
-                    _ => panic!("NOT IMPL"),
-                };
-                frame.stack.push(result.into_ref());
+                self.execute_binop(op);
+                None
             },
             &bytecode::Instruction::UnaryOperation { ref op } => {
                 panic!("TODO");
                 // self.execute_binop(op);
             },
-            /*
             &bytecode::Instruction::ReturnValue => {
-                current_frame.stack.pop();
+                let value = self.current_frame().stack.pop().unwrap();
+                Some(ExeResult::Value { value })
             },
+            /*
             &bytecode::Instruction::PushBlock { start, end } => {
                 current_frame.blocks.push((start, end));
             },
@@ -272,26 +300,45 @@ impl VirtualMachine {
             },
             */
             &bytecode::Instruction::CallFunction { count } => {
-                let mut args: Vec<PyObjectRef> = frame.pop_multiple(count);
-                let func_ref = frame.stack.pop().unwrap();
+                let mut args: Vec<PyObjectRef> = self.current_frame().pop_multiple(count);
+                let func_ref = self.current_frame().stack.pop().unwrap();
                 let f = func_ref.borrow();// = &*func_ref.borrow();
                 f.call(args);
                 // call_stack.push();
                 // If a builtin function, then call directly, otherwise, execute it?
                 // execute(function.code);
+                None
             },
             /* TODO
             &bytecode::Instruction::Jump { target } => {
                 self.jump(target);
             }
+            */
             &bytecode::Instruction::JumpIf { target } => {
-                let obj = self.stack.pop().unwrap();
+                let obj = self.current_frame().stack.pop().unwrap();
                 // TODO: determine if this value is True-ish:
+                //if *v == NativeType::Boolean(true) {
+                //    curr_frame.lasti = curr_frame.labels.get(target).unwrap().clone();
+                //}
                 let result: bool = true;
                 if result {
                     self.jump(target);
                 }
+                None
             }
+
+            &bytecode::Instruction::Raise { argc } => {
+                let curr_frame = self.current_frame();
+                // let (exception, params, traceback) = match argc {
+                let exception = match argc {
+                    1 => curr_frame.stack.pop().unwrap(),
+                    0 | 2 | 3 => panic!("Not implemented!"),
+                    _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3")
+                };
+                panic!("{:?}", exception);
+            }
+
+            /* TODO
             &bytecode::Instruction::Break => {
                 let end_label = frame.blocks.last().unwrap().1;
                 self.jump(end_label);
@@ -299,6 +346,7 @@ impl VirtualMachine {
             */
             &bytecode::Instruction::Pass => {
                 // Ah, this is nice, just relax!
+                None
             },
             /* TODO
             &bytecode::Instruction::Continue => {
@@ -306,7 +354,7 @@ impl VirtualMachine {
                 self.jump(start_label);
             },
             */
-            _ => panic!("NOT IMPL"),
+            _ => panic!("NOT IMPL {:?}", instruction),
         }
     }
 

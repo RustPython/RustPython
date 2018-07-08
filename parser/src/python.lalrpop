@@ -118,7 +118,17 @@ AndTest: ast::Expression = {
 };
 
 NotTest: ast::Expression = {
+  <e:Comparison> => e,
+};
+
+Comparison: ast::Expression = {
+  <e1:Comparison> <op:CompOp> <e2:Expression> => ast::Expression::Compare { a: Box::new(e1), op: op, b: Box::new(e2) },
   <e:Expression> => e,
+};
+
+CompOp: ast::Comparison = {
+  "==" => ast::Comparison::Equal,
+  "!=" => ast::Comparison::NotEqual,
 };
 
 Expression: ast::Expression = {
@@ -236,6 +246,8 @@ extern {
         "=" => lexer::Tok::Equal,
         "+=" => lexer::Tok::PlusEqual,
         "-=" => lexer::Tok::MinusEqual,
+        "==" => lexer::Tok::EqEqual,
+        "!=" => lexer::Tok::NotEqual,
         "assert" => lexer::Tok::Assert,
         "import" => lexer::Tok::Import,
         "break" => lexer::Tok::Break,

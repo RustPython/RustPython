@@ -81,6 +81,11 @@ pub enum Expression {
         op: Operator,
         b: Box<Expression>,
     },
+    Compare {
+        a: Box<Expression>,
+        op: Comparison,
+        b: Box<Expression>,
+    },
     Call {
         function: Box<Expression>,
         args: Vec<Expression>,
@@ -120,4 +125,15 @@ pub enum Operator {
     BitXor,
     BitAnd,
     FloorDiv,
+
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Comparison {
+    Equal,
+    NotEqual,
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
 }

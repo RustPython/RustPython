@@ -235,6 +235,21 @@ impl Compiler {
                 let i = Instruction::BinaryOperation { op: i };
                 self.emit(i);
             }
+            ast::Expression::Compare { a, op, b } => {
+                self.compile_expression(*a);
+                self.compile_expression(*b);
+
+                let i = match op {
+                    ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
+                    ast::Comparison::NotEqual => bytecode::ComparisonOperator::NotEqual,
+                    ast::Comparison::Less => bytecode::ComparisonOperator::Less,
+                    ast::Comparison::LessOrEqual => bytecode::ComparisonOperator::LessOrEqual,
+                    ast::Comparison::Greater => bytecode::ComparisonOperator::Greater,
+                    ast::Comparison::GreaterOrEqual => bytecode::ComparisonOperator::GreaterOrEqual,
+                };
+                let i = Instruction::CompareOperation { op: i };
+                self.emit(i);
+            }
             ast::Expression::Number { value } => {
                 self.emit(Instruction::LoadConst { value: bytecode::Constant::Integer { value: value } });
             }

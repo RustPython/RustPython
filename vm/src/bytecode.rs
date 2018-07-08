@@ -36,7 +36,10 @@ pub enum Instruction {
     LoadConst { value: Constant },
     UnaryOperation { op: UnaryOperator },
     BinaryOperation { op: BinaryOperator },
+    CompareOperation { op: ComparisonOperator },
     Pop,
+    Rotate { amount: usize },
+    Duplicate,
     GetIter,
     Pass,
     Continue,
@@ -49,9 +52,11 @@ pub enum Instruction {
     ReturnValue,
     PushBlock { start: Label, end: Label },
     PopBlock,
+    Raise { argc: usize },
     BuildTuple { size: usize },
     BuildList { size: usize },
     BuildMap { size: usize },
+    BuildSlice { size: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +65,20 @@ pub enum Constant {
     // TODO: Float { value: f64 },
     String { value: String },
     None,
+}
+
+#[derive(Debug, Clone)]
+pub enum ComparisonOperator {
+    Greater,
+    GreaterOrEqual,
+    Less,
+    LessOrEqual,
+    Equal,
+    NotEqual,
+    In,
+    NotIn,
+    Is,
+    NotIs,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +91,7 @@ pub enum BinaryOperator {
     Modulo,
     Add,
     Subtract,
+    Subscript,
     Lshift,
     Rshift,
     And,
@@ -82,6 +102,7 @@ pub enum BinaryOperator {
 #[derive(Debug, Clone)]
 pub enum UnaryOperator {
     Not,
+    Invert,
     Minus,
     Plus,
 }

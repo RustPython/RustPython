@@ -39,6 +39,9 @@ pub enum PyObject {
         position: usize,
         iterated_obj: PyObjectRef,
     },
+    Slice {
+        elements: Vec<PyObjectRef>,
+    },
     Code {
         code: bytecode::CodeObject,
     },
