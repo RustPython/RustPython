@@ -48,7 +48,7 @@ def compile_to_bytecode(filename, out_file=None):
 
     code = compile(code, filename, "exec")
 
-    print(CodeEncoder().encode(code), file=out_file)
+    print(CodeEncoder(indent=4).encode(code), file=out_file)
 
 
 def main():

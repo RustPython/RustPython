@@ -1,5 +1,8 @@
 /*
  * Take an AST and transform it into py_code_object compatiable bytecode
+ * TODO: this file is obsoleted. It might be better to translate internal
+ * bytecode into cpython compatible bytecode.
+ *
  */
 extern crate rustpython_parser;
 extern crate py_code_object;

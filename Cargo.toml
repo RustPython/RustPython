@@ -9,4 +9,3 @@ env_logger="0.5.10"
 clap = "2.31.2"
 rustpython_parser = {path = "parser"}
 rustpython_vm = {path = "vm"}
-py_code_object = { path = "py_code_object" }

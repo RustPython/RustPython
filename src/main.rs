@@ -7,7 +7,6 @@ extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 
-// mod compile_py_code_object;
 mod compile;
 use clap::{Arg, App};
 use std::path::Path;
@@ -43,7 +42,10 @@ fn main() {
       debug!("Code object: {:?}", bytecode);
       evaluate(bytecode);
     },
-    Err(msg) => error!("Parsing went horribly wrong: {}", msg),
+    Err(msg) => {
+        error!("Parsing went horribly wrong: {}", msg);
+        std::process::exit(1);
+    },
   }
 }
 

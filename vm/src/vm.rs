@@ -132,14 +132,11 @@ impl VirtualMachine {
     fn run_frame(&mut self, mut frame: Frame) -> PyObjectRef {
         self.frames.push(frame);
 
-        //let mut why = None;
-        // Change this to a loop for jump
-        loop {
-            //while curr_frame.lasti < curr_frame.code.co_code.len() {
+        let value = loop {
             let result = self.execute_instruction();
             match result {
                 None => {},
-                Some(ExeResult::Value { value }) => { break; },
+                Some(ExeResult::Value { value }) => { break value; },
                 Some(ExeResult::Exception) => { panic!("TODO"); }
             }
             /*if curr_frame.blocks.len() > 0 {
@@ -149,16 +146,10 @@ impl VirtualMachine {
             //if let Some(_) = why {
             //    break;
             //}
-        }
-
-        let return_value = {
-            //let curr_frame = self.frames.last_mut().unwrap();
-            // self.curr_frame().return_value.clone()
-            // TODO
-            PyObject::Integer { value: 1 }
         };
+
         self.pop_frame();
-        return_value.into_ref().clone()
+        value
     }
 
     fn subscript(&mut self, a: &PyObject, b: &PyObject) -> PyObjectRef {

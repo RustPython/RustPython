@@ -129,6 +129,10 @@ Comparison: ast::Expression = {
 CompOp: ast::Comparison = {
   "==" => ast::Comparison::Equal,
   "!=" => ast::Comparison::NotEqual,
+  "<" => ast::Comparison::Less,
+  "<=" => ast::Comparison::LessOrEqual,
+  ">" => ast::Comparison::Greater,
+  ">=" => ast::Comparison::GreaterOrEqual,
 };
 
 Expression: ast::Expression = {
@@ -248,6 +252,10 @@ extern {
         "-=" => lexer::Tok::MinusEqual,
         "==" => lexer::Tok::EqEqual,
         "!=" => lexer::Tok::NotEqual,
+        "<" => lexer::Tok::Less,
+        "<=" => lexer::Tok::LessEqual,
+        ">" => lexer::Tok::Greater,
+        ">=" => lexer::Tok::GreaterEqual,
         "assert" => lexer::Tok::Assert,
         "import" => lexer::Tok::Import,
         "break" => lexer::Tok::Break,

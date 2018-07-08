@@ -85,9 +85,13 @@ def populate(cls):
 
 def get_test_files():
     """ Retrieve test files """
-    for filename in sorted(glob.iglob(os.path.join(
+    for filepath in sorted(glob.iglob(os.path.join(
             TEST_DIR, '*.py'))):
-        yield os.path.abspath(filename)
+        filename = os.path.split(filepath)[1]
+        if filename.startswith('xfail_'):
+            continue
+
+        yield os.path.abspath(filepath)
 
 
 @populate
