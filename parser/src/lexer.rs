@@ -180,21 +180,8 @@ impl<'input> Lexer<'input> {
         };
         c
     }
-}
 
-/* Implement iterator pattern for the get_tok function.
-
-Calling the next element in the iterator will yield the next lexical
-token.
-*/
-impl<'input> Iterator for Lexer<'input> {
-    type Item = Spanned<Tok>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // Idea: create some sort of hash map for single char tokens:
-        // let mut X = HashMap::new();
-        // X.insert('=', Tok::Equal);
-
+    fn inner_next(&mut self) -> Option<Spanned<Tok>> {
         // Detect indentation levels
         loop {
             if self.at_begin_of_line {
@@ -225,7 +212,14 @@ impl<'input> Iterator for Lexer<'input> {
                         return Some(Ok((0, Tok::Indent, 0)));
                     } else if col < current_indentation {
                         // One or more dedentations
+                        // Pop off other levels until col is found:
+
+                        let l2 = self.indentation_stack.pop().unwrap();
                         return Some(Ok((0, Tok::Dedent, 0)));
+                        if col == l2 {
+                            // TODO: handle wrong indentations
+                        }
+
                     }
                 }
             }
@@ -504,6 +498,25 @@ impl<'input> Iterator for Lexer<'input> {
     }
 }
 
+/* Implement iterator pattern for the get_tok function.
+
+Calling the next element in the iterator will yield the next lexical
+token.
+*/
+impl<'input> Iterator for Lexer<'input> {
+    type Item = Spanned<Tok>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Idea: create some sort of hash map for single char tokens:
+        // let mut X = HashMap::new();
+        // X.insert('=', Tok::Equal);
+        let token = self.inner_next();
+        trace!("Lex token {:?}, nesting={:?}, indent stack: {:?}", token, self.nesting, self.indentation_stack);
+        token
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use super::Tok;
@@ -538,7 +551,7 @@ mod tests {
 
     #[test]
     fn test_indentation() {
-        let source = String::from("def foo():\n   return 99\n");
+        let source = String::from("def foo():\n   return 99\n\n");
         let tokens = lex_source(&source);
         assert_eq!(
             tokens,
@@ -556,6 +569,7 @@ mod tests {
                 Tok::Number { value: 99 },
                 Tok::Newline,
                 Tok::Dedent,
+                Tok::Newline,
             ]
         );
     }

@@ -110,6 +110,18 @@ impl VirtualMachine {
         self.frames.pop().unwrap();
     }
 
+    fn push_value(&mut self, obj: PyObjectRef) {
+        self.current_frame().stack.push(obj);
+    }
+
+    fn pop_value(&mut self) -> PyObjectRef {
+        self.current_frame().stack.pop().unwrap()
+    }
+
+    fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
+        self.current_frame().pop_multiple(count)
+    }
+
     fn run(&mut self, code: Rc<bytecode::CodeObject>) {
         let frame = Frame::new(code, HashMap::new(), None);
         self.run_frame(frame);
@@ -123,13 +135,6 @@ impl VirtualMachine {
         //let mut why = None;
         // Change this to a loop for jump
         loop {
-            {
-                let curr_frame = self.current_frame();
-                if curr_frame.lasti >= curr_frame.code.instructions.len() {
-                    break;
-                }
-            }
-
             //while curr_frame.lasti < curr_frame.code.co_code.len() {
             let result = self.execute_instruction();
             match result {
@@ -156,20 +161,89 @@ impl VirtualMachine {
         return_value.into_ref().clone()
     }
 
+    fn subscript(&mut self, a: &PyObject, b: &PyObject) -> PyObjectRef {
+        // debug!("tos: {:?}, tos1: {:?}", tos, tos1);
+        // Subscript implementation: a[b]
+        match (a, b) {
+            /*
+            (&NativeType::List(ref l), &NativeType::Int(ref index)) => {
+                let pos_index = (index + l.borrow().len() as i32) % l.borrow().len() as i32;
+                curr_frame.stack.push(Rc::new(l.borrow()[pos_index as usize].clone()))
+            },
+            (&NativeType::List(ref l), &NativeType::Slice(ref opt_start, ref opt_stop, ref opt_step)) => {
+                let start = match opt_start {
+                    &Some(start) => ((start + l.borrow().len() as i32) % l.borrow().len() as i32) as usize,
+                    &None => 0,
+                };
+                let stop = match opt_stop {
+                    &Some(stop) => ((stop + l.borrow().len() as i32) % l.borrow().len() as i32) as usize,
+                    &None => l.borrow().len() as usize,
+                };
+                let step = match opt_step {
+                    //Some(step) => step as usize,
+                    &None => 1 as usize,
+                    _ => unimplemented!(),
+                };
+                // TODO: we could potentially avoid this copy and use slice
+                curr_frame.stack.push(Rc::new(NativeType::List(RefCell::new(l.borrow()[start..stop].to_vec()))));
+            },
+            (&NativeType::Tuple(ref t), &NativeType::Int(ref index)) => curr_frame.stack.push(Rc::new(t[*index as usize].clone())),
+            (&NativeType::Str(ref s), &NativeType::Int(ref index)) => {
+                let idx = (index + s.len() as i32) % s.len() as i32;
+                curr_frame.stack.push(Rc::new(NativeType::Str(s.chars().nth(idx as usize).unwrap().to_string())));
+            },
+            */
+            (&PyObject::String{ref value}, &PyObject::Slice { ref start, ref stop, ref step }) => {
+                let start2: usize = match start {
+                    &Some(_) => panic!("Bad start index for string slicing"),
+                    &Some(start) => start as usize,
+                    &None => 0,
+                };
+                let stop2: usize = match stop {
+                    &Some(stop) => stop as usize,
+                    &Some(_) => panic!("Bad stop index for string slicing"),
+                    &None => value.len() as usize,
+                };
+                let step2: usize = match step {
+                    //Some(step) => step as usize,
+                    &None => 1 as usize,
+                    _ => unimplemented!(),
+                };
+                PyObject::String { value: value[start2..stop2].to_string() }.into_ref()
+            },
+            // TODO: implement other Slice possibilities
+            _ => panic!("TypeError: indexing type {:?} with index {:?} is not supported (yet?)", a, b)
+        }
+    }
+
     fn execute_binop(&mut self, op: &bytecode::BinaryOperator) {
-        let frame = self.frames.last_mut().unwrap();
-        let b_ref = frame.stack.pop().unwrap();
-        let a_ref = frame.stack.pop().unwrap();
+        let b_ref = self.pop_value();
+        let a_ref = self.pop_value();
         let b = &*b_ref.borrow();
         let a = &*a_ref.borrow();
         let result = match op {
-            &bytecode::BinaryOperator::Subtract => a - b,
-            &bytecode::BinaryOperator::Add => a + b,
-            &bytecode::BinaryOperator::Multiply => a * b,
+            &bytecode::BinaryOperator::Subtract => (a - b).into_ref(),
+            &bytecode::BinaryOperator::Add => (a + b).into_ref(),
+            &bytecode::BinaryOperator::Multiply => (a * b).into_ref(),
             // &bytecode::BinaryOperator::Div => a / b,
+            &bytecode::BinaryOperator::Subscript => self.subscript(a, b),
             _ => panic!("NOT IMPL {:?}", op),
         };
-        frame.stack.push(result.into_ref());
+        self.push_value(result);
+    }
+
+    fn execute_compare(&mut self, op: &bytecode::ComparisonOperator) {
+        let b_ref = self.pop_value();
+        let a_ref = self.pop_value();
+        let b = &*b_ref.borrow();
+        let a = &*a_ref.borrow();
+        let result_bool = match op {
+            &bytecode::ComparisonOperator::Equal => (a == b),
+            &bytecode::ComparisonOperator::NotEqual => (a != b),
+            _ => panic!("NOT IMPL {:?}", op),
+        };
+        let result = PyObject::Boolean { value: result_bool }.into_ref();
+        self.push_value(result);
     }
 
     // Execute a single instruction:
@@ -185,9 +259,9 @@ impl VirtualMachine {
         };
 
         {
-            debug!("stack:{:?}", self.current_frame().stack);
-            debug!("env  :{:?}", self.current_frame().locals);
-            debug!("Executing op code: {:?}", instruction);
+            trace!("Executing op code: {:?}", instruction);
+            trace!("  stack:{:?}", self.current_frame().stack);
+            trace!("  env  :{:?}", self.current_frame().locals);
         }
         match &instruction {
             &bytecode::Instruction::LoadConst { ref value } => {
@@ -195,45 +269,46 @@ impl VirtualMachine {
                     &bytecode::Constant::Integer { ref value } => { PyObject::Integer { value: *value } },
                     // &bytecode::Constant::Float
                     &bytecode::Constant::String { ref value } => { PyObject::String { value: value.clone() } },
+                    &bytecode::Constant::Code { ref code } => { PyObject::Code { code: code.clone() } },
                     &bytecode::Constant::None => { PyObject::None },
                 };
-                self.current_frame().stack.push(obj.into_ref().clone());
+                self.push_value(obj.into_ref().clone());
                 None
             },
             &bytecode::Instruction::LoadName { ref name } => {
                 // Lookup name in scope and put it onto the stack!
                 let obj = self.current_frame().locals[name].clone();
-                self.current_frame().stack.push(obj);
+                self.push_value(obj);
                 None
             },
             &bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:
-                let obj = self.current_frame().stack.pop().unwrap();
+                let obj = self.pop_value();
                 self.current_frame().locals.insert(name.clone(), obj);
                 None
             },
             &bytecode::Instruction::Pop => {
                 // Pop value from stack and ignore.
-                self.current_frame().stack.pop();
+                self.pop_value();
                 None
             },
             &bytecode::Instruction::BuildList { size } => {
-                let elements = self.current_frame().pop_multiple(size);
+                let elements = self.pop_multiple(size);
                 let list_obj = PyObject::List { elements: elements }.into_ref();
-                self.current_frame().stack.push(list_obj);
+                self.push_value(list_obj);
                 None
             },
             &bytecode::Instruction::BuildTuple { size } => {
-                let elements = self.current_frame().pop_multiple(size);
+                let elements = self.pop_multiple(size);
                 let list_obj = PyObject::Tuple { elements: elements }.into_ref();
-                self.current_frame().stack.push(list_obj);
+                self.push_value(list_obj);
                 None
             },
             &bytecode::Instruction::BuildMap { size } => {
                 let mut elements = Vec::new();
                 for _x in 0..size {
-                    let key = self.current_frame().stack.pop().unwrap();
-                    let obj = self.current_frame().stack.pop().unwrap();
+                    let key = self.pop_value();
+                    let obj = self.pop_value();
                     elements.push((key,obj));
                 }
                 panic!("To be implemented!")
@@ -242,9 +317,24 @@ impl VirtualMachine {
             },
             &bytecode::Instruction::BuildSlice { size } => {
                 assert!(size == 2 || size == 3);
-                let elements = self.current_frame().pop_multiple(size);
-                let list_obj = PyObject::Slice { elements: elements }.into_ref();
-                self.current_frame().stack.push(list_obj);
+                let elements = self.pop_multiple(size);
+
+                let mut out: Vec<Option<i32>> = elements.into_iter().map(|x| match &*x.borrow() {
+                    &PyObject::Integer { value } => Some(value),
+                    &PyObject::None => None,
+                    _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
+                }).collect();
+
+                let start = out[0];
+                let stop = out[1];
+                let step = if out.len() == 3 {
+                    out[2]
+                } else {
+                    None
+                };
+
+                let obj = PyObject::Slice { start, stop, step }.into_ref();
+                self.push_value(obj);
                 None
             },
             &bytecode::Instruction::BinaryOperation { ref op } => {
@@ -255,8 +345,12 @@ impl VirtualMachine {
                 panic!("TODO");
                 // self.execute_binop(op);
             },
+            &bytecode::Instruction::CompareOperation { ref op } => {
+                self.execute_compare(op);
+                None
+            },
             &bytecode::Instruction::ReturnValue => {
-                let value = self.current_frame().stack.pop().unwrap();
+                let value = self.pop_value();
                 Some(ExeResult::Value { value })
             },
             /*
@@ -299,11 +393,37 @@ impl VirtualMachine {
                 }
             },
             */
+            &bytecode::Instruction::MakeFunction => {
+                let qualified_name = self.pop_value();
+                let code = self.pop_value();
+                let code_2 = &*code.borrow();
+                let code_obj = match code_2 {
+                    &PyObject::Code { ref code } => code.clone(),
+                    _ => panic!("Second item on the stack should be a code object")
+                };
+                // pop argc arguments
+                // argument: name, args, globals
+                self.push_value(PyObject::Function { code: code_obj }.into_ref());
+                None
+            },
             &bytecode::Instruction::CallFunction { count } => {
-                let mut args: Vec<PyObjectRef> = self.current_frame().pop_multiple(count);
-                let func_ref = self.current_frame().stack.pop().unwrap();
+                let mut args: Vec<PyObjectRef> = self.pop_multiple(count);
+                let func_ref = self.pop_value();
                 let f = func_ref.borrow();// = &*func_ref.borrow();
-                f.call(args);
+                let result = match *f {
+                    PyObject::RustFunction { ref function } => {
+                        f.call(args)
+                    }
+                    PyObject::Function { ref code } => {
+                        let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
+                        self.run_frame(frame)
+                    }
+                    _ => {
+                        println!("Not impl {:?}", f);
+                        panic!("Not impl");
+                    }
+                };
+                self.push_value(result);
                 // call_stack.push();
                 // If a builtin function, then call directly, otherwise, execute it?
                 // execute(function.code);
@@ -315,12 +435,21 @@ impl VirtualMachine {
             }
             */
             &bytecode::Instruction::JumpIf { target } => {
-                let obj = self.current_frame().stack.pop().unwrap();
+                let obj = self.pop_value();
                 // TODO: determine if this value is True-ish:
                 //if *v == NativeType::Boolean(true) {
                 //    curr_frame.lasti = curr_frame.labels.get(target).unwrap().clone();
                 //}
-                let result: bool = true;
+                let x = obj.borrow();
+                let result: bool = match *x {
+                    PyObject::Boolean { ref value } => {
+                        *value
+                    },
+                    _ => {
+                        panic!("Not impl {:?}", x);
+                    }
+
+                };
                 if result {
                     self.jump(target);
                 }
@@ -359,7 +488,9 @@ impl VirtualMachine {
     }
 
     fn jump(&mut self, label: bytecode::Label) {
-        // let current_frame = self.call_stack.last().unwrap();
-        // self.program_counter = current_frame.label_map[&label];
+        let current_frame = self.current_frame();
+        let target_pc = current_frame.code.label_map[&label];
+        trace!("program counter from {:?} to {:?}", current_frame.lasti, target_pc);
+        current_frame.lasti = target_pc;
     }
 }

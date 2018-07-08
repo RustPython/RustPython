@@ -28,6 +28,9 @@ pub enum PyObject {
     Integer {
         value: i32,
     },
+    Boolean {
+        value: bool,
+    },
     List {
         elements: Vec<PyObjectRef>,
     },
@@ -40,9 +43,14 @@ pub enum PyObject {
         iterated_obj: PyObjectRef,
     },
     Slice {
-        elements: Vec<PyObjectRef>,
+        start: Option<i32>,
+        stop: Option<i32>,
+        step: Option<i32>,
     },
     Code {
+        code: bytecode::CodeObject,
+    },
+    Function {
         code: bytecode::CodeObject,
     },
     None,
@@ -59,10 +67,11 @@ impl PyObjectRef {
 }*/
 
 impl PyObject {
-    pub fn call(&self, args: Vec<PyObjectRef>) {
+    pub fn call(&self, args: Vec<PyObjectRef>) -> PyObjectRef {
         match *self {
             PyObject::RustFunction { ref function } => {
                 function(args);
+                PyObject::None.into_ref()
             }
             _ => {
                 println!("Not impl {:?}", self);
@@ -211,6 +220,32 @@ impl<'a> Mul<&'a PyObject> for &'a PyObject {
             _ => {
                 panic!("NOT IMPL");
             }
+        }
+    }
+}
+
+// impl<'a> PartialEq<&'a PyObject> for &'a PyObject {
+impl PartialEq for PyObject {
+    fn eq(&self, other: &PyObject) -> bool {
+        match (self, other) {
+            (&PyObject::Integer { value: ref v1i }, &PyObject::Integer { value: ref v2i }) => {
+                v2i == v1i
+            },
+            /*
+            (&NativeType::Float(ref v1f), &NativeType::Float(ref v2f)) => {
+                curr_frame.stack.push(Rc::new(NativeType::Boolean(v2f == v1f)));
+            },
+            (&NativeType::Str(ref v1s), &NativeType::Str(ref v2s)) => {
+                curr_frame.stack.push(Rc::new(NativeType::Boolean(v2s == v1s)));
+            },
+            (&NativeType::Int(ref v1i), &NativeType::Float(ref v2f)) => {
+                curr_frame.stack.push(Rc::new(NativeType::Boolean(v2f == &(*v1i as f64))));
+            },
+            (&NativeType::List(ref l1), &NativeType::List(ref l2)) => {
+                curr_frame.stack.push(Rc::new(NativeType::Boolean(l2 == l1)));
+            },
+            */
+            _ => panic!("TypeError in COMPARE_OP: can't compare {:?} with {:?}", self, other)
         }
     }
 }

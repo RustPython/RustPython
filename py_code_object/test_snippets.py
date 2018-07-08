@@ -14,9 +14,10 @@ import compile_code
 
 
 logger = logging.getLogger('tests')
-THIS_DIR = '.'
-TEST_DIR = os.path.abspath(os.path.join(THIS_DIR, '..', 'tests'))
-CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(THIS_DIR))
+ROOT_DIR = '..'
+TEST_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'tests'))
+CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'py_code_object'))
+RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
 
 
 @contextlib.contextmanager
@@ -27,8 +28,17 @@ def pushd(path):
     os.chdir(old_dir)
 
 
-def perform_test(filename):
-    logger.info('Running %s', filename)
+def perform_test(filename, method):
+    logger.info('Running %s via %s', filename, method)
+    if method == 'cpython':
+        run_via_cpython(filename)
+    elif method == 'rustpython':
+        run_via_rustpython(filename)
+    else:
+        raise NotImplementedError(method)
+
+
+def run_via_cpython(filename):
     # Step1: Create bytecode file:
     bytecode_filename = filename + '.bytecode'
     with open(bytecode_filename, 'w') as f:
@@ -42,15 +52,23 @@ def perform_test(filename):
         subprocess.check_call(['cargo', 'run', bytecode_filename], env=env)
 
 
-def create_test_function(cls, filename):
+def run_via_rustpython(filename):
+    env = os.environ.copy()
+    env['RUST_LOG'] = 'debug'
+    env['RUST_BACKTRACE'] = '1'
+    with pushd(RUSTPYTHON_RUNNER_DIR):
+        subprocess.check_call(['cargo', 'run', filename], env=env)
+
+
+def create_test_function(cls, filename, method):
     """ Create a test function for a single snippet """
     core_test_directory, snippet_filename = os.path.split(filename)
-    test_function_name = 'test_' \
+    test_function_name = 'test_{}_'.format(method) \
         + os.path.splitext(snippet_filename)[0] \
         .replace('.', '_').replace('-', '_')
 
     def test_function(self):
-        perform_test(filename)
+        perform_test(filename, method)
 
     if hasattr(cls, test_function_name):
         raise ValueError('Duplicate test case {}'.format(test_function_name))
@@ -59,8 +77,9 @@ def create_test_function(cls, filename):
 
 def populate(cls):
     """ Decorator function which can populate a unittest.TestCase class """
-    for filename in get_test_files():
-        create_test_function(cls, filename)
+    for method in ['cpython', 'rustpython']:
+        for filename in get_test_files():
+            create_test_function(cls, filename, method)
     return cls
 
 

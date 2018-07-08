@@ -46,7 +46,7 @@ pub enum Instruction {
     Break,
     Jump { target: Label },
     JumpIf { target: Label },
-    MakeFunction { code: CodeObject },
+    MakeFunction,
     CallFunction { count: usize },
     ForIter,
     ReturnValue,
@@ -64,6 +64,7 @@ pub enum Constant {
     Integer { value: i32 }, // TODO: replace by arbitrary big int math.
     // TODO: Float { value: f64 },
     String { value: String },
+    Code { code: CodeObject },
     None,
 }
 

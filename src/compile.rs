@@ -9,14 +9,13 @@ use rustpython_parser::ast;
 use rustpython_vm::bytecode::{self, CodeObject, Instruction};
 
 struct Compiler {
-    code_object: CodeObject,
+    code_object_stack: Vec<CodeObject>,
     nxt_label: usize,
 }
 
 pub fn compile(p: ast::Program) -> CodeObject {
     let mut compiler = Compiler::new();
-    compiler.compile_program(p);
-    compiler.code_object
+    compiler.compile_program(p)
 }
 
 type Label = usize;
@@ -24,33 +23,27 @@ type Label = usize;
 impl Compiler {
     fn new() -> Self {
         Compiler {
-            code_object: CodeObject::new(),
+            code_object_stack: Vec::new(),
             nxt_label: 0,
         }
     }
 
-    fn compile_program(&mut self, program: ast::Program) {
+    fn compile_program(&mut self, program: ast::Program) -> CodeObject {
+        self.code_object_stack.push(CodeObject::new());
         self.compile_statements(program.statements);
+        assert!(self.code_object_stack.len() == 1);
+
+        // Emit None at end:
+        self.emit(Instruction::LoadConst { value: bytecode::Constant::None });
+        self.emit(Instruction::ReturnValue);
+
+        self.code_object_stack.pop().unwrap()
     }
 
     fn compile_statements(&mut self, statements: Vec<ast::Statement>) {
         for statement in statements {
             self.compile_statement(statement)
         }
-    }
-
-    // Generate a new label
-    fn new_label(&mut self) -> Label {
-        let l = self.nxt_label;
-        self.nxt_label += 1;
-        l
-    }
-
-    // Assign current position the given label
-    fn set_label(&mut self, label: Label) {
-        let position = self.code_object.instructions.len();
-        // assert!(label not in self.label_map)
-        self.code_object.label_map.insert(label, position);
     }
 
     fn compile_statement(&mut self, statement: ast::Statement) {
@@ -125,7 +118,16 @@ impl Compiler {
                 self.emit(Instruction::PopBlock);
             }
             ast::Statement::FunctionDef { name, body } => {
+                // Create bytecode for this function:
+                self.code_object_stack.push(CodeObject::new());
                 self.compile_statements(body);
+                let code = self.code_object_stack.pop().unwrap();
+                self.emit(Instruction::LoadConst { value: bytecode::Constant::Code { code: code } });
+                self.emit(Instruction::LoadConst { value: bytecode::Constant::String { value: name.clone() } });
+
+                // Turn code object into function object:
+                self.emit(Instruction::MakeFunction);
+                self.emit(Instruction::StoreName { name: name });
             }
             ast::Statement::ClassDef { name } => {
                 // TODO?
@@ -136,6 +138,8 @@ impl Compiler {
                 self.compile_expression(test);
 
                 // if true, jump over raise:
+                let end_label = self.new_label();
+                self.emit(Instruction::JumpIf { target: end_label } );
 
                 self.emit(Instruction::LoadName {
                     name: String::from("AssertionError"),
@@ -149,7 +153,7 @@ impl Compiler {
                         self.emit(Instruction::CallFunction { count: 0 });
                     }
                 }
-                // TODO?
+                self.set_label(end_label);
             }
             ast::Statement::Break => {
                 self.emit(Instruction::Break);
@@ -285,7 +289,26 @@ impl Compiler {
         }
     }
 
+    // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
-        self.code_object.instructions.push(instruction);
+        self.current_code_object().instructions.push(instruction);
+    }
+
+    fn current_code_object(&mut self) -> &mut CodeObject {
+        self.code_object_stack.last_mut().unwrap()
+    }
+
+    // Generate a new label
+    fn new_label(&mut self) -> Label {
+        let l = self.nxt_label;
+        self.nxt_label += 1;
+        l
+    }
+
+    // Assign current position the given label
+    fn set_label(&mut self, label: Label) {
+        let position = self.current_code_object().instructions.len();
+        // assert!(label not in self.label_map)
+        self.current_code_object().label_map.insert(label, position);
     }
 }
