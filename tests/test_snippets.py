@@ -3,6 +3,7 @@
 # in the tests folder.
 
 
+import sys
 import os
 import unittest
 import glob
@@ -15,7 +16,7 @@ import compile_code
 
 logger = logging.getLogger('tests')
 ROOT_DIR = '..'
-TEST_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'tests'))
+TEST_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'tests', 'snippets'))
 CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'py_code_object'))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
 
@@ -32,6 +33,8 @@ def perform_test(filename, method):
     logger.info('Running %s via %s', filename, method)
     if method == 'cpython':
         run_via_cpython(filename)
+    elif method == 'cpython_bytecode':
+        run_via_cpython_bytecode(filename)
     elif method == 'rustpython':
         run_via_rustpython(filename)
     else:
@@ -39,6 +42,11 @@ def perform_test(filename, method):
 
 
 def run_via_cpython(filename):
+    """ Simply invoke python itself on the script """
+    subprocess.check_call([sys.executable, filename])
+
+
+def run_via_cpython_bytecode(filename):
     # Step1: Create bytecode file:
     bytecode_filename = filename + '.bytecode'
     with open(bytecode_filename, 'w') as f:
@@ -77,7 +85,7 @@ def create_test_function(cls, filename, method):
 
 def populate(cls):
     """ Decorator function which can populate a unittest.TestCase class """
-    for method in ['cpython', 'rustpython']:
+    for method in ['cpython', 'cpython_bytecode', 'rustpython']:
         for filename in get_test_files():
             create_test_function(cls, filename, method)
     return cls

@@ -47,6 +47,9 @@ pub enum PyObject {
         stop: Option<i32>,
         step: Option<i32>,
     },
+    NameError {  // TODO: improve python object and type system
+        name: String,
+    },
     Code {
         code: bytecode::CodeObject,
     },

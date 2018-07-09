@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate log;
 
-mod parser;
+pub mod parser;
 mod python;
 pub mod ast;
 mod token;

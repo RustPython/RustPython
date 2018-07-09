@@ -15,14 +15,14 @@ use super::pyobject::{PyObject, PyObjectRef};
 // use objects::objects;
 
 // Container of the virtual machine state:
-pub fn evaluate(code: bytecode::CodeObject) {
+pub fn evaluate(code: bytecode::CodeObject) -> Result<PyObjectRef, PyObjectRef> {
     let mut vm = VirtualMachine::new();
 
     // Register built in function:
     // vm.scope.insert(String::from("print"), PyObject::RustFunction { function: builtins::print }.into_ref());
 
     // { stack: Vec::new() };
-    vm.run(Rc::new(code));
+    vm.run(Rc::new(code))
 }
 
 // Objects are live when they are on stack, or referenced by a name (for now)
@@ -49,11 +49,6 @@ struct Frame {
 
 struct VirtualMachine {
     frames: Vec<Frame>,
-}
-
-enum ExeResult {
-    Value { value: PyObjectRef },
-    Exception,
 }
 
 impl Frame {
@@ -122,22 +117,25 @@ impl VirtualMachine {
         self.current_frame().pop_multiple(count)
     }
 
-    fn run(&mut self, code: Rc<bytecode::CodeObject>) {
+    fn run(&mut self, code: Rc<bytecode::CodeObject>) -> Result<PyObjectRef, PyObjectRef> {
         let frame = Frame::new(code, HashMap::new(), None);
-        self.run_frame(frame);
+        self.run_frame(frame)
     }
 
     // The Option<i32> is the return value of the frame, remove when we have implemented frame
     // TODO: read the op codes directly from the internal code object
-    fn run_frame(&mut self, mut frame: Frame) -> PyObjectRef {
+    fn run_frame(&mut self, mut frame: Frame) -> Result<PyObjectRef, PyObjectRef> {
         self.frames.push(frame);
 
         let value = loop {
             let result = self.execute_instruction();
             match result {
                 None => {},
-                Some(ExeResult::Value { value }) => { break value; },
-                Some(ExeResult::Exception) => { panic!("TODO"); }
+                Some(Ok(value)) => { break Ok(value); },
+                Some(Err(value)) => {
+                    // TODO: unwind stack on exception.
+                    panic!("TODO {:?}", value);
+                }
             }
             /*if curr_frame.blocks.len() > 0 {
               self.manage_block_stack(&why);
@@ -238,7 +236,7 @@ impl VirtualMachine {
     }
 
     // Execute a single instruction:
-    fn execute_instruction(&mut self) -> Option<ExeResult> {
+    fn execute_instruction(&mut self) -> Option<Result<PyObjectRef, PyObjectRef>> {
         // let frame = self.frames.last_mut().unwrap();
         let instruction = {
             let frame = self.current_frame();
@@ -268,9 +266,14 @@ impl VirtualMachine {
             },
             &bytecode::Instruction::LoadName { ref name } => {
                 // Lookup name in scope and put it onto the stack!
-                let obj = self.current_frame().locals[name].clone();
-                self.push_value(obj);
-                None
+                if self.current_frame().locals.contains_key(name) {
+                    let obj = self.current_frame().locals[name].clone();
+                    self.push_value(obj);
+                    None
+                } else {
+                    let name_error = PyObject::NameError { name: name.to_string() };
+                    Some(Err(name_error.into_ref()))
+                }
             },
             &bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:
@@ -342,7 +345,7 @@ impl VirtualMachine {
             },
             &bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
-                Some(ExeResult::Value { value })
+                Some(Ok(value))
             },
             /*
             &bytecode::Instruction::PushBlock { start, end } => {
@@ -401,9 +404,9 @@ impl VirtualMachine {
                 let mut args: Vec<PyObjectRef> = self.pop_multiple(count);
                 let func_ref = self.pop_value();
                 let f = func_ref.borrow();// = &*func_ref.borrow();
-                let result = match *f {
+                let func_result = match *f {
                     PyObject::RustFunction { ref function } => {
-                        f.call(args)
+                        Ok(f.call(args))
                     }
                     PyObject::Function { ref code } => {
                         let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
@@ -414,11 +417,17 @@ impl VirtualMachine {
                         panic!("Not impl");
                     }
                 };
-                self.push_value(result);
+
+                match func_result {
+                    Ok(value) => { self.push_value(value); None },
+                    Err(value) => {
+                        // Ripple exception upwards:
+                        Some(Err(value))
+                    }
+                }
                 // call_stack.push();
                 // If a builtin function, then call directly, otherwise, execute it?
                 // execute(function.code);
-                None
             },
             /* TODO
             &bytecode::Instruction::Jump { target } => {
