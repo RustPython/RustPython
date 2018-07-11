@@ -7,7 +7,7 @@ extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 
-mod compile;
+use rustpython_vm::compile;
 use clap::{Arg, App};
 use std::path::Path;
 use rustpython_parser::parse;
@@ -69,9 +69,12 @@ fn run_shell() {
         print!(">>>");
         io::stdout().flush().ok().expect("Could not flush stdout");
         io::stdin().read_line(&mut input);
-        println!("You entered {:?}", input);
+        debug!("You entered {:?}", input);
         let result = eval(&mut vm, &input);
-        println!("{:?}", result);
+        match result {
+            Ok(value) => println!("{}", vm.to_str(value)),
+            Err(value) => println!("Error: {:?}", value),
+        };
     }
 }
 

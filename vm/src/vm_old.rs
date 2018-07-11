@@ -560,30 +560,6 @@ impl VirtualMachine {
                 curr_frame.stack.push(tos1);
                 None
             }
-            ("PRINT_ITEM", None) => {
-                let curr_frame = self.curr_frame();
-                // TODO: Print without the (...)
-                println!("{:?}", curr_frame.stack.pop().unwrap());
-                None
-            },
-            ("PRINT_NEWLINE", None) => {
-                print!("\n");
-                None
-            },
-            ("MAKE_FUNCTION", Some(argc)) => {
-                // https://docs.python.org/3.4/library/dis.html#opcode-MAKE_FUNCTION
-                let curr_frame = self.curr_frame();
-                let qualified_name = curr_frame.stack.pop().unwrap();
-                let code_obj = match curr_frame.stack.pop().unwrap().deref() {
-                    &NativeType::Code(ref code) => code.clone(),
-                    _ => panic!("Second item on the stack should be a code object")
-                };
-                // pop argc arguments
-                // argument: name, args, globals
-                let func = Function::new(code_obj);
-                curr_frame.stack.push(Rc::new(NativeType::Function(func)));
-                None
-            },
             ("CALL_FUNCTION", Some(argc)) => {
                 let kw_count = (argc >> 8) as u8;
                 let pos_count = (argc & 0xFF) as u8;

@@ -10,5 +10,6 @@ pub mod bytecode;
 mod builtins;
 mod vm;
 mod objint;
+pub mod compile;
 
 pub use self::vm::VirtualMachine;

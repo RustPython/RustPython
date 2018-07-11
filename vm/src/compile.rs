@@ -3,10 +3,9 @@
  */
 
 extern crate rustpython_parser;
-extern crate rustpython_vm;
 
-use rustpython_parser::ast;
-use rustpython_vm::bytecode::{self, CodeObject, Instruction};
+use self::rustpython_parser::ast;
+use super::bytecode::{self, CodeObject, Instruction};
 
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
@@ -49,7 +48,10 @@ impl Compiler {
     fn compile_statement(&mut self, statement: ast::Statement) {
         trace!("Compiling {:?}", statement);
         match statement {
-            ast::Statement::Import { name } => {}
+            ast::Statement::Import { name } => {
+                self.emit(Instruction::Import { name: name.clone() });
+                self.emit(Instruction::StoreName { name: name.clone() });
+            }
             ast::Statement::Expression { expression } => {
                 self.compile_expression(expression);
 

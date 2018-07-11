@@ -3,6 +3,9 @@
  * Implement virtual machine to run instructions.
  */
 
+extern crate rustpython_parser;
+
+use std::path::Path;
 use std::rc::Rc;
 use std::collections::HashMap;
 use std::cell::RefMut;
@@ -11,6 +14,8 @@ use std::ops::Deref;
 use super::bytecode;
 use super::builtins;
 use super::pyobject::{PyObject, PyObjectRef, PyObjectKind};
+use self::rustpython_parser::parse;
+use super::compile::compile;
 
 // use objects::objects;
 
@@ -94,6 +99,10 @@ impl VirtualMachine {
 
         // { stack: Vec::new() };
         self.run(Rc::new(code))
+    }
+
+    pub fn to_str(&mut self, obj: PyObjectRef) -> String {
+        obj.borrow().str()
     }
 
     fn current_frame(&mut self) -> &mut Frame {
@@ -274,6 +283,28 @@ impl VirtualMachine {
         }
     }
 
+    fn import(&mut self, name: String) -> Option<PyObjectRef> {
+        // Time to search for module in any place:
+        let filename = format!("{}.py", name);
+        let filepath = Path::new(&filename);
+
+        match parse(filepath) {
+            Ok(program) => {
+              debug!("Got ast: {:?}", program);
+              let bytecode = compile(program);
+              debug!("Code object: {:?}", bytecode);
+              let obj = PyObject::new(PyObjectKind::Code { code: bytecode });
+              // TODO: execute in global object namespace
+              // vm.evaluate(bytecode);
+              self.push_value(obj);
+              None
+            },
+            Err(value) => {
+                panic!("Error: {}", value);
+            }
+        }
+    }
+
     // Execute a single instruction:
     fn execute_instruction(&mut self) -> Option<Result<PyObjectRef, PyObjectRef>> {
         // let frame = self.frames.last_mut().unwrap();
@@ -301,6 +332,10 @@ impl VirtualMachine {
                     &bytecode::Constant::None => { PyObject::new(PyObjectKind::None) },
                 };
                 self.push_value(obj);
+                None
+            },
+            &bytecode::Instruction::Import { ref name } => {
+                self.import(name.to_string());
                 None
             },
             &bytecode::Instruction::LoadName { ref name } => {

@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::fmt;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::{Add, Mul, Sub};
@@ -20,6 +21,13 @@ https://doc.rust-lang.org/std/cell/index.html#introducing-mutability-inside-of-s
 */
 pub type PyRef<T> = Rc<RefCell<T>>;
 pub type PyObjectRef = PyRef<PyObject>;
+
+/*
+impl fmt::Display for PyObjectRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Obj {:?}", self)
+    }
+}*/
 
 #[derive(Debug)]
 pub struct PyObject {
