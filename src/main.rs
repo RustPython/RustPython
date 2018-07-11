@@ -12,7 +12,7 @@ use clap::{Arg, App};
 use std::path::Path;
 use rustpython_parser::parse;
 use rustpython_parser::parser::parse_source;
-use rustpython_vm::evaluate;
+use rustpython_vm::VirtualMachine;
 use rustpython_vm::pyobject::PyObjectRef;
 use std::io;
 use std::io::prelude::*;
@@ -42,6 +42,7 @@ fn main() {
 }
 
 fn run_script(script_file: &String) {
+  let mut vm = VirtualMachine::new();
   debug!("Running file {}", script_file);
   // Parse an ast from it:
   let filepath = Path::new(script_file);
@@ -50,7 +51,7 @@ fn run_script(script_file: &String) {
       debug!("Got ast: {:?}", program);
       let bytecode = compile::compile(program);
       debug!("Code object: {:?}", bytecode);
-      evaluate(bytecode);
+      vm.evaluate(bytecode);
     },
     Err(msg) => {
         error!("Parsing went horribly wrong: {}", msg);
@@ -61,6 +62,7 @@ fn run_script(script_file: &String) {
 
 fn run_shell() {
     println!("Welcome to the magnificent Rust Python interpreter");
+    let mut vm = VirtualMachine::new();
     // Read a single line:
     loop {
         let mut input = String::new();
@@ -68,18 +70,18 @@ fn run_shell() {
         io::stdout().flush().ok().expect("Could not flush stdout");
         io::stdin().read_line(&mut input);
         println!("You entered {:?}", input);
-        let result = eval(&input);
+        let result = eval(&mut vm, &input);
         println!("{:?}", result);
     }
 }
 
-fn eval(source: &String) -> Result<PyObjectRef, PyObjectRef> {
+fn eval(vm: &mut VirtualMachine, source: &String) -> Result<PyObjectRef, PyObjectRef> {
   match parse_source(source) {
     Ok(program) => {
       debug!("Got ast: {:?}", program);
       let bytecode = compile::compile(program);
       debug!("Code object: {:?}", bytecode);
-      evaluate(bytecode)
+      vm.evaluate(bytecode)
     },
     Err(msg) => {
         panic!("Parsing went horribly wrong: {}", msg);

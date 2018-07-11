@@ -9,5 +9,6 @@ pub mod pyobject;
 pub mod bytecode;
 mod builtins;
 mod vm;
+mod objint;
 
-pub use self::vm::evaluate;
+pub use self::vm::VirtualMachine;

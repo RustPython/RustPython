@@ -14,16 +14,6 @@ use super::pyobject::{PyObject, PyObjectRef, PyObjectKind};
 
 // use objects::objects;
 
-// Container of the virtual machine state:
-pub fn evaluate(code: bytecode::CodeObject) -> Result<PyObjectRef, PyObjectRef> {
-    let mut vm = VirtualMachine::new();
-
-    // Register built in function:
-    // vm.scope.insert(String::from("print"), PyObject::RustFunction { function: builtins::print }.into_ref());
-
-    // { stack: Vec::new() };
-    vm.run(Rc::new(code))
-}
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
@@ -47,7 +37,7 @@ struct Frame {
     // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
 }
 
-struct VirtualMachine {
+pub struct VirtualMachine {
     frames: Vec<Frame>,
 }
 
@@ -97,6 +87,15 @@ impl VirtualMachine {
         }
     }
 
+    // Container of the virtual machine state:
+    pub fn evaluate(&mut self, code: bytecode::CodeObject) -> Result<PyObjectRef, PyObjectRef> {
+        // Register built in function:
+        // vm.scope.insert(String::from("print"), PyObject::RustFunction { function: builtins::print }.into_ref());
+
+        // { stack: Vec::new() };
+        self.run(Rc::new(code))
+    }
+
     fn current_frame(&mut self) -> &mut Frame {
         self.frames.last_mut().unwrap()
     }
@@ -127,14 +126,15 @@ impl VirtualMachine {
     fn run_frame(&mut self, mut frame: Frame) -> Result<PyObjectRef, PyObjectRef> {
         self.frames.push(frame);
 
+        // Execute until return or exception:
         let value = loop {
             let result = self.execute_instruction();
             match result {
                 None => {},
                 Some(Ok(value)) => { break Ok(value); },
                 Some(Err(value)) => {
-                    // TODO: unwind stack on exception.
-                    panic!("TODO {:?}", value);
+                    // TODO: unwind stack on exception and find any handlers.
+                    break Err(value);
                 }
             }
             /*if curr_frame.blocks.len() > 0 {

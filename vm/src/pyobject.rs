@@ -24,8 +24,8 @@ pub type PyObjectRef = PyRef<PyObject>;
 #[derive(Debug)]
 pub struct PyObject {
     pub kind: PyObjectKind,
-    // TODO: type: PyObjectRef
-    dict: HashMap<String, PyObjectRef>,  // __dict__ member
+    // typ: PyObjectRef,
+    pub dict: HashMap<String, PyObjectRef>,  // __dict__ member
 }
 
 #[derive(Debug)]
