@@ -1,7 +1,7 @@
 use std::ops::Deref;
 use std::io::{self, Write};
 
-use super::pyobject::PyObjectRef;
+use super::pyobject::{PyObjectRef, PyObject, PyObjectKind};
 
 
 /*
@@ -38,7 +38,7 @@ pub fn print(args: Vec<Rc<NativeType>>) -> NativeType {
 }
 */
 
-pub fn print(args: Vec<PyObjectRef>) {
+pub fn print(args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
     // println!("Woot: {:?}", args);
     trace!("print called with {:?}", args);
     for a in args {
@@ -46,6 +46,7 @@ pub fn print(args: Vec<PyObjectRef>) {
     }
     println!();
     io::stdout().flush().unwrap();
+    Ok(PyObject::new(PyObjectKind::None))
 }
 
 /*

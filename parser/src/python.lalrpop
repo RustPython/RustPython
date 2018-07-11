@@ -174,15 +174,37 @@ MulOp: ast::Operator = {
 };
 
 Factor: ast::Expression = {
+  "+" <e:Factor> => e,
+  "-" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Neg },
   <e:Power> => e,
 };
 
 Power: ast::Expression = {
-  <e:Atom>  => e,
+  <e:AtomExpr>  => e,
+};
+
+AtomExpr: ast::Expression = {
+  <e:Atom> => e,
+  <f:AtomExpr>  "(" <a:FunctionArguments> ")" => ast::Expression::Call { function: Box::new(f), args: a },
+  <e:AtomExpr>  "[" <s:Subscript> "]" => ast::Expression::Binop { a: Box::new(e), op: ast::Operator::Subscript, b: Box::new(s) },
+};
+
+Subscript: ast::Expression = {
+  <e:Test> => e,
+  <e1:Test?> ":" <e2:Test?> => {
+    let s1 = match e1 {
+      None => ast::Expression::None,
+      Some(e) => e,
+    };
+    let s2 = match e2 {
+      None => ast::Expression::None,
+      Some(e) => e,
+    };
+    ast::Expression::Slice { elements: vec![s1, s2] }
+  }
 };
 
 Atom: ast::Expression = {
-  <f:Atom>  "(" <a:FunctionArguments> ")" => ast::Expression::Call { function: Box::new(f), args: a },
   <s:String> => ast::Expression::String { value: s },
   <n:Number> => ast::Expression::Number { value: n },
   <i:Identifier> => ast::Expression::Identifier { name: i },

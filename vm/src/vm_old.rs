@@ -560,24 +560,6 @@ impl VirtualMachine {
                 curr_frame.stack.push(tos1);
                 None
             }
-            ("UNARY_NEGATIVE", None) => {
-                let curr_frame = self.curr_frame();
-                let v = curr_frame.stack.pop().unwrap();
-                match v.deref() {
-                    &NativeType::Int(v1i) => {
-                        curr_frame.stack.push(Rc::new(NativeType::Int(-v1i)));
-                    },
-                    _ => panic!("TypeError in UINARY_NEGATIVE")
-                }
-                None
-            },
-            ("UNARY_POSITIVE", None) => {
-                let curr_frame = self.curr_frame();
-                let v = curr_frame.stack.pop().unwrap();
-                // Any case that is not just push back?
-                curr_frame.stack.push(v);
-                None
-            },
             ("PRINT_ITEM", None) => {
                 let curr_frame = self.curr_frame();
                 // TODO: Print without the (...)

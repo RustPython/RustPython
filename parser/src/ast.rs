@@ -81,6 +81,10 @@ pub enum Expression {
         op: Operator,
         b: Box<Expression>,
     },
+    Unop {
+        op: UnaryOperator,
+        a: Box<Expression>,
+    },
     Compare {
         a: Box<Expression>,
         op: Comparison,
@@ -97,6 +101,9 @@ pub enum Expression {
         elements: Vec<Expression>,
     },
     Tuple {
+        elements: Vec<Expression>,
+    },
+    Slice {
         elements: Vec<Expression>,
     },
     String {
@@ -125,7 +132,13 @@ pub enum Operator {
     BitXor,
     BitAnd,
     FloorDiv,
+    // TODO: is this a binop?
+    Subscript,
+}
 
+#[derive(Debug, PartialEq)]
+pub enum UnaryOperator {
+    Neg,
 }
 
 #[derive(Debug, PartialEq)]

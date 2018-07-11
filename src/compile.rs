@@ -235,8 +235,19 @@ impl Compiler {
                     ast::Operator::BitOr => bytecode::BinaryOperator::Or,
                     ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
                     ast::Operator::BitAnd => bytecode::BinaryOperator::And,
+                    ast::Operator::Subscript => bytecode::BinaryOperator::Subscript,
                 };
                 let i = Instruction::BinaryOperation { op: i };
+                self.emit(i);
+            }
+            ast::Expression::Unop { op, a } => {
+                self.compile_expression(*a);
+
+                // Perform operation:
+                let i = match op {
+                    ast::UnaryOperator::Neg => bytecode::UnaryOperator::Minus,
+                };
+                let i = Instruction::UnaryOperation { op: i };
                 self.emit(i);
             }
             ast::Expression::Compare { a, op, b } => {
@@ -271,6 +282,13 @@ impl Compiler {
                 }
                 self.emit(Instruction::BuildTuple { size: size });
             }
+            ast::Expression::Slice { elements } => {
+                let size = elements.len();
+                for element in elements {
+                    self.compile_expression(element);
+                }
+                self.emit(Instruction::BuildSlice { size: size });
+            }
             ast::Expression::True => {
                 self.emit(Instruction::LoadConst { value: bytecode::Constant::Integer { value: 1 } });
             }
@@ -278,7 +296,7 @@ impl Compiler {
                 self.emit(Instruction::LoadConst { value: bytecode::Constant::Integer { value: 0 } });
             }
             ast::Expression::None => {
-                self.emit(Instruction::LoadConst { value: bytecode::Constant::Integer { value: 0 } });
+                self.emit(Instruction::LoadConst { value: bytecode::Constant::None });
             }
             ast::Expression::String { value } => {
                 self.emit(Instruction::LoadConst { value: bytecode::Constant::String { value: value } });

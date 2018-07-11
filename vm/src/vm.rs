@@ -10,7 +10,7 @@ use std::ops::Deref;
 
 use super::bytecode;
 use super::builtins;
-use super::pyobject::{PyObject, PyObjectRef};
+use super::pyobject::{PyObject, PyObjectRef, PyObjectKind};
 
 // use objects::objects;
 
@@ -64,7 +64,7 @@ impl Frame {
         locals.extend(callargs);
 
         //TODO: move this into the __builtin__ module when we have a module type
-        locals.insert(String::from("print"), PyObject::RustFunction { function: builtins::print }.into_ref());
+        locals.insert(String::from("print"), PyObject::new(PyObjectKind::RustFunction { function: builtins::print }));
         // locals.insert("print".to_string(), Rc::new(NativeType::NativeFunction(builtins::print)));
         // locals.insert("len".to_string(), Rc::new(NativeType::NativeFunction(builtins::len)));
         Frame {
@@ -153,7 +153,7 @@ impl VirtualMachine {
     fn subscript(&mut self, a: &PyObject, b: &PyObject) -> PyObjectRef {
         // debug!("tos: {:?}, tos1: {:?}", tos, tos1);
         // Subscript implementation: a[b]
-        match (a, b) {
+        match (&a.kind, &b.kind) {
             /*
             (&NativeType::List(ref l), &NativeType::Int(ref index)) => {
                 let pos_index = (index + l.borrow().len() as i32) % l.borrow().len() as i32;
@@ -182,15 +182,15 @@ impl VirtualMachine {
                 curr_frame.stack.push(Rc::new(NativeType::Str(s.chars().nth(idx as usize).unwrap().to_string())));
             },
             */
-            (&PyObject::String{ref value}, &PyObject::Slice { ref start, ref stop, ref step }) => {
+            (PyObjectKind::String{ref value}, PyObjectKind::Slice { ref start, ref stop, ref step }) => {
                 let start2: usize = match start {
-                    &Some(_) => panic!("Bad start index for string slicing"),
+                    // &Some(_) => panic!("Bad start index for string slicing {:?}", start),
                     &Some(start) => start as usize,
                     &None => 0,
                 };
                 let stop2: usize = match stop {
                     &Some(stop) => stop as usize,
-                    &Some(_) => panic!("Bad stop index for string slicing"),
+                    // &Some(_) => panic!("Bad stop index for string slicing"),
                     &None => value.len() as usize,
                 };
                 let step2: usize = match step {
@@ -198,7 +198,7 @@ impl VirtualMachine {
                     &None => 1 as usize,
                     _ => unimplemented!(),
                 };
-                PyObject::String { value: value[start2..stop2].to_string() }.into_ref()
+                PyObject::new(PyObjectKind::String { value: value[start2..stop2].to_string() })
             },
             // TODO: implement other Slice possibilities
             _ => panic!("TypeError: indexing type {:?} with index {:?} is not supported (yet?)", a, b)
@@ -210,13 +210,34 @@ impl VirtualMachine {
         let a_ref = self.pop_value();
         let b = &*b_ref.borrow();
         let a = &*a_ref.borrow();
+        // TODO: if the left hand side provides __add__, invoke that function.
+        //
         let result = match op {
-            &bytecode::BinaryOperator::Subtract => (a - b).into_ref(),
-            &bytecode::BinaryOperator::Add => (a + b).into_ref(),
-            &bytecode::BinaryOperator::Multiply => (a * b).into_ref(),
+            &bytecode::BinaryOperator::Subtract => PyObject::new(a - b),
+            &bytecode::BinaryOperator::Add => PyObject::new(a + b),
+            &bytecode::BinaryOperator::Multiply => PyObject::new(a * b),
             // &bytecode::BinaryOperator::Div => a / b,
             &bytecode::BinaryOperator::Subscript => self.subscript(a, b),
             _ => panic!("NOT IMPL {:?}", op),
+        };
+        self.push_value(result);
+    }
+
+    fn execute_unop(&mut self, op: &bytecode::UnaryOperator) {
+        let a_ref = self.pop_value();
+        let a = &*a_ref.borrow();
+        let result = match op {
+            &bytecode::UnaryOperator::Minus => {
+                // TODO:
+                // self.invoke('__neg__'
+                match a.kind {
+                    PyObjectKind::Integer { value: ref value1 } => {
+                        PyObject::new(PyObjectKind::Integer { value: -*value1 })
+                    },
+                    _ => panic!("Not impl {:?}", a),
+                }
+            },
+            _ => panic!("Not impl {:?}", op),
         };
         self.push_value(result);
     }
@@ -231,8 +252,26 @@ impl VirtualMachine {
             &bytecode::ComparisonOperator::NotEqual => (a != b),
             _ => panic!("NOT IMPL {:?}", op),
         };
-        let result = PyObject::Boolean { value: result_bool }.into_ref();
+        let result = PyObject::new(PyObjectKind::Boolean { value: result_bool });
         self.push_value(result);
+    }
+
+    fn invoke(&mut self, func_ref: PyObjectRef, args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
+        let f = func_ref.borrow();// = &*func_ref.borrow();
+
+        match f.kind {
+            PyObjectKind::RustFunction { ref function } => {
+                f.call(args)
+            }
+            PyObjectKind::Function { ref code } => {
+                let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
+                self.run_frame(frame)
+            }
+            _ => {
+                println!("Not impl {:?}", f);
+                panic!("Not impl");
+            }
+        }
     }
 
     // Execute a single instruction:
@@ -255,13 +294,13 @@ impl VirtualMachine {
         match &instruction {
             &bytecode::Instruction::LoadConst { ref value } => {
                 let obj = match value {
-                    &bytecode::Constant::Integer { ref value } => { PyObject::Integer { value: *value } },
+                    &bytecode::Constant::Integer { ref value } => { PyObject::new(PyObjectKind::Integer { value: *value }) },
                     // &bytecode::Constant::Float
-                    &bytecode::Constant::String { ref value } => { PyObject::String { value: value.clone() } },
-                    &bytecode::Constant::Code { ref code } => { PyObject::Code { code: code.clone() } },
-                    &bytecode::Constant::None => { PyObject::None },
+                    &bytecode::Constant::String { ref value } => { PyObject::new(PyObjectKind::String { value: value.clone() }) },
+                    &bytecode::Constant::Code { ref code } => { PyObject::new(PyObjectKind::Code { code: code.clone() }) },
+                    &bytecode::Constant::None => { PyObject::new(PyObjectKind::None) },
                 };
-                self.push_value(obj.into_ref().clone());
+                self.push_value(obj);
                 None
             },
             &bytecode::Instruction::LoadName { ref name } => {
@@ -271,8 +310,8 @@ impl VirtualMachine {
                     self.push_value(obj);
                     None
                 } else {
-                    let name_error = PyObject::NameError { name: name.to_string() };
-                    Some(Err(name_error.into_ref()))
+                    let name_error = PyObject::new(PyObjectKind::NameError { name: name.to_string() });
+                    Some(Err(name_error))
                 }
             },
             &bytecode::Instruction::StoreName { ref name } => {
@@ -288,13 +327,13 @@ impl VirtualMachine {
             },
             &bytecode::Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(size);
-                let list_obj = PyObject::List { elements: elements }.into_ref();
+                let list_obj = PyObject::new(PyObjectKind::List { elements: elements });
                 self.push_value(list_obj);
                 None
             },
             &bytecode::Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(size);
-                let list_obj = PyObject::Tuple { elements: elements }.into_ref();
+                let list_obj = PyObject::new(PyObjectKind::Tuple { elements: elements });
                 self.push_value(list_obj);
                 None
             },
@@ -313,9 +352,9 @@ impl VirtualMachine {
                 assert!(size == 2 || size == 3);
                 let elements = self.pop_multiple(size);
 
-                let mut out: Vec<Option<i32>> = elements.into_iter().map(|x| match &*x.borrow() {
-                    &PyObject::Integer { value } => Some(value),
-                    &PyObject::None => None,
+                let mut out: Vec<Option<i32>> = elements.into_iter().map(|x| match x.borrow().kind {
+                    PyObjectKind::Integer { value } => Some(value),
+                    PyObjectKind::None => None,
                     _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
                 }).collect();
 
@@ -327,7 +366,7 @@ impl VirtualMachine {
                     None
                 };
 
-                let obj = PyObject::Slice { start, stop, step }.into_ref();
+                let obj = PyObject::new(PyObjectKind::Slice { start, stop, step });
                 self.push_value(obj);
                 None
             },
@@ -336,8 +375,8 @@ impl VirtualMachine {
                 None
             },
             &bytecode::Instruction::UnaryOperation { ref op } => {
-                panic!("TODO");
-                // self.execute_binop(op);
+                self.execute_unop(op);
+                None
             },
             &bytecode::Instruction::CompareOperation { ref op } => {
                 self.execute_compare(op);
@@ -391,32 +430,21 @@ impl VirtualMachine {
                 let qualified_name = self.pop_value();
                 let code = self.pop_value();
                 let code_2 = &*code.borrow();
-                let code_obj = match code_2 {
-                    &PyObject::Code { ref code } => code.clone(),
+                let code_obj = match code_2.kind {
+                    PyObjectKind::Code { ref code } => code.clone(),
                     _ => panic!("Second item on the stack should be a code object")
                 };
                 // pop argc arguments
                 // argument: name, args, globals
-                self.push_value(PyObject::Function { code: code_obj }.into_ref());
+                self.push_value(PyObject::new(PyObjectKind::Function { code: code_obj }));
                 None
             },
             &bytecode::Instruction::CallFunction { count } => {
                 let mut args: Vec<PyObjectRef> = self.pop_multiple(count);
                 let func_ref = self.pop_value();
-                let f = func_ref.borrow();// = &*func_ref.borrow();
-                let func_result = match *f {
-                    PyObject::RustFunction { ref function } => {
-                        Ok(f.call(args))
-                    }
-                    PyObject::Function { ref code } => {
-                        let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
-                        self.run_frame(frame)
-                    }
-                    _ => {
-                        println!("Not impl {:?}", f);
-                        panic!("Not impl");
-                    }
-                };
+
+                // Call function:
+                let func_result = self.invoke(func_ref, args);
 
                 match func_result {
                     Ok(value) => { self.push_value(value); None },
@@ -425,9 +453,6 @@ impl VirtualMachine {
                         Some(Err(value))
                     }
                 }
-                // call_stack.push();
-                // If a builtin function, then call directly, otherwise, execute it?
-                // execute(function.code);
             },
             /* TODO
             &bytecode::Instruction::Jump { target } => {
@@ -441,8 +466,8 @@ impl VirtualMachine {
                 //    curr_frame.lasti = curr_frame.labels.get(target).unwrap().clone();
                 //}
                 let x = obj.borrow();
-                let result: bool = match *x {
-                    PyObject::Boolean { ref value } => {
+                let result: bool = match x.kind {
+                    PyObjectKind::Boolean { ref value } => {
                         *value
                     },
                     _ => {
