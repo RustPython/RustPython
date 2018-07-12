@@ -37,6 +37,7 @@ pub enum Instruction {
     LoadConst { value: Constant },
     UnaryOperation { op: UnaryOperator },
     BinaryOperation { op: BinaryOperator },
+    LoadAttr { name: String },
     CompareOperation { op: ComparisonOperator },
     Pop,
     Rotate { amount: usize },

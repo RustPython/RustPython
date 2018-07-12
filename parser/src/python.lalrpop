@@ -187,6 +187,7 @@ AtomExpr: ast::Expression = {
   <e:Atom> => e,
   <f:AtomExpr>  "(" <a:FunctionArguments> ")" => ast::Expression::Call { function: Box::new(f), args: a },
   <e:AtomExpr>  "[" <s:Subscript> "]" => ast::Expression::Binop { a: Box::new(e), op: ast::Operator::Subscript, b: Box::new(s) },
+  <e:AtomExpr> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
 };
 
 Subscript: ast::Expression = {
@@ -256,6 +257,7 @@ extern {
         "+" => lexer::Tok::Plus,
         "-" => lexer::Tok::Minus,
         ":" => lexer::Tok::Colon,
+        "." => lexer::Tok::Dot,
         "," => lexer::Tok::Comma,
         "*" => lexer::Tok::Star,
         "&" => lexer::Tok::Amper,

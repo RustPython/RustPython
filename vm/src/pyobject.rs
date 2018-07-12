@@ -16,6 +16,10 @@ Basically reference counting, but then done by rust.
 */
 
 /*
+ * Good reference: https://github.com/ProgVal/pythonvm-rust/blob/master/src/objects/mod.rs
+ */
+
+/*
 The PyRef type implements
 https://doc.rust-lang.org/std/cell/index.html#introducing-mutability-inside-of-something-immutable
 */
@@ -72,6 +76,7 @@ pub enum PyObjectKind {
     Function {
         code: bytecode::CodeObject,
     },
+    Module,
     None,
     Type,
     RustFunction {
@@ -162,6 +167,10 @@ impl PyObject {
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(RefCell::new(self))
+    }
+
+    pub fn new_int(i: i32) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Integer { value: i })
     }
 }
 

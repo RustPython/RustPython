@@ -1,6 +1,8 @@
 
 /*
  * Implement virtual machine to run instructions.
+ * See also:
+ *   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
  */
 
 extern crate rustpython_parser;
@@ -37,7 +39,6 @@ struct Frame {
     blocks: Vec<Block>,  // Block frames, for controling loops and exceptions
     globals: HashMap<String, PyObjectRef>, // Variables
     locals: HashMap<String, PyObjectRef>, // Variables
-    labels: HashMap<usize, usize>, // Maps label id to line number, just for speedup
     lasti: usize, // index of last instruction ran
     // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
 }
@@ -49,7 +50,6 @@ pub struct VirtualMachine {
 impl Frame {
     pub fn new(code: Rc<bytecode::CodeObject>, callargs: HashMap<String, PyObjectRef>, globals: Option<HashMap<String, PyObjectRef>>) -> Frame {
         //populate the globals and locals
-        let labels = HashMap::new();
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         let globals = match globals {
             Some(g) => g,
@@ -69,7 +69,6 @@ impl Frame {
             // save the callargs as locals
             globals: locals.clone(),
             locals: locals,
-            labels: labels,
             lasti: 0,
         }
     }
@@ -109,8 +108,8 @@ impl VirtualMachine {
         self.frames.last_mut().unwrap()
     }
 
-    fn pop_frame(&mut self) {
-        self.frames.pop().unwrap();
+    fn pop_frame(&mut self) -> Frame {
+        self.frames.pop().unwrap()
     }
 
     fn push_value(&mut self, obj: PyObjectRef) {
@@ -125,14 +124,17 @@ impl VirtualMachine {
         self.current_frame().pop_multiple(count)
     }
 
-    fn run(&mut self, code: Rc<bytecode::CodeObject>) -> Result<PyObjectRef, PyObjectRef> {
-        let frame = Frame::new(code, HashMap::new(), None);
-        self.run_frame(frame)
+    fn store_name(&mut self, name: String, obj: PyObjectRef) {
+        self.current_frame().locals.insert(name, obj);
     }
 
-    // The Option<i32> is the return value of the frame, remove when we have implemented frame
+    fn run(&mut self, code: Rc<bytecode::CodeObject>) -> Result<PyObjectRef, PyObjectRef> {
+        let frame = Frame::new(code, HashMap::new(), None);
+        self.run_frame(frame).0
+    }
+
     // TODO: read the op codes directly from the internal code object
-    fn run_frame(&mut self, mut frame: Frame) -> Result<PyObjectRef, PyObjectRef> {
+    fn run_frame(&mut self, mut frame: Frame) -> (Result<PyObjectRef, PyObjectRef>, Frame) {
         self.frames.push(frame);
 
         // Execute until return or exception:
@@ -155,9 +157,12 @@ impl VirtualMachine {
             //}
         };
 
-        self.pop_frame();
-        value
+        let frame2 = self.pop_frame();
+        (value, frame2)
     }
+/*
+    fn run_code(&mut self, code: i32) -> Result<PyCodeObject, PyCodeObject> {
+    }*/
 
     fn subscript(&mut self, a: &PyObject, b: &PyObject) -> PyObjectRef {
         // debug!("tos: {:?}, tos1: {:?}", tos, tos1);
@@ -274,7 +279,7 @@ impl VirtualMachine {
             }
             PyObjectKind::Function { ref code } => {
                 let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
-                self.run_frame(frame)
+                self.run_frame(frame).0
             }
             _ => {
                 println!("Not impl {:?}", f);
@@ -293,9 +298,19 @@ impl VirtualMachine {
               debug!("Got ast: {:?}", program);
               let bytecode = compile(program);
               debug!("Code object: {:?}", bytecode);
-              let obj = PyObject::new(PyObjectKind::Code { code: bytecode });
-              // TODO: execute in global object namespace
-              // vm.evaluate(bytecode);
+              // let obj = PyObject::new(PyObjectKind::Code { code: bytecode });
+              let obj = PyObject::new(PyObjectKind::Module);
+
+              // As a sort of hack, create a frame and run code in it
+              let frame = Frame::new(Rc::new(bytecode), HashMap::new(), None);
+              let frame2 = self.run_frame(frame).1;
+
+              // TODO: we might find a better solution than this:
+              for (name, member_obj) in frame2.locals.iter() {
+                  obj.borrow_mut().dict.insert(name.to_string(), member_obj.clone());
+              }
+
+              // Push module on stack:
               self.push_value(obj);
               None
             },
@@ -303,6 +318,13 @@ impl VirtualMachine {
                 panic!("Error: {}", value);
             }
         }
+    }
+
+    fn load_attr(&mut self, name: String) {
+        let parent = self.pop_value();
+        // Lookup name in obj
+        let obj = parent.borrow().dict[&name].clone();
+        self.push_value(obj);
     }
 
     // Execute a single instruction:
@@ -325,7 +347,7 @@ impl VirtualMachine {
         match &instruction {
             &bytecode::Instruction::LoadConst { ref value } => {
                 let obj = match value {
-                    &bytecode::Constant::Integer { ref value } => { PyObject::new(PyObjectKind::Integer { value: *value }) },
+                    &bytecode::Constant::Integer { ref value } => PyObject::new_int(*value),
                     // &bytecode::Constant::Float
                     &bytecode::Constant::String { ref value } => { PyObject::new(PyObjectKind::String { value: value.clone() }) },
                     &bytecode::Constant::Code { ref code } => { PyObject::new(PyObjectKind::Code { code: code.clone() }) },
@@ -352,7 +374,7 @@ impl VirtualMachine {
             &bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:
                 let obj = self.pop_value();
-                self.current_frame().locals.insert(name.clone(), obj);
+                self.store_name(name.clone(), obj);
                 None
             },
             &bytecode::Instruction::Pop => {
@@ -407,6 +429,10 @@ impl VirtualMachine {
             },
             &bytecode::Instruction::BinaryOperation { ref op } => {
                 self.execute_binop(op);
+                None
+            },
+            &bytecode::Instruction::LoadAttr { ref name } => {
+                self.load_attr(name.to_string());
                 None
             },
             &bytecode::Instruction::UnaryOperation { ref op } => {

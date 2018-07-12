@@ -65,10 +65,15 @@ pub fn len(args: Vec<Rc<NativeType>>) -> NativeType {
 }
 */
 
-pub fn fill_scope() {
+pub fn fill_scope() -> PyObjectRef {
     // scope[String::from("print")] = print;
+    let obj = PyObject::new(PyObjectKind::Module);
+    obj.borrow_mut().dict.insert(String::from("print"), PyObject::new(PyObjectKind::RustFunction { function: print }));
+    obj
 }
 
 fn any() {}
 
 fn all() {}
+
+

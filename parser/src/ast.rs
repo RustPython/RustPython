@@ -90,6 +90,10 @@ pub enum Expression {
         op: Comparison,
         b: Box<Expression>,
     },
+    Attribute {
+        value: Box<Expression>,
+        name: String,
+    },
     Call {
         function: Box<Expression>,
         args: Vec<Expression>,

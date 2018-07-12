@@ -252,6 +252,10 @@ impl Compiler {
                 let i = Instruction::UnaryOperation { op: i };
                 self.emit(i);
             }
+            ast::Expression::Attribute { value, name } => {
+                self.compile_expression(*value);
+                self.emit(Instruction::LoadAttr { name: name });
+            }
             ast::Expression::Compare { a, op, b } => {
                 self.compile_expression(*a);
                 self.compile_expression(*b);
