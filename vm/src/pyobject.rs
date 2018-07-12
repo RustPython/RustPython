@@ -4,6 +4,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::{Add, Mul, Sub};
 use super::bytecode;
+use super::objint;
+use super::objtype;
 
 /* Python objects and references.
 
@@ -32,6 +34,23 @@ impl fmt::Display for PyObjectRef {
         write!(f, "Obj {:?}", self)
     }
 }*/
+
+pub struct Context {
+    int_type: PyObjectRef,
+}
+
+// Basic objects:
+impl Context {
+    fn new() -> Context {
+        let type_type = objint::create_type();
+        let int_type = objint::create_type();
+        // let str_type = objstr::make_type();
+        Context {
+            // type_type: type_type,
+            int_type: int_type,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct PyObject {
@@ -95,6 +114,7 @@ impl PyObject {
     pub fn new(kind: PyObjectKind) -> PyObjectRef {
         PyObject {
             kind: kind,
+            // typ: PyO
             dict: HashMap::new(),
         }.into_ref()
     }
@@ -171,6 +191,10 @@ impl PyObject {
 
     pub fn new_int(i: i32) -> PyObjectRef {
         PyObject::new(PyObjectKind::Integer { value: i })
+    }
+
+    pub fn new_str(s: String) -> PyObjectRef {
+        PyObject::new(PyObjectKind::String { value: s })
     }
 }
 

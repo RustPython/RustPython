@@ -45,6 +45,7 @@ struct Frame {
 
 pub struct VirtualMachine {
     frames: Vec<Frame>,
+    builtins: PyObjectRef,
 }
 
 impl Frame {
@@ -58,9 +59,6 @@ impl Frame {
         let mut locals = globals;
         locals.extend(callargs);
 
-        //TODO: move this into the __builtin__ module when we have a module type
-        locals.insert(String::from("print"), PyObject::new(PyObjectKind::RustFunction { function: builtins::print }));
-        // locals.insert("print".to_string(), Rc::new(NativeType::NativeFunction(builtins::print)));
         // locals.insert("len".to_string(), Rc::new(NativeType::NativeFunction(builtins::len)));
         Frame {
             code: code,
@@ -88,6 +86,7 @@ impl VirtualMachine {
     pub fn new() -> VirtualMachine {
         VirtualMachine {
             frames: vec![],
+            builtins: builtins::make_module(),
         }
     }
 
@@ -298,7 +297,6 @@ impl VirtualMachine {
               debug!("Got ast: {:?}", program);
               let bytecode = compile(program);
               debug!("Code object: {:?}", bytecode);
-              // let obj = PyObject::new(PyObjectKind::Code { code: bytecode });
               let obj = PyObject::new(PyObjectKind::Module);
 
               // As a sort of hack, create a frame and run code in it
@@ -364,6 +362,10 @@ impl VirtualMachine {
                 // Lookup name in scope and put it onto the stack!
                 if self.current_frame().locals.contains_key(name) {
                     let obj = self.current_frame().locals[name].clone();
+                    self.push_value(obj);
+                    None
+                } else if self.builtins.borrow().dict.contains_key(name) {
+                    let obj = self.builtins.borrow().dict[name].clone();
                     self.push_value(obj);
                     None
                 } else {

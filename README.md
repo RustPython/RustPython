@@ -16,6 +16,11 @@ Or use pip to install extra modules:
 
     $ cargo run -m pip install requests
 
+# Goals
+
+- Full python environment entirely in Rust (not CPython bindings)
+- A clean implementation without compatibility hacks
+
 # Code organization
 
     - parser: python lexing, parsing and ast
