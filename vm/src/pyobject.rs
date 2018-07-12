@@ -110,8 +110,18 @@ impl PyObject {
         match self.kind {
             PyObjectKind::String { ref value } => value.clone(),
             PyObjectKind::Integer { ref value } => format!("{:?}", value),
-            PyObjectKind::List { ref elements } => format!("{:?}", elements),
-            PyObjectKind::Tuple { ref elements } => format!("{:?}", elements),
+            PyObjectKind::List { ref elements } => {
+                format!("[{}]", elements.iter()
+                    .map(|elem| elem.borrow_mut().str())
+                    .collect::<Vec<_>>()
+                    .join(", "))
+            }
+            PyObjectKind::Tuple { ref elements } => {
+                format!("{{{}}}", elements.iter()
+                    .map(|elem| elem.borrow_mut().str())
+                    .collect::<Vec<_>>()
+                    .join(", "))
+            }
             PyObjectKind::None => String::from("None"),
             _ => {
                 println!("Not impl {:?}", self);
