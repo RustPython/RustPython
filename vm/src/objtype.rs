@@ -1,9 +1,8 @@
-
 /*
  * The magical type type
  */
 
-use super::pyobject::{PyObject, PyObjectRef, PyObjectKind};
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef};
 
 pub fn create_type() -> PyObjectRef {
     let mut typ = PyObject::new(PyObjectKind::Type);

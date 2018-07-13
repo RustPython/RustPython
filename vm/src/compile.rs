@@ -33,7 +33,9 @@ impl Compiler {
         assert!(self.code_object_stack.len() == 1);
 
         // Emit None at end:
-        self.emit(Instruction::LoadConst { value: bytecode::Constant::None });
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::None,
+        });
         self.emit(Instruction::ReturnValue);
 
         self.code_object_stack.pop().unwrap()
@@ -71,10 +73,14 @@ impl Compiler {
                 self.set_label(start_label);
 
                 self.compile_expression(test);
-                self.emit(Instruction::UnaryOperation { op: bytecode::UnaryOperator::Not });
+                self.emit(Instruction::UnaryOperation {
+                    op: bytecode::UnaryOperator::Not,
+                });
                 self.emit(Instruction::JumpIf { target: end_label });
                 self.compile_statements(body);
-                self.emit(Instruction::Jump { target: start_label });
+                self.emit(Instruction::Jump {
+                    target: start_label,
+                });
                 self.set_label(end_label);
             }
             ast::Statement::With { items, body } => {
@@ -124,8 +130,14 @@ impl Compiler {
                 self.code_object_stack.push(CodeObject::new());
                 self.compile_statements(body);
                 let code = self.code_object_stack.pop().unwrap();
-                self.emit(Instruction::LoadConst { value: bytecode::Constant::Code { code: code } });
-                self.emit(Instruction::LoadConst { value: bytecode::Constant::String { value: name.clone() } });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Code { code: code },
+                });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: name.clone(),
+                    },
+                });
 
                 // Turn code object into function object:
                 self.emit(Instruction::MakeFunction);
@@ -141,7 +153,7 @@ impl Compiler {
 
                 // if true, jump over raise:
                 let end_label = self.new_label();
-                self.emit(Instruction::JumpIf { target: end_label } );
+                self.emit(Instruction::JumpIf { target: end_label });
 
                 self.emit(Instruction::LoadName {
                     name: String::from("AssertionError"),
@@ -272,7 +284,9 @@ impl Compiler {
                 self.emit(i);
             }
             ast::Expression::Number { value } => {
-                self.emit(Instruction::LoadConst { value: bytecode::Constant::Integer { value: value } });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Integer { value: value },
+                });
             }
             ast::Expression::List { elements } => {
                 let size = elements.len();
@@ -296,16 +310,24 @@ impl Compiler {
                 self.emit(Instruction::BuildSlice { size: size });
             }
             ast::Expression::True => {
-                self.emit(Instruction::LoadConst { value: bytecode::Constant::Integer { value: 1 } });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Integer { value: 1 },
+                });
             }
             ast::Expression::False => {
-                self.emit(Instruction::LoadConst { value: bytecode::Constant::Integer { value: 0 } });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Integer { value: 0 },
+                });
             }
             ast::Expression::None => {
-                self.emit(Instruction::LoadConst { value: bytecode::Constant::None });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
             }
             ast::Expression::String { value } => {
-                self.emit(Instruction::LoadConst { value: bytecode::Constant::String { value: value } });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String { value: value },
+                });
             }
             ast::Expression::Identifier { name } => {
                 self.emit(Instruction::LoadName { name });

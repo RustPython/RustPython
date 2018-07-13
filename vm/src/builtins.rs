@@ -1,8 +1,7 @@
-use std::ops::Deref;
+// use std::ops::Deref;
 use std::io::{self, Write};
 
-use super::pyobject::{PyObjectRef, PyObject, PyObjectKind};
-
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 /*
  * Original impl:
@@ -68,12 +67,25 @@ pub fn len(args: Vec<Rc<NativeType>>) -> NativeType {
 pub fn make_module() -> PyObjectRef {
     // scope[String::from("print")] = print;
     let obj = PyObject::new(PyObjectKind::Module);
-    obj.borrow_mut().dict.insert(String::from("print"), PyObject::new(PyObjectKind::RustFunction { function: print }));
+    obj.borrow_mut().dict.insert(
+        String::from("print"),
+        PyObject::new(PyObjectKind::RustFunction { function: print }),
+    );
+    obj.borrow_mut().dict.insert(
+        String::from("all"),
+        PyObject::new(PyObjectKind::RustFunction { function: all }),
+    );
+    obj.borrow_mut().dict.insert(
+        String::from("any"),
+        PyObject::new(PyObjectKind::RustFunction { function: any }),
+    );
     obj
 }
 
-fn any() {}
+fn any(args: Vec<PyObjectRef>) -> PyResult {
+    Ok(PyObject::new_bool(true))
+}
 
-fn all() {}
-
-
+fn all(args: Vec<PyObjectRef>) -> PyResult {
+    Ok(PyObject::new_bool(true))
+}
