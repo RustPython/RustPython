@@ -16,7 +16,7 @@ use self::rustpython_parser::parse;
 use super::builtins;
 use super::bytecode;
 use super::compile::compile;
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, PyContext, Executor};
 
 // use objects::objects;
 
@@ -44,6 +44,7 @@ struct Frame {
 pub struct VirtualMachine {
     frames: Vec<Frame>,
     builtins: PyObjectRef,
+    ctx: PyContext,
 }
 
 fn str_pos(s: &String, p: i32) -> usize {
@@ -93,11 +94,41 @@ impl Frame {
     }
 }
 
+impl Executor for VirtualMachine {
+    fn call(&mut self, f: PyObjectRef) -> PyResult {
+        self.invoke(f, Vec::new())
+    }
+
+    fn new_str(&self, s: String) -> PyObjectRef {
+        self.ctx.new_str(s)
+    }
+
+    fn new_bool(&self, b: bool) -> PyObjectRef {
+        self.ctx.new_bool(b)
+    }
+
+    fn get_none(&self) -> PyObjectRef {
+        // TODO
+        self.ctx.new_bool(false)
+    }
+
+    fn get_type(&self) -> PyObjectRef {
+        self.ctx.type_type.clone()
+    }
+
+    fn context(&self) -> &PyContext {
+        &self.ctx
+    }
+}
+
 impl VirtualMachine {
     pub fn new() -> VirtualMachine {
+        let ctx = PyContext::new();
+        let builtins = builtins::make_module(&ctx);
         VirtualMachine {
             frames: vec![],
-            builtins: builtins::make_module(),
+            builtins: builtins,
+            ctx: ctx,
         }
     }
 
@@ -144,7 +175,7 @@ impl VirtualMachine {
     }
 
     // TODO: read the op codes directly from the internal code object
-    fn run_frame(&mut self, mut frame: Frame) -> (PyResult, Frame) {
+    fn run_frame(&mut self, frame: Frame) -> (PyResult, Frame) {
         self.frames.push(frame);
 
         // Execute until return or exception:
@@ -231,9 +262,7 @@ impl VirtualMachine {
                     &None => 1 as usize,
                     _ => unimplemented!(),
                 };
-                PyObject::new(PyObjectKind::String {
-                    value: value[start2..stop2].to_string(),
-                })
+                self.ctx.new_str(value[start2..stop2].to_string())
             }
             // TODO: implement other Slice possibilities
             _ => panic!(
@@ -251,9 +280,9 @@ impl VirtualMachine {
         // TODO: if the left hand side provides __add__, invoke that function.
         //
         let result = match op {
-            &bytecode::BinaryOperator::Subtract => PyObject::new(a - b),
-            &bytecode::BinaryOperator::Add => PyObject::new(a + b),
-            &bytecode::BinaryOperator::Multiply => PyObject::new(a * b),
+            &bytecode::BinaryOperator::Subtract => PyObject::new(a - b, self.get_type()),
+            &bytecode::BinaryOperator::Add => PyObject::new(a + b, self.get_type()),
+            &bytecode::BinaryOperator::Multiply => PyObject::new(a * b, self.get_type()),
             // &bytecode::BinaryOperator::Div => a / b,
             &bytecode::BinaryOperator::Subscript => self.subscript(a, b),
             _ => panic!("NOT IMPL {:?}", op),
@@ -270,7 +299,7 @@ impl VirtualMachine {
                 // self.invoke('__neg__'
                 match a.kind {
                     PyObjectKind::Integer { value: ref value1 } => {
-                        PyObject::new(PyObjectKind::Integer { value: -*value1 })
+                        self.ctx.new_int(-*value1)
                     }
                     _ => panic!("Not impl {:?}", a),
                 }
@@ -290,7 +319,7 @@ impl VirtualMachine {
             &bytecode::ComparisonOperator::NotEqual => (a != b),
             _ => panic!("NOT IMPL {:?}", op),
         };
-        let result = PyObject::new(PyObjectKind::Boolean { value: result_bool });
+        let result = self.ctx.new_bool(result_bool);
         self.push_value(result);
     }
 
@@ -298,7 +327,7 @@ impl VirtualMachine {
         let f = func_ref.borrow();
 
         match f.kind {
-            PyObjectKind::RustFunction { ref function } => f.call(args),
+            PyObjectKind::RustFunction { ref function } => f.call(self, args),
             PyObjectKind::Function { ref code } => {
                 let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
                 self.run_frame(frame).0
@@ -320,7 +349,7 @@ impl VirtualMachine {
                 debug!("Got ast: {:?}", program);
                 let bytecode = compile(program);
                 debug!("Code object: {:?}", bytecode);
-                let obj = PyObject::new(PyObjectKind::Module);
+                let obj = PyObject::new(PyObjectKind::Module, self.get_type());
 
                 // As a sort of hack, create a frame and run code in it
                 let frame = Frame::new(Rc::new(bytecode), HashMap::new(), None);
@@ -370,17 +399,15 @@ impl VirtualMachine {
         match &instruction {
             &bytecode::Instruction::LoadConst { ref value } => {
                 let obj = match value {
-                    &bytecode::Constant::Integer { ref value } => PyObject::new_int(*value),
+                    &bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
                     // &bytecode::Constant::Float
                     &bytecode::Constant::String { ref value } => {
-                        PyObject::new(PyObjectKind::String {
-                            value: value.clone(),
-                        })
+                        self.new_str(value.clone())
                     }
                     &bytecode::Constant::Code { ref code } => {
-                        PyObject::new(PyObjectKind::Code { code: code.clone() })
+                        PyObject::new(PyObjectKind::Code { code: code.clone() }, self.get_type())
                     }
-                    &bytecode::Constant::None => PyObject::new(PyObjectKind::None),
+                    &bytecode::Constant::None => PyObject::new(PyObjectKind::None, self.get_type()),
                 };
                 self.push_value(obj);
                 None
@@ -402,7 +429,7 @@ impl VirtualMachine {
                 } else {
                     let name_error = PyObject::new(PyObjectKind::NameError {
                         name: name.to_string(),
-                    });
+                    }, self.get_type());
                     Some(Err(name_error))
                 }
             }
@@ -419,13 +446,13 @@ impl VirtualMachine {
             }
             &bytecode::Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(size);
-                let list_obj = PyObject::new(PyObjectKind::List { elements: elements });
+                let list_obj = PyObject::new(PyObjectKind::List { elements: elements }, self.get_type());
                 self.push_value(list_obj);
                 None
             }
             &bytecode::Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(size);
-                let list_obj = PyObject::new(PyObjectKind::Tuple { elements: elements });
+                let list_obj = PyObject::new(PyObjectKind::Tuple { elements: elements }, self.get_type());
                 self.push_value(list_obj);
                 None
             }
@@ -457,7 +484,7 @@ impl VirtualMachine {
                 let stop = out[1];
                 let step = if out.len() == 3 { out[2] } else { None };
 
-                let obj = PyObject::new(PyObjectKind::Slice { start, stop, step });
+                let obj = PyObject::new(PyObjectKind::Slice { start, stop, step }, self.ctx.type_type.clone());
                 self.push_value(obj);
                 None
             }
@@ -531,7 +558,8 @@ impl VirtualMachine {
                 };
                 // pop argc arguments
                 // argument: name, args, globals
-                self.push_value(PyObject::new(PyObjectKind::Function { code: code_obj }));
+                let obj = PyObject::new(PyObjectKind::Function { code: code_obj }, self.get_type());
+                self.push_value(obj);
                 None
             }
             &bytecode::Instruction::CallFunction { count } => {

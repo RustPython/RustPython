@@ -1,7 +1,7 @@
 // use std::ops::Deref;
 use std::io::{self, Write};
 
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, PyContext, Executor};
 
 /*
  * Original impl:
@@ -37,7 +37,7 @@ pub fn print(args: Vec<Rc<NativeType>>) -> NativeType {
 }
 */
 
-pub fn print(args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
+pub fn print(rt: &mut Executor, args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
     // println!("Woot: {:?}", args);
     trace!("print called with {:?}", args);
     for a in args {
@@ -45,7 +45,7 @@ pub fn print(args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
     }
     println!();
     io::stdout().flush().unwrap();
-    Ok(PyObject::new(PyObjectKind::None))
+    Ok(rt.get_none())
 }
 
 /*
@@ -64,28 +64,34 @@ pub fn len(args: Vec<Rc<NativeType>>) -> NativeType {
 }
 */
 
-pub fn make_module() -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
-    let obj = PyObject::new(PyObjectKind::Module);
+    let obj = PyObject::new(PyObjectKind::Module, ctx.type_type.clone());
     obj.borrow_mut().dict.insert(
         String::from("print"),
-        PyObject::new(PyObjectKind::RustFunction { function: print }),
+        PyObject::new(PyObjectKind::RustFunction { function: print }, ctx.type_type.clone()),
+    );
+    obj.borrow_mut().dict.insert(
+        String::from("type"),
+        ctx.type_type.clone(),
     );
     obj.borrow_mut().dict.insert(
         String::from("all"),
-        PyObject::new(PyObjectKind::RustFunction { function: all }),
+        PyObject::new(PyObjectKind::RustFunction { function: all }, ctx.type_type.clone()),
     );
     obj.borrow_mut().dict.insert(
         String::from("any"),
-        PyObject::new(PyObjectKind::RustFunction { function: any }),
+        PyObject::new(PyObjectKind::RustFunction { function: any }, ctx.type_type.clone()),
     );
     obj
 }
 
-fn any(args: Vec<PyObjectRef>) -> PyResult {
-    Ok(PyObject::new_bool(true))
+fn any(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    // TODO
+    Ok(rt.new_bool(true))
 }
 
-fn all(args: Vec<PyObjectRef>) -> PyResult {
-    Ok(PyObject::new_bool(true))
+fn all(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    // TODO
+    Ok(rt.new_bool(true))
 }

@@ -1,11 +1,11 @@
 use std::rc::Rc;
-// use std::fmt;
+use std::fmt;
 use super::bytecode;
 use super::objint;
+use super::objtype;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::{Add, Mul, Sub};
-// use super::objtype;
 
 /* Python objects and references.
 
@@ -36,35 +36,66 @@ impl fmt::Display for PyObjectRef {
     }
 }*/
 
-pub struct Context {
-    int_type: PyObjectRef,
+#[derive(Debug)]
+pub struct PyContext {
+    pub type_type: PyObjectRef,
+    pub int_type: PyObjectRef,
 }
 
 // Basic objects:
-impl Context {
-    fn new() -> Context {
-        let type_type = objint::create_type();
-        let int_type = objint::create_type();
+impl PyContext {
+    pub fn new() -> PyContext {
+        let type_type = objtype::create_type();
+        let int_type = objint::create_type(type_type.clone());
         // let str_type = objstr::make_type();
-        Context {
-            // type_type: type_type,
+        PyContext {
+            type_type: type_type,
             int_type: int_type,
         }
+    }
+
+    pub fn new_int(&self, i: i32) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Integer { value: i }, self.type_type.clone())
+    }
+
+    pub fn new_str(&self, s: String) -> PyObjectRef {
+        PyObject::new(PyObjectKind::String { value: s }, self.type_type.clone())
+    }
+
+    pub fn new_bool(&self, b: bool) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Boolean { value: b }, self.type_type.clone())
     }
 }
 
 pub trait Executor {
-    fn call(&self, PyObjectRef) -> PyResult;
+    fn call(&mut self, PyObjectRef) -> PyResult;
+    fn new_str(&self, s: String) -> PyObjectRef;
+    fn new_bool(&self, b: bool) -> PyObjectRef;
+    fn get_none(&self) -> PyObjectRef;
+    fn get_type(&self) -> PyObjectRef;
+    fn context(&self) -> &PyContext;
 }
 
 #[derive(Debug)]
 pub struct PyObject {
     pub kind: PyObjectKind,
-    // typ: PyObjectRef,
+    pub typ: Option<PyObjectRef>,
     pub dict: HashMap<String, PyObjectRef>, // __dict__ member
 }
 
-#[derive(Debug)]
+impl Default for PyObject {
+    fn default() -> PyObject {
+        PyObject {
+            kind: PyObjectKind::None,
+            typ: None,
+            dict: HashMap::new(),
+        }
+    }
+}
+
+type RustPyFunc = fn(rt: &mut Executor, Vec<PyObjectRef>) -> PyResult;
+
+// #[derive(Debug)]
 pub enum PyObjectKind {
     String {
         value: String,
@@ -105,22 +136,28 @@ pub enum PyObjectKind {
     None,
     Type,
     RustFunction {
-        function: fn(Vec<PyObjectRef>) -> PyResult,
+        function: RustPyFunc,
     },
 }
 
+impl fmt::Debug for PyObjectKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Some kind of python obj")
+    }
+}
+
 impl PyObject {
-    pub fn new(kind: PyObjectKind) -> PyObjectRef {
+    pub fn new(kind: PyObjectKind, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             kind: kind,
-            // typ: PyO
+            typ: Some(typ),
             dict: HashMap::new(),
         }.into_ref()
     }
 
-    pub fn call(&self, args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
+    pub fn call(&self, rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
         match self.kind {
-            PyObjectKind::RustFunction { ref function } => function(args),
+            PyObjectKind::RustFunction { ref function } => function(rt, args),
             _ => {
                 println!("Not impl {:?}", self);
                 panic!("Not impl");
@@ -190,17 +227,6 @@ impl PyObject {
         Rc::new(RefCell::new(self))
     }
 
-    pub fn new_int(i: i32) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Integer { value: i })
-    }
-
-    pub fn new_str(s: String) -> PyObjectRef {
-        PyObject::new(PyObjectKind::String { value: s })
-    }
-
-    pub fn new_bool(b: bool) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Boolean { value: b })
-    }
 }
 
 impl<'a> Add<&'a PyObject> for &'a PyObject {
@@ -319,12 +345,13 @@ impl PartialEq for PyObject {
 
 #[cfg(test)]
 mod tests {
-    use super::{PyObject, PyObjectKind, PyObjectRef};
+    use super::{PyObjectKind, PyContext};
 
     #[test]
     fn test_add_py_integers() {
-        let a = PyObject::new_int(33);
-        let b = PyObject::new_int(12);
+        let ctx = PyContext::new();
+        let a = ctx.new_int(33);
+        let b = ctx.new_int(12);
         let c = &*a.borrow() + &*b.borrow();
         match c {
             PyObjectKind::Integer { value } => assert_eq!(value, 45),
@@ -334,8 +361,9 @@ mod tests {
 
     #[test]
     fn test_multiply_str() {
-        let a = PyObject::new_str(String::from("Hello "));
-        let b = PyObject::new_int(4);
+        let ctx = PyContext::new();
+        let a = ctx.new_str(String::from("Hello "));
+        let b = ctx.new_int(4);
         let c = &*a.borrow() * &*b.borrow();
         match c {
             PyObjectKind::String { value } => {
@@ -345,4 +373,8 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_type_type() {
+        let ctx = PyContext::new();
+    }
 }
