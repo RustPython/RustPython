@@ -94,15 +94,36 @@ AssertStatement: ast::Statement = {
 };
 
 CompoundStatement: ast::Statement = {
-  "if" <e:Test> ":" <s:Suite> => ast::Statement::If { test: e, body: s },
-  "while" <e:Test> ":" <s:Suite> => ast::Statement::While { test: e, body: s },
-  "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> => ast::Statement::For { target: e, iter: t, body: s, or_else: None },
-  "def" <i:Identifier> "(" ")" ":" <s:Suite> => ast::Statement::FunctionDef { name: i, body: s },
+  IfStatement,
+  WhileStatement,
+  ForStatement,
   WithStatement,
+  FuncDef,
+  ClassDef,
+};
+
+IfStatement: ast::Statement = {
+  "if" <e:Test> ":" <s:Suite> => ast::Statement::If { test: e, body: s },
+};
+
+WhileStatement: ast::Statement = {
+  "while" <e:Test> ":" <s:Suite> => ast::Statement::While { test: e, body: s },
+};
+
+ForStatement: ast::Statement = {
+  "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> => ast::Statement::For { target: e, iter: t, body: s, or_else: None },
 };
 
 WithStatement: ast::Statement = {
   "with" <t:Test> "as" <e:Expression> ":" <s:Suite> => ast::Statement::With { items: t, body: s },
+};
+
+FuncDef: ast::Statement = {
+  "def" <i:Identifier> "(" ")" ":" <s:Suite> => ast::Statement::FunctionDef { name: i, body: s },
+};
+
+ClassDef: ast::Statement = {
+  "class" <n:Identifier> <a:("(" ")")?> ":" <s:Suite> => ast::Statement::ClassDef { name: n },
 };
 
 Test: ast::Expression = {
@@ -139,7 +160,7 @@ CompOp: ast::Comparison = {
   "is" "not" => ast::Comparison::IsNot,
 };
 
-Expression: ast::Expression = {
+pub Expression: ast::Expression = {
   <e1:Expression> "|" <e2:XorExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitOr, b: Box::new(e2) },
   <e:XorExpression> => e,
 };

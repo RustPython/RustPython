@@ -1,15 +1,12 @@
 extern crate rustpython_parser;
 
-use self::rustpython_parser::parser::parse_source;
 use super::compile;
-use super::pyobject::PyObjectRef;
+use super::pyobject::PyResult;
 use super::vm::VirtualMachine;
 
-pub fn eval(vm: &mut VirtualMachine, source: &String) -> Result<PyObjectRef, PyObjectRef> {
-    match parse_source(source) {
-        Ok(program) => {
-            debug!("Got ast: {:?}", program);
-            let bytecode = compile::compile(program, compile::Mode::Eval);
+pub fn eval(vm: &mut VirtualMachine, source: &String) -> PyResult {
+    match compile::compile(source, compile::Mode::Eval) {
+        Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             vm.evaluate(bytecode)
         }

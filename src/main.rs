@@ -8,8 +8,7 @@ extern crate rustpython_parser;
 extern crate rustpython_vm;
 
 use clap::{App, Arg};
-use rustpython_parser::parse;
-use rustpython_parser::parser::parse_source;
+use rustpython_parser::parser;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::compile;
 use rustpython_vm::eval::eval;
@@ -45,10 +44,9 @@ fn run_script(script_file: &String) {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let filepath = Path::new(script_file);
-    match parse(filepath) {
-        Ok(program) => {
-            debug!("Got ast: {:?}", program);
-            let bytecode = compile::compile(program, compile::Mode::Exec);
+    match parser::read_file(filepath) {
+        Ok(source) => {
+            let bytecode = compile::compile(&source, compile::Mode::Exec).unwrap();
             debug!("Code object: {:?}", bytecode);
             vm.evaluate(bytecode);
         }
@@ -60,14 +58,15 @@ fn run_script(script_file: &String) {
 }
 
 fn run_shell() {
-    println!("Welcome to the magnificent Rust Python interpreter");
+    println!("Welcome to the magnificent Rust Python {} interpreter", crate_version!());
     let mut vm = VirtualMachine::new();
     // Read a single line:
     loop {
         let mut input = String::new();
-        print!(">>>");
+        print!(">>>>> ");  // Use 5 items. pypy has 4, cpython has 3.
         io::stdout().flush().ok().expect("Could not flush stdout");
         io::stdin().read_line(&mut input);
+        input = input.trim().to_string();
         debug!("You entered {:?}", input);
         let result = eval(&mut vm, &input);
         match result {

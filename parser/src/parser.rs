@@ -7,7 +7,7 @@ use super::python;
 use super::ast;
 use super::lexer;
 
-fn read_file(filename: &Path) -> Result<String, String> {
+pub fn read_file(filename: &Path) -> Result<String, String> {
     match File::open(&filename) {
         Ok(mut file) => {
             let mut s = String::new();
@@ -32,15 +32,23 @@ pub fn parse(filename: &Path) -> Result<ast::Program, String> {
     match read_file(filename) {
         Ok(txt) => {
             debug!("Read contents of file: {}", txt);
-            parse_source(&txt)
+            parse_program(&txt)
         }
         Err(msg) => Err(msg),
     }
 }
 
-pub fn parse_source(source: &String) -> Result<ast::Program, String> {
+pub fn parse_program(source: &String) -> Result<ast::Program, String> {
     let lxr = lexer::Lexer::new(&source);
     match python::ProgramParser::new().parse(lxr) {
+        Err(why) => Err(String::from(format!("{:?}", why))),
+        Ok(p) => Ok(p),
+    }
+}
+
+pub fn parse_expression(source: &String) -> Result<ast::Expression, String> {
+    let lxr = lexer::Lexer::new(&source);
+    match python::ExpressionParser::new().parse(lxr) {
         Err(why) => Err(String::from(format!("{:?}", why))),
         Ok(p) => Ok(p),
     }
@@ -54,7 +62,7 @@ mod tests {
     #[test]
     fn test_parse_print_hello() {
         let source = String::from("print('Hello world')\n");
-        let parse_ast = parse_source(&source).unwrap();
+        let parse_ast = parse_program(&source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Program {

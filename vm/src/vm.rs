@@ -12,7 +12,7 @@ use std::rc::Rc;
 // use std::cell::RefMut;
 // use std::ops::Deref;
 
-use self::rustpython_parser::parse;
+use self::rustpython_parser::parser;
 use super::builtins;
 use super::bytecode;
 use super::compile;
@@ -371,10 +371,13 @@ impl VirtualMachine {
         let filename = format!("{}.py", name);
         let filepath = Path::new(&filename);
 
-        match parse(filepath) {
-            Ok(program) => {
-                debug!("Got ast: {:?}", program);
-                let bytecode = compile::compile(program, compile::Mode::Exec);
+        let source = match parser::read_file(filepath) {
+            Err(value) => panic!("Error: {}", value),
+            Ok(value) => value,
+        };
+
+        match compile::compile(&source, compile::Mode::Exec) {
+            Ok(bytecode) => {
                 debug!("Code object: {:?}", bytecode);
                 let obj = PyObject::new(PyObjectKind::Module { name: name.clone() }, self.get_type());
 

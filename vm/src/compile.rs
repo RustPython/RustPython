@@ -4,7 +4,7 @@
 
 extern crate rustpython_parser;
 
-use self::rustpython_parser::ast;
+use self::rustpython_parser::{ast, parser};
 use super::bytecode::{self, CodeObject, Instruction};
 
 struct Compiler {
@@ -12,9 +12,30 @@ struct Compiler {
     nxt_label: usize,
 }
 
-pub fn compile(p: ast::Program, mode: Mode) -> CodeObject {
+pub fn compile(source: &String, mode: Mode) -> Result<CodeObject, String> {
     let mut compiler = Compiler::new();
-    compiler.compile_program(p)
+    compiler.push_code_object(CodeObject::new());
+    match mode {
+        Mode::Exec => {
+            match parser::parse_program(source) {
+                Ok(ast) => {
+                    compiler.compile_program(ast);
+                    Ok(compiler.pop_code_object())
+                }
+                Err(msg) => Err(msg),
+            }
+        }
+        Mode::Eval => {
+            match parser::parse_expression(source) {
+                Ok(ast) => {
+                    compiler.compile_expression(ast);
+                    compiler.emit(Instruction::ReturnValue);
+                    Ok(compiler.pop_code_object())
+                }
+                Err(msg) => Err(msg),
+            }
+        }
+    }
 }
 
 pub enum Mode {
@@ -32,18 +53,24 @@ impl Compiler {
         }
     }
 
-    fn compile_program(&mut self, program: ast::Program) -> CodeObject {
+    fn push_code_object(&mut self, code_object: CodeObject) {
         self.code_object_stack.push(CodeObject::new());
+    }
+
+    fn pop_code_object(&mut self) -> CodeObject {
+        self.code_object_stack.pop().unwrap()
+    }
+
+    fn compile_program(&mut self, program: ast::Program) {
+        let size_before = self.code_object_stack.len();
         self.compile_statements(program.statements);
-        assert!(self.code_object_stack.len() == 1);
+        assert!(self.code_object_stack.len() == size_before);
 
         // Emit None at end:
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::None,
         });
         self.emit(Instruction::ReturnValue);
-
-        self.code_object_stack.pop().unwrap()
     }
 
     fn compile_statements(&mut self, statements: Vec<ast::Statement>) {
