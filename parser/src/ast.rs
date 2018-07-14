@@ -153,4 +153,8 @@ pub enum Comparison {
     LessOrEqual,
     Greater,
     GreaterOrEqual,
+    In,
+    NotIn,
+    Is,
+    IsNot,
 }

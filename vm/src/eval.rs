@@ -9,7 +9,7 @@ pub fn eval(vm: &mut VirtualMachine, source: &String) -> Result<PyObjectRef, PyO
     match parse_source(source) {
         Ok(program) => {
             debug!("Got ast: {:?}", program);
-            let bytecode = compile::compile(program);
+            let bytecode = compile::compile(program, compile::Mode::Eval);
             debug!("Code object: {:?}", bytecode);
             vm.evaluate(bytecode)
         }

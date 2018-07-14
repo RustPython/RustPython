@@ -81,7 +81,7 @@ pub enum ComparisonOperator {
     In,
     NotIn,
     Is,
-    NotIs,
+    IsNot,
 }
 
 #[derive(Debug, Clone)]

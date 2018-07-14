@@ -13,7 +13,7 @@ fn set_attr(a: &mut PyObjectRef, name: String, b: PyObjectRef) {
 */
 
 pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
-    let typ = PyObject::new(PyObjectKind::Type, type_type.clone());
+    let typ = PyObject::new(PyObjectKind::Class { name: "int".to_string() }, type_type.clone());
     typ.borrow_mut().dict.insert(
         "__str__".to_string(),
         PyObject::new(PyObjectKind::RustFunction { function: str }, type_type.clone()),

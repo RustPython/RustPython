@@ -65,6 +65,16 @@ impl PyContext {
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         PyObject::new(PyObjectKind::Boolean { value: b }, self.type_type.clone())
     }
+
+    pub fn new_class(&self, name: String) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Class { name: name }, self.type_type.clone())
+    }
+
+    /* TODO: something like this?
+    pub fn new_instance(&self, name: String) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Class { name: name }, self.type_type.clone())
+    }
+    */
 }
 
 pub trait Executor {
@@ -76,7 +86,6 @@ pub trait Executor {
     fn context(&self) -> &PyContext;
 }
 
-#[derive(Debug)]
 pub struct PyObject {
     pub kind: PyObjectKind,
     pub typ: Option<PyObjectRef>,
@@ -90,6 +99,12 @@ impl Default for PyObject {
             typ: None,
             dict: HashMap::new(),
         }
+    }
+}
+
+impl fmt::Debug for PyObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[PyObj {:?}]", self.kind)
     }
 }
 
@@ -132,9 +147,9 @@ pub enum PyObjectKind {
     Function {
         code: bytecode::CodeObject,
     },
-    Module,
+    Module { name: String },
     None,
-    Type,
+    Class { name: String },
     RustFunction {
         function: RustPyFunc,
     },
@@ -142,7 +157,10 @@ pub enum PyObjectKind {
 
 impl fmt::Debug for PyObjectKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Some kind of python obj")
+        match self {
+            &PyObjectKind::String { ref value } => write!(f, "str[{}]", value),
+            _ => write!(f, "Some kind of python obj"),
+        }
     }
 }
 
@@ -169,6 +187,7 @@ impl PyObject {
         match self.kind {
             PyObjectKind::String { ref value } => value.clone(),
             PyObjectKind::Integer { ref value } => format!("{:?}", value),
+            PyObjectKind::Boolean { ref value } => format!("{:?}", value),
             PyObjectKind::List { ref elements } => format!(
                 "[{}]",
                 elements
@@ -186,6 +205,11 @@ impl PyObject {
                     .join(", ")
             ),
             PyObjectKind::None => String::from("None"),
+            PyObjectKind::Class { ref name } => format!("<class '{}'>", name),
+            PyObjectKind::Code { code: _ } => format!("<code>"),
+            PyObjectKind::Function { code: _ } => format!("<func>"),
+            PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
+            PyObjectKind::Module { ref name }=> format!("<module '{}'>", name),
             _ => {
                 println!("Not impl {:?}", self);
                 panic!("Not impl");

@@ -12,9 +12,14 @@ struct Compiler {
     nxt_label: usize,
 }
 
-pub fn compile(p: ast::Program) -> CodeObject {
+pub fn compile(p: ast::Program, mode: Mode) -> CodeObject {
     let mut compiler = Compiler::new();
     compiler.compile_program(p)
+}
+
+pub enum Mode {
+    Exec,
+    Eval,
 }
 
 type Label = usize;
@@ -279,6 +284,10 @@ impl Compiler {
                     ast::Comparison::LessOrEqual => bytecode::ComparisonOperator::LessOrEqual,
                     ast::Comparison::Greater => bytecode::ComparisonOperator::Greater,
                     ast::Comparison::GreaterOrEqual => bytecode::ComparisonOperator::GreaterOrEqual,
+                    ast::Comparison::In => bytecode::ComparisonOperator::In,
+                    ast::Comparison::NotIn => bytecode::ComparisonOperator::NotIn,
+                    ast::Comparison::Is => bytecode::ComparisonOperator::Is,
+                    ast::Comparison::IsNot => bytecode::ComparisonOperator::IsNot,
                 };
                 let i = Instruction::CompareOperation { op: i };
                 self.emit(i);

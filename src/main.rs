@@ -48,7 +48,7 @@ fn run_script(script_file: &String) {
     match parse(filepath) {
         Ok(program) => {
             debug!("Got ast: {:?}", program);
-            let bytecode = compile::compile(program);
+            let bytecode = compile::compile(program, compile::Mode::Exec);
             debug!("Code object: {:?}", bytecode);
             vm.evaluate(bytecode);
         }

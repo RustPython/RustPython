@@ -37,7 +37,7 @@ pub fn print(args: Vec<Rc<NativeType>>) -> NativeType {
 }
 */
 
-pub fn print(rt: &mut Executor, args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
+pub fn print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     // println!("Woot: {:?}", args);
     trace!("print called with {:?}", args);
     for a in args {
@@ -46,6 +46,16 @@ pub fn print(rt: &mut Executor, args: Vec<PyObjectRef>) -> Result<PyObjectRef, P
     println!();
     io::stdout().flush().unwrap();
     Ok(rt.get_none())
+}
+
+pub fn compile(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    // TODO
+    Ok(rt.new_bool(true))
+}
+
+pub fn locals(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    // TODO
+    Ok(rt.new_bool(true))
 }
 
 /*
@@ -66,7 +76,7 @@ pub fn len(args: Vec<Rc<NativeType>>) -> NativeType {
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
-    let obj = PyObject::new(PyObjectKind::Module, ctx.type_type.clone());
+    let obj = PyObject::new(PyObjectKind::Module { name: "__builtins__".to_string() }, ctx.type_type.clone());
     obj.borrow_mut().dict.insert(
         String::from("print"),
         PyObject::new(PyObjectKind::RustFunction { function: print }, ctx.type_type.clone()),
