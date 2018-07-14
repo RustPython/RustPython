@@ -157,7 +157,7 @@ impl<'input> Lexer<'input> {
 
     fn is_char(&self) -> bool {
         match self.chr0 {
-            Some('a'...'z') => return true,
+            Some('a'...'z') | Some('A'...'Z') => return true,
             _ => return false,
         }
     }
@@ -226,8 +226,7 @@ impl<'input> Lexer<'input> {
 
             match self.chr0 {
                 Some('0'...'9') => return Some(self.lex_number()),
-                // TODO: 'A'...'Z'
-                Some('a'...'z') => return Some(self.lex_identifier()),
+                Some('a'...'z') | Some('A'...'Z') => return Some(self.lex_identifier()),
                 Some('#') => {
                     self.lex_comment();
                     continue;
@@ -368,6 +367,17 @@ impl<'input> Lexer<'input> {
                             return Some(Ok((tok_start, Tok::AtEqual, self.location + 1)));
                         }
                         _ => return Some(Ok((tok_start, Tok::At, self.location + 1))),
+                    }
+                }
+                Some('!') => {
+                    let tok_start = self.location;
+                    self.next_char();
+                    match self.chr0 {
+                        Some('=') => {
+                            self.next_char();
+                            return Some(Ok((tok_start, Tok::NotEqual, self.location + 1)));
+                        },
+                        _ => panic!("Invalid token '!'"),
                     }
                 }
                 Some('~') => {

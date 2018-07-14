@@ -20,7 +20,7 @@ Suite: Vec<ast::Statement> = {
   "\n" indent <s:Statement+> dedent => s,
 };
 
-Statement: ast::Statement = {
+pub Statement: ast::Statement = {
   SimpleStatement,
   CompoundStatement,
 };

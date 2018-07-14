@@ -26,9 +26,17 @@ pub fn compile(source: &String, mode: Mode) -> Result<CodeObject, String> {
             }
         }
         Mode::Eval => {
-            match parser::parse_expression(source) {
-                Ok(ast) => {
-                    compiler.compile_expression(ast);
+            match parser::parse_statement(source) {
+                Ok(statement) => {
+                    let need_none = if let &ast::Statement::Expression { expression: _ } = &statement {
+                        false
+                    } else {
+                        true
+                    };
+                    compiler.compile_statement(statement);
+                    if need_none {
+                        compiler.emit(Instruction::LoadConst { value: bytecode::Constant::None });
+                    }
                     compiler.emit(Instruction::ReturnValue);
                     Ok(compiler.pop_code_object())
                 }
@@ -90,7 +98,8 @@ impl Compiler {
                 self.compile_expression(expression);
 
                 // Pop result of stack, since we not use it:
-                self.emit(Instruction::Pop);
+                // TODO: do we need to clean the stack here?
+                // self.emit(Instruction::Pop);
             }
             ast::Statement::If { test, body } => {
                 self.compile_expression(test);

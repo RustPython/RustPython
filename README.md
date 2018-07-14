@@ -12,6 +12,13 @@ To test RustPython, do the following:
     $ cargo run demo.py
     42
 
+Or use the interactive shell:
+
+    $ cargo run
+    Welcome to rustpython
+    >>>>> 2+2
+    4
+
 Or use pip to install extra modules:
 
     $ cargo run -m pip install requests

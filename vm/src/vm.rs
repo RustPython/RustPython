@@ -295,7 +295,7 @@ impl VirtualMachine {
     fn _eq(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         let b2 = &*b.borrow();
         let a2 = &*a.borrow();
-        let result_bool = a == b;
+        let result_bool = a2 == b2;
         let result = self.ctx.new_bool(result_bool);
         Ok(result)
     }
@@ -303,7 +303,7 @@ impl VirtualMachine {
     fn _ne(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         let b2 = &*b.borrow();
         let a2 = &*a.borrow();
-        let result_bool = a != b;
+        let result_bool = a2 != b2;
         let result = self.ctx.new_bool(result_bool);
         Ok(result)
     }

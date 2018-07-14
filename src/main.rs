@@ -66,7 +66,7 @@ fn run_shell() {
         print!(">>>>> ");  // Use 5 items. pypy has 4, cpython has 3.
         io::stdout().flush().ok().expect("Could not flush stdout");
         io::stdin().read_line(&mut input);
-        input = input.trim().to_string();
+        // input = input.trim().to_string();
         debug!("You entered {:?}", input);
         let result = eval(&mut vm, &input);
         match result {

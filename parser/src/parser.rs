@@ -46,6 +46,14 @@ pub fn parse_program(source: &String) -> Result<ast::Program, String> {
     }
 }
 
+pub fn parse_statement(source: &String) -> Result<ast::Statement, String> {
+    let lxr = lexer::Lexer::new(&source);
+    match python::StatementParser::new().parse(lxr) {
+        Err(why) => Err(String::from(format!("{:?}", why))),
+        Ok(p) => Ok(p),
+    }
+}
+
 pub fn parse_expression(source: &String) -> Result<ast::Expression, String> {
     let lxr = lexer::Lexer::new(&source);
     match python::ExpressionParser::new().parse(lxr) {
@@ -56,7 +64,7 @@ pub fn parse_expression(source: &String) -> Result<ast::Expression, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_source;
+    use super::parse_program;
     use super::ast;
 
     #[test]
@@ -87,7 +95,7 @@ mod tests {
     #[test]
     fn test_parse_print_2() {
         let source = String::from("print('Hello world', 2)\n");
-        let parse_ast = parse_source(&source).unwrap();
+        let parse_ast = parse_program(&source).unwrap();
         assert_eq!(
             parse_ast,
             ast::Program {
