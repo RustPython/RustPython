@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::fmt;
+use std::rc::Rc;
 
 use super::bytecode;
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, PyContext, Executor};
+use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 #[derive(Clone, Debug)]
 pub struct Block {
     pub block_type: BlockType,
-    pub handler: usize,     // The destination we should jump to if the block finishes
+    pub handler: usize, // The destination we should jump to if the block finishes
                         // level?
 }
 
@@ -18,7 +18,7 @@ pub enum BlockType {
         start: bytecode::Label,
         end: bytecode::Label,
     },
-    B
+    B,
 }
 
 pub struct Frame {
@@ -29,7 +29,7 @@ pub struct Frame {
     blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
     pub globals: HashMap<String, PyObjectRef>, // Variables
     pub locals: HashMap<String, PyObjectRef>, // Variables
-    pub lasti: usize,            // index of last instruction ran
+    pub lasti: usize,        // index of last instruction ran
                              // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
 }
 
@@ -97,22 +97,24 @@ impl Frame {
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let stack_str = self.stack
-                    .iter()
-                    .map(|elem| format!("\n  > {}", elem.borrow_mut().str()))
-                    .collect::<Vec<_>>()
-                    .join("");
+            .iter()
+            .map(|elem| format!("\n  > {}", elem.borrow_mut().str()))
+            .collect::<Vec<_>>()
+            .join("");
         let block_str = self.blocks
-                    .iter()
-                    .map(|elem| format!("\n  > {:?}", elem))
-                    .collect::<Vec<_>>()
-                    .join("");
-        //
+            .iter()
+            .map(|elem| format!("\n  > {:?}", elem))
+            .collect::<Vec<_>>()
+            .join("");
         let local_str = self.locals
             .iter()
             .map(|elem| format!("\n  {} = {}", elem.0, elem.1.borrow_mut().str()))
             .collect::<Vec<_>>()
             .join("");
-        write!(f, "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{}\n}}", stack_str, block_str, local_str)
+        write!(
+            f,
+            "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{}\n}}",
+            stack_str, block_str, local_str
+        )
     }
 }
-

@@ -1,11 +1,11 @@
-use std::rc::Rc;
-use std::fmt;
 use super::bytecode;
 use super::objint;
 use super::objtype;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::{Add, Mul, Sub};
+use std::rc::Rc;
 
 /* Python objects and references.
 
@@ -147,9 +147,13 @@ pub enum PyObjectKind {
     Function {
         code: bytecode::CodeObject,
     },
-    Module { name: String },
+    Module {
+        name: String,
+    },
     None,
-    Class { name: String },
+    Class {
+        name: String,
+    },
     RustFunction {
         function: RustPyFunc,
     },
@@ -209,9 +213,14 @@ impl PyObject {
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
-            PyObjectKind::Module { ref name }=> format!("<module '{}'>", name),
-            PyObjectKind::Iterator { ref position, ref iterated_obj } => format!(
-                "<iter pos {} in {}>", position, iterated_obj.borrow_mut().str()
+            PyObjectKind::Module { ref name } => format!("<module '{}'>", name),
+            PyObjectKind::Iterator {
+                ref position,
+                ref iterated_obj,
+            } => format!(
+                "<iter pos {} in {}>",
+                position,
+                iterated_obj.borrow_mut().str()
             ),
             _ => {
                 println!("Not impl {:?}", self);
@@ -253,7 +262,6 @@ impl PyObject {
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(RefCell::new(self))
     }
-
 }
 
 impl<'a> Add<&'a PyObject> for &'a PyObject {
@@ -372,7 +380,7 @@ impl PartialEq for PyObject {
 
 #[cfg(test)]
 mod tests {
-    use super::{PyObjectKind, PyContext};
+    use super::{PyContext, PyObjectKind};
 
     #[test]
     fn test_add_py_integers() {

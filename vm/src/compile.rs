@@ -16,33 +16,31 @@ pub fn compile(source: &String, mode: Mode) -> Result<CodeObject, String> {
     let mut compiler = Compiler::new();
     compiler.push_code_object(CodeObject::new());
     match mode {
-        Mode::Exec => {
-            match parser::parse_program(source) {
-                Ok(ast) => {
-                    compiler.compile_program(ast);
-                    Ok(compiler.pop_code_object())
-                }
-                Err(msg) => Err(msg),
+        Mode::Exec => match parser::parse_program(source) {
+            Ok(ast) => {
+                compiler.compile_program(ast);
+                Ok(compiler.pop_code_object())
             }
-        }
-        Mode::Eval => {
-            match parser::parse_statement(source) {
-                Ok(statement) => {
-                    let need_none = if let &ast::Statement::Expression { expression: _ } = &statement {
-                        false
-                    } else {
-                        true
-                    };
-                    compiler.compile_statement(statement);
-                    if need_none {
-                        compiler.emit(Instruction::LoadConst { value: bytecode::Constant::None });
-                    }
-                    compiler.emit(Instruction::ReturnValue);
-                    Ok(compiler.pop_code_object())
+            Err(msg) => Err(msg),
+        },
+        Mode::Eval => match parser::parse_statement(source) {
+            Ok(statement) => {
+                let need_none = if let &ast::Statement::Expression { expression: _ } = &statement {
+                    false
+                } else {
+                    true
+                };
+                compiler.compile_statement(statement);
+                if need_none {
+                    compiler.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::None,
+                    });
                 }
-                Err(msg) => Err(msg),
+                compiler.emit(Instruction::ReturnValue);
+                Ok(compiler.pop_code_object())
             }
-        }
+            Err(msg) => Err(msg),
+        },
     }
 }
 
@@ -270,7 +268,7 @@ impl Compiler {
                     ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
                     ast::Operator::BitAnd => bytecode::BinaryOperator::And,
                     ast::Operator::Subscript => bytecode::BinaryOperator::Subscript,
-                    ast::Operator::And | ast::Operator::Or => { panic!("Not possible") },
+                    ast::Operator::And | ast::Operator::Or => panic!("Not possible"),
                 };
                 self.emit(Instruction::BinaryOperation { op: i });
 
@@ -324,7 +322,9 @@ impl Compiler {
                     ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
                     ast::Operator::BitAnd => bytecode::BinaryOperator::And,
                     ast::Operator::Subscript => bytecode::BinaryOperator::Subscript,
-                    ast::Operator::And | ast::Operator::Or => { panic!("Implement boolean short circuit?") },
+                    ast::Operator::And | ast::Operator::Or => {
+                        panic!("Implement boolean short circuit?")
+                    }
                 };
                 let i = Instruction::BinaryOperation { op: i };
                 self.emit(i);

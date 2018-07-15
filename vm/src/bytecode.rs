@@ -121,7 +121,8 @@ pub enum BlockType {
 
 impl fmt::Debug for CodeObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let inst_str = self.instructions.iter()
+        let inst_str = self.instructions
+            .iter()
             .enumerate()
             .map(|(i, inst)| format!("Inst {}: {:?}", i, inst))
             .collect::<Vec<_>>()

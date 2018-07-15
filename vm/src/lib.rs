@@ -9,11 +9,11 @@ mod builtins;
 pub mod bytecode;
 pub mod compile;
 pub mod eval;
+mod frame;
 mod objint;
 mod objstr;
 mod objtype;
 pub mod pyobject;
 mod vm;
-mod frame;
 
 pub use self::vm::VirtualMachine;

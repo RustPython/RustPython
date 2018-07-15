@@ -1,11 +1,11 @@
 use std::error::Error;
-use std::path::Path;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 
-use super::python;
 use super::ast;
 use super::lexer;
+use super::python;
 
 pub fn read_file(filename: &Path) -> Result<String, String> {
     match File::open(&filename) {
@@ -64,8 +64,8 @@ pub fn parse_expression(source: &String) -> Result<ast::Expression, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_program;
     use super::ast;
+    use super::parse_program;
 
     #[test]
     fn test_parse_print_hello() {

@@ -6,19 +6,19 @@
 
 extern crate rustpython_parser;
 
+use std::cell::RefMut;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::path::Path;
 use std::rc::Rc;
-use std::cell::RefMut;
-use std::ops::Deref;
 
 use self::rustpython_parser::parser;
 use super::builtins;
 use super::bytecode;
 use super::compile;
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, PyContext, Executor};
+use super::frame::{Block, BlockType, Frame};
 use super::objstr;
-use super::frame::{Frame, Block, BlockType};
+use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 // use objects::objects;
 
@@ -130,9 +130,12 @@ impl VirtualMachine {
             self.push_value(obj);
             None
         } else {
-            let name_error = PyObject::new(PyObjectKind::NameError {
-                name: name.to_string(),
-            }, self.get_type());
+            let name_error = PyObject::new(
+                PyObjectKind::NameError {
+                    name: name.to_string(),
+                },
+                self.get_type(),
+            );
             Some(Err(name_error))
         }
     }
@@ -232,9 +235,7 @@ impl VirtualMachine {
                 // TODO:
                 // self.invoke('__neg__'
                 match a.kind {
-                    PyObjectKind::Integer { value: ref value1 } => {
-                        Ok(self.ctx.new_int(-*value1))
-                    }
+                    PyObjectKind::Integer { value: ref value1 } => Ok(self.ctx.new_int(-*value1)),
                     _ => panic!("Not impl {:?}", a),
                 }
             }
@@ -244,7 +245,7 @@ impl VirtualMachine {
             Ok(value) => {
                 self.push_value(value);
                 None
-            },
+            }
             Err(value) => Some(Err(value)),
         }
     }
@@ -293,7 +294,7 @@ impl VirtualMachine {
             Ok(value) => {
                 self.push_value(value);
                 None
-            },
+            }
             Err(value) => Some(Err(value)),
         }
     }
@@ -312,10 +313,8 @@ impl VirtualMachine {
             PyObjectKind::Function { ref code } => {
                 let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
                 self.run_frame(frame).0
-            },
-            PyObjectKind::Class { name: _ } => {
-                self.new_instance(func_ref.clone(), args)
-            },
+            }
+            PyObjectKind::Class { name: _ } => self.new_instance(func_ref.clone(), args),
             _ => {
                 println!("Not impl {:?}", f);
                 panic!("Not impl");
@@ -336,7 +335,8 @@ impl VirtualMachine {
         match compile::compile(&source, compile::Mode::Exec) {
             Ok(bytecode) => {
                 debug!("Code object: {:?}", bytecode);
-                let obj = PyObject::new(PyObjectKind::Module { name: name.clone() }, self.get_type());
+                let obj =
+                    PyObject::new(PyObjectKind::Module { name: name.clone() }, self.get_type());
 
                 // As a sort of hack, create a frame and run code in it
                 let frame = Frame::new(Rc::new(bytecode), HashMap::new(), None);
@@ -390,9 +390,7 @@ impl VirtualMachine {
                 let obj = match value {
                     &bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
                     // &bytecode::Constant::Float
-                    &bytecode::Constant::String { ref value } => {
-                        self.new_str(value.clone())
-                    }
+                    &bytecode::Constant::String { ref value } => self.new_str(value.clone()),
                     &bytecode::Constant::Code { ref code } => {
                         PyObject::new(PyObjectKind::Code { code: code.clone() }, self.get_type())
                     }
@@ -405,9 +403,7 @@ impl VirtualMachine {
                 self.import(name.to_string());
                 None
             }
-            &bytecode::Instruction::LoadName { ref name } => {
-                self.load_name(name)
-            }
+            &bytecode::Instruction::LoadName { ref name } => self.load_name(name),
             &bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:
                 self.store_name(name.clone())
@@ -419,13 +415,15 @@ impl VirtualMachine {
             }
             &bytecode::Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(size);
-                let list_obj = PyObject::new(PyObjectKind::List { elements: elements }, self.get_type());
+                let list_obj =
+                    PyObject::new(PyObjectKind::List { elements: elements }, self.get_type());
                 self.push_value(list_obj);
                 None
             }
             &bytecode::Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(size);
-                let list_obj = PyObject::new(PyObjectKind::Tuple { elements: elements }, self.get_type());
+                let list_obj =
+                    PyObject::new(PyObjectKind::Tuple { elements: elements }, self.get_type());
                 self.push_value(list_obj);
                 None
             }
@@ -457,42 +455,44 @@ impl VirtualMachine {
                 let stop = out[1];
                 let step = if out.len() == 3 { out[2] } else { None };
 
-                let obj = PyObject::new(PyObjectKind::Slice { start, stop, step }, self.ctx.type_type.clone());
+                let obj = PyObject::new(
+                    PyObjectKind::Slice { start, stop, step },
+                    self.ctx.type_type.clone(),
+                );
                 self.push_value(obj);
                 None
             }
-            &bytecode::Instruction::BinaryOperation { ref op } => {
-                self.execute_binop(op)
-            }
-            &bytecode::Instruction::LoadAttr { ref name } => {
-                self.load_attr(name.to_string())
-            }
-            &bytecode::Instruction::UnaryOperation { ref op } => {
-                self.execute_unop(op)
-            }
-            &bytecode::Instruction::CompareOperation { ref op } => {
-                self.execute_compare(op)
-            }
+            &bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(op),
+            &bytecode::Instruction::LoadAttr { ref name } => self.load_attr(name.to_string()),
+            &bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(op),
+            &bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(op),
             &bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
                 Some(Ok(value))
             }
             &bytecode::Instruction::PushBlock { start, end } => {
-                self.push_block(Block { block_type: BlockType::A { start, end }, handler: 0 });
+                self.push_block(Block {
+                    block_type: BlockType::A { start, end },
+                    handler: 0,
+                });
                 None
-            },
+            }
             &bytecode::Instruction::PopBlock => {
                 self.pop_block();
                 None
             }
             &bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = PyObject::new(PyObjectKind::Iterator {
-                    position: 0, iterated_obj: iterated_obj
-                }, self.ctx.type_type.clone());
+                let iter_obj = PyObject::new(
+                    PyObjectKind::Iterator {
+                        position: 0,
+                        iterated_obj: iterated_obj,
+                    },
+                    self.ctx.type_type.clone(),
+                );
                 self.push_value(iter_obj);
                 None
-            },
+            }
             &bytecode::Instruction::ForIter => {
                 // The top of stack contains the iterator, lets push it forward:
                 let next_obj: Option<PyObjectRef> = {
@@ -500,7 +500,7 @@ impl VirtualMachine {
                     let mut ref_mut: RefMut<PyObject> = top_of_stack.deref().borrow_mut();
                     // We require a mutable pyobject here to update the iterator:
                     let mut iterator = ref_mut; // &mut PyObject = ref_mut.;
-                    // let () = iterator;
+                                                // let () = iterator;
                     iterator.nxt()
                 };
 
@@ -508,15 +508,26 @@ impl VirtualMachine {
                 match next_obj {
                     Some(value) => {
                         self.push_value(value);
-                    },
+                    }
                     None => {
+                        // Pop iterator from stack:
+                        self.pop_value();
+
                         // End of for loop
-                        let end_label = if let Block { block_type: BlockType::A { start, end }, handler } = self.last_block() { *end } else { panic!("Wrong block type") };
+                        let end_label = if let Block {
+                            block_type: BlockType::A { start, end },
+                            handler,
+                        } = self.last_block()
+                        {
+                            *end
+                        } else {
+                            panic!("Wrong block type")
+                        };
                         self.jump(end_label);
                     }
                 };
                 None
-            },
+            }
             &bytecode::Instruction::MakeFunction => {
                 let qualified_name = self.pop_value();
                 let code = self.pop_value();

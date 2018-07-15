@@ -1,8 +1,8 @@
-use std::str::FromStr;
-use std::str::CharIndices;
 pub use super::token::Tok;
-use std::iter::FromIterator;
 use std::collections::HashMap;
+use std::iter::FromIterator;
+use std::str::CharIndices;
+use std::str::FromStr;
 
 pub struct Lexer<'input> {
     chars: CharIndices<'input>,
@@ -219,7 +219,6 @@ impl<'input> Lexer<'input> {
                         if col == l2 {
                             // TODO: handle wrong indentations
                         }
-
                     }
                 }
             }
@@ -270,9 +269,15 @@ impl<'input> Lexer<'input> {
                             match self.chr0 {
                                 Some('=') => {
                                     self.next_char();
-                                    return Some(Ok((tok_start, Tok::DoubleStarEqual, self.location + 1)));
-                                },
-                                _ => return Some(Ok((tok_start, Tok::DoubleStar, self.location + 1))),
+                                    return Some(Ok((
+                                        tok_start,
+                                        Tok::DoubleStarEqual,
+                                        self.location + 1,
+                                    )));
+                                }
+                                _ => {
+                                    return Some(Ok((tok_start, Tok::DoubleStar, self.location + 1)))
+                                }
                             }
                         }
                         _ => return Some(Ok((tok_start, Tok::Star, self.location + 1))),
@@ -382,7 +387,7 @@ impl<'input> Lexer<'input> {
                         Some('=') => {
                             self.next_char();
                             return Some(Ok((tok_start, Tok::NotEqual, self.location + 1)));
-                        },
+                        }
                         _ => panic!("Invalid token '!'"),
                     }
                 }
@@ -527,10 +532,14 @@ impl<'input> Iterator for Lexer<'input> {
         // let mut X = HashMap::new();
         // X.insert('=', Tok::Equal);
         let token = self.inner_next();
-        trace!("Lex token {:?}, nesting={:?}, indent stack: {:?}", token, self.nesting, self.indentation_stack);
+        trace!(
+            "Lex token {:?}, nesting={:?}, indent stack: {:?}",
+            token,
+            self.nesting,
+            self.indentation_stack
+        );
         token
     }
-
 }
 
 #[cfg(test)]

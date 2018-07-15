@@ -58,12 +58,15 @@ fn run_script(script_file: &String) {
 }
 
 fn run_shell() {
-    println!("Welcome to the magnificent Rust Python {} interpreter", crate_version!());
+    println!(
+        "Welcome to the magnificent Rust Python {} interpreter",
+        crate_version!()
+    );
     let mut vm = VirtualMachine::new();
     // Read a single line:
     loop {
         let mut input = String::new();
-        print!(">>>>> ");  // Use 5 items. pypy has 4, cpython has 3.
+        print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
         io::stdout().flush().ok().expect("Could not flush stdout");
         io::stdin().read_line(&mut input);
         // input = input.trim().to_string();
