@@ -53,6 +53,7 @@ pub enum Statement {
     If {
         test: Expression,
         body: Vec<Statement>,
+        orelse: Option<Vec<Statement>>,
     },
     While {
         test: Expression,
@@ -74,6 +75,7 @@ pub enum Statement {
     },
     FunctionDef {
         name: String,
+        args: Vec<String>,
         // docstring: String,
         body: Vec<Statement>,
     },
@@ -81,9 +83,18 @@ pub enum Statement {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
+    BoolOp {
+        a: Box<Expression>,
+        op: BooleanOperator,
+        b: Box<Expression>,
+    },
     Binop {
         a: Box<Expression>,
         op: Operator,
+        b: Box<Expression>,
+    },
+    Subscript {
+        a: Box<Expression>,
         b: Box<Expression>,
     },
     Unop {
@@ -141,9 +152,10 @@ pub enum Operator {
     BitXor,
     BitAnd,
     FloorDiv,
-    // TODO: is this a binop?
-    Subscript,
+}
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum BooleanOperator {
     And,
     Or,
 }

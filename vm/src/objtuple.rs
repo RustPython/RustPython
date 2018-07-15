@@ -1,3 +1,4 @@
+
 use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
@@ -31,7 +32,7 @@ pub fn subscript(rt: &mut Executor, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyR
             };
             // TODO: we could potentially avoid this copy and use slice
             let obj = PyObject::new(
-                PyObjectKind::List {
+                PyObjectKind::Tuple {
                     elements: l[start..stop].to_vec(),
                 },
                 rt.get_type(),

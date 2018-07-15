@@ -124,7 +124,20 @@ CompoundStatement: ast::Statement = {
 };
 
 IfStatement: ast::Statement = {
-  "if" <e:Test> ":" <s:Suite> => ast::Statement::If { test: e, body: s },
+  "if" <t:Test> ":" <s1:Suite> <s2:("elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
+    // Determine last else:
+    let mut last = match s3 {
+      Some(s) => Some(s.2),
+      None => None,
+    };
+
+    // handle elif:
+    for i in s2.into_iter().rev() {
+      last = Some(vec![ast::Statement::If { test: i.1, body: i.3, orelse: last }]);
+    }
+
+    ast::Statement::If { test: t, body: s1, orelse: last }
+  },
 };
 
 WhileStatement: ast::Statement = {
@@ -140,7 +153,11 @@ WithStatement: ast::Statement = {
 };
 
 FuncDef: ast::Statement = {
-  "def" <i:Identifier> "(" ")" ":" <s:Suite> => ast::Statement::FunctionDef { name: i, body: s },
+  "def" <i:Identifier> <a:Parameters> ":" <s:Suite> => ast::Statement::FunctionDef { name: i, args: a, body: s },
+};
+
+Parameters: Vec<String> = {
+  "(" <a: Comma<Identifier>> ")" => a,
 };
 
 ClassDef: ast::Statement = {
@@ -153,12 +170,12 @@ Test: ast::Expression = {
 
 OrTest: ast::Expression = {
   <e:AndTest> => e,
-  <e1:OrTest> "or" <e2:AndTest> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::Or, b: Box::new(e2) },
+  <e1:OrTest> "or" <e2:AndTest> => ast::Expression::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::Or, b: Box::new(e2) },
 };
 
 AndTest: ast::Expression = {
   <e:NotTest> => e,
-  <e1:AndTest> "and" <e2:NotTest> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::And, b: Box::new(e2) },
+  <e1:AndTest> "and" <e2:NotTest> => ast::Expression::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::And, b: Box::new(e2) },
 };
 
 NotTest: ast::Expression = {
@@ -234,7 +251,7 @@ Power: ast::Expression = {
 AtomExpr: ast::Expression = {
   <e:Atom> => e,
   <f:AtomExpr>  "(" <a:FunctionArguments> ")" => ast::Expression::Call { function: Box::new(f), args: a },
-  <e:AtomExpr>  "[" <s:Subscript> "]" => ast::Expression::Binop { a: Box::new(e), op: ast::Operator::Subscript, b: Box::new(s) },
+  <e:AtomExpr>  "[" <s:Subscript> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
   <e:AtomExpr> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
 };
 
@@ -258,7 +275,13 @@ Atom: ast::Expression = {
   <n:Number> => ast::Expression::Number { value: n },
   <i:Identifier> => ast::Expression::Identifier { name: i },
   "[" <e:TestList> "]" => ast::Expression::List { elements: e },
-  "(" <e:Expression> ")" => e,
+  "(" <e:TestList> ")" => {
+     if e.len() == 1 {
+       e.into_iter().next().unwrap()
+     } else {
+       ast::Expression::Tuple { elements: e }
+     }
+  },
   "True" => ast::Expression::True,
   "False" => ast::Expression::False,
   "None" => ast::Expression::None,
@@ -346,6 +369,8 @@ extern {
         "class" => lexer::Tok::Class,
         "continue" => lexer::Tok::Break,
         "def" => lexer::Tok::Def,
+        "elif" => lexer::Tok::Elif,
+        "else" => lexer::Tok::Else,
         "for" => lexer::Tok::For,
         "if" => lexer::Tok::If,
         "in" => lexer::Tok::In,

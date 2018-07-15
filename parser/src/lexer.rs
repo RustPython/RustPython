@@ -9,6 +9,7 @@ pub struct Lexer<'input> {
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
     indentation_stack: Vec<usize>,
+    pending: Vec<Spanned<Tok>>,
     chr0: Option<char>,
     chr1: Option<char>,
     location: usize,
@@ -33,6 +34,7 @@ impl<'input> Lexer<'input> {
             at_begin_of_line: true,
             nesting: 0,
             indentation_stack: vec![0],
+            pending: Vec::new(),
             chr0: None,
             location: 0,
             chr1: None,
@@ -157,7 +159,7 @@ impl<'input> Lexer<'input> {
 
     fn is_char(&self) -> bool {
         match self.chr0 {
-            Some('a'...'z') | Some('A'...'Z') => return true,
+            Some('a'...'z') | Some('A'...'Z') | Some('_') => return true,
             _ => return false,
         }
     }
@@ -182,8 +184,12 @@ impl<'input> Lexer<'input> {
     }
 
     fn inner_next(&mut self) -> Option<Spanned<Tok>> {
-        // Detect indentation levels
-        loop {
+        if !self.pending.is_empty() {
+            return Some(self.pending.remove(0));
+        }
+
+        'top_loop: loop {
+            // Detect indentation levels
             if self.at_begin_of_line {
                 self.at_begin_of_line = false;
 
@@ -194,6 +200,17 @@ impl<'input> Lexer<'input> {
                         Some(' ') => {
                             self.next_char();
                             col += 1;
+                        }
+                        Some('#') => {
+                            self.lex_comment();
+                            self.at_begin_of_line = true;
+                            continue 'top_loop;
+                        }
+                        Some('\n') => {
+                            // Empty line!
+                            self.next_char();
+                            self.at_begin_of_line = true;
+                            continue 'top_loop;
                         }
                         _ => {
                             break;
@@ -214,18 +231,24 @@ impl<'input> Lexer<'input> {
                         // One or more dedentations
                         // Pop off other levels until col is found:
 
-                        let l2 = self.indentation_stack.pop().unwrap();
-                        return Some(Ok((0, Tok::Dedent, 0)));
-                        if col == l2 {
-                            // TODO: handle wrong indentations
+                        while col < *self.indentation_stack.last().unwrap() {
+                            self.indentation_stack.pop().unwrap();
+                            self.pending.push(Ok((0, Tok::Dedent, 0)));
                         }
+
+                        if col != *self.indentation_stack.last().unwrap() {
+                            // TODO: handle wrong indentations
+                            panic!("Non matching indentation levels!");
+                        }
+
+                        return Some(self.pending.remove(0));
                     }
                 }
             }
 
             match self.chr0 {
                 Some('0'...'9') => return Some(self.lex_number()),
-                Some('a'...'z') | Some('A'...'Z') => return Some(self.lex_identifier()),
+                Some('_') | Some('a'...'z') | Some('A'...'Z') => return Some(self.lex_identifier()),
                 Some('#') => {
                     self.lex_comment();
                     continue;
@@ -594,7 +617,38 @@ mod tests {
                 Tok::Number { value: 99 },
                 Tok::Newline,
                 Tok::Dedent,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_double_dedent() {
+        let source = String::from("def foo():\n if x:\n\n  return 99\n\n");
+        let tokens = lex_source(&source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::Def,
+                Tok::Name {
+                    name: String::from("foo"),
+                },
+                Tok::Lpar,
+                Tok::Rpar,
+                Tok::Colon,
                 Tok::Newline,
+                Tok::Indent,
+                Tok::If,
+                Tok::Name {
+                    name: String::from("x"),
+                },
+                Tok::Colon,
+                Tok::Newline,
+                Tok::Indent,
+                Tok::Return,
+                Tok::Number { value: 99 },
+                Tok::Newline,
+                Tok::Dedent,
+                Tok::Dedent,
             ]
         );
     }

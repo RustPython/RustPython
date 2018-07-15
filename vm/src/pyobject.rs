@@ -214,6 +214,11 @@ impl PyObject {
             PyObjectKind::Function { code: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name } => format!("<module '{}'>", name),
+            PyObjectKind::Slice {
+                ref start,
+                ref stop,
+                ref step,
+            } => format!("<slice '{:?}:{:?}:{:?}'>", start, stop, step),
             PyObjectKind::Iterator {
                 ref position,
                 ref iterated_obj,
@@ -280,6 +285,14 @@ impl<'a> Add<&'a PyObject> for &'a PyObject {
             PyObjectKind::String { value: ref value1 } => match rhs.kind {
                 PyObjectKind::String { value: ref value2 } => PyObjectKind::String {
                     value: format!("{}{}", value1, value2),
+                },
+                _ => {
+                    panic!("NOT IMPL");
+                }
+            },
+            PyObjectKind::List { elements: ref e1 } => match rhs.kind {
+                PyObjectKind::List { elements: ref e2 } => PyObjectKind::List {
+                    elements: e1.iter().chain(e2.iter()).map(|e| e.clone()).collect()
                 },
                 _ => {
                     panic!("NOT IMPL");
@@ -360,16 +373,18 @@ impl PartialEq for PyObject {
             (&NativeType::Float(ref v1f), &NativeType::Float(ref v2f)) => {
                 curr_frame.stack.push(Rc::new(NativeType::Boolean(v2f == v1f)));
             },
-            (&NativeType::Str(ref v1s), &NativeType::Str(ref v2s)) => {
-                curr_frame.stack.push(Rc::new(NativeType::Boolean(v2s == v1s)));
-            },
-            (&NativeType::Int(ref v1i), &NativeType::Float(ref v2f)) => {
-                curr_frame.stack.push(Rc::new(NativeType::Boolean(v2f == &(*v1i as f64))));
-            },
-            (&NativeType::List(ref l1), &NativeType::List(ref l2)) => {
-                curr_frame.stack.push(Rc::new(NativeType::Boolean(l2 == l1)));
-            },
             */
+            (PyObjectKind::String { value: ref v1s }, &PyObjectKind::String { value: ref v2s }) => {
+                v2s == v1s
+            },
+            (PyObjectKind::List { elements: ref l1 }, PyObjectKind::List { elements: ref l2 }) => {
+                if l1.len() == l2.len() {
+                    Iterator::zip(l1.iter(), l2.iter())
+                    .all(|elem| elem.0 == elem.1)
+                } else {
+                    false
+                }
+            },
             _ => panic!(
                 "TypeError in COMPARE_OP: can't compare {:?} with {:?}",
                 self, other

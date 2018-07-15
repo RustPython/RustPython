@@ -62,7 +62,7 @@ def run_via_cpython_bytecode(filename):
 
 def run_via_rustpython(filename):
     env = os.environ.copy()
-    env['RUST_LOG'] = 'debug'
+    env['RUST_LOG'] = 'trace'
     env['RUST_BACKTRACE'] = '1'
     with pushd(RUSTPYTHON_RUNNER_DIR):
         subprocess.check_call(['cargo', 'run', filename], env=env)

@@ -53,7 +53,7 @@ pub enum Instruction {
     CallFunction { count: usize },
     ForIter,
     ReturnValue,
-    PushBlock { start: Label, end: Label },
+    SetupLoop { start: Label, end: Label },
     PopBlock,
     Raise { argc: usize },
     BuildTuple { size: usize },

@@ -17,7 +17,9 @@ use super::builtins;
 use super::bytecode;
 use super::compile;
 use super::frame::{Block, BlockType, Frame};
+use super::objlist;
 use super::objstr;
+use super::objtuple;
 use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 // use objects::objects;
@@ -171,15 +173,12 @@ impl VirtualMachine {
     }*/
 
     fn subscript(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        // debug!("tos: {:?}, tos1: {:?}", tos, tos1);
         // Subscript implementation: a[b]
         let a2 = &*a.borrow();
         match &a2.kind {
-            /*
-            (&NativeType::Tuple(ref t), &NativeType::Int(ref index)) => curr_frame.stack.push(Rc::new(t[*index as usize].clone())),
-            */
             PyObjectKind::String { ref value } => objstr::subscript(self, value, b.clone()),
-            // TODO: implement other Slice possibilities
+            PyObjectKind::List { ref elements } => objlist::subscript(self, elements, b.clone()),
+            PyObjectKind::Tuple { ref elements } => objtuple::subscript(self, elements, b.clone()),
             _ => panic!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
                 a, b
@@ -236,6 +235,14 @@ impl VirtualMachine {
                 // self.invoke('__neg__'
                 match a.kind {
                     PyObjectKind::Integer { value: ref value1 } => Ok(self.ctx.new_int(-*value1)),
+                    _ => panic!("Not impl {:?}", a),
+                }
+            }
+            &bytecode::UnaryOperator::Not => {
+                // TODO:
+                // self.invoke('__neg__'
+                match a.kind {
+                    PyObjectKind::Boolean { value: ref value1 } => Ok(self.ctx.new_bool(!*value1)),
                     _ => panic!("Not impl {:?}", a),
                 }
             }
@@ -381,6 +388,11 @@ impl VirtualMachine {
         let instruction = self.fetch_instruction();
         {
             trace!("=======");
+            /* TODO:
+            for frame in self.frames.iter() {
+                trace!("  {:?}", frame);
+            }
+            */
             trace!("  {:?}", self.current_frame());
             trace!("  Executing op code: {:?}", instruction);
             trace!("=======");
@@ -470,7 +482,7 @@ impl VirtualMachine {
                 let value = self.pop_value();
                 Some(Ok(value))
             }
-            &bytecode::Instruction::PushBlock { start, end } => {
+            &bytecode::Instruction::SetupLoop { start, end } => {
                 self.push_block(Block {
                     block_type: BlockType::A { start, end },
                     handler: 0,
@@ -560,11 +572,10 @@ impl VirtualMachine {
                     }
                 }
             }
-            /* TODO
             &bytecode::Instruction::Jump { target } => {
                 self.jump(target);
+                None
             }
-            */
             &bytecode::Instruction::JumpIf { target } => {
                 let obj = self.pop_value();
                 // TODO: determine if this value is True-ish:

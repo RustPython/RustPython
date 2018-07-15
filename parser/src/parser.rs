@@ -66,6 +66,7 @@ pub fn parse_expression(source: &String) -> Result<ast::Expression, String> {
 mod tests {
     use super::ast;
     use super::parse_program;
+    use super::parse_statement;
 
     #[test]
     fn test_parse_print_hello() {
@@ -114,6 +115,38 @@ mod tests {
                         },
                     },
                 ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_if_elif_else() {
+        let source = String::from("if 1: 10\nelif 2: 20\nelse: 30\n");
+        let parse_ast = parse_statement(&source).unwrap();
+        assert_eq!(
+            parse_ast,
+            ast::Statement::If {
+                test: ast::Expression::Number { value: 1 },
+                body: vec![
+                    ast::Statement::Expression {
+                        expression: ast::Expression::Number { value: 10 },
+                    },
+                ],
+                orelse: Some(vec![
+                    ast::Statement::If {
+                        test: ast::Expression::Number { value: 2 },
+                        body: vec![
+                            ast::Statement::Expression {
+                                expression: ast::Expression::Number { value: 20 },
+                            },
+                        ],
+                        orelse: Some(vec![
+                            ast::Statement::Expression {
+                                expression: ast::Expression::Number { value: 30 },
+                            },
+                        ]),
+                    },
+                ]),
             }
         );
     }
