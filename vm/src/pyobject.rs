@@ -210,6 +210,9 @@ impl PyObject {
             PyObjectKind::Function { code: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name }=> format!("<module '{}'>", name),
+            PyObjectKind::Iterator { ref position, ref iterated_obj } => format!(
+                "<iter pos {} in {}>", position, iterated_obj.borrow_mut().str()
+            ),
             _ => {
                 println!("Not impl {:?}", self);
                 panic!("Not impl");

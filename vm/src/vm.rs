@@ -9,8 +9,8 @@ extern crate rustpython_parser;
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
-// use std::cell::RefMut;
-// use std::ops::Deref;
+use std::cell::RefMut;
+use std::ops::Deref;
 
 use self::rustpython_parser::parser;
 use super::builtins;
@@ -18,71 +18,16 @@ use super::bytecode;
 use super::compile;
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, PyContext, Executor};
 use super::objstr;
+use super::frame::{Frame, Block, BlockType};
 
 // use objects::objects;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
-#[derive(Clone)]
-struct Block {
-    block_type: String, //Enum?
-    handler: usize,     // The destination we should jump to if the block finishes
-                        // level?
-}
-
-struct Frame {
-    // TODO: We are using Option<i32> in stack for handline None return value
-    code: Rc<bytecode::CodeObject>,
-    // We need 1 stack per frame
-    stack: Vec<PyObjectRef>, // The main data frame of the stack machine
-    blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
-    globals: HashMap<String, PyObjectRef>, // Variables
-    locals: HashMap<String, PyObjectRef>, // Variables
-    lasti: usize,            // index of last instruction ran
-                             // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
-}
-
 pub struct VirtualMachine {
     frames: Vec<Frame>,
     builtins: PyObjectRef,
     ctx: PyContext,
-}
-
-impl Frame {
-    pub fn new(
-        code: Rc<bytecode::CodeObject>,
-        callargs: HashMap<String, PyObjectRef>,
-        globals: Option<HashMap<String, PyObjectRef>>,
-    ) -> Frame {
-        //populate the globals and locals
-        //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
-        let globals = match globals {
-            Some(g) => g,
-            None => HashMap::new(),
-        };
-        let mut locals = globals;
-        locals.extend(callargs);
-
-        // locals.insert("len".to_string(), Rc::new(NativeType::NativeFunction(builtins::len)));
-        Frame {
-            code: code,
-            stack: vec![],
-            blocks: vec![],
-            // save the callargs as locals
-            globals: locals.clone(),
-            locals: locals,
-            lasti: 0,
-        }
-    }
-
-    fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
-        let mut objs: Vec<PyObjectRef> = Vec::new();
-        for _x in 0..count {
-            objs.push(self.stack.pop().unwrap());
-        }
-        objs.reverse();
-        objs
-    }
 }
 
 impl Executor for VirtualMachine {
@@ -140,16 +85,32 @@ impl VirtualMachine {
         self.frames.pop().unwrap()
     }
 
+    fn push_block(&mut self, block: Block) {
+        self.current_frame().push_block(block);
+    }
+
+    fn pop_block(&mut self) -> Block {
+        self.current_frame().pop_block()
+    }
+
+    fn last_block(&mut self) -> &Block {
+        self.current_frame().last_block()
+    }
+
     fn push_value(&mut self, obj: PyObjectRef) {
-        self.current_frame().stack.push(obj);
+        self.current_frame().push_value(obj);
     }
 
     fn pop_value(&mut self) -> PyObjectRef {
-        self.current_frame().stack.pop().unwrap()
+        self.current_frame().pop_value()
     }
 
     fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
         self.current_frame().pop_multiple(count)
+    }
+
+    fn last_value(&mut self) -> PyObjectRef {
+        self.current_frame().last_value()
     }
 
     fn store_name(&mut self, name: String) -> Option<PyResult> {
@@ -420,16 +381,9 @@ impl VirtualMachine {
         let instruction = self.fetch_instruction();
         {
             trace!("=======");
-            trace!(
-                "  stack:{:?}",
-                self.current_frame().stack
-                    .iter()
-                    .map(|elem| elem.borrow_mut().str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-            trace!("  env  :{:?}", self.current_frame().locals);
+            trace!("  {:?}", self.current_frame());
             trace!("  Executing op code: {:?}", instruction);
+            trace!("=======");
         }
         match &instruction {
             &bytecode::Instruction::LoadConst { ref value } => {
@@ -523,26 +477,26 @@ impl VirtualMachine {
                 let value = self.pop_value();
                 Some(Ok(value))
             }
-            /*
             &bytecode::Instruction::PushBlock { start, end } => {
-                current_frame.blocks.push((start, end));
+                self.push_block(Block { block_type: BlockType::A { start, end }, handler: 0 });
+                None
             },
             &bytecode::Instruction::PopBlock => {
-                current_frame.blocks.pop();
+                self.pop_block();
+                None
             }
             &bytecode::Instruction::GetIter => {
-                let iterated_obj = current_frame.stack.pop().unwrap();
-                let iter_obj = PyObject::Iterator {
+                let iterated_obj = self.pop_value();
+                let iter_obj = PyObject::new(PyObjectKind::Iterator {
                     position: 0, iterated_obj: iterated_obj
-                }.into_ref();
-                current_frame.stack.push(iter_obj);
+                }, self.ctx.type_type.clone());
+                self.push_value(iter_obj);
+                None
             },
-            */
-            /*
             &bytecode::Instruction::ForIter => {
                 // The top of stack contains the iterator, lets push it forward:
                 let next_obj: Option<PyObjectRef> = {
-                    let top_of_stack = current_frame.stack.last().unwrap();
+                    let top_of_stack = self.last_value();
                     let mut ref_mut: RefMut<PyObject> = top_of_stack.deref().borrow_mut();
                     // We require a mutable pyobject here to update the iterator:
                     let mut iterator = ref_mut; // &mut PyObject = ref_mut.;
@@ -552,17 +506,17 @@ impl VirtualMachine {
 
                 // Check the next object:
                 match next_obj {
-                    Some(v) => {
-                        current_frame.stack.push(v);
+                    Some(value) => {
+                        self.push_value(value);
                     },
                     None => {
                         // End of for loop
-                        let end_label = current_frame.blocks.last().unwrap().1;
+                        let end_label = if let Block { block_type: BlockType::A { start, end }, handler } = self.last_block() { *end } else { panic!("Wrong block type") };
                         self.jump(end_label);
                     }
-                }
+                };
+                None
             },
-            */
             &bytecode::Instruction::MakeFunction => {
                 let qualified_name = self.pop_value();
                 let code = self.pop_value();

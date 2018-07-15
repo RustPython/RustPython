@@ -14,5 +14,6 @@ mod objstr;
 mod objtype;
 pub mod pyobject;
 mod vm;
+mod frame;
 
 pub use self::vm::VirtualMachine;
