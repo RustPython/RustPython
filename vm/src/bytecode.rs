@@ -11,8 +11,9 @@ let call_function = 0x64;
  * Primitive instruction type, which can be encoded and decoded.
  */
 use std::collections::HashMap;
+use std::fmt;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
@@ -117,3 +118,15 @@ pub enum BlockType {
     Except,
 }
 */
+
+impl fmt::Debug for CodeObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let inst_str = self.instructions.iter()
+            .enumerate()
+            .map(|(i, inst)| format!("Inst {}: {:?}", i, inst))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let labelmap_str = format!("label_map: {:?}", self.label_map);
+        write!(f, "Code Object {{ \n{}\n{} }}", inst_str, labelmap_str)
+    }
+}
