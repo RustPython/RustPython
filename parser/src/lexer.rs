@@ -267,7 +267,13 @@ impl<'input> Lexer<'input> {
                         }
                         Some('*') => {
                             self.next_char();
-                            return Some(Ok((tok_start, Tok::DoubleStar, self.location + 1)));
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    return Some(Ok((tok_start, Tok::DoubleStarEqual, self.location + 1)));
+                                },
+                                _ => return Some(Ok((tok_start, Tok::DoubleStar, self.location + 1))),
+                            }
                         }
                         _ => return Some(Ok((tok_start, Tok::Star, self.location + 1))),
                     }

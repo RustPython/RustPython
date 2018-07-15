@@ -42,6 +42,11 @@ pub enum Statement {
         targets: Vec<Expression>,
         value: Expression,
     },
+    AugAssign {
+        target: Expression,
+        op: Operator,
+        value: Expression,
+    },
     Expression {
         expression: Expression,
     },
@@ -74,7 +79,7 @@ pub enum Statement {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Binop {
         a: Box<Expression>,
@@ -121,7 +126,7 @@ pub enum Expression {
     None,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Operator {
     Add,
     Sub,
@@ -138,14 +143,17 @@ pub enum Operator {
     FloorDiv,
     // TODO: is this a binop?
     Subscript,
+
+    And,
+    Or,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum UnaryOperator {
     Neg,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Comparison {
     Equal,
     NotEqual,

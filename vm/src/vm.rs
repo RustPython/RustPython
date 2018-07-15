@@ -125,10 +125,6 @@ impl VirtualMachine {
 
     // Container of the virtual machine state:
     pub fn evaluate(&mut self, code: bytecode::CodeObject) -> PyResult {
-        // Register built in function:
-        // vm.scope.insert(String::from("print"), PyObject::RustFunction { function: builtins::print }.into_ref());
-
-        // { stack: Vec::new() };
         self.run(Rc::new(code))
     }
 

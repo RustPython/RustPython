@@ -250,6 +250,39 @@ impl Compiler {
                     }
                 }
             }
+            ast::Statement::AugAssign { target, op, value } => {
+                self.compile_expression(target.clone());
+                self.compile_expression(value);
+
+                // Perform operation:
+                let i = match op {
+                    ast::Operator::Add => bytecode::BinaryOperator::Add,
+                    ast::Operator::Sub => bytecode::BinaryOperator::Subtract,
+                    ast::Operator::Mult => bytecode::BinaryOperator::Multiply,
+                    ast::Operator::MatMult => bytecode::BinaryOperator::MatrixMultiply,
+                    ast::Operator::Div => bytecode::BinaryOperator::Divide,
+                    ast::Operator::FloorDiv => bytecode::BinaryOperator::FloorDivide,
+                    ast::Operator::Mod => bytecode::BinaryOperator::Modulo,
+                    ast::Operator::Pow => bytecode::BinaryOperator::Power,
+                    ast::Operator::LShift => bytecode::BinaryOperator::Lshift,
+                    ast::Operator::RShift => bytecode::BinaryOperator::Rshift,
+                    ast::Operator::BitOr => bytecode::BinaryOperator::Or,
+                    ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
+                    ast::Operator::BitAnd => bytecode::BinaryOperator::And,
+                    ast::Operator::Subscript => bytecode::BinaryOperator::Subscript,
+                    ast::Operator::And | ast::Operator::Or => { panic!("Not possible") },
+                };
+                self.emit(Instruction::BinaryOperation { op: i });
+
+                match target {
+                    ast::Expression::Identifier { name } => {
+                        self.emit(Instruction::StoreName { name: name });
+                    }
+                    _ => {
+                        panic!("WTF");
+                    }
+                }
+            }
             ast::Statement::Delete { targets } => {
                 // Remove the given names from the scope
                 // self.emit(Instruction::DeleteName);
@@ -291,6 +324,7 @@ impl Compiler {
                     ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
                     ast::Operator::BitAnd => bytecode::BinaryOperator::And,
                     ast::Operator::Subscript => bytecode::BinaryOperator::Subscript,
+                    ast::Operator::And | ast::Operator::Or => { panic!("Implement boolean short circuit?") },
                 };
                 let i = Instruction::BinaryOperation { op: i };
                 self.emit(i);

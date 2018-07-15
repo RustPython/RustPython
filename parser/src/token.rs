@@ -38,6 +38,7 @@ pub enum Tok {
     LeftShift,
     RightShift,
     DoubleStar,
+    DoubleStarEqual,  // '**='
     PlusEqual,
     MinusEqual,
     StarEqual,

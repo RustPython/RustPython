@@ -61,10 +61,31 @@ ExpressionStatement: ast::Statement = {
       }
     }
   },
+  <e1:Test> <op:AugAssign> <e2:TestList> => {
+    // TODO: this works in most cases:
+    let rhs = e2.into_iter().next().unwrap();
+    ast::Statement::AugAssign { target: e1, op: op, value: rhs }
+  },
 };
 
 AssignSuffix: Vec<ast::Expression> = {
     "=" <e:TestList> => e,
+};
+
+AugAssign: ast::Operator = {
+  "+=" => ast::Operator::Add,
+  "-=" => ast::Operator::Sub,
+  "*=" => ast::Operator::Mult,
+  "@=" => ast::Operator::MatMult,
+  "/=" => ast::Operator::Div,
+  "%=" => ast::Operator::Mod,
+  "&=" => ast::Operator::BitAnd,
+  "|=" => ast::Operator::BitOr,
+  "^=" => ast::Operator::BitXor,
+  "<<=" => ast::Operator::LShift,
+  ">>=" => ast::Operator::RShift,
+  "**=" => ast::Operator::Pow,
+  "//=" => ast::Operator::FloorDiv,
 };
 
 FlowStatement: ast::Statement = {
@@ -132,10 +153,12 @@ Test: ast::Expression = {
 
 OrTest: ast::Expression = {
   <e:AndTest> => e,
+  <e1:OrTest> "or" <e2:AndTest> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::Or, b: Box::new(e2) },
 };
 
 AndTest: ast::Expression = {
   <e:NotTest> => e,
+  <e1:AndTest> "and" <e2:NotTest> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::And, b: Box::new(e2) },
 };
 
 NotTest: ast::Expression = {
@@ -299,12 +322,24 @@ extern {
         "=" => lexer::Tok::Equal,
         "+=" => lexer::Tok::PlusEqual,
         "-=" => lexer::Tok::MinusEqual,
+        "*=" => lexer::Tok::StarEqual,
+        "@=" => lexer::Tok::AtEqual,
+        "/=" => lexer::Tok::SlashEqual,
+        "%=" => lexer::Tok::PercentEqual,
+        "&=" => lexer::Tok::AmperEqual,
+        "|=" => lexer::Tok::VbarEqual,
+        "^=" => lexer::Tok::CircumflexEqual,
+        "<<=" => lexer::Tok::LeftShiftEqual,
+        ">>=" => lexer::Tok::RightShiftEqual,
+        "**=" => lexer::Tok::DoubleStarEqual,
+        "//=" => lexer::Tok::DoubleSlashEqual,
         "==" => lexer::Tok::EqEqual,
         "!=" => lexer::Tok::NotEqual,
         "<" => lexer::Tok::Less,
         "<=" => lexer::Tok::LessEqual,
         ">" => lexer::Tok::Greater,
         ">=" => lexer::Tok::GreaterEqual,
+        "and" => lexer::Tok::And,
         "as" => lexer::Tok::As,
         "assert" => lexer::Tok::Assert,
         "break" => lexer::Tok::Break,
@@ -317,6 +352,7 @@ extern {
         "is" => lexer::Tok::Is,
         "import" => lexer::Tok::Import,
         "not" => lexer::Tok::Not,
+        "or" => lexer::Tok::Or,
         "pass" => lexer::Tok::Pass,
         "return" => lexer::Tok::Return,
         "while" => lexer::Tok::While,
