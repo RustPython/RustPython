@@ -2,9 +2,10 @@ use super::bytecode;
 use super::objint;
 use super::objtype;
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
 
 /* Python objects and references.
@@ -127,7 +128,9 @@ pub enum PyObjectKind {
     Tuple {
         elements: Vec<PyObjectRef>,
     },
-    Dict,
+    Dict {
+        elements: HashMap<String, PyObjectRef>,
+    },
     Iterator {
         position: usize,
         iterated_obj: PyObjectRef,
@@ -292,7 +295,7 @@ impl<'a> Add<&'a PyObject> for &'a PyObject {
             },
             PyObjectKind::List { elements: ref e1 } => match rhs.kind {
                 PyObjectKind::List { elements: ref e2 } => PyObjectKind::List {
-                    elements: e1.iter().chain(e2.iter()).map(|e| e.clone()).collect()
+                    elements: e1.iter().chain(e2.iter()).map(|e| e.clone()).collect(),
                 },
                 _ => {
                     panic!("NOT IMPL");
@@ -358,6 +361,23 @@ impl<'a> Mul<&'a PyObject> for &'a PyObject {
     }
 }
 
+impl<'a> Div<&'a PyObject> for &'a PyObject {
+    type Output = PyObjectKind;
+
+    fn div(self, rhs: &'a PyObject) -> Self::Output {
+        match (&self.kind, &rhs.kind) {
+            (PyObjectKind::Integer { value: value1 }, PyObjectKind::Integer { value: value2 }) => {
+                PyObjectKind::Integer {
+                    value: value1 / value2,
+                }
+            }
+            _ => {
+                panic!("NOT IMPL");
+            }
+        }
+    }
+}
+
 // impl<'a> PartialEq<&'a PyObject> for &'a PyObject {
 impl PartialEq for PyObject {
     fn eq(&self, other: &PyObject) -> bool {
@@ -376,19 +396,37 @@ impl PartialEq for PyObject {
             */
             (PyObjectKind::String { value: ref v1s }, &PyObjectKind::String { value: ref v2s }) => {
                 v2s == v1s
-            },
+            }
             (PyObjectKind::List { elements: ref l1 }, PyObjectKind::List { elements: ref l2 }) => {
                 if l1.len() == l2.len() {
-                    Iterator::zip(l1.iter(), l2.iter())
-                    .all(|elem| elem.0 == elem.1)
+                    Iterator::zip(l1.iter(), l2.iter()).all(|elem| elem.0 == elem.1)
                 } else {
                     false
                 }
-            },
+            }
             _ => panic!(
                 "TypeError in COMPARE_OP: can't compare {:?} with {:?}",
                 self, other
             ),
+        }
+    }
+}
+
+impl Eq for PyObject {}
+
+impl PartialOrd for PyObject {
+    fn partial_cmp(&self, other: &PyObject) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PyObject {
+    fn cmp(&self, other: &PyObject) -> Ordering {
+        match (&self.kind, &other.kind) {
+            (PyObjectKind::Integer { value: v1 }, PyObjectKind::Integer { value: ref v2 }) => {
+                v1.cmp(v2)
+            }
+            _ => panic!("Not impl"),
         }
     }
 }

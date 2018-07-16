@@ -16,7 +16,7 @@ use self::rustpython_parser::parser;
 use super::builtins;
 use super::bytecode;
 use super::compile;
-use super::frame::{Block, BlockType, Frame};
+use super::frame::{Block, Frame};
 use super::objlist;
 use super::objstr;
 use super::objtuple;
@@ -99,6 +99,16 @@ impl VirtualMachine {
         self.current_frame().last_block()
     }
 
+    fn unwind_loop(&mut self) -> Block {
+        loop {
+            let block = self.pop_block();
+            match block {
+                Block::Loop { start: _, end: __ } => break block,
+                _ => {}
+            }
+        }
+    }
+
     fn push_value(&mut self, obj: PyObjectRef) {
         self.current_frame().push_value(obj);
     }
@@ -144,10 +154,10 @@ impl VirtualMachine {
 
     fn run(&mut self, code: Rc<bytecode::CodeObject>) -> PyResult {
         let frame = Frame::new(code, HashMap::new(), None);
-        self.run_frame(frame).0
+        self.run_frame(frame)
     }
 
-    fn run_frame(&mut self, frame: Frame) -> (PyResult, Frame) {
+    fn run_frame(&mut self, frame: Frame) -> PyResult {
         self.frames.push(frame);
 
         // Execute until return or exception:
@@ -165,8 +175,8 @@ impl VirtualMachine {
             }
         };
 
-        let frame2 = self.pop_frame();
-        (value, frame2)
+        self.pop_frame();
+        value
     }
     /*
     fn run_code(&mut self, code: i32) -> Result<PyCodeObject, PyCodeObject> {
@@ -176,13 +186,34 @@ impl VirtualMachine {
         // Subscript implementation: a[b]
         let a2 = &*a.borrow();
         match &a2.kind {
-            PyObjectKind::String { ref value } => objstr::subscript(self, value, b.clone()),
-            PyObjectKind::List { ref elements } => objlist::subscript(self, elements, b.clone()),
-            PyObjectKind::Tuple { ref elements } => objtuple::subscript(self, elements, b.clone()),
+            PyObjectKind::String { ref value } => objstr::subscript(self, value, b),
+            PyObjectKind::List { ref elements } => objlist::get_item(self, elements, b),
+            PyObjectKind::Tuple { ref elements } => objtuple::subscript(self, elements, b),
             _ => panic!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
                 a, b
             ),
+        }
+    }
+
+    fn execute_store_subscript(&mut self) -> Option<PyResult> {
+        let idx = self.pop_value();
+        let obj = self.pop_value();
+        let value = self.pop_value();
+        let a2 = &mut *obj.borrow_mut();
+        let result = match &mut a2.kind {
+            PyObjectKind::List { ref mut elements } => {
+                objlist::set_item(self, elements, idx, value)
+            }
+            _ => panic!(
+                "TypeError: __setitem__ assign type {:?} with index {:?} is not supported (yet?)",
+                obj, idx
+            ),
+        };
+
+        match result {
+            Ok(_) => None,
+            Err(value) => Some(Err(value)),
         }
     }
 
@@ -204,6 +235,24 @@ impl VirtualMachine {
         Ok(PyObject::new(a2 * b2, self.get_type()))
     }
 
+    fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        let b2 = &*b.borrow();
+        let a2 = &*a.borrow();
+        Ok(PyObject::new(a2 / b2, self.get_type()))
+    }
+
+    fn _pow(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        let b2 = &*b.borrow();
+        let a2 = &*a.borrow();
+        match (&a2.kind, &b2.kind) {
+            (
+                &PyObjectKind::Integer { value: ref v1 },
+                &PyObjectKind::Integer { value: ref v2 },
+            ) => Ok(self.ctx.new_int(v1.pow(*v2 as u32))),
+            _ => panic!("Not impl"),
+        }
+    }
+
     fn execute_binop(&mut self, op: &bytecode::BinaryOperator) -> Option<PyResult> {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
@@ -213,7 +262,8 @@ impl VirtualMachine {
             &bytecode::BinaryOperator::Subtract => self._sub(a_ref, b_ref),
             &bytecode::BinaryOperator::Add => self._add(a_ref, b_ref),
             &bytecode::BinaryOperator::Multiply => self._mul(a_ref, b_ref),
-            // &bytecode::BinaryOperator::Div => a / b,
+            &bytecode::BinaryOperator::Power => self._pow(a_ref, b_ref),
+            &bytecode::BinaryOperator::Divide => self._div(a_ref, b_ref),
             &bytecode::BinaryOperator::Subscript => self.subscript(a_ref, b_ref),
             _ => panic!("NOT IMPL {:?}", op),
         };
@@ -273,6 +323,38 @@ impl VirtualMachine {
         Ok(result)
     }
 
+    fn _lt(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        let b2 = &*b.borrow();
+        let a2 = &*a.borrow();
+        let result_bool = a2 < b2;
+        let result = self.ctx.new_bool(result_bool);
+        Ok(result)
+    }
+
+    fn _le(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        let b2 = &*b.borrow();
+        let a2 = &*a.borrow();
+        let result_bool = a2 <= b2;
+        let result = self.ctx.new_bool(result_bool);
+        Ok(result)
+    }
+
+    fn _gt(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        let b2 = &*b.borrow();
+        let a2 = &*a.borrow();
+        let result_bool = a2 > b2;
+        let result = self.ctx.new_bool(result_bool);
+        Ok(result)
+    }
+
+    fn _ge(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        let b2 = &*b.borrow();
+        let a2 = &*a.borrow();
+        let result_bool = a2 >= b2;
+        let result = self.ctx.new_bool(result_bool);
+        Ok(result)
+    }
+
     fn _is(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Pointer equal:
         let result_bool = true; // TODO: *a.as_ptr() == *b.as_ptr();
@@ -293,6 +375,10 @@ impl VirtualMachine {
         let result = match op {
             &bytecode::ComparisonOperator::Equal => self._eq(a, b),
             &bytecode::ComparisonOperator::NotEqual => self._ne(a, b),
+            &bytecode::ComparisonOperator::Less => self._lt(a, b),
+            &bytecode::ComparisonOperator::LessOrEqual => self._le(a, b),
+            &bytecode::ComparisonOperator::Greater => self._gt(a, b),
+            &bytecode::ComparisonOperator::GreaterOrEqual => self._ge(a, b),
             &bytecode::ComparisonOperator::Is => self._is(a, b),
             &bytecode::ComparisonOperator::IsNot => self._is_not(a, b),
             _ => panic!("NOT IMPL {:?}", op),
@@ -319,7 +405,7 @@ impl VirtualMachine {
             PyObjectKind::RustFunction { ref function } => f.call(self, args),
             PyObjectKind::Function { ref code } => {
                 let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
-                self.run_frame(frame).0
+                self.run_frame(frame)
             }
             PyObjectKind::Class { name: _ } => self.new_instance(func_ref.clone(), args),
             _ => {
@@ -347,14 +433,18 @@ impl VirtualMachine {
 
                 // As a sort of hack, create a frame and run code in it
                 let frame = Frame::new(Rc::new(bytecode), HashMap::new(), None);
-                let frame2 = self.run_frame(frame).1;
+                match self.run_frame(frame) {
+                    Ok(value) => {},
+                    Err(value) => { panic!("{:?}", value) },
+                }
 
                 // TODO: we might find a better solution than this:
-                for (name, member_obj) in frame2.locals.iter() {
+                /*
+                for (name, member_obj) in frame.locals.iter() {
                     obj.borrow_mut()
                         .dict
                         .insert(name.to_string(), member_obj.clone());
-                }
+                }*/
 
                 // Push module on stack:
                 self.push_value(obj);
@@ -398,7 +488,7 @@ impl VirtualMachine {
             trace!("=======");
         }
         match &instruction {
-            &bytecode::Instruction::LoadConst { ref value } => {
+            bytecode::Instruction::LoadConst { ref value } => {
                 let obj = match value {
                     &bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
                     // &bytecode::Constant::Float
@@ -411,37 +501,38 @@ impl VirtualMachine {
                 self.push_value(obj);
                 None
             }
-            &bytecode::Instruction::Import { ref name } => {
+            bytecode::Instruction::Import { ref name } => {
                 self.import(name.to_string());
                 None
             }
-            &bytecode::Instruction::LoadName { ref name } => self.load_name(name),
-            &bytecode::Instruction::StoreName { ref name } => {
+            bytecode::Instruction::LoadName { ref name } => self.load_name(name),
+            bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:
                 self.store_name(name.clone())
             }
-            &bytecode::Instruction::Pop => {
+            bytecode::Instruction::StoreSubscript => self.execute_store_subscript(),
+            bytecode::Instruction::Pop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
                 None
             }
-            &bytecode::Instruction::BuildList { size } => {
-                let elements = self.pop_multiple(size);
+            bytecode::Instruction::BuildList { size } => {
+                let elements = self.pop_multiple(*size);
                 let list_obj =
                     PyObject::new(PyObjectKind::List { elements: elements }, self.get_type());
                 self.push_value(list_obj);
                 None
             }
-            &bytecode::Instruction::BuildTuple { size } => {
-                let elements = self.pop_multiple(size);
+            bytecode::Instruction::BuildTuple { size } => {
+                let elements = self.pop_multiple(*size);
                 let list_obj =
                     PyObject::new(PyObjectKind::Tuple { elements: elements }, self.get_type());
                 self.push_value(list_obj);
                 None
             }
-            &bytecode::Instruction::BuildMap { size } => {
+            bytecode::Instruction::BuildMap { size } => {
                 let mut elements = Vec::new();
-                for _x in 0..size {
+                for _x in 0..*size {
                     let key = self.pop_value();
                     let obj = self.pop_value();
                     elements.push((key, obj));
@@ -450,9 +541,9 @@ impl VirtualMachine {
                 //let list_obj = PyObject::Tuple { elements: elements }.into_ref();
                 //frame.stack.push(list_obj);
             }
-            &bytecode::Instruction::BuildSlice { size } => {
-                assert!(size == 2 || size == 3);
-                let elements = self.pop_multiple(size);
+            bytecode::Instruction::BuildSlice { size } => {
+                assert!(*size == 2 || *size == 3);
+                let elements = self.pop_multiple(*size);
 
                 let mut out: Vec<Option<i32>> = elements
                     .into_iter()
@@ -474,26 +565,26 @@ impl VirtualMachine {
                 self.push_value(obj);
                 None
             }
-            &bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(op),
-            &bytecode::Instruction::LoadAttr { ref name } => self.load_attr(name.to_string()),
-            &bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(op),
-            &bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(op),
-            &bytecode::Instruction::ReturnValue => {
+            bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(op),
+            bytecode::Instruction::LoadAttr { ref name } => self.load_attr(name.to_string()),
+            bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(op),
+            bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(op),
+            bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
                 Some(Ok(value))
             }
-            &bytecode::Instruction::SetupLoop { start, end } => {
-                self.push_block(Block {
-                    block_type: BlockType::A { start, end },
-                    handler: 0,
+            bytecode::Instruction::SetupLoop { start, end } => {
+                self.push_block(Block::Loop {
+                    start: *start,
+                    end: *end,
                 });
                 None
             }
-            &bytecode::Instruction::PopBlock => {
+            bytecode::Instruction::PopBlock => {
                 self.pop_block();
                 None
             }
-            &bytecode::Instruction::GetIter => {
+            bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
                 let iter_obj = PyObject::new(
                     PyObjectKind::Iterator {
@@ -505,7 +596,7 @@ impl VirtualMachine {
                 self.push_value(iter_obj);
                 None
             }
-            &bytecode::Instruction::ForIter => {
+            bytecode::Instruction::ForIter => {
                 // The top of stack contains the iterator, lets push it forward:
                 let next_obj: Option<PyObjectRef> = {
                     let top_of_stack = self.last_value();
@@ -526,21 +617,17 @@ impl VirtualMachine {
                         self.pop_value();
 
                         // End of for loop
-                        let end_label = if let Block {
-                            block_type: BlockType::A { start, end },
-                            handler,
-                        } = self.last_block()
-                        {
+                        let end_label = if let Block::Loop { start, end } = self.last_block() {
                             *end
                         } else {
                             panic!("Wrong block type")
                         };
-                        self.jump(end_label);
+                        self.jump(&end_label);
                     }
                 };
                 None
             }
-            &bytecode::Instruction::MakeFunction => {
+            bytecode::Instruction::MakeFunction => {
                 let qualified_name = self.pop_value();
                 let code = self.pop_value();
                 let code_2 = &*code.borrow();
@@ -554,8 +641,8 @@ impl VirtualMachine {
                 self.push_value(obj);
                 None
             }
-            &bytecode::Instruction::CallFunction { count } => {
-                let args: Vec<PyObjectRef> = self.pop_multiple(count);
+            bytecode::Instruction::CallFunction { count } => {
+                let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                 let func_ref = self.pop_value();
 
                 // Call function:
@@ -572,11 +659,11 @@ impl VirtualMachine {
                     }
                 }
             }
-            &bytecode::Instruction::Jump { target } => {
+            bytecode::Instruction::Jump { target } => {
                 self.jump(target);
                 None
             }
-            &bytecode::Instruction::JumpIf { target } => {
+            bytecode::Instruction::JumpIf { target } => {
                 let obj = self.pop_value();
                 // TODO: determine if this value is True-ish:
                 //if *v == NativeType::Boolean(true) {
@@ -595,7 +682,7 @@ impl VirtualMachine {
                 None
             }
 
-            &bytecode::Instruction::Raise { argc } => {
+            bytecode::Instruction::Raise { argc } => {
                 let exception = match argc {
                     1 => self.pop_value(),
                     0 | 2 | 3 => panic!("Not implemented!"),
@@ -605,29 +692,33 @@ impl VirtualMachine {
                 Some(Err(exception))
             }
 
-            /* TODO
-            &bytecode::Instruction::Break => {
-                let end_label = frame.blocks.last().unwrap().1;
-                self.jump(end_label);
-            },
-            */
-            &bytecode::Instruction::Pass => {
+            bytecode::Instruction::Break => {
+                let block = self.unwind_loop();
+                if let Block::Loop { start, end } = block {
+                    self.jump(&end);
+                }
+                None
+            }
+            bytecode::Instruction::Pass => {
                 // Ah, this is nice, just relax!
                 None
             }
-            /* TODO
-            &bytecode::Instruction::Continue => {
-                let start_label = frame.blocks.last().unwrap().0;
-                self.jump(start_label);
-            },
-            */
+            bytecode::Instruction::Continue => {
+                let block = self.unwind_loop();
+                if let Block::Loop { start, end } = block {
+                    self.jump(&start);
+                } else {
+                    assert!(false);
+                }
+                None
+            }
             _ => panic!("NOT IMPL {:?}", instruction),
         }
     }
 
-    fn jump(&mut self, label: bytecode::Label) {
+    fn jump(&mut self, label: &bytecode::Label) {
         let current_frame = self.current_frame();
-        let target_pc = current_frame.code.label_map[&label];
+        let target_pc = current_frame.code.label_map[label];
         trace!(
             "program counter from {:?} to {:?}",
             current_frame.lasti,

@@ -6,19 +6,12 @@ use super::bytecode;
 use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 #[derive(Clone, Debug)]
-pub struct Block {
-    pub block_type: BlockType,
-    pub handler: usize, // The destination we should jump to if the block finishes
-                        // level?
-}
-
-#[derive(Clone, Debug)]
-pub enum BlockType {
-    A {
+pub enum Block {
+    Loop {
         start: bytecode::Label,
         end: bytecode::Label,
     },
-    B,
+    TryExcept,
 }
 
 pub struct Frame {

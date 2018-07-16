@@ -245,7 +245,12 @@ Factor: ast::Expression = {
 };
 
 Power: ast::Expression = {
-  <e:AtomExpr>  => e,
+  <e:AtomExpr> <e2:("**" Factor)?> => {
+      match e2 {
+         None => e,
+         Some(x) => ast::Expression::Binop { a: Box::new(e), op: ast::Operator::Pow, b: Box::new(x.1) },
+      }
+  }
 };
 
 AtomExpr: ast::Expression = {
@@ -274,12 +279,22 @@ Atom: ast::Expression = {
   <s:String> => ast::Expression::String { value: s },
   <n:Number> => ast::Expression::Number { value: n },
   <i:Identifier> => ast::Expression::Identifier { name: i },
-  "[" <e:TestList> "]" => ast::Expression::List { elements: e },
-  "(" <e:TestList> ")" => {
-     if e.len() == 1 {
-       e.into_iter().next().unwrap()
-     } else {
-       ast::Expression::Tuple { elements: e }
+  "[" <e:TestList?> "]" => {
+    match e {
+      None => ast::Expression::List { elements: Vec::new() },
+      Some(elements) => ast::Expression::List { elements },
+    }
+  },
+  "(" <e:TestList?> ")" => {
+     match e {
+         None => ast::Expression::Tuple { elements: Vec::new() },
+         Some(elements) => {
+             if elements.len() == 1 {
+               elements.into_iter().next().unwrap()
+             } else {
+               ast::Expression::Tuple { elements }
+             }
+         }
      }
   },
   "True" => ast::Expression::True,
@@ -331,6 +346,7 @@ extern {
         "." => lexer::Tok::Dot,
         "," => lexer::Tok::Comma,
         "*" => lexer::Tok::Star,
+        "**" => lexer::Tok::DoubleStar,
         "&" => lexer::Tok::Amper,
         "@" => lexer::Tok::At,
         "%" => lexer::Tok::Percent,

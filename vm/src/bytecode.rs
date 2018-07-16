@@ -35,6 +35,7 @@ pub enum Instruction {
     Import { name: String },
     LoadName { name: String },
     StoreName { name: String },
+    StoreSubscript,
     LoadConst { value: Constant },
     UnaryOperation { op: UnaryOperator },
     BinaryOperation { op: BinaryOperator },

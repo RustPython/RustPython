@@ -1,4 +1,3 @@
-
 use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {

@@ -10,6 +10,7 @@ pub mod bytecode;
 pub mod compile;
 pub mod eval;
 mod frame;
+mod objdict;
 mod objint;
 mod objlist;
 mod objstr;

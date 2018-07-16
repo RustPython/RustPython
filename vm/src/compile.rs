@@ -106,7 +106,7 @@ impl Compiler {
                         // Only if:
                         self.emit(Instruction::JumpIf { target: end_label });
                         self.compile_statements(body);
-                    },
+                    }
                     Some(statements) => {
                         // if - else:
                         let else_label = self.new_label();
@@ -260,16 +260,7 @@ impl Compiler {
                 self.compile_expression(value);
 
                 for target in targets {
-                    match target {
-                        ast::Expression::Identifier { name } => {
-                            self.emit(Instruction::StoreName {
-                                name: name.to_string(),
-                            });
-                        }
-                        _ => {
-                            panic!("WTF");
-                        }
-                    }
+                    self.compile_store(target);
                 }
             }
             ast::Statement::AugAssign { target, op, value } => {
@@ -278,17 +269,7 @@ impl Compiler {
 
                 // Perform operation:
                 self.compile_op(op);
-
-                match target {
-                    ast::Expression::Identifier { name } => {
-                        self.emit(Instruction::StoreName {
-                            name: name.to_string(),
-                        });
-                    }
-                    _ => {
-                        panic!("WTF");
-                    }
-                }
+                self.compile_store(target);
             }
             ast::Statement::Delete { targets } => {
                 // Remove the given names from the scope
@@ -296,6 +277,24 @@ impl Compiler {
             }
             ast::Statement::Pass => {
                 self.emit(Instruction::Pass);
+            }
+        }
+    }
+
+    fn compile_store(&mut self, target: &ast::Expression) {
+        match target {
+            ast::Expression::Identifier { name } => {
+                self.emit(Instruction::StoreName {
+                    name: name.to_string(),
+                });
+            }
+            ast::Expression::Subscript { a, b } => {
+                self.compile_expression(a);
+                self.compile_expression(b);
+                self.emit(Instruction::StoreSubscript);
+            }
+            _ => {
+                panic!("WTF");
             }
         }
     }
@@ -330,16 +329,14 @@ impl Compiler {
                 }
                 self.emit(Instruction::CallFunction { count: count });
             }
-            ast::Expression::BoolOp { a, op, b } => {
-                match op {
-                    ast::BooleanOperator::And => {
-                        panic!("Not impl");
-                    }
-                    ast::BooleanOperator::Or => {
-                        panic!("Not impl");
-                    }
+            ast::Expression::BoolOp { a, op, b } => match op {
+                ast::BooleanOperator::And => {
+                    panic!("Not impl");
                 }
-            }
+                ast::BooleanOperator::Or => {
+                    panic!("Not impl");
+                }
+            },
             ast::Expression::Binop { a, op, b } => {
                 self.compile_expression(&*a);
                 self.compile_expression(&*b);
@@ -350,7 +347,9 @@ impl Compiler {
             ast::Expression::Subscript { a, b } => {
                 self.compile_expression(&*a);
                 self.compile_expression(&*b);
-                self.emit(Instruction::BinaryOperation { op: bytecode::BinaryOperator::Subscript });
+                self.emit(Instruction::BinaryOperation {
+                    op: bytecode::BinaryOperator::Subscript,
+                });
             }
             ast::Expression::Unop { op, a } => {
                 self.compile_expression(&*a);
