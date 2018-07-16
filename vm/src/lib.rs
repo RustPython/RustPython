@@ -19,4 +19,5 @@ mod objtype;
 pub mod pyobject;
 mod vm;
 
+pub use self::pyobject::Executor;
 pub use self::vm::VirtualMachine;

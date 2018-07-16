@@ -1,4 +1,5 @@
 // use std::ops::Deref;
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
@@ -76,35 +77,36 @@ pub fn len(args: Vec<Rc<NativeType>>) -> NativeType {
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
-    let obj = PyObject::new(
-        PyObjectKind::Module {
-            name: "__builtins__".to_string(),
-        },
-        ctx.type_type.clone(),
-    );
-    obj.borrow_mut().dict.insert(
+    let mut dict = HashMap::new();
+    dict.insert(
         String::from("print"),
         PyObject::new(
             PyObjectKind::RustFunction { function: print },
             ctx.type_type.clone(),
         ),
     );
-    obj.borrow_mut()
-        .dict
-        .insert(String::from("type"), ctx.type_type.clone());
-    obj.borrow_mut().dict.insert(
+    // locals.insert("len".to_string(), Rc::new(NativeType::NativeFunction(builtins::len)));
+    dict.insert(String::from("type"), ctx.type_type.clone());
+    dict.insert(
         String::from("all"),
         PyObject::new(
             PyObjectKind::RustFunction { function: all },
             ctx.type_type.clone(),
         ),
     );
-    obj.borrow_mut().dict.insert(
+    dict.insert(
         String::from("any"),
         PyObject::new(
             PyObjectKind::RustFunction { function: any },
             ctx.type_type.clone(),
         ),
+    );
+    let obj = PyObject::new(
+        PyObjectKind::Module {
+            name: "__builtins__".to_string(),
+            dict: PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone()),
+        },
+        ctx.type_type.clone(),
     );
     obj
 }

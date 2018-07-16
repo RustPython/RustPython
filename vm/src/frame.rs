@@ -20,8 +20,8 @@ pub struct Frame {
     // We need 1 stack per frame
     stack: Vec<PyObjectRef>, // The main data frame of the stack machine
     blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
-    pub globals: HashMap<String, PyObjectRef>, // Variables
-    pub locals: HashMap<String, PyObjectRef>, // Variables
+    // pub globals: HashMap<String, PyObjectRef>, // Variables
+    pub locals: PyObjectRef, // Variables
     pub lasti: usize,        // index of last instruction ran
                              // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
 }
@@ -30,24 +30,25 @@ impl Frame {
     pub fn new(
         code: Rc<bytecode::CodeObject>,
         callargs: HashMap<String, PyObjectRef>,
-        globals: Option<HashMap<String, PyObjectRef>>,
+        globals: PyObjectRef,
     ) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
+        /*
         let globals = match globals {
             Some(g) => g,
             None => HashMap::new(),
         };
-        let mut locals = globals;
-        locals.extend(callargs);
+        */
+        let locals = globals;
+        // locals.extend(callargs);
 
-        // locals.insert("len".to_string(), Rc::new(NativeType::NativeFunction(builtins::len)));
         Frame {
             code: code,
             stack: vec![],
             blocks: vec![],
             // save the callargs as locals
-            globals: locals.clone(),
+            // globals: locals.clone(),
             locals: locals,
             lasti: 0,
         }
@@ -99,11 +100,11 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
-        let local_str = self.locals
+        let local_str = "".to_string(); /* self.locals
             .iter()
             .map(|elem| format!("\n  {} = {}", elem.0, elem.1.borrow_mut().str()))
             .collect::<Vec<_>>()
-            .join("");
+            .join(""); */
         write!(
             f,
             "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{}\n}}",

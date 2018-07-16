@@ -20,7 +20,8 @@ use super::frame::{Block, Frame};
 use super::objlist;
 use super::objstr;
 use super::objtuple;
-use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{DictProtocol, Executor, PyContext, PyObject, PyObjectKind, PyObjectRef,
+                      PyResult};
 
 // use objects::objects;
 
@@ -43,6 +44,10 @@ impl Executor for VirtualMachine {
 
     fn new_bool(&self, b: bool) -> PyObjectRef {
         self.ctx.new_bool(b)
+    }
+
+    fn new_dict(&self) -> PyObjectRef {
+        self.ctx.new_dict()
     }
 
     fn get_none(&self) -> PyObjectRef {
@@ -71,8 +76,8 @@ impl VirtualMachine {
     }
 
     // Container of the virtual machine state:
-    pub fn evaluate(&mut self, code: bytecode::CodeObject) -> PyResult {
-        self.run(Rc::new(code))
+    pub fn evaluate(&mut self, code: bytecode::CodeObject, locals: PyObjectRef) -> PyResult {
+        self.run(Rc::new(code), locals)
     }
 
     pub fn to_str(&mut self, obj: PyObjectRef) -> String {
@@ -125,20 +130,20 @@ impl VirtualMachine {
         self.current_frame().last_value()
     }
 
-    fn store_name(&mut self, name: String) -> Option<PyResult> {
+    fn store_name(&mut self, name: &String) -> Option<PyResult> {
         let obj = self.pop_value();
-        self.current_frame().locals.insert(name, obj);
+        self.current_frame().locals.set_item(name, obj);
         None
     }
 
     fn load_name(&mut self, name: &String) -> Option<PyResult> {
         // Lookup name in scope and put it onto the stack!
         if self.current_frame().locals.contains_key(name) {
-            let obj = self.current_frame().locals[name].clone();
+            let obj = self.current_frame().locals.get_item(name);
             self.push_value(obj);
             None
-        } else if self.builtins.borrow().dict.contains_key(name) {
-            let obj = self.builtins.borrow().dict[name].clone();
+        } else if self.builtins.contains_key(name) {
+            let obj = self.builtins.get_item(name);
             self.push_value(obj);
             None
         } else {
@@ -152,8 +157,8 @@ impl VirtualMachine {
         }
     }
 
-    fn run(&mut self, code: Rc<bytecode::CodeObject>) -> PyResult {
-        let frame = Frame::new(code, HashMap::new(), None);
+    fn run(&mut self, code: Rc<bytecode::CodeObject>, locals: PyObjectRef) -> PyResult {
+        let frame = Frame::new(code, HashMap::new(), locals);
         self.run_frame(frame)
     }
 
@@ -404,7 +409,7 @@ impl VirtualMachine {
         match f.kind {
             PyObjectKind::RustFunction { ref function } => f.call(self, args),
             PyObjectKind::Function { ref code } => {
-                let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), None);
+                let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), self.new_dict());
                 self.run_frame(frame)
             }
             PyObjectKind::Class { name: _ } => self.new_instance(func_ref.clone(), args),
@@ -428,14 +433,20 @@ impl VirtualMachine {
         match compile::compile(&source, compile::Mode::Exec) {
             Ok(bytecode) => {
                 debug!("Code object: {:?}", bytecode);
-                let obj =
-                    PyObject::new(PyObjectKind::Module { name: name.clone() }, self.get_type());
+                let dict = self.new_dict();
+                let obj = PyObject::new(
+                    PyObjectKind::Module {
+                        name: name.clone(),
+                        dict: dict.clone(),
+                    },
+                    self.get_type(),
+                );
 
                 // As a sort of hack, create a frame and run code in it
-                let frame = Frame::new(Rc::new(bytecode), HashMap::new(), None);
+                let frame = Frame::new(Rc::new(bytecode), HashMap::new(), dict);
                 match self.run_frame(frame) {
-                    Ok(value) => {},
-                    Err(value) => { panic!("{:?}", value) },
+                    Ok(value) => {}
+                    Err(value) => panic!("{:?}", value),
                 }
 
                 // TODO: we might find a better solution than this:
@@ -456,10 +467,13 @@ impl VirtualMachine {
         }
     }
 
-    fn load_attr(&mut self, name: String) -> Option<PyResult> {
+    fn load_attr(&mut self, attr_name: &String) -> Option<PyResult> {
         let parent = self.pop_value();
         // Lookup name in obj
-        let obj = parent.borrow().dict[&name].clone();
+        let obj = match parent.borrow().kind {
+            PyObjectKind::Module { ref name, ref dict } => dict.get_item(attr_name),
+            _ => panic!("Not impl"),
+        };
         self.push_value(obj);
         None
     }
@@ -508,7 +522,7 @@ impl VirtualMachine {
             bytecode::Instruction::LoadName { ref name } => self.load_name(name),
             bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:
-                self.store_name(name.clone())
+                self.store_name(name)
             }
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(),
             bytecode::Instruction::Pop => {
@@ -566,7 +580,7 @@ impl VirtualMachine {
                 None
             }
             bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(op),
-            bytecode::Instruction::LoadAttr { ref name } => self.load_attr(name.to_string()),
+            bytecode::Instruction::LoadAttr { ref name } => self.load_attr(name),
             bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(op),
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(op),
             bytecode::Instruction::ReturnValue => {

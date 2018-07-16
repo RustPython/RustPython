@@ -67,6 +67,15 @@ impl PyContext {
         PyObject::new(PyObjectKind::Boolean { value: b }, self.type_type.clone())
     }
 
+    pub fn new_dict(&self) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::Dict {
+                elements: HashMap::new(),
+            },
+            self.type_type.clone(),
+        )
+    }
+
     pub fn new_class(&self, name: String) -> PyObjectRef {
         PyObject::new(PyObjectKind::Class { name: name }, self.type_type.clone())
     }
@@ -82,6 +91,7 @@ pub trait Executor {
     fn call(&mut self, PyObjectRef) -> PyResult;
     fn new_str(&self, s: String) -> PyObjectRef;
     fn new_bool(&self, b: bool) -> PyObjectRef;
+    fn new_dict(&self) -> PyObjectRef;
     fn get_none(&self) -> PyObjectRef;
     fn get_type(&self) -> PyObjectRef;
     fn context(&self) -> &PyContext;
@@ -90,7 +100,7 @@ pub trait Executor {
 pub struct PyObject {
     pub kind: PyObjectKind,
     pub typ: Option<PyObjectRef>,
-    pub dict: HashMap<String, PyObjectRef>, // __dict__ member
+    // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
 }
 
 impl Default for PyObject {
@@ -98,8 +108,41 @@ impl Default for PyObject {
         PyObject {
             kind: PyObjectKind::None,
             typ: None,
-            dict: HashMap::new(),
+            // dict: HashMap::new(),
         }
+    }
+}
+
+pub trait DictProtocol {
+    fn contains_key(&self, k: &String) -> bool;
+    fn get_item(&self, k: &String) -> PyObjectRef;
+    fn set_item(&mut self, k: &String, v: PyObjectRef);
+}
+
+impl DictProtocol for PyObjectRef {
+    fn contains_key(&self, k: &String) -> bool {
+        match self.borrow().kind {
+            PyObjectKind::Dict { ref elements } => elements.contains_key(k),
+            PyObjectKind::Module { ref name, ref dict } => dict.contains_key(k),
+            _ => panic!("TODO"),
+        }
+    }
+
+    fn get_item(&self, k: &String) -> PyObjectRef {
+        match self.borrow().kind {
+            PyObjectKind::Dict { ref elements } => elements[k].clone(),
+            PyObjectKind::Module { ref name, ref dict } => dict.get_item(k),
+            _ => panic!("TODO"),
+        }
+    }
+
+    fn set_item(&mut self, k: &String, v: PyObjectRef) {
+        match self.borrow_mut().kind {
+            PyObjectKind::Dict {
+                elements: ref mut el,
+            } => el.insert(k.to_string(), v),
+            _ => panic!("TODO"),
+        };
     }
 }
 
@@ -152,10 +195,12 @@ pub enum PyObjectKind {
     },
     Module {
         name: String,
+        dict: PyObjectRef,
     },
     None,
     Class {
         name: String,
+        // dict: PyObjectRef,
     },
     RustFunction {
         function: RustPyFunc,
@@ -172,11 +217,11 @@ impl fmt::Debug for PyObjectKind {
 }
 
 impl PyObject {
-    pub fn new(kind: PyObjectKind, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new(kind: PyObjectKind, /* dict: PyObjectRef,*/ typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             kind: kind,
             typ: Some(typ),
-            dict: HashMap::new(),
+            // dict: HashMap::new(),  // dict,
         }.into_ref()
     }
 
@@ -216,7 +261,7 @@ impl PyObject {
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
-            PyObjectKind::Module { ref name } => format!("<module '{}'>", name),
+            PyObjectKind::Module { ref name, ref dict } => format!("<module '{}'>", name),
             PyObjectKind::Slice {
                 ref start,
                 ref stop,

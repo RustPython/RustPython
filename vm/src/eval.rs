@@ -1,14 +1,14 @@
 extern crate rustpython_parser;
 
 use super::compile;
-use super::pyobject::PyResult;
+use super::pyobject::{Executor, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
-pub fn eval(vm: &mut VirtualMachine, source: &String) -> PyResult {
+pub fn eval(vm: &mut VirtualMachine, source: &String, locals: PyObjectRef) -> PyResult {
     match compile::compile(source, compile::Mode::Eval) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
-            vm.evaluate(bytecode)
+            vm.evaluate(bytecode, locals)
         }
         Err(msg) => {
             panic!("Parsing went horribly wrong: {}", msg);
@@ -18,6 +18,7 @@ pub fn eval(vm: &mut VirtualMachine, source: &String) -> PyResult {
 
 #[cfg(test)]
 mod tests {
+    use super::Executor;
     use super::VirtualMachine;
     use super::eval;
 
@@ -25,7 +26,8 @@ mod tests {
     fn test_print_42() {
         let source = String::from("print('Hello world')\n");
         let mut vm = VirtualMachine::new();
-        let result = eval(&mut vm, &source);
+        let vars = vm.new_dict();
+        let result = eval(&mut vm, &source, vars);
 
         // TODO: check result?
         //assert_eq!(

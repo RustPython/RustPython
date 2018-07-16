@@ -9,7 +9,7 @@ extern crate rustpython_vm;
 
 use clap::{App, Arg};
 use rustpython_parser::parser;
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::{VirtualMachine, Executor};
 use rustpython_vm::compile;
 use rustpython_vm::eval::eval;
 use rustpython_vm::pyobject::PyObjectRef;
@@ -48,7 +48,8 @@ fn run_script(script_file: &String) {
         Ok(source) => {
             let bytecode = compile::compile(&source, compile::Mode::Exec).unwrap();
             debug!("Code object: {:?}", bytecode);
-            vm.evaluate(bytecode);
+            let vars = vm.new_dict(); // Keep track of local variables
+            vm.evaluate(bytecode, vars);
         }
         Err(msg) => {
             error!("Parsing went horribly wrong: {}", msg);
@@ -63,6 +64,7 @@ fn run_shell() {
         crate_version!()
     );
     let mut vm = VirtualMachine::new();
+    let vars = vm.new_dict(); // Keep track of local variables
     // Read a single line:
     loop {
         let mut input = String::new();
@@ -71,7 +73,7 @@ fn run_shell() {
         io::stdin().read_line(&mut input);
         // input = input.trim().to_string();
         debug!("You entered {:?}", input);
-        let result = eval(&mut vm, &input);
+        let result = eval(&mut vm, &input, vars.clone());
         match result {
             Ok(value) => println!("{}", vm.to_str(value)),
             Err(value) => println!("Error: {:?}", value),
