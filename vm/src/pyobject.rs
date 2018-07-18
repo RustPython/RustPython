@@ -94,6 +94,13 @@ impl PyContext {
         )
     }
 
+    pub fn new_rustfunc(&self, function: RustPyFunc) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::RustFunction { function: function },
+            self.type_type.clone(),
+        )
+    }
+
     pub fn new_class(&self, name: String) -> PyObjectRef {
         PyObject::new(PyObjectKind::Class { name: name }, self.type_type.clone())
     }
@@ -112,6 +119,7 @@ pub trait Executor {
     fn new_dict(&self) -> PyObjectRef;
     fn get_none(&self) -> PyObjectRef;
     fn get_type(&self) -> PyObjectRef;
+    fn get_locals(&self) -> PyObjectRef;
     fn context(&self) -> &PyContext;
 }
 
@@ -265,15 +273,23 @@ impl PyObject {
                 "[{}]",
                 elements
                     .iter()
-                    .map(|elem| elem.borrow_mut().str())
+                    .map(|elem| elem.borrow().str())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
             PyObjectKind::Tuple { ref elements } => format!(
-                "{{{}}}",
+                "({})",
                 elements
                     .iter()
-                    .map(|elem| elem.borrow_mut().str())
+                    .map(|elem| elem.borrow().str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            PyObjectKind::Dict { ref elements } => format!(
+                "{{ {} }}",
+                elements
+                    .iter()
+                    .map(|elem| format!("{}: {}", elem.0, elem.1.borrow().str()))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),

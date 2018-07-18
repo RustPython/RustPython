@@ -4,7 +4,6 @@ use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef};
  * The magic sys module.
  */
 
-
 /* 
  * TODO:
 fn mk_module(rt: &mut Executor) -> PyObjectRef {

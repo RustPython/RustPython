@@ -59,6 +59,10 @@ impl Executor for VirtualMachine {
         self.ctx.type_type.clone()
     }
 
+    fn get_locals(&self) -> PyObjectRef {
+        self.frames.last().unwrap().locals.clone()
+    }
+
     fn context(&self) -> &PyContext {
         &self.ctx
     }

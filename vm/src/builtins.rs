@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
+use super::pyobject::DictProtocol;
 use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 /*
@@ -38,6 +39,39 @@ pub fn print(args: Vec<Rc<NativeType>>) -> NativeType {
 }
 */
 
+fn get_locals(rt: &mut Executor) -> PyObjectRef {
+    let mut d = rt.new_dict();
+    // TODO: implement dict_iter_items?
+    let locals = rt.get_locals();
+    match locals.borrow().kind {
+        PyObjectKind::Dict { ref elements } => {
+            for l in elements {
+                d.set_item(l.0, l.1.clone());
+            }
+        }
+        _ => {}
+    };
+    d
+}
+
+fn dir_locals(rt: &mut Executor) -> PyObjectRef {
+    get_locals(rt)
+}
+
+fn dir_object(rt: &mut Executor, obj: PyObjectRef) -> PyObjectRef {
+    let d = rt.new_dict();
+    d
+}
+
+pub fn dir(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    if args.is_empty() {
+        Ok(dir_locals(rt))
+    } else {
+        let obj = args.into_iter().next().unwrap();
+        Ok(dir_object(rt, obj))
+    }
+}
+
 pub fn print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     // println!("Woot: {:?}", args);
     trace!("print called with {:?}", args);
@@ -55,52 +89,35 @@ pub fn compile(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
 }
 
 pub fn locals(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
-    // TODO
-    Ok(rt.new_bool(true))
+    Ok(rt.get_locals())
 }
 
-/*
- * TODO
-pub fn len(args: Vec<Rc<NativeType>>) -> NativeType {
+pub fn len(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     if args.len() != 1 {
         panic!("len(s) expects exactly one parameter");
     }
-    let len = match args[0].deref() {
-        &NativeType::List(ref l) => l.borrow().len(),
-        &NativeType::Tuple(ref t) => t.len(),
-        &NativeType::Str(ref s) => s.len(),
-        _ => panic!("TypeError: object of this type has no len()")
+    let len = match args[0].borrow().kind {
+        PyObjectKind::List { ref elements } => elements.len(),
+        PyObjectKind::Tuple { ref elements } => elements.len(),
+        PyObjectKind::String { ref value } => value.len(),
+        _ => {
+            return Err(rt.context()
+                .new_str("TypeError: object of this type has no len()".to_string()))
+        }
     };
-    NativeType::Int(len as i32)
+    Ok(rt.context().new_int(len as i32))
 }
-*/
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
     let mut dict = HashMap::new();
-    dict.insert(
-        String::from("print"),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: print },
-            ctx.type_type.clone(),
-        ),
-    );
-    // locals.insert("len".to_string(), Rc::new(NativeType::NativeFunction(builtins::len)));
+    dict.insert(String::from("print"), ctx.new_rustfunc(print));
     dict.insert(String::from("type"), ctx.type_type.clone());
-    dict.insert(
-        String::from("all"),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: all },
-            ctx.type_type.clone(),
-        ),
-    );
-    dict.insert(
-        String::from("any"),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: any },
-            ctx.type_type.clone(),
-        ),
-    );
+    dict.insert(String::from("all"), ctx.new_rustfunc(all));
+    dict.insert(String::from("any"), ctx.new_rustfunc(any));
+    dict.insert(String::from("dir"), ctx.new_rustfunc(dir));
+    dict.insert(String::from("locals"), ctx.new_rustfunc(locals));
+    dict.insert("len".to_string(), ctx.new_rustfunc(len));
     let obj = PyObject::new(
         PyObjectKind::Module {
             name: "__builtins__".to_string(),

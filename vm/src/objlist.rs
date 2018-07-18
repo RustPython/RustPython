@@ -73,5 +73,6 @@ pub fn append(rt: &mut Executor, l: PyObjectRef, other: PyObjectRef) -> PyResult
 pub fn make_type() -> PyObjectRef {
 
     // dict.insert("__set_item__".to_string(), set_item);
+    dict.insert("append".to_string(), append)
 }
 */
