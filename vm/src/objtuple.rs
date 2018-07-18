@@ -1,4 +1,4 @@
-use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef, PyResult};
 
 fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     if p < 0 {
@@ -8,12 +8,16 @@ fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     }
 }
 
-pub fn subscript(rt: &mut Executor, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyResult {
+pub fn get_item(rt: &mut Executor, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyResult {
     match &(b.borrow()).kind {
         PyObjectKind::Integer { value } => {
             let pos_index = get_pos(l, *value);
-            let obj = l[pos_index].clone();
-            Ok(obj)
+            if pos_index < l.len() {
+                let obj = l[pos_index].clone();
+                Ok(obj)
+            } else {
+                Err(rt.new_exception("Index out of bounds!".to_string()))
+            }
         }
         PyObjectKind::Slice { start, stop, step } => {
             let start = match start {
@@ -38,9 +42,9 @@ pub fn subscript(rt: &mut Executor, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyR
             );
             Ok(obj)
         }
-        _ => panic!(
+        _ => Err(rt.new_exception(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
             l, b
-        ),
+        ))),
     }
 }

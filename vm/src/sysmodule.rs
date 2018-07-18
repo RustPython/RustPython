@@ -1,4 +1,4 @@
-use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef};
+// use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef};
 
 /*
  * The magic sys module.

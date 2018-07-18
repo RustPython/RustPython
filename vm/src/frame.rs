@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
 
 use super::bytecode;
-use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObjectKind, PyObjectRef};
 
 #[derive(Clone, Debug)]
 pub enum Block {
@@ -16,7 +15,7 @@ pub enum Block {
 
 pub struct Frame {
     // TODO: We are using Option<i32> in stack for handline None return value
-    pub code: Rc<bytecode::CodeObject>,
+    pub code: bytecode::CodeObject,
     // We need 1 stack per frame
     stack: Vec<PyObjectRef>, // The main data frame of the stack machine
     blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
@@ -26,9 +25,18 @@ pub struct Frame {
                              // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
 }
 
+pub fn copy_code(code_obj: PyObjectRef) -> bytecode::CodeObject {
+    let code_obj = code_obj.borrow();
+    if let PyObjectKind::Code { ref code } = code_obj.kind {
+        code.clone()
+    } else {
+        panic!("Must be code obj");
+    }
+}
+
 impl Frame {
     pub fn new(
-        code: Rc<bytecode::CodeObject>,
+        code: PyObjectRef,
         callargs: HashMap<String, PyObjectRef>,
         globals: PyObjectRef,
     ) -> Frame {
@@ -44,7 +52,7 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: code,
+            code: copy_code(code),
             stack: vec![],
             blocks: vec![],
             // save the callargs as locals
@@ -52,6 +60,14 @@ impl Frame {
             locals: locals,
             lasti: 0,
         }
+    }
+
+    pub fn fetch_instruction(&mut self) -> bytecode::Instruction {
+        // TODO: an immutable reference is enough, we should not
+        // clone the instruction.
+        let ins2 = self.code.instructions[self.lasti].clone();
+        self.lasti += 1;
+        ins2
     }
 
     pub fn push_block(&mut self, block: Block) {

@@ -46,10 +46,10 @@ fn run_script(script_file: &String) {
     let filepath = Path::new(script_file);
     match parser::read_file(filepath) {
         Ok(source) => {
-            let bytecode = compile::compile(&source, compile::Mode::Exec).unwrap();
-            debug!("Code object: {:?}", bytecode);
+            let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec).unwrap();
+            debug!("Code object: {:?}", code_obj);
             let vars = vm.new_dict(); // Keep track of local variables
-            vm.evaluate(bytecode, vars);
+            vm.run_code_obj(code_obj, vars);
         }
         Err(msg) => {
             error!("Parsing went horribly wrong: {}", msg);

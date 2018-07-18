@@ -6,22 +6,22 @@ extern crate rustpython_parser;
 
 use self::rustpython_parser::{ast, parser};
 use super::bytecode::{self, CodeObject, Instruction};
+use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef};
 
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
     nxt_label: usize,
 }
 
-pub fn compile(source: &String, mode: Mode) -> Result<CodeObject, String> {
+pub fn compile(rt: &mut Executor, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
     compiler.push_code_object(CodeObject::new());
     match mode {
         Mode::Exec => match parser::parse_program(source) {
             Ok(ast) => {
                 compiler.compile_program(&ast);
-                Ok(compiler.pop_code_object())
             }
-            Err(msg) => Err(msg),
+            Err(msg) => return Err(msg),
         },
         Mode::Eval => match parser::parse_statement(source) {
             Ok(statement) => {
@@ -34,11 +34,16 @@ pub fn compile(source: &String, mode: Mode) -> Result<CodeObject, String> {
                     });
                 };
                 compiler.emit(Instruction::ReturnValue);
-                Ok(compiler.pop_code_object())
             }
-            Err(msg) => Err(msg),
+            Err(msg) => return Err(msg),
         },
-    }
+    };
+
+    let code = compiler.pop_code_object();
+    Ok(PyObject::new(
+        PyObjectKind::Code { code: code },
+        rt.get_type(),
+    ))
 }
 
 pub enum Mode {

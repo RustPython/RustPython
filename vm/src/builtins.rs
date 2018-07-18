@@ -2,42 +2,11 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 
+use super::compile;
 use super::pyobject::DictProtocol;
 use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::objbool;
 
-/*
- * Original impl:
-pub fn print(args: Vec<Rc<NativeType>>) -> NativeType {
-    for elem in args {
-        // TODO: figure out how python's print vectors
-        match elem.deref() {
-            &NativeType::NoneType => println!("None"),
-            &NativeType::Boolean(ref b)=> {
-                if *b {
-                    println!("True");
-                } else {
-                    println!("False");
-                }
-            },
-            &NativeType::Int(ref x)  => println!("{}", x),
-            &NativeType::Float(ref x)  => println!("{}", x),
-            &NativeType::Str(ref x)  => println!("{}", x),
-            &NativeType::Unicode(ref x)  => println!("{}", x),
-            _ => panic!("Print for {:?} not implemented yet", elem),
-            /*
-            List(Vec<NativeType>),
-            Tuple(Vec<NativeType>),
-            Iter(Vec<NativeType>), // TODO: use Iterator instead
-            Code(PyCodeObject),
-            Function(Function),
-            #[serde(skip_serializing, skip_deserializing)]
-            NativeFunction(fn(Vec<NativeType>) -> NativeType ),
-            */
-        }
-    }
-    NativeType::NoneType
-}
-*/
 
 fn get_locals(rt: &mut Executor) -> PyObjectRef {
     let mut d = rt.new_dict();
@@ -63,7 +32,7 @@ fn dir_object(rt: &mut Executor, obj: PyObjectRef) -> PyObjectRef {
     d
 }
 
-pub fn dir(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+pub fn builtin_dir(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     if args.is_empty() {
         Ok(dir_locals(rt))
     } else {
@@ -72,8 +41,7 @@ pub fn dir(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     }
 }
 
-pub fn print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
-    // println!("Woot: {:?}", args);
+pub fn builtin_print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     trace!("print called with {:?}", args);
     for a in args {
         print!("{} ", a.borrow().str());
@@ -83,9 +51,18 @@ pub fn print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     Ok(rt.get_none())
 }
 
-pub fn compile(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
-    // TODO
-    Ok(rt.new_bool(true))
+pub fn builtin_compile(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    if args.len() < 1 {
+        return Err(rt.new_exception("Expected more arguments".to_string()))
+    }
+    // TODO:
+    let mode = compile::Mode::Eval;
+    let source = args[0].borrow().str();
+
+    match compile::compile(rt, &source, mode) {
+        Ok(value) => Ok(value),
+        Err(msg) => Err(rt.new_exception(msg)),
+    }
 }
 
 pub fn locals(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
@@ -111,12 +88,13 @@ pub fn len(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
     let mut dict = HashMap::new();
-    dict.insert(String::from("print"), ctx.new_rustfunc(print));
+    dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("type"), ctx.type_type.clone());
-    dict.insert(String::from("all"), ctx.new_rustfunc(all));
-    dict.insert(String::from("any"), ctx.new_rustfunc(any));
-    dict.insert(String::from("dir"), ctx.new_rustfunc(dir));
+    dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
+    dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
+    dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("locals"), ctx.new_rustfunc(locals));
+    dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     dict.insert("len".to_string(), ctx.new_rustfunc(len));
     let obj = PyObject::new(
         PyObjectKind::Module {
@@ -128,12 +106,10 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     obj
 }
 
-fn any(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
-    // TODO
-    Ok(rt.new_bool(true))
+fn builtin_any(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    Ok(rt.new_bool(args.into_iter().any(|e| objbool::boolval(e))))
 }
 
-fn all(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
-    // TODO
-    Ok(rt.new_bool(true))
+fn builtin_all(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    Ok(rt.new_bool(args.into_iter().all(|e| objbool::boolval(e))))
 }

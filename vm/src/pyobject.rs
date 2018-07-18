@@ -114,9 +114,11 @@ impl PyContext {
 
 pub trait Executor {
     fn call(&mut self, PyObjectRef) -> PyResult;
+    fn run_code_obj(&mut self, code: PyObjectRef, locals: PyObjectRef) -> PyResult;
     fn new_str(&self, s: String) -> PyObjectRef;
     fn new_bool(&self, b: bool) -> PyObjectRef;
     fn new_dict(&self) -> PyObjectRef;
+    fn new_exception(&self, msg: String) -> PyObjectRef;
     fn get_none(&self) -> PyObjectRef;
     fn get_type(&self) -> PyObjectRef;
     fn get_locals(&self) -> PyObjectRef;
@@ -220,7 +222,7 @@ pub enum PyObjectKind {
         code: bytecode::CodeObject,
     },
     Function {
-        code: bytecode::CodeObject,
+        code: PyObjectRef,
     },
     Module {
         name: String,

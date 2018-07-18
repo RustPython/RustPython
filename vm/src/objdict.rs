@@ -1,4 +1,4 @@
-use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{Executor, PyObjectRef, PyResult};
 
 pub fn set_item(rt: &mut Executor, d: PyObjectRef, idx: PyObjectRef, obj: PyObjectRef) -> PyResult {
     Ok(rt.get_none())

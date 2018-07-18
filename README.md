@@ -51,3 +51,9 @@ The initial work was based on [windelbouwman/rspython](https://github.com/windel
 [rspython]: https://github.com/windelbouwman/rspython
 [rustpython]: https://github.com/shinglyu/RustPython
 [gitter]: https://gitter.im/rustpython/Lobby
+
+# Links
+
+These are some useful links to related projects:
+
+- https://github.com/ProgVal/pythonvm-rust

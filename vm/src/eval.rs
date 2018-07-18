@@ -5,10 +5,10 @@ use super::pyobject::{Executor, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
 pub fn eval(vm: &mut VirtualMachine, source: &String, locals: PyObjectRef) -> PyResult {
-    match compile::compile(source, compile::Mode::Eval) {
+    match compile::compile(vm, source, compile::Mode::Eval) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
-            vm.evaluate(bytecode, locals)
+            vm.run_code_obj(bytecode, locals)
         }
         Err(msg) => {
             panic!("Parsing went horribly wrong: {}", msg);

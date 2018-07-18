@@ -4,19 +4,14 @@
  *   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
  */
 
-extern crate rustpython_parser;
-
 use std::cell::RefMut;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::path::Path;
-use std::rc::Rc;
 
-use self::rustpython_parser::parser;
 use super::builtins;
 use super::bytecode;
-use super::compile;
 use super::frame::{Block, Frame};
+use super::import::import;
 use super::objlist;
 use super::objstr;
 use super::objtuple;
@@ -38,6 +33,11 @@ impl Executor for VirtualMachine {
         self.invoke(f, Vec::new())
     }
 
+    fn run_code_obj(&mut self, code: PyObjectRef, locals: PyObjectRef) -> PyResult {
+        let frame = Frame::new(code, HashMap::new(), locals);
+        self.run_frame(frame)
+    }
+
     fn new_str(&self, s: String) -> PyObjectRef {
         self.ctx.new_str(s)
     }
@@ -48,6 +48,10 @@ impl Executor for VirtualMachine {
 
     fn new_dict(&self) -> PyObjectRef {
         self.ctx.new_dict()
+    }
+
+    fn new_exception(&self, msg: String) -> PyObjectRef {
+        self.new_str(msg)
     }
 
     fn get_none(&self) -> PyObjectRef {
@@ -80,10 +84,6 @@ impl VirtualMachine {
     }
 
     // Container of the virtual machine state:
-    pub fn evaluate(&mut self, code: bytecode::CodeObject, locals: PyObjectRef) -> PyResult {
-        self.run(Rc::new(code), locals)
-    }
-
     pub fn to_str(&mut self, obj: PyObjectRef) -> String {
         obj.borrow().str()
     }
@@ -111,11 +111,26 @@ impl VirtualMachine {
     fn unwind_loop(&mut self) -> Block {
         loop {
             let block = self.pop_block();
-            match block {
-                Block::Loop { start: _, end: __ } => break block,
-                _ => {}
+            if let Block::Loop { start: _, end: __ } = block {
+                 break block
             }
         }
+    }
+
+    fn unwind_exception(&mut self, exc: PyObjectRef) -> Option<PyObjectRef> {
+        // unwind block stack on exception and find any handlers:
+        loop {
+            let block = self.pop_block();
+            if let Block::TryExcept { } = block {
+                // Exception handled?
+                // TODO: how do we know if the exception is handled?
+                let is_handled = true;
+                if (is_handled) {
+                    return None
+                }
+            }
+        }
+        Some(exc)
     }
 
     fn push_value(&mut self, obj: PyObjectRef) {
@@ -161,11 +176,6 @@ impl VirtualMachine {
         }
     }
 
-    fn run(&mut self, code: Rc<bytecode::CodeObject>, locals: PyObjectRef) -> PyResult {
-        let frame = Frame::new(code, HashMap::new(), locals);
-        self.run_frame(frame)
-    }
-
     fn run_frame(&mut self, frame: Frame) -> PyResult {
         self.frames.push(frame);
 
@@ -177,9 +187,12 @@ impl VirtualMachine {
                 Some(Ok(value)) => {
                     break Ok(value);
                 }
-                Some(Err(value)) => {
-                    // TODO: unwind stack on exception and find any handlers.
-                    break Err(value);
+                Some(Err(exception)) => {
+                    // unwind block stack on exception and find any handlers.
+                    match self.unwind_exception(exception) {
+                        None => {},
+                        Some(exception) => break Err(exception),
+                    }
                 }
             }
         };
@@ -187,9 +200,6 @@ impl VirtualMachine {
         self.pop_frame();
         value
     }
-    /*
-    fn run_code(&mut self, code: i32) -> Result<PyCodeObject, PyCodeObject> {
-    }*/
 
     fn subscript(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Subscript implementation: a[b]
@@ -197,11 +207,11 @@ impl VirtualMachine {
         match &a2.kind {
             PyObjectKind::String { ref value } => objstr::subscript(self, value, b),
             PyObjectKind::List { ref elements } => objlist::get_item(self, elements, b),
-            PyObjectKind::Tuple { ref elements } => objtuple::subscript(self, elements, b),
-            _ => panic!(
+            PyObjectKind::Tuple { ref elements } => objtuple::get_item(self, elements, b),
+            _ => Err(self.new_exception(format!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
                 a, b
-            ),
+            ))),
         }
     }
 
@@ -214,10 +224,10 @@ impl VirtualMachine {
             PyObjectKind::List { ref mut elements } => {
                 objlist::set_item(self, elements, idx, value)
             }
-            _ => panic!(
+            _ => Err(self.new_exception(format!(
                 "TypeError: __setitem__ assign type {:?} with index {:?} is not supported (yet?)",
                 obj, idx
-            ),
+            ))),
         };
 
         match result {
@@ -413,62 +423,25 @@ impl VirtualMachine {
         match f.kind {
             PyObjectKind::RustFunction { ref function } => f.call(self, args),
             PyObjectKind::Function { ref code } => {
-                let frame = Frame::new(Rc::new(code.clone()), HashMap::new(), self.new_dict());
+                let frame = Frame::new(code.clone(), HashMap::new(), self.new_dict());
                 self.run_frame(frame)
             }
             PyObjectKind::Class { name: _ } => self.new_instance(func_ref.clone(), args),
             _ => {
-                println!("Not impl {:?}", f);
-                panic!("Not impl");
+                unimplemented!();
             }
         }
     }
 
-    fn import(&mut self, name: String) -> Option<PyObjectRef> {
-        // Time to search for module in any place:
-        let filename = format!("{}.py", name);
-        let filepath = Path::new(&filename);
-
-        let source = match parser::read_file(filepath) {
-            Err(value) => panic!("Error: {}", value),
+    fn import(&mut self, name: &String) -> Option<PyResult> {
+        let obj = match import(self, name) {
             Ok(value) => value,
+            Err(value) => return Some(Err(value)),
         };
 
-        match compile::compile(&source, compile::Mode::Exec) {
-            Ok(bytecode) => {
-                debug!("Code object: {:?}", bytecode);
-                let dict = self.new_dict();
-                let obj = PyObject::new(
-                    PyObjectKind::Module {
-                        name: name.clone(),
-                        dict: dict.clone(),
-                    },
-                    self.get_type(),
-                );
-
-                // As a sort of hack, create a frame and run code in it
-                let frame = Frame::new(Rc::new(bytecode), HashMap::new(), dict);
-                match self.run_frame(frame) {
-                    Ok(value) => {}
-                    Err(value) => panic!("{:?}", value),
-                }
-
-                // TODO: we might find a better solution than this:
-                /*
-                for (name, member_obj) in frame.locals.iter() {
-                    obj.borrow_mut()
-                        .dict
-                        .insert(name.to_string(), member_obj.clone());
-                }*/
-
-                // Push module on stack:
-                self.push_value(obj);
-                None
-            }
-            Err(value) => {
-                panic!("Error: {}", value);
-            }
-        }
+        // Push module on stack:
+        self.push_value(obj);
+        None
     }
 
     fn load_attr(&mut self, attr_name: &String) -> Option<PyResult> {
@@ -476,24 +449,15 @@ impl VirtualMachine {
         // Lookup name in obj
         let obj = match parent.borrow().kind {
             PyObjectKind::Module { ref name, ref dict } => dict.get_item(attr_name),
-            _ => panic!("Not impl"),
+            _ => unimplemented!(),
         };
         self.push_value(obj);
         None
     }
 
-    fn fetch_instruction(&mut self) -> bytecode::Instruction {
-        let frame = self.current_frame();
-        // TODO: an immutable reference is enough, we should not
-        // clone the instruction.
-        let ins2 = ((*frame.code).instructions[frame.lasti]).clone();
-        frame.lasti += 1;
-        ins2
-    }
-
     // Execute a single instruction:
     fn execute_instruction(&mut self) -> Option<PyResult> {
-        let instruction = self.fetch_instruction();
+        let instruction = self.current_frame().fetch_instruction();
         {
             trace!("=======");
             /* TODO:
@@ -519,10 +483,7 @@ impl VirtualMachine {
                 self.push_value(obj);
                 None
             }
-            bytecode::Instruction::Import { ref name } => {
-                self.import(name.to_string());
-                None
-            }
+            bytecode::Instruction::Import { ref name } => self.import(name),
             bytecode::Instruction::LoadName { ref name } => self.load_name(name),
             bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:
@@ -647,12 +608,7 @@ impl VirtualMachine {
             }
             bytecode::Instruction::MakeFunction => {
                 let qualified_name = self.pop_value();
-                let code = self.pop_value();
-                let code_2 = &*code.borrow();
-                let code_obj = match code_2.kind {
-                    PyObjectKind::Code { ref code } => code.clone(),
-                    _ => panic!("Second item on the stack should be a code object"),
-                };
+                let code_obj = self.pop_value();
                 // pop argc arguments
                 // argument: name, args, globals
                 let obj = PyObject::new(PyObjectKind::Function { code: code_obj }, self.get_type());

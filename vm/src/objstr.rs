@@ -1,4 +1,4 @@
-use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{Executor, PyObjectKind, PyObjectRef, PyResult};
 
 fn str_pos(s: &String, p: i32) -> usize {
     if p < 0 {
