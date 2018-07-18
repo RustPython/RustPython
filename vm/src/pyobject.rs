@@ -67,6 +67,24 @@ impl PyContext {
         PyObject::new(PyObjectKind::Boolean { value: b }, self.type_type.clone())
     }
 
+    pub fn new_tuple(&self) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::Tuple {
+                elements: Vec::new(),
+            },
+            self.type_type.clone(),
+        )
+    }
+
+    pub fn new_list(&self) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::List {
+                elements: Vec::new(),
+            },
+            self.type_type.clone(),
+        )
+    }
+
     pub fn new_dict(&self) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::Dict {
@@ -161,6 +179,9 @@ pub enum PyObjectKind {
     },
     Integer {
         value: i32,
+    },
+    Float {
+        value: f64,
     },
     Boolean {
         value: bool,

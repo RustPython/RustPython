@@ -65,7 +65,7 @@ def run_via_rustpython(filename):
     env['RUST_LOG'] = 'trace'
     env['RUST_BACKTRACE'] = '1'
     with pushd(RUSTPYTHON_RUNNER_DIR):
-        subprocess.check_call(['cargo', 'run', filename], env=env)
+        subprocess.check_call(['cargo', 'run', '--release', filename], env=env)
 
 
 def create_test_function(cls, filename, method):

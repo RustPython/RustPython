@@ -42,7 +42,7 @@ pub fn print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     // println!("Woot: {:?}", args);
     trace!("print called with {:?}", args);
     for a in args {
-        print!("{} ", a.borrow_mut().str());
+        print!("{} ", a.borrow().str());
     }
     println!();
     io::stdout().flush().unwrap();

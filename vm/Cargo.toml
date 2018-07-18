@@ -5,5 +5,4 @@ authors = ["Shing Lyu <shing.lyu@gmail.com>"]
 
 [dependencies]
 log = "0.3"
-env_logger = "0.3"
 rustpython_parser = {path = "../parser"}

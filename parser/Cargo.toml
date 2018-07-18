@@ -8,8 +8,6 @@ build = "build.rs"
 lalrpop="0.15.1"
 
 [dependencies]
-clap="2.20.0"
-env_logger="0.5.10"
 lalrpop-util="0.15.1"
 log="0.4.1"
 regex="0.2.2"
