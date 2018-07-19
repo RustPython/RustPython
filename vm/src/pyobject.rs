@@ -182,7 +182,6 @@ impl fmt::Debug for PyObject {
 
 type RustPyFunc = fn(rt: &mut Executor, Vec<PyObjectRef>) -> PyResult;
 
-// #[derive(Debug)]
 pub enum PyObjectKind {
     String {
         value: String,
@@ -241,8 +240,22 @@ pub enum PyObjectKind {
 impl fmt::Debug for PyObjectKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &PyObjectKind::String { ref value } => write!(f, "str[{}]", value),
-            _ => write!(f, "Some kind of python obj"),
+            &PyObjectKind::String { ref value } => write!(f, "str \"{}\"", value),
+            &PyObjectKind::Integer { ref value } => write!(f, "int {}", value),
+            &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
+            &PyObjectKind::Boolean { ref value } => write!(f, "boolean {}", value),
+            &PyObjectKind::List { ref elements } => write!(f, "list"),
+            &PyObjectKind::Tuple { ref elements } => write!(f, "tuple"),
+            &PyObjectKind::Dict { ref elements } => write!(f, "dict"),
+            &PyObjectKind::Iterator { ref position, ref iterated_obj } => write!(f, "iterator"),
+            &PyObjectKind::Slice { ref start, ref stop, ref step } => write!(f, "slice"),
+            &PyObjectKind::NameError { ref name } => write!(f, "NameError"),
+            &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
+            &PyObjectKind::Function { ref code } => write!(f, "function"),
+            &PyObjectKind::Module { ref name, ref dict } => write!(f, "module"),
+            &PyObjectKind::None => write!(f, "None"),
+            &PyObjectKind::Class { ref name } => write!(f, "class"),
+            &PyObjectKind::RustFunction { ref function } => write!(f, "rust function"),
         }
     }
 }
