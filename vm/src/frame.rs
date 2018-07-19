@@ -74,8 +74,8 @@ impl Frame {
         self.blocks.push(block);
     }
 
-    pub fn pop_block(&mut self) -> Block {
-        self.blocks.pop().unwrap()
+    pub fn pop_block(&mut self) -> Option<Block> {
+        self.blocks.pop()
     }
 
     pub fn last_block(&mut self) -> &Block {

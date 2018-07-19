@@ -90,6 +90,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let mut dict = HashMap::new();
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("type"), ctx.type_type.clone());
+    dict.insert(String::from("int"), ctx.int_type.clone());
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));

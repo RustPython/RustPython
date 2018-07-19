@@ -100,7 +100,7 @@ impl VirtualMachine {
         self.current_frame().push_block(block);
     }
 
-    fn pop_block(&mut self) -> Block {
+    fn pop_block(&mut self) -> Option<Block> {
         self.current_frame().pop_block()
     }
 
@@ -111,8 +111,12 @@ impl VirtualMachine {
     fn unwind_loop(&mut self) -> Block {
         loop {
             let block = self.pop_block();
-            if let Block::Loop { start: _, end: __ } = block {
-                 break block
+            match block {
+                Some(Block::Loop { start: _, end: __ }) => {
+                     break block.unwrap()
+                },
+                Some(Block::TryExcept {}) => {},
+                None => panic!("No block to break / continue"),
             }
         }
     }
@@ -121,13 +125,17 @@ impl VirtualMachine {
         // unwind block stack on exception and find any handlers:
         loop {
             let block = self.pop_block();
-            if let Block::TryExcept { } = block {
-                // Exception handled?
-                // TODO: how do we know if the exception is handled?
-                let is_handled = true;
-                if (is_handled) {
-                    return None
-                }
+            match block {
+                Some(Block::TryExcept { }) => {
+                    // Exception handled?
+                    // TODO: how do we know if the exception is handled?
+                    let is_handled = true;
+                    if (is_handled) {
+                        return None
+                    }
+                },
+                Some(_) => {},
+                None => break,
             }
         }
         Some(exc)
