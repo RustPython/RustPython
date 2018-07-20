@@ -483,6 +483,7 @@ impl VirtualMachine {
                     &bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
                     // &bytecode::Constant::Float
                     &bytecode::Constant::String { ref value } => self.new_str(value.clone()),
+                    &bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
                     &bytecode::Constant::Code { ref code } => {
                         PyObject::new(PyObjectKind::Code { code: code.clone() }, self.get_type())
                     }

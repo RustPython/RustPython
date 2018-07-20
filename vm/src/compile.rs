@@ -419,12 +419,12 @@ impl Compiler {
             }
             ast::Expression::True => {
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Integer { value: 1 },
+                    value: bytecode::Constant::Boolean { value: true},
                 });
             }
             ast::Expression::False => {
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Integer { value: 0 },
+                    value: bytecode::Constant::Boolean { value: false},
                 });
             }
             ast::Expression::None => {

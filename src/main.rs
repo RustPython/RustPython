@@ -47,7 +47,7 @@ fn run_script(script_file: &String) {
     match parser::read_file(filepath) {
         Ok(source) => {
             let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec).unwrap();
-            debug!("Code object: {:?}", code_obj);
+            debug!("Code object: {:?}", code_obj.borrow());
             let vars = vm.new_dict(); // Keep track of local variables
             vm.run_code_obj(code_obj, vars);
         }
