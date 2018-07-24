@@ -126,7 +126,7 @@ impl Compiler {
                 }
                 self.set_label(end_label);
             }
-            ast::Statement::While { test, body } => {
+            ast::Statement::While { test, body, orelse } => {
                 let start_label = self.new_label();
                 let end_label = self.new_label();
                 self.set_label(start_label);
@@ -149,7 +149,7 @@ impl Compiler {
                 target,
                 iter,
                 body,
-                or_else,
+                orelse,
             } => {
                 // The thing iterated:
                 for i in iter {

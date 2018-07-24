@@ -141,11 +141,23 @@ IfStatement: ast::Statement = {
 };
 
 WhileStatement: ast::Statement = {
-  "while" <e:Test> ":" <s:Suite> => ast::Statement::While { test: e, body: s },
+  "while" <e:Test> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
+    let or_else = match s2 {
+      Some(s) => Some(s.2),
+      None => None,
+    };
+    ast::Statement::While { test: e, body: s, orelse: or_else }
+  },
 };
 
 ForStatement: ast::Statement = {
-  "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> => ast::Statement::For { target: e, iter: t, body: s, or_else: None },
+  "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
+    let or_else = match s2 {
+      Some(s) => Some(s.2),
+      None => None,
+    };
+    ast::Statement::For { target: e, iter: t, body: s, orelse: or_else }
+  },
 };
 
 WithStatement: ast::Statement = {

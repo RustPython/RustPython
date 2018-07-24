@@ -58,6 +58,7 @@ pub enum Statement {
     While {
         test: Expression,
         body: Vec<Statement>,
+        orelse: Option<Vec<Statement>>,
     },
     With {
         items: Expression,
@@ -67,7 +68,7 @@ pub enum Statement {
         target: Vec<Expression>,
         iter: Vec<Expression>,
         body: Vec<Statement>,
-        or_else: Option<Vec<Statement>>,
+        orelse: Option<Vec<Statement>>,
     },
     ClassDef {
         name: String,
