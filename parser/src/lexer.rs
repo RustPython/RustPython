@@ -134,6 +134,50 @@ impl<'input> Lexer<'input> {
 
         loop {
             match self.next_char() {
+                Some('\\') => {
+                    match self.next_char() {
+                        Some('\\') => {
+                            string_content.push('\\');
+                        }
+                        Some('\'') => {
+                            string_content.push('\'')
+                        }
+                        Some('\"') => {
+                            string_content.push('\"')
+                        }
+                        Some('\n') => {
+                            // Ignored
+                        }
+                        Some('a') => {
+                            string_content.push('\x07')
+                        }
+                        Some('b') => {
+                            string_content.push('\x08')
+                        }
+                        Some('f') => {
+                            string_content.push('\x0c')
+                        }
+                        Some('n') => {
+                            string_content.push('\n');
+                        }
+                        Some('r') => {
+                            string_content.push('\r')
+                        },
+                        Some('t') => {
+                            string_content.push('\t');
+                        }
+                        Some('v') => {
+                            string_content.push('\x0b')
+                        }
+                        Some(c) => {
+                            string_content.push('\\');
+                            string_content.push(c);
+                        }
+                        None => {
+                            return Err(LexicalError::StringError);
+                        }
+                    }
+                }
                 Some(c) => {
                     if c == quote_char {
                         break;
@@ -690,4 +734,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_string() {
+        let source = String::from(r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g'"#);
+        let tokens = lex_source(&source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::String {
+                    value: String::from("double"),
+                },
+                Tok::String {
+                    value: String::from("single"),
+                },
+                Tok::String {
+                    value: String::from("can't"),
+                },
+                Tok::String {
+                    value: String::from("\\\""),
+                },
+                Tok::String {
+                    value: String::from("\t\r\n"),
+                },
+                Tok::String {
+                    value: String::from("\\g"),
+                },
+            ]
+        );
+    }
 }
