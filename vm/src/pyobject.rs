@@ -267,6 +267,7 @@ pub enum PyObjectKind {
     },
     Function {
         code: PyObjectRef,
+        scope: PyObjectRef,
     },
     Scope {
         scope: Scope,
@@ -299,7 +300,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Slice { ref start, ref stop, ref step } => write!(f, "slice"),
             &PyObjectKind::NameError { ref name } => write!(f, "NameError"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
-            &PyObjectKind::Function { ref code } => write!(f, "function"),
+            &PyObjectKind::Function { ref code, ref scope } => write!(f, "function"),
             &PyObjectKind::Module { ref name, ref dict } => write!(f, "module"),
             &PyObjectKind::Scope { ref scope } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
@@ -360,7 +361,7 @@ impl PyObject {
             PyObjectKind::None => String::from("None"),
             PyObjectKind::Class { ref name } => format!("<class '{}'>", name),
             PyObjectKind::Code { code: _ } => format!("<code>"),
-            PyObjectKind::Function { code: _ } => format!("<func>"),
+            PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, ref dict } => format!("<module '{}'>", name),
             PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),

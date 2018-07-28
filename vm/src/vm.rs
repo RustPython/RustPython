@@ -457,8 +457,8 @@ impl VirtualMachine {
 
         match f.kind {
             PyObjectKind::RustFunction { ref function } => f.call(self, args),
-            PyObjectKind::Function { ref code } => {
-                let mut scope = self.new_scope(None);
+            PyObjectKind::Function { ref code, ref scope } => {
+                let mut scope = self.new_scope(Some(scope.clone()));
                 let code_object = copy_code(code.clone());
                 for (name, value) in code_object.arg_names.iter().zip(args) {
                     scope.set_item(name, value);
@@ -652,7 +652,8 @@ impl VirtualMachine {
                 let code_obj = self.pop_value();
                 // pop argc arguments
                 // argument: name, args, globals
-                let obj = PyObject::new(PyObjectKind::Function { code: code_obj }, self.get_type());
+                let scope = self.current_frame().locals.clone();
+                let obj = PyObject::new(PyObjectKind::Function { code: code_obj, scope: scope }, self.get_type());
                 self.push_value(obj);
                 None
             }
