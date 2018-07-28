@@ -73,7 +73,14 @@ impl Executor for VirtualMachine {
     }
 
     fn get_locals(&self) -> PyObjectRef {
-        self.frames.last().unwrap().locals.clone()
+        let scope = &self.frames.last().unwrap().locals;
+        scope.clone()
+        /*
+        match (*scope).kind {
+            PyObjectKind::Scope { scope } => { scope.locals.clone() },
+            _ => { panic!("Should be scope") },
+        } // .clone()
+        */
     }
 
     fn context(&self) -> &PyContext {
