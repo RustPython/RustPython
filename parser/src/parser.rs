@@ -150,4 +150,28 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn test_parse_lambda() {
+        let source = String::from("lambda x, y: x * y\n"); // lambda(x, y): x * y");
+        let parse_ast = parse_statement(&source);
+        assert_eq!(
+            parse_ast,
+            Ok(ast::Statement::Expression {
+                expression: ast::Expression::Lambda {
+                    args: vec![String::from("x"), String::from("y")],
+                    body:
+                        Box::new(ast::Expression::Binop {
+                            a: Box::new(ast::Expression::Identifier {
+                                name: String::from("x"),
+                            }),
+                            op: ast::Operator::Mult,
+                            b: Box::new(ast::Expression::Identifier {
+                                name: String::from("y"),
+                            })
+                        })
+                    }
+            })
+        )
+    }
 }

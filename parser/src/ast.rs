@@ -133,6 +133,10 @@ pub enum Expression {
     Identifier {
         name: String,
     },
+    Lambda {
+        args: Vec<String>,
+        body: Box<Expression>,
+    },
     True,
     False,
     None,
