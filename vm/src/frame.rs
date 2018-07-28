@@ -19,7 +19,6 @@ pub struct Frame {
     // We need 1 stack per frame
     stack: Vec<PyObjectRef>, // The main data frame of the stack machine
     blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
-    // pub globals: HashMap<String, PyObjectRef>, // Variables
     pub locals: PyObjectRef, // Variables
     pub lasti: usize,        // index of last instruction ran
                              // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
@@ -37,7 +36,6 @@ pub fn copy_code(code_obj: PyObjectRef) -> bytecode::CodeObject {
 impl Frame {
     pub fn new(
         code: PyObjectRef,
-        callargs: HashMap<String, PyObjectRef>,
         globals: PyObjectRef,
     ) -> Frame {
         //populate the globals and locals

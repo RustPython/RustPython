@@ -16,7 +16,7 @@ use super::objlist;
 use super::objstr;
 use super::objtuple;
 use super::pyobject::{DictProtocol, Executor, PyContext, PyObject, PyObjectKind, PyObjectRef,
-                      PyResult};
+                      PyResult, ParentProtocol, Scope};
 
 // use objects::objects;
 
@@ -33,8 +33,8 @@ impl Executor for VirtualMachine {
         self.invoke(f, Vec::new())
     }
 
-    fn run_code_obj(&mut self, code: PyObjectRef, locals: PyObjectRef) -> PyResult {
-        let frame = Frame::new(code, HashMap::new(), locals);
+    fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
+        let frame = Frame::new(code, scope);
         self.run_frame(frame)
     }
 
@@ -48,6 +48,15 @@ impl Executor for VirtualMachine {
 
     fn new_dict(&self) -> PyObjectRef {
         self.ctx.new_dict()
+    }
+
+    fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
+        let locals = self.ctx.new_dict();
+        let scope = Scope {
+            locals: locals,
+            parent: parent,
+        };
+        PyObject { kind: PyObjectKind::Scope { scope: scope }, typ: None }.into_ref()
     }
 
     fn new_exception(&self, msg: String) -> PyObjectRef {
@@ -80,6 +89,16 @@ impl VirtualMachine {
             frames: vec![],
             builtins: builtins,
             ctx: ctx,
+        }
+    }
+
+    pub fn get_builtin_scope(&mut self) -> PyObjectRef {
+        let a2 = &*self.builtins.borrow();
+        match a2.kind {
+            PyObjectKind::Module { ref name, ref dict } => {
+                dict.clone()
+            },
+            _ => { panic!("OMG"); }
         }
     }
 
@@ -165,22 +184,23 @@ impl VirtualMachine {
 
     fn load_name(&mut self, name: &String) -> Option<PyResult> {
         // Lookup name in scope and put it onto the stack!
-        if self.current_frame().locals.contains_key(name) {
-            let obj = self.current_frame().locals.get_item(name);
-            self.push_value(obj);
-            None
-        } else if self.builtins.contains_key(name) {
-            let obj = self.builtins.get_item(name);
-            self.push_value(obj);
-            None
-        } else {
-            let name_error = PyObject::new(
-                PyObjectKind::NameError {
-                    name: name.to_string(),
-                },
-                self.get_type(),
-            );
-            Some(Err(name_error))
+        let mut scope = self.current_frame().locals.clone();
+        loop {
+            if scope.contains_key(name) {
+                let obj = scope.get_item(name);
+                self.push_value(obj);
+                break None
+            } else if scope.has_parent() {
+                scope = scope.get_parent();
+            } else {
+                let name_error = PyObject::new(
+                    PyObjectKind::NameError {
+                        name: name.to_string(),
+                    },
+                    self.get_type(),
+                );
+                break Some(Err(name_error))
+            }
         }
     }
 
@@ -431,12 +451,12 @@ impl VirtualMachine {
         match f.kind {
             PyObjectKind::RustFunction { ref function } => f.call(self, args),
             PyObjectKind::Function { ref code } => {
-                let mut locals = self.new_dict();
+                let mut scope = self.new_scope(None);
                 let code_object = copy_code(code.clone());
                 for (name, value) in code_object.arg_names.iter().zip(args) {
-                    locals.set_item(name, value);
+                    scope.set_item(name, value);
                 }
-                let frame = Frame::new(code.clone(), HashMap::new(), locals);
+                let frame = Frame::new(code.clone(), scope);
                 self.run_frame(frame)
             }
             PyObjectKind::Class { name: _ } => self.new_instance(func_ref.clone(), args),

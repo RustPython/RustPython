@@ -4,7 +4,7 @@ use std::io::{self, Write};
 
 use super::compile;
 use super::pyobject::DictProtocol;
-use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope};
 use super::objbool;
 
 
@@ -97,10 +97,12 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("locals"), ctx.new_rustfunc(locals));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     dict.insert("len".to_string(), ctx.new_rustfunc(len));
+    let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
+    let scope = PyObject::new(PyObjectKind::Scope { scope: Scope { locals: d2, parent: None} }, ctx.type_type.clone());
     let obj = PyObject::new(
         PyObjectKind::Module {
             name: "__builtins__".to_string(),
-            dict: PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone()),
+            dict: scope,
         },
         ctx.type_type.clone(),
     );

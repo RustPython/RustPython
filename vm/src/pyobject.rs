@@ -43,6 +43,16 @@ pub struct PyContext {
     pub int_type: PyObjectRef,
 }
 
+/*
+ * So a scope is a linked list of scopes.
+ * When a name is looked up, it is check in its scope.
+ */
+#[derive(Debug)]
+pub struct Scope {
+    pub locals: PyObjectRef, // Variables
+    pub parent: Option<PyObjectRef>,  // Parent scope
+}
+
 // Basic objects:
 impl PyContext {
     pub fn new() -> PyContext {
@@ -118,6 +128,7 @@ pub trait Executor {
     fn new_str(&self, s: String) -> PyObjectRef;
     fn new_bool(&self, b: bool) -> PyObjectRef;
     fn new_dict(&self) -> PyObjectRef;
+    fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef;
     fn new_exception(&self, msg: String) -> PyObjectRef;
     fn get_none(&self) -> PyObjectRef;
     fn get_type(&self) -> PyObjectRef;
@@ -141,6 +152,33 @@ impl Default for PyObject {
     }
 }
 
+pub trait ParentProtocol {
+    fn has_parent(&self) -> bool;
+    fn get_parent(&self) -> PyObjectRef;
+}
+
+impl ParentProtocol for PyObjectRef {
+    fn has_parent(&self) -> bool {
+        match self.borrow().kind {
+            PyObjectKind::Scope { ref scope } => match scope.parent {
+                Some(_) => true,
+                None => false,
+            },
+            _ => panic!("Only scopes have parent (not {:?}", self),
+        }
+    }
+
+    fn get_parent(&self) -> PyObjectRef {
+        match self.borrow().kind {
+            PyObjectKind::Scope { ref scope } => match scope.parent {
+                Some(ref value) => value.clone(),
+                None => panic!("OMG"),
+            },
+            _ => panic!("TODO"),
+        }
+    }
+}
+
 pub trait DictProtocol {
     fn contains_key(&self, k: &String) -> bool;
     fn get_item(&self, k: &String) -> PyObjectRef;
@@ -152,6 +190,7 @@ impl DictProtocol for PyObjectRef {
         match self.borrow().kind {
             PyObjectKind::Dict { ref elements } => elements.contains_key(k),
             PyObjectKind::Module { ref name, ref dict } => dict.contains_key(k),
+            PyObjectKind::Scope { ref scope } => scope.locals.contains_key(k),
             _ => panic!("TODO"),
         }
     }
@@ -160,6 +199,7 @@ impl DictProtocol for PyObjectRef {
         match self.borrow().kind {
             PyObjectKind::Dict { ref elements } => elements[k].clone(),
             PyObjectKind::Module { ref name, ref dict } => dict.get_item(k),
+            PyObjectKind::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }
     }
@@ -168,7 +208,12 @@ impl DictProtocol for PyObjectRef {
         match self.borrow_mut().kind {
             PyObjectKind::Dict {
                 elements: ref mut el,
-            } => el.insert(k.to_string(), v),
+            } => {
+                el.insert(k.to_string(), v);
+            },
+            PyObjectKind::Scope { ref mut scope } => {
+                scope.locals.set_item(k, v);
+            },
             _ => panic!("TODO"),
         };
     }
@@ -223,6 +268,9 @@ pub enum PyObjectKind {
     Function {
         code: PyObjectRef,
     },
+    Scope {
+        scope: Scope,
+    },
     Module {
         name: String,
         dict: PyObjectRef,
@@ -253,6 +301,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectKind::Function { ref code } => write!(f, "function"),
             &PyObjectKind::Module { ref name, ref dict } => write!(f, "module"),
+            &PyObjectKind::Scope { ref scope } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
             &PyObjectKind::Class { ref name } => write!(f, "class"),
             &PyObjectKind::RustFunction { ref function } => write!(f, "rust function"),

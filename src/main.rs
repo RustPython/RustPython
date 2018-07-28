@@ -47,7 +47,8 @@ fn run_script(script_file: &String) {
         Ok(source) => {
             let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec).unwrap();
             debug!("Code object: {:?}", code_obj.borrow());
-            let vars = vm.new_dict(); // Keep track of local variables
+            let builtins = vm.get_builtin_scope();
+            let vars = vm.new_scope(Some(builtins)); // Keep track of local variables
             match vm.run_code_obj(code_obj, vars) {
                 Ok(_value) => {
                 }
@@ -69,7 +70,8 @@ fn run_shell() {
         crate_version!()
     );
     let mut vm = VirtualMachine::new();
-    let vars = vm.new_dict(); // Keep track of local variables
+    let builtins = vm.get_builtin_scope();
+    let vars = vm.new_scope(Some(builtins)); // Keep track of local variables
     // Read a single line:
     loop {
         let mut input = String::new();
