@@ -10,7 +10,7 @@ use std::ops::Deref;
 
 use super::builtins;
 use super::bytecode;
-use super::frame::{Block, Frame};
+use super::frame::{Block, Frame, copy_code};
 use super::import::import;
 use super::objlist;
 use super::objstr;
@@ -431,7 +431,12 @@ impl VirtualMachine {
         match f.kind {
             PyObjectKind::RustFunction { ref function } => f.call(self, args),
             PyObjectKind::Function { ref code } => {
-                let frame = Frame::new(code.clone(), HashMap::new(), self.new_dict());
+                let mut locals = self.new_dict();
+                let code_object = copy_code(code.clone());
+                for (name, value) in code_object.arg_names.iter().zip(args) {
+                    locals.set_item(name, value);
+                }
+                let frame = Frame::new(code.clone(), HashMap::new(), locals);
                 self.run_frame(frame)
             }
             PyObjectKind::Class { name: _ } => self.new_instance(func_ref.clone(), args),

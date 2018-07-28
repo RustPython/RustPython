@@ -169,7 +169,11 @@ FuncDef: ast::Statement = {
 };
 
 Parameters: Vec<String> = {
-  "(" <a: Comma<Identifier>> ")" => a,
+  "(" <a: TypedArgsList> ")" => a,
+};
+
+TypedArgsList: Vec<String> = {
+  <a: Comma<Identifier>> => a,
 };
 
 ClassDef: ast::Statement = {
@@ -178,7 +182,16 @@ ClassDef: ast::Statement = {
 
 Test: ast::Expression = {
   <e:OrTest> => e,
+  <e:LambdaDef> => e,
 };
+
+LambdaDef: ast::Expression = {
+  "lambda" <p:TypedArgsList> ":" <b:Expression> =>
+	 ast::Expression::Lambda {
+	  args:p,
+	  body:Box::new(b)
+       }
+}
 
 OrTest: ast::Expression = {
   <e:AndTest> => e,
@@ -410,6 +423,7 @@ extern {
         "return" => lexer::Tok::Return,
         "while" => lexer::Tok::While,
         "with" => lexer::Tok::With,
+	  "lambda" => lexer::Tok::Lambda,
         "True" => lexer::Tok::True,
         "False" => lexer::Tok::False,
         "None" => lexer::Tok::None,

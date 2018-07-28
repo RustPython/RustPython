@@ -15,7 +15,7 @@ struct Compiler {
 
 pub fn compile(rt: &mut Executor, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
-    compiler.push_code_object(CodeObject::new());
+    compiler.push_code_object(CodeObject::new(Vec::new()));
     match mode {
         Mode::Exec => match parser::parse_program(source) {
             Ok(ast) => {
@@ -62,7 +62,7 @@ impl Compiler {
     }
 
     fn push_code_object(&mut self, code_object: CodeObject) {
-        self.code_object_stack.push(CodeObject::new());
+        self.code_object_stack.push(CodeObject::new(Vec::new()));
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
@@ -191,7 +191,7 @@ impl Compiler {
             }
             ast::Statement::FunctionDef { name, args, body } => {
                 // Create bytecode for this function:
-                self.code_object_stack.push(CodeObject::new());
+                self.code_object_stack.push(CodeObject::new(args.to_vec()));
                 self.compile_statements(body);
                 let code = self.code_object_stack.pop().unwrap();
                 self.emit(Instruction::LoadConst {
@@ -443,6 +443,22 @@ impl Compiler {
                 self.emit(Instruction::LoadName {
                     name: name.to_string(),
                 });
+            }
+            ast::Expression::Lambda { args, body } => {
+                self.code_object_stack.push(CodeObject::new(args.to_vec()));
+                self.compile_expression(body);
+                self.emit(Instruction::ReturnValue);
+                let code = self.code_object_stack.pop().unwrap();
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Code { code: code },
+                });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: String::from("<lambda>"),
+                    },
+                });
+                // Turn code object into function object:
+                self.emit(Instruction::MakeFunction);
             }
         }
     }
