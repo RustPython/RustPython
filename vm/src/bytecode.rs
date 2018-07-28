@@ -17,13 +17,15 @@ use std::fmt;
 pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
+    pub arg_names: Vec<String>,
 }
 
 impl CodeObject {
-    pub fn new() -> CodeObject {
+    pub fn new(arg_names : Vec<String>) -> CodeObject {
         CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
+            arg_names: arg_names,
         }
     }
 }
