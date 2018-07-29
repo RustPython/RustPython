@@ -161,7 +161,7 @@ ForStatement: ast::Statement = {
 };
 
 WithStatement: ast::Statement = {
-  "with" <t:Test> "as" <e:Expression> ":" <s:Suite> => ast::Statement::With { items: t, body: s },
+  "with" <t:Test> "as" <_e:Expression> ":" <s:Suite> => ast::Statement::With { items: t, body: s },
 };
 
 FuncDef: ast::Statement = {
@@ -177,7 +177,7 @@ TypedArgsList: Vec<String> = {
 };
 
 ClassDef: ast::Statement = {
-  "class" <n:Identifier> <a:("(" ")")?> ":" <s:Suite> => ast::Statement::ClassDef { name: n },
+  "class" <n:Identifier> <_a:("(" ")")?> ":" <_s:Suite> => ast::Statement::ClassDef { name: n },
 };
 
 Test: ast::Expression = {

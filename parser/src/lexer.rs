@@ -56,6 +56,7 @@ impl<'input> Lexer<'input> {
         let mut keywords: HashMap<String, Tok> = HashMap::new();
 
         // Alphabetical keywords:
+        keywords.insert(String::from("..."), Tok::Ellipsis);
         keywords.insert(String::from("False"), Tok::False);
         keywords.insert(String::from("None"), Tok::None);
         keywords.insert(String::from("True"), Tok::True);
@@ -432,6 +433,10 @@ impl<'input> Lexer<'input> {
                         Some('=') => {
                             self.next_char();
                             return Some(Ok((tok_start, Tok::MinusEqual, self.location + 1)));
+                        }
+                        Some('>') => {
+                            self.next_char();
+                            return Some(Ok((tok_start, Tok::Rarrow, self.location + 1)));
                         }
                         _ => return Some(Ok((tok_start, Tok::Minus, self.location + 1))),
                     }
