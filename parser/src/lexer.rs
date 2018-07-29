@@ -117,13 +117,19 @@ impl<'input> Lexer<'input> {
         // Skip everything until end of line
         self.next_char();
         loop {
-            match self.next_char() {
-                Some(c) => {
-                    if c == '\n' {
-                        return;
-                    }
+            self.next_char();
+            match self.chr0 {
+                Some('\n') => {
+                    return;
                 }
-                None => return,
+                Some('\r') => {
+                    return;
+                }
+                Some(_) => {
+                }
+                None => {
+                    return
+                }
             }
         }
     }
@@ -147,7 +153,18 @@ impl<'input> Lexer<'input> {
                             string_content.push('\"')
                         }
                         Some('\n') => {
-                            // Ignored
+                            // Ignore Unix EOL character
+                        }
+                        Some('\r') => {
+                            match self.chr0 {
+                                Some('\n') => {
+                                    // Ignore Windows EOL characters (2 bytes)
+                                    self.next_char();
+                                }
+                                _ => {
+                                    // Ignore Mac EOL character
+                                }
+                            }
                         }
                         Some('a') => {
                             string_content.push('\x07')
@@ -248,6 +265,16 @@ impl<'input> Lexer<'input> {
                         }
                         Some('#') => {
                             self.lex_comment();
+                            self.at_begin_of_line = true;
+                            continue 'top_loop;
+                        }
+                        Some('\r') => {
+                            // Empty line!
+                            self.next_char();
+                            if self.chr0 == Some('\n') {
+                                // absorb two bytes if Windows line ending
+                                self.next_char();
+                            }
                             self.at_begin_of_line = true;
                             continue 'top_loop;
                         }
@@ -565,6 +592,17 @@ impl<'input> Lexer<'input> {
                     self.next_char();
                     return Some(Ok((self.location, Tok::Dot, self.location + 1)));
                 }
+                Some('\r') => {
+                    self.next_char();
+
+                    // Depending on the nesting level, we emit newline or not:
+                    if self.nesting == 0 {
+                        self.at_begin_of_line = true;
+                        return Some(Ok((self.location, Tok::Newline, self.location + 1)));
+                    } else {
+                        continue;
+                    }
+                }
                 Some('\n') => {
                     self.next_char();
 
@@ -619,11 +657,54 @@ mod tests {
     use super::Tok;
     use super::lex_source;
 
-    #[test]
-    fn test_line_comment() {
-        let source = String::from(r"99232  # Bladibla");
-        let tokens = lex_source(&source);
-        assert_eq!(tokens, vec![Tok::Number { value: 99232 }]);
+    const WINDOWS_EOL: &str = "\r\n";
+    const MAC_EOL: &str = "\r";
+    const UNIX_EOL: &str = "\n";
+
+    macro_rules! test_line_comment {
+        ($($name:ident: $eol:expr,)*) => {
+            $(
+            #[test]
+            fn $name() {
+                let source = String::from(format!(r"99232  # {}", $eol));
+                let tokens = lex_source(&source);
+                assert_eq!(tokens, vec![Tok::Number { value: 99232 }]);
+            }
+            )*
+        }
+    }
+
+    test_line_comment! {
+        test_line_comment_long: " foo",
+        test_line_comment_whitespace: "  ",
+        test_line_comment_single_whitespace: " ",
+        test_line_comment_empty: "",
+    }
+
+    macro_rules! test_comment_until_eol {
+        ($($name:ident: $eol:expr,)*) => {
+            $(
+            #[test]
+            fn $name() {
+                let source = String::from(format!("123  # Foo{}456", $eol));
+                let tokens = lex_source(&source);
+                assert_eq!(
+                    tokens,
+                    vec![
+                        Tok::Number { value: 123 },
+                        Tok::Newline,
+                        Tok::Number { value: 456 },
+                    ]
+                )
+            }
+            )*
+        }
+    }
+
+    test_comment_until_eol! {
+        test_comment_until_windows_eol: WINDOWS_EOL,
+        test_comment_until_mac_eol: MAC_EOL,
+        test_comment_until_unix_eol: UNIX_EOL,
     }
 
     #[test]
@@ -646,81 +727,117 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_indentation() {
-        let source = String::from("def foo():\n   return 99\n\n");
-        let tokens = lex_source(&source);
-        assert_eq!(
-            tokens,
-            vec![
-                Tok::Def,
-                Tok::Name {
-                    name: String::from("foo"),
-                },
-                Tok::Lpar,
-                Tok::Rpar,
-                Tok::Colon,
-                Tok::Newline,
-                Tok::Indent,
-                Tok::Return,
-                Tok::Number { value: 99 },
-                Tok::Newline,
-                Tok::Dedent,
-            ]
-        );
+    macro_rules! test_indentation_with_eol {
+        ($($name:ident: $eol:expr,)*) => {
+            $(
+            #[test]
+            fn $name() {
+                let source = String::from(format!("def foo():{}   return 99{}{}", $eol, $eol, $eol));
+                let tokens = lex_source(&source);
+                assert_eq!(
+                    tokens,
+                    vec![
+                        Tok::Def,
+                        Tok::Name {
+                            name: String::from("foo"),
+                        },
+                        Tok::Lpar,
+                        Tok::Rpar,
+                        Tok::Colon,
+                        Tok::Newline,
+                        Tok::Indent,
+                        Tok::Return,
+                        Tok::Number { value: 99 },
+                        Tok::Newline,
+                        Tok::Dedent,
+                    ]
+                );
+            }
+            )*
+        };
     }
 
-    #[test]
-    fn test_double_dedent() {
-        let source = String::from("def foo():\n if x:\n\n  return 99\n\n");
-        let tokens = lex_source(&source);
-        assert_eq!(
-            tokens,
-            vec![
-                Tok::Def,
-                Tok::Name {
-                    name: String::from("foo"),
-                },
-                Tok::Lpar,
-                Tok::Rpar,
-                Tok::Colon,
-                Tok::Newline,
-                Tok::Indent,
-                Tok::If,
-                Tok::Name {
-                    name: String::from("x"),
-                },
-                Tok::Colon,
-                Tok::Newline,
-                Tok::Indent,
-                Tok::Return,
-                Tok::Number { value: 99 },
-                Tok::Newline,
-                Tok::Dedent,
-                Tok::Dedent,
-            ]
-        );
+    test_indentation_with_eol! {
+        test_indentation_windows_eol: WINDOWS_EOL,
+        test_indentation_mac_eol: MAC_EOL,
+        test_indentation_unix_eol: UNIX_EOL,
     }
 
-    #[test]
-    fn test_newline_in_brackets() {
-        let source = String::from("x = [\n    1,2\n]\n");
-        let tokens = lex_source(&source);
-        assert_eq!(
-            tokens,
-            vec![
-                Tok::Name {
-                    name: String::from("x"),
-                },
-                Tok::Equal,
-                Tok::Lsqb,
-                Tok::Number { value: 1 },
-                Tok::Comma,
-                Tok::Number { value: 2 },
-                Tok::Rsqb,
-                Tok::Newline,
-            ]
-        );
+    macro_rules! test_double_dedent_with_eol {
+        ($($name:ident: $eol:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let source = String::from(format!("def foo():{} if x:{}{}  return 99{}{}", $eol, $eol, $eol, $eol, $eol));
+                let tokens = lex_source(&source);
+                assert_eq!(
+                    tokens,
+                    vec![
+                        Tok::Def,
+                        Tok::Name {
+                            name: String::from("foo"),
+                        },
+                        Tok::Lpar,
+                        Tok::Rpar,
+                        Tok::Colon,
+                        Tok::Newline,
+                        Tok::Indent,
+                        Tok::If,
+                        Tok::Name {
+                            name: String::from("x"),
+                        },
+                        Tok::Colon,
+                        Tok::Newline,
+                        Tok::Indent,
+                        Tok::Return,
+                        Tok::Number { value: 99 },
+                        Tok::Newline,
+                        Tok::Dedent,
+                        Tok::Dedent,
+                    ]
+                );
+            }
+        )*
+        }
+    }
+
+    test_double_dedent_with_eol! {
+        test_double_dedent_windows_eol: WINDOWS_EOL,
+        test_double_dedent_mac_eol: MAC_EOL,
+        test_double_dedent_unix_eol: UNIX_EOL,
+    }
+
+    macro_rules! test_newline_in_brackets {
+        ($($name:ident: $eol:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let source = String::from(format!("x = [{}    1,2{}]{}", $eol, $eol, $eol));
+                let tokens = lex_source(&source);
+                assert_eq!(
+                    tokens,
+                    vec![
+                        Tok::Name {
+                            name: String::from("x"),
+                        },
+                        Tok::Equal,
+                        Tok::Lsqb,
+                        Tok::Number { value: 1 },
+                        Tok::Comma,
+                        Tok::Number { value: 2 },
+                        Tok::Rsqb,
+                        Tok::Newline,
+                    ]
+                );
+            }
+        )*
+        };
+    }
+
+    test_newline_in_brackets! {
+        test_newline_in_brackets_windows_eol: WINDOWS_EOL,
+        test_newline_in_brackets_mac_eol: MAC_EOL,
+        test_newline_in_brackets_unix_eol: UNIX_EOL,
     }
 
     #[test]
@@ -766,5 +883,31 @@ mod tests {
                 },
             ]
         );
+    }
+
+    macro_rules! test_string_continuation {
+        ($($name:ident: $eol:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let source = String::from(format!("\"abc\\{}def\"", $eol));
+                let tokens = lex_source(&source);
+                assert_eq!(
+                    tokens,
+                    vec![
+                        Tok::String {
+                            value: String::from("abcdef"),
+                        },
+                    ]
+                )
+            }
+        )*
+        }
+    }
+
+    test_string_continuation! {
+        test_string_continuation_windows_eol: WINDOWS_EOL,
+        test_string_continuation_mac_eol: MAC_EOL,
+        test_string_continuation_unix_eol: UNIX_EOL,
     }
 }
