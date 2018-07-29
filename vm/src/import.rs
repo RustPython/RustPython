@@ -52,6 +52,6 @@ fn find_source(name: &String) -> io::Result<PathBuf> {
 
     match filepaths.filter(|p| p.exists()).next() {
         Some(path) => Ok(path.to_path_buf()),
-        None => Err(io::Error::new(NotFound, ""))
+        None => Err(io::Error::new(NotFound, format!("Module ({}) could not be found.", name)))
     }
 }
