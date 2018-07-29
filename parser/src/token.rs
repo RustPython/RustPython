@@ -54,7 +54,7 @@ pub enum Tok {
     At,
     AtEqual,
     Rarrow,
-    Ellipses,
+    Ellipsis,
 
     // Keywords (alphabetically):
 
