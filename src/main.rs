@@ -29,7 +29,19 @@ fn main() {
                 .multiple(true)
                 .help("Give the verbosity"),
         )
+        .arg(
+            Arg::with_name("c")
+                .short("c")
+                .takes_value(true)
+                .help("run the given string as a program"),
+        )
         .get_matches();
+
+    // Figure out if a -c option was given:
+    if let Some(command) = matches.value_of("c") {
+        run_command(&mut command.to_string());
+        return;
+    }
 
     // Figure out if a script was passed:
     match matches.value_of("script") {
@@ -38,25 +50,34 @@ fn main() {
     }
 }
 
-fn run_script(script_file: &String) {
+fn _run_string(source: &String) {
     let mut vm = VirtualMachine::new();
+    let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec).unwrap();
+    debug!("Code object: {:?}", code_obj.borrow());
+    let builtins = vm.get_builtin_scope();
+    let vars = vm.new_scope(Some(builtins)); // Keep track of local variables
+    match vm.run_code_obj(code_obj, vars) {
+        Ok(_value) => {}
+        Err(exc) => {
+            panic!("Exception: {:?}", exc);
+        }
+    }
+}
+
+fn run_command(source: &mut String) {
+    debug!("Running command {}", source);
+
+    // This works around https://github.com/RustPython/RustPython/issues/17
+    source.push_str("\n");
+    _run_string(source)
+}
+
+fn run_script(script_file: &String) {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let filepath = Path::new(script_file);
     match parser::read_file(filepath) {
-        Ok(source) => {
-            let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec).unwrap();
-            debug!("Code object: {:?}", code_obj.borrow());
-            let builtins = vm.get_builtin_scope();
-            let vars = vm.new_scope(Some(builtins)); // Keep track of local variables
-            match vm.run_code_obj(code_obj, vars) {
-                Ok(_value) => {
-                }
-                Err(exc) => {
-                    panic!("Exception: {:?}", exc);
-                }
-            }
-        }
+        Ok(source) => _run_string(&source),
         Err(msg) => {
             error!("Parsing went horribly wrong: {}", msg);
             std::process::exit(1);
