@@ -83,12 +83,13 @@ def create_test_function(cls, filename, method):
     setattr(cls, test_function_name, test_function)
 
 
-def populate(cls):
-    """ Decorator function which can populate a unittest.TestCase class """
-    for method in ['cpython', 'cpython_bytecode', 'rustpython']:
+def populate(method):
+    def wrapper(cls):
+        """ Decorator function which can populate a unittest.TestCase class """
         for filename in get_test_files():
             create_test_function(cls, filename, method)
-    return cls
+        return cls
+    return wrapper
 
 
 def get_test_files():
@@ -102,6 +103,8 @@ def get_test_files():
         yield os.path.abspath(filepath)
 
 
-@populate
+@populate('cpython')
+# @populate('cpython_bytecode')
+@populate('rustpython')
 class SampleTestCase(unittest.TestCase):
     pass
