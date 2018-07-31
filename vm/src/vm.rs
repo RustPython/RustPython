@@ -16,7 +16,7 @@ use super::objlist;
 use super::objstr;
 use super::objtuple;
 use super::pyobject::{DictProtocol, Executor, PyContext, PyObject, PyObjectKind, PyObjectRef,
-                      PyResult, ParentProtocol, Scope};
+                      PyResult, ParentProtocol, Scope, IdProtocol};
 
 // use objects::objects;
 
@@ -409,16 +409,24 @@ impl VirtualMachine {
         Ok(result)
     }
 
+    fn _id(&mut self, a: PyObjectRef) -> usize {
+        a.get_id()
+    }
+
     fn _is(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Pointer equal:
-        let result_bool = true; // TODO: *a.as_ptr() == *b.as_ptr();
+        let id_a = self._id(a);
+        let id_b = self._id(b);
+        let result_bool = id_a == id_b;
         let result = self.ctx.new_bool(result_bool);
         Ok(result)
     }
 
     fn _is_not(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Pointer equal:
-        let result_bool = true; // TODO: *a.as_ptr() != *b.as_ptr();
+        let id_a = self._id(a);
+        let id_b = self._id(b);
+        let result_bool = id_a != id_b;
         let result = self.ctx.new_bool(result_bool);
         Ok(result)
     }

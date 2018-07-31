@@ -4,7 +4,7 @@ use std::io::{self, Write};
 
 use super::compile;
 use super::pyobject::DictProtocol;
-use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope};
+use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope, IdProtocol};
 use super::objbool;
 
 
@@ -39,6 +39,14 @@ pub fn builtin_dir(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
         let obj = args.into_iter().next().unwrap();
         Ok(dir_object(rt, obj))
     }
+}
+
+pub fn builtin_id(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    if args.len() != 1 {
+        return Err(rt.new_exception("Expected only one argument".to_string()))
+    }
+
+    Ok(rt.context().new_int(args[0].get_id() as i32))
 }
 
 pub fn builtin_print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
@@ -88,6 +96,7 @@ pub fn len(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
     let mut dict = HashMap::new();
+    dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("type"), ctx.type_type.clone());
     dict.insert(String::from("int"), ctx.int_type.clone());

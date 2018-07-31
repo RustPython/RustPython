@@ -152,6 +152,16 @@ impl Default for PyObject {
     }
 }
 
+pub trait IdProtocol {
+    fn get_id(&self) -> usize;
+}
+
+impl IdProtocol for PyObjectRef {
+    fn get_id(&self) -> usize {
+        self.as_ptr() as usize
+    }
+}
+
 pub trait ParentProtocol {
     fn has_parent(&self) -> bool;
     fn get_parent(&self) -> PyObjectRef;
