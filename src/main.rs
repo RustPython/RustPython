@@ -38,25 +38,26 @@ fn main() {
     }
 }
 
-fn run_script(script_file: &String) {
+fn _run_string(source: &String) {
     let mut vm = VirtualMachine::new();
+    let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec).unwrap();
+    debug!("Code object: {:?}", code_obj.borrow());
+    let builtins = vm.get_builtin_scope();
+    let vars = vm.new_scope(Some(builtins)); // Keep track of local variables
+    match vm.run_code_obj(code_obj, vars) {
+        Ok(_value) => {}
+        Err(exc) => {
+            panic!("Exception: {:?}", exc);
+        }
+    }
+}
+
+fn run_script(script_file: &String) {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let filepath = Path::new(script_file);
     match parser::read_file(filepath) {
-        Ok(source) => {
-            let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec).unwrap();
-            debug!("Code object: {:?}", code_obj.borrow());
-            let builtins = vm.get_builtin_scope();
-            let vars = vm.new_scope(Some(builtins)); // Keep track of local variables
-            match vm.run_code_obj(code_obj, vars) {
-                Ok(_value) => {
-                }
-                Err(exc) => {
-                    panic!("Exception: {:?}", exc);
-                }
-            }
-        }
+        Ok(source) => _run_string(&source),
         Err(msg) => {
             error!("Parsing went horribly wrong: {}", msg);
             std::process::exit(1);
