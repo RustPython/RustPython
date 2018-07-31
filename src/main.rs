@@ -29,7 +29,19 @@ fn main() {
                 .multiple(true)
                 .help("Give the verbosity"),
         )
+        .arg(
+            Arg::with_name("c")
+                .short("c")
+                .takes_value(true)
+                .help("run the given string as a program"),
+        )
         .get_matches();
+
+    // Figure out if a -c option was given:
+    if let Some(command) = matches.value_of("c") {
+        run_command(&mut command.to_string());
+        return;
+    }
 
     // Figure out if a script was passed:
     match matches.value_of("script") {
@@ -50,6 +62,14 @@ fn _run_string(source: &String) {
             panic!("Exception: {:?}", exc);
         }
     }
+}
+
+fn run_command(source: &mut String) {
+    debug!("Running command {}", source);
+
+    // This works around https://github.com/RustPython/RustPython/issues/17
+    source.push_str("\n");
+    _run_string(source)
 }
 
 fn run_script(script_file: &String) {
