@@ -13,14 +13,15 @@ use super::compile;
 use super::pyobject::{Executor, PyObject, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
-pub fn import(rt: &mut VirtualMachine, name: &String) -> PyResult {
+pub fn import(vm: &mut VirtualMachine, name: &String) -> PyResult {
     // Time to search for module in any place:
     // TODO: handle 'import sys' as special case?
 
-    let filepath = find_source(name).map_err(|e| rt.new_exception(format!("Error: {:?}", e)))?;
-    let source = parser::read_file(filepath.as_path()).map_err(|e| rt.new_exception(format!("Error: {:?}", e)))?;
+    let filepath = find_source(name).map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
+    let source = parser::read_file(filepath.as_path())
+        .map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
 
-    let code_obj = match compile::compile(rt, &source, compile::Mode::Exec) {
+    let code_obj = match compile::compile(vm, &source, compile::Mode::Exec) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             bytecode
@@ -30,10 +31,10 @@ pub fn import(rt: &mut VirtualMachine, name: &String) -> PyResult {
         }
     };
 
-    let builtins = rt.get_builtin_scope();
-    let scope = rt.new_scope(Some(builtins));
+    let builtins = vm.get_builtin_scope();
+    let scope = vm.new_scope(Some(builtins));
 
-    match rt.run_code_obj(code_obj, scope.clone()) {
+    match vm.run_code_obj(code_obj, scope.clone()) {
         Ok(value) => {}
         Err(value) => return Err(value),
     }
@@ -43,7 +44,7 @@ pub fn import(rt: &mut VirtualMachine, name: &String) -> PyResult {
             name: name.clone(),
             dict: scope.clone(),
         },
-        rt.get_type(),
+        vm.get_type(),
     );
     Ok(obj)
 }
