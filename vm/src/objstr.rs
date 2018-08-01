@@ -1,4 +1,5 @@
-use super::pyobject::{Executor, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObjectKind, PyObjectRef, PyResult};
+use super::vm::VirtualMachine;
 
 fn str_pos(s: &String, p: i32) -> usize {
     if p < 0 {
@@ -10,7 +11,7 @@ fn str_pos(s: &String, p: i32) -> usize {
     }
 }
 
-pub fn subscript(rt: &mut Executor, value: &String, b: PyObjectRef) -> PyResult {
+pub fn subscript(rt: &mut VirtualMachine, value: &String, b: PyObjectRef) -> PyResult {
     // let value = a
     match &(*b.borrow()).kind {
         &PyObjectKind::Integer { value: ref pos } => {

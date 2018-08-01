@@ -15,7 +15,7 @@ use super::import::import;
 use super::objlist;
 use super::objstr;
 use super::objtuple;
-use super::pyobject::{DictProtocol, Executor, PyContext, PyObject, PyObjectKind, PyObjectRef,
+use super::pyobject::{DictProtocol, PyContext, PyObject, PyObjectKind, PyObjectRef,
                       PyResult, ParentProtocol, Scope, IdProtocol};
 
 // use objects::objects;
@@ -28,29 +28,29 @@ pub struct VirtualMachine {
     ctx: PyContext,
 }
 
-impl Executor for VirtualMachine {
+impl VirtualMachine {
     fn call(&mut self, f: PyObjectRef) -> PyResult {
         self.invoke(f, Vec::new())
     }
 
-    fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
+    pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
         let frame = Frame::new(code, scope);
         self.run_frame(frame)
     }
 
-    fn new_str(&self, s: String) -> PyObjectRef {
+    pub fn new_str(&self, s: String) -> PyObjectRef {
         self.ctx.new_str(s)
     }
 
-    fn new_bool(&self, b: bool) -> PyObjectRef {
+    pub fn new_bool(&self, b: bool) -> PyObjectRef {
         self.ctx.new_bool(b)
     }
 
-    fn new_dict(&self) -> PyObjectRef {
+    pub fn new_dict(&self) -> PyObjectRef {
         self.ctx.new_dict()
     }
 
-    fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
+    pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
         let locals = self.ctx.new_dict();
         let scope = Scope {
             locals: locals,
@@ -59,20 +59,20 @@ impl Executor for VirtualMachine {
         PyObject { kind: PyObjectKind::Scope { scope: scope }, typ: None }.into_ref()
     }
 
-    fn new_exception(&self, msg: String) -> PyObjectRef {
+    pub fn new_exception(&self, msg: String) -> PyObjectRef {
         self.new_str(msg)
     }
 
-    fn get_none(&self) -> PyObjectRef {
+    pub fn get_none(&self) -> PyObjectRef {
         // TODO
         self.ctx.new_bool(false)
     }
 
-    fn get_type(&self) -> PyObjectRef {
+    pub fn get_type(&self) -> PyObjectRef {
         self.ctx.type_type.clone()
     }
 
-    fn get_locals(&self) -> PyObjectRef {
+    pub fn get_locals(&self) -> PyObjectRef {
         let scope = &self.frames.last().unwrap().locals;
         scope.clone()
         /*
@@ -83,12 +83,10 @@ impl Executor for VirtualMachine {
         */
     }
 
-    fn context(&self) -> &PyContext {
+    pub fn context(&self) -> &PyContext {
         &self.ctx
     }
-}
 
-impl VirtualMachine {
     pub fn new() -> VirtualMachine {
         let ctx = PyContext::new();
         let builtins = builtins::make_module(&ctx);

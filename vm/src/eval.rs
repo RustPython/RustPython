@@ -1,7 +1,7 @@
 extern crate rustpython_parser;
 
 use super::compile;
-use super::pyobject::{Executor, PyObjectRef, PyResult};
+use super::pyobject::{PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
 pub fn eval(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> PyResult {
@@ -18,7 +18,6 @@ pub fn eval(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> PyR
 
 #[cfg(test)]
 mod tests {
-    use super::Executor;
     use super::VirtualMachine;
     use super::eval;
 

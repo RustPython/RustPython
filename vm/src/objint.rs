@@ -1,7 +1,8 @@
-use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef};
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef};
+use super::vm::VirtualMachine;
 use std::collections::HashMap;
 
-fn str(rt: &mut Executor, args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
+fn str(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
     Ok(rt.new_str("todo".to_string()))
 }
 

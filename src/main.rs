@@ -9,7 +9,7 @@ extern crate rustpython_vm;
 
 use clap::{App, Arg};
 use rustpython_parser::parser;
-use rustpython_vm::{VirtualMachine, Executor};
+use rustpython_vm::VirtualMachine;
 use rustpython_vm::compile;
 use rustpython_vm::eval::eval;
 use std::io;

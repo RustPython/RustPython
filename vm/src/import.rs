@@ -10,7 +10,7 @@ use std::io::ErrorKind::NotFound;
 
 use self::rustpython_parser::parser;
 use super::compile;
-use super::pyobject::{Executor, PyObject, PyObjectKind, PyResult};
+use super::pyobject::{PyObject, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
 pub fn import(vm: &mut VirtualMachine, name: &String) -> PyResult {

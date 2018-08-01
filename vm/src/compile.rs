@@ -6,14 +6,15 @@ extern crate rustpython_parser;
 
 use self::rustpython_parser::{ast, parser};
 use super::bytecode::{self, CodeObject, Instruction};
-use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef};
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef};
+use super::vm::VirtualMachine;
 
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
     nxt_label: usize,
 }
 
-pub fn compile(rt: &mut Executor, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
+pub fn compile(rt: &mut VirtualMachine, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
     compiler.push_code_object(CodeObject::new(Vec::new()));
     match mode {

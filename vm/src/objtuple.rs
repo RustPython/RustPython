@@ -1,4 +1,5 @@
-use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::vm::VirtualMachine;
 
 fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     if p < 0 {
@@ -8,7 +9,7 @@ fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     }
 }
 
-pub fn get_item(rt: &mut Executor, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyResult {
+pub fn get_item(rt: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyResult {
     match &(b.borrow()).kind {
         PyObjectKind::Integer { value } => {
             let pos_index = get_pos(l, *value);

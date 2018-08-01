@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 use std::rc::Rc;
+use super::vm::VirtualMachine;
 
 /* Python objects and references.
 
@@ -122,20 +123,6 @@ impl PyContext {
     */
 }
 
-pub trait Executor {
-    fn call(&mut self, PyObjectRef) -> PyResult;
-    fn run_code_obj(&mut self, code: PyObjectRef, locals: PyObjectRef) -> PyResult;
-    fn new_str(&self, s: String) -> PyObjectRef;
-    fn new_bool(&self, b: bool) -> PyObjectRef;
-    fn new_dict(&self) -> PyObjectRef;
-    fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef;
-    fn new_exception(&self, msg: String) -> PyObjectRef;
-    fn get_none(&self) -> PyObjectRef;
-    fn get_type(&self) -> PyObjectRef;
-    fn get_locals(&self) -> PyObjectRef;
-    fn context(&self) -> &PyContext;
-}
-
 pub struct PyObject {
     pub kind: PyObjectKind,
     pub typ: Option<PyObjectRef>,
@@ -235,7 +222,7 @@ impl fmt::Debug for PyObject {
     }
 }
 
-type RustPyFunc = fn(rt: &mut Executor, Vec<PyObjectRef>) -> PyResult;
+type RustPyFunc = fn(rt: &mut VirtualMachine, Vec<PyObjectRef>) -> PyResult;
 
 pub enum PyObjectKind {
     String {
@@ -329,7 +316,7 @@ impl PyObject {
         }.into_ref()
     }
 
-    pub fn call(&self, rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+    pub fn call(&self, rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
         match self.kind {
             PyObjectKind::RustFunction { ref function } => function(rt, args),
             _ => {

@@ -22,5 +22,5 @@ pub mod pyobject;
 mod sysmodule;
 mod vm;
 
-pub use self::pyobject::Executor;
+// pub use self::pyobject::Executor;
 pub use self::vm::VirtualMachine;

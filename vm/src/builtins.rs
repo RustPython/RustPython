@@ -4,11 +4,12 @@ use std::io::{self, Write};
 
 use super::compile;
 use super::pyobject::DictProtocol;
-use super::pyobject::{Executor, PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope, IdProtocol};
+use super::pyobject::{PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope, IdProtocol};
+use super::vm::VirtualMachine;
 use super::objbool;
 
 
-fn get_locals(rt: &mut Executor) -> PyObjectRef {
+fn get_locals(rt: &mut VirtualMachine) -> PyObjectRef {
     let mut d = rt.new_dict();
     // TODO: implement dict_iter_items?
     let locals = rt.get_locals();
@@ -23,16 +24,16 @@ fn get_locals(rt: &mut Executor) -> PyObjectRef {
     d
 }
 
-fn dir_locals(rt: &mut Executor) -> PyObjectRef {
+fn dir_locals(rt: &mut VirtualMachine) -> PyObjectRef {
     get_locals(rt)
 }
 
-fn dir_object(rt: &mut Executor, obj: PyObjectRef) -> PyObjectRef {
+fn dir_object(rt: &mut VirtualMachine, obj: PyObjectRef) -> PyObjectRef {
     let d = rt.new_dict();
     d
 }
 
-pub fn builtin_dir(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+pub fn builtin_dir(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
     if args.is_empty() {
         Ok(dir_locals(rt))
     } else {
@@ -41,7 +42,7 @@ pub fn builtin_dir(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     }
 }
 
-pub fn builtin_id(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+pub fn builtin_id(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
     if args.len() != 1 {
         return Err(rt.new_exception("Expected only one argument".to_string()))
     }
@@ -49,7 +50,7 @@ pub fn builtin_id(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     Ok(rt.context().new_int(args[0].get_id() as i32))
 }
 
-pub fn builtin_print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+pub fn builtin_print(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
     trace!("print called with {:?}", args);
     for a in args {
         print!("{} ", a.borrow().str());
@@ -59,7 +60,7 @@ pub fn builtin_print(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     Ok(rt.get_none())
 }
 
-pub fn builtin_compile(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+pub fn builtin_compile(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
     if args.len() < 1 {
         return Err(rt.new_exception("Expected more arguments".to_string()))
     }
@@ -73,11 +74,36 @@ pub fn builtin_compile(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
     }
 }
 
-pub fn locals(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+pub fn builtin_eval(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
+    if args.len() > 3 {
+        return Err(rt.new_exception("Expected at maximum of 3 arguments".to_string()))
+    } else if args.len() > 2 {
+        // TODO: handle optional global and locals
+    } else {
+        return Err(rt.new_exception("Expected at least one argument".to_string()))
+    }
+    let source = args[0].clone();
+    let _globals = args[1].clone();
+    let locals = args[2].clone();
+
+    let code_obj = source; // if source.borrow().kind 
+
+    // Construct new scope:
+    let scope_inner = Scope {
+        locals: locals,
+        parent: None,
+    };
+    let scope = PyObject { kind: PyObjectKind::Scope { scope: scope_inner }, typ: None }.into_ref();
+
+    // Run the source:
+    rt.run_code_obj(code_obj, scope)
+}
+
+pub fn locals(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
     Ok(rt.get_locals())
 }
 
-pub fn len(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+pub fn len(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
     if args.len() != 1 {
         panic!("len(s) expects exactly one parameter");
     }
@@ -105,6 +131,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("locals"), ctx.new_rustfunc(locals));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
+    dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
     dict.insert("len".to_string(), ctx.new_rustfunc(len));
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
     let scope = PyObject::new(PyObjectKind::Scope { scope: Scope { locals: d2, parent: None} }, ctx.type_type.clone());
@@ -118,10 +145,10 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     obj
 }
 
-fn builtin_any(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+fn builtin_any(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
     Ok(rt.new_bool(args.into_iter().any(|e| objbool::boolval(e))))
 }
 
-fn builtin_all(rt: &mut Executor, args: Vec<PyObjectRef>) -> PyResult {
+fn builtin_all(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
     Ok(rt.new_bool(args.into_iter().all(|e| objbool::boolval(e))))
 }
