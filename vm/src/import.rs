@@ -11,8 +11,9 @@ use std::io::ErrorKind::NotFound;
 use self::rustpython_parser::parser;
 use super::compile;
 use super::pyobject::{Executor, PyObject, PyObjectKind, PyResult};
+use super::vm::VirtualMachine;
 
-pub fn import(rt: &mut Executor, name: &String) -> PyResult {
+pub fn import(rt: &mut VirtualMachine, name: &String) -> PyResult {
     // Time to search for module in any place:
     // TODO: handle 'import sys' as special case?
 
@@ -29,9 +30,10 @@ pub fn import(rt: &mut Executor, name: &String) -> PyResult {
         }
     };
 
-    let dict = rt.context().new_dict();
+    let builtins = rt.get_builtin_scope();
+    let scope = rt.new_scope(Some(builtins));
 
-    match rt.run_code_obj(code_obj, dict.clone()) {
+    match rt.run_code_obj(code_obj, scope.clone()) {
         Ok(value) => {}
         Err(value) => return Err(value),
     }
@@ -39,7 +41,7 @@ pub fn import(rt: &mut Executor, name: &String) -> PyResult {
     let obj = PyObject::new(
         PyObjectKind::Module {
             name: name.clone(),
-            dict: dict.clone(),
+            dict: scope.clone(),
         },
         rt.get_type(),
     );
