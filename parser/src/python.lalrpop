@@ -27,6 +27,7 @@ pub Statement: ast::Statement = {
 
 SimpleStatement: ast::Statement = {
   <s:SmallStatement> "\n" => s,
+  <s:SmallStatement> ";" => s,
 };
 
 SmallStatement: ast::Statement = {
@@ -431,5 +432,6 @@ extern {
         string => lexer::Tok::String { value: <String> },
         name => lexer::Tok::Name { name: <String> },
         "\n" => lexer::Tok::Newline,
+        ";" => lexer::Tok::Semi,
     }
 }
