@@ -114,11 +114,16 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
-        let local_str = "".to_string(); /* self.locals
-            .iter()
-            .map(|elem| format!("\n  {} = {}", elem.0, elem.1.borrow_mut().str()))
-            .collect::<Vec<_>>()
-            .join(""); */
+        let local_str = match self.locals.borrow().kind {
+            PyObjectKind::Scope { ref scope } => match scope.locals.borrow().kind {
+                PyObjectKind::Dict { ref elements } => format!(" {:?}", elements),
+                ref unexpected => format!(
+                    "locals unexpectedly not wrapping a dict! instead: {:?}",
+                    unexpected
+                ),
+            },
+            ref unexpected => format!("locals unexpectedly not a scope! instead: {:?}", unexpected),
+        };
         write!(
             f,
             "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{}\n}}",
