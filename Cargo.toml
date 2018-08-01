@@ -3,6 +3,8 @@ name = "rustpython"
 version = "0.0.1"
 authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
 
+[workspace]
+
 [dependencies]
 log="0.4.1"
 env_logger="0.5.10"
