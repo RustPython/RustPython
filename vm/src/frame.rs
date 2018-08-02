@@ -117,12 +117,12 @@ impl fmt::Debug for Frame {
         let local_str = match self.locals.borrow().kind {
             PyObjectKind::Scope { ref scope } => match scope.locals.borrow().kind {
                 PyObjectKind::Dict { ref elements } => format!(" {:?}", elements),
-                ref unexpected => format!(
+                ref unexpected => panic!(
                     "locals unexpectedly not wrapping a dict! instead: {:?}",
                     unexpected
                 ),
             },
-            ref unexpected => format!("locals unexpectedly not a scope! instead: {:?}", unexpected),
+            ref unexpected => panic!("locals unexpectedly not a scope! instead: {:?}", unexpected),
         };
         write!(
             f,
