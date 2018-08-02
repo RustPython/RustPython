@@ -14,7 +14,7 @@ struct Compiler {
     nxt_label: usize,
 }
 
-pub fn compile(rt: &mut VirtualMachine, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
+pub fn compile(vm: &mut VirtualMachine, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
     compiler.push_code_object(CodeObject::new(Vec::new()));
     match mode {
@@ -43,7 +43,7 @@ pub fn compile(rt: &mut VirtualMachine, source: &String, mode: Mode) -> Result<P
     let code = compiler.pop_code_object();
     Ok(PyObject::new(
         PyObjectKind::Code { code: code },
-        rt.get_type(),
+        vm.get_type(),
     ))
 }
 

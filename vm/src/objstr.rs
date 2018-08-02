@@ -11,12 +11,12 @@ fn str_pos(s: &String, p: i32) -> usize {
     }
 }
 
-pub fn subscript(rt: &mut VirtualMachine, value: &String, b: PyObjectRef) -> PyResult {
+pub fn subscript(vm: &mut VirtualMachine, value: &String, b: PyObjectRef) -> PyResult {
     // let value = a
     match &(*b.borrow()).kind {
         &PyObjectKind::Integer { value: ref pos } => {
             let idx = str_pos(value, *pos);
-            Ok(rt.new_str(value[idx..idx + 1].to_string()))
+            Ok(vm.new_str(value[idx..idx + 1].to_string()))
         }
         &PyObjectKind::Slice {
             ref start,
@@ -38,7 +38,7 @@ pub fn subscript(rt: &mut VirtualMachine, value: &String, b: PyObjectRef) -> PyR
                 &None => 1 as usize,
                 _ => unimplemented!(),
             };
-            Ok(rt.new_str(value[start2..stop2].to_string()))
+            Ok(vm.new_str(value[start2..stop2].to_string()))
         }
         _ => panic!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",

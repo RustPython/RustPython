@@ -222,7 +222,13 @@ impl fmt::Debug for PyObject {
     }
 }
 
-type RustPyFunc = fn(rt: &mut VirtualMachine, Vec<PyObjectRef>) -> PyResult;
+#[derive(Debug)]
+pub struct PyFuncArgs {
+    pub args: Vec<PyObjectRef>,
+    // TODO: add kwargs here
+}
+
+type RustPyFunc = fn(vm: &mut VirtualMachine, PyFuncArgs) -> PyResult;
 
 pub enum PyObjectKind {
     String {
@@ -316,9 +322,9 @@ impl PyObject {
         }.into_ref()
     }
 
-    pub fn call(&self, rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> PyResult {
+    pub fn call(&self, vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         match self.kind {
-            PyObjectKind::RustFunction { ref function } => function(rt, args),
+            PyObjectKind::RustFunction { ref function } => function(vm, args),
             _ => {
                 println!("Not impl {:?}", self);
                 panic!("Not impl");

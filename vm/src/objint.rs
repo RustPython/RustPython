@@ -1,9 +1,9 @@
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef};
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyFuncArgs};
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
 
-fn str(rt: &mut VirtualMachine, args: Vec<PyObjectRef>) -> Result<PyObjectRef, PyObjectRef> {
-    Ok(rt.new_str("todo".to_string()))
+fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    Ok(vm.new_str("todo".to_string()))
 }
 
 fn add() {}

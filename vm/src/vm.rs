@@ -16,7 +16,7 @@ use super::objlist;
 use super::objstr;
 use super::objtuple;
 use super::pyobject::{DictProtocol, PyContext, PyObject, PyObjectKind, PyObjectRef,
-                      PyResult, ParentProtocol, Scope, IdProtocol};
+                      PyResult, ParentProtocol, Scope, IdProtocol, PyFuncArgs};
 
 // use objects::objects;
 
@@ -30,7 +30,10 @@ pub struct VirtualMachine {
 
 impl VirtualMachine {
     fn call(&mut self, f: PyObjectRef) -> PyResult {
-        self.invoke(f, Vec::new())
+        let args = PyFuncArgs {
+            args: Vec::new(),
+        };
+        self.invoke(f, args)
     }
 
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
@@ -452,13 +455,13 @@ impl VirtualMachine {
         }
     }
 
-    fn new_instance(&mut self, type_ref: PyObjectRef, args: Vec<PyObjectRef>) -> PyResult {
+    fn new_instance(&mut self, type_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         // more or less __new__ operator
         let obj = PyObject::new(PyObjectKind::None, type_ref.clone());
         Ok(obj)
     }
 
-    fn invoke(&mut self, func_ref: PyObjectRef, args: Vec<PyObjectRef>) -> PyResult {
+    fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         let f = func_ref.borrow();
 
         match f.kind {
@@ -466,7 +469,7 @@ impl VirtualMachine {
             PyObjectKind::Function { ref code, ref scope } => {
                 let mut scope = self.new_scope(Some(scope.clone()));
                 let code_object = copy_code(code.clone());
-                for (name, value) in code_object.arg_names.iter().zip(args) {
+                for (name, value) in code_object.arg_names.iter().zip(args.args) {
                     scope.set_item(name, value);
                 }
                 let frame = Frame::new(code.clone(), scope);
@@ -665,6 +668,10 @@ impl VirtualMachine {
             }
             bytecode::Instruction::CallFunction { count } => {
                 let args: Vec<PyObjectRef> = self.pop_multiple(*count);
+                // TODO: kwargs
+                let args = PyFuncArgs {
+                    args: args
+                };
                 let func_ref = self.pop_value();
 
                 // Call function:

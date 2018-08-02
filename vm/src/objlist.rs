@@ -9,7 +9,7 @@ fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     }
 }
 
-pub fn get_item(rt: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyResult {
+pub fn get_item(vm: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyResult {
     match &(b.borrow()).kind {
         PyObjectKind::Integer { value } => {
             let pos_index = get_pos(l, *value);
@@ -17,7 +17,7 @@ pub fn get_item(rt: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -
                 let obj = l[pos_index].clone();
                 Ok(obj)
             } else {
-                Err(rt.new_exception("Index out of bounds!".to_string()))
+                Err(vm.new_exception("Index out of bounds!".to_string()))
             }
         }
         PyObjectKind::Slice { start, stop, step } => {
@@ -39,11 +39,11 @@ pub fn get_item(rt: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -
                 PyObjectKind::List {
                     elements: l[start..stop].to_vec(),
                 },
-                rt.get_type(),
+                vm.get_type(),
             );
             Ok(obj)
         }
-        _ => Err(rt.new_exception(format!(
+        _ => Err(vm.new_exception(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
             l, b
         ))),
@@ -52,7 +52,7 @@ pub fn get_item(rt: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -
 
 // set_item:
 pub fn set_item(
-    rt: &mut VirtualMachine,
+    vm: &mut VirtualMachine,
     l: &mut Vec<PyObjectRef>,
     idx: PyObjectRef,
     obj: PyObjectRef,
@@ -61,7 +61,7 @@ pub fn set_item(
         PyObjectKind::Integer { value } => {
             let pos_index = get_pos(l, *value);
             l[pos_index] = obj;
-            Ok(rt.get_none())
+            Ok(vm.get_none())
         }
         _ => panic!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
@@ -70,8 +70,8 @@ pub fn set_item(
     }
 }
 
-pub fn append(rt: &mut VirtualMachine, l: PyObjectRef, other: PyObjectRef) -> PyResult {
-    Ok(rt.get_none())
+pub fn append(vm: &mut VirtualMachine, l: PyObjectRef, other: PyObjectRef) -> PyResult {
+    Ok(vm.get_none())
 }
 
 /* TODO:
