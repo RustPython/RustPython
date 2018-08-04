@@ -736,6 +736,17 @@ impl VirtualMachine {
                 }
                 None
             }
+            bytecode::Instruction::PrintExpr => {
+                let expr = self.pop_value();
+                match expr.borrow().kind {
+                    PyObjectKind::None =>
+                        (),
+                    _ => {
+                        builtins::builtin_print(self, PyFuncArgs { args: vec![expr.clone()] });
+                    }
+                }
+                None
+            }
             _ => panic!("NOT IMPL {:?}", instruction),
         }
     }
