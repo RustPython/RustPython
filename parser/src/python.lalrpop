@@ -288,7 +288,7 @@ AtomExpr: ast::Expression = {
 
 Subscript: ast::Expression = {
   <e:Test> => e,
-  <e1:Test?> ":" <e2:Test?> => {
+  <e1:Test?> ":" <e2:Test?> <e3:SliceOp?>  => {
     let s1 = match e1 {
       None => ast::Expression::None,
       Some(e) => e,
@@ -297,9 +297,17 @@ Subscript: ast::Expression = {
       None => ast::Expression::None,
       Some(e) => e,
     };
-    ast::Expression::Slice { elements: vec![s1, s2] }
+    let s3 = match e3 {
+      None => ast::Expression::None,
+      Some(e) => e,
+    };
+    ast::Expression::Slice { elements: vec![s1, s2, s3] }
   }
 };
+
+SliceOp: ast::Expression = {
+    ":" <e:Test?> => e.unwrap_or(ast::Expression::None)
+}
 
 Atom: ast::Expression = {
   <s:String> => ast::Expression::String { value: s },
