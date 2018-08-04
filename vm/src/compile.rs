@@ -28,12 +28,26 @@ pub fn compile(vm: &mut VirtualMachine, source: &String, mode: Mode) -> Result<P
             Ok(statement) => {
                 if let &ast::Statement::Expression { ref expression } = &statement {
                     compiler.compile_expression(expression);
+                    compiler.emit(Instruction::ReturnValue);
                 } else {
-                    compiler.compile_statement(&statement);
-                    compiler.emit(Instruction::LoadConst {
-                        value: bytecode::Constant::None,
-                    });
-                };
+                    return Err("Expecting expression, got statement".to_string());
+                }
+            }
+            Err(msg) => return Err(msg),
+        },
+        Mode::Single => match parser::parse_program(source) {
+            Ok(ast) => {
+                for statement in ast.statements {
+                    if let &ast::Statement::Expression { ref expression } = &statement {
+                        compiler.compile_expression(expression);
+                        compiler.emit(Instruction::PrintExpr);
+                    } else {
+                        compiler.compile_statement(&statement);
+                    }
+                }
+                compiler.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None
+                });
                 compiler.emit(Instruction::ReturnValue);
             }
             Err(msg) => return Err(msg),
@@ -50,6 +64,7 @@ pub fn compile(vm: &mut VirtualMachine, source: &String, mode: Mode) -> Result<P
 pub enum Mode {
     Exec,
     Eval,
+    Single,
 }
 
 type Label = usize;

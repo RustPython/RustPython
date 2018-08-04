@@ -11,10 +11,11 @@ use clap::{App, Arg};
 use rustpython_parser::parser;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::compile;
-use rustpython_vm::eval::eval;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
+
+use rustpython_vm::pyobject::PyObjectRef;
 
 fn main() {
     env_logger::init();
@@ -85,6 +86,30 @@ fn run_script(script_file: &String) {
     }
 }
 
+fn shell_exec(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> bool {
+    match compile::compile(vm, source, compile::Mode::Single) {
+        Ok(code) => {
+            match vm.run_code_obj(code, scope.clone()) {
+                Ok(_value) => {
+                    // Printed already.
+                }
+                Err(msg) => {
+                    println!("Error: {:?}", msg);
+                },
+            }
+        }
+        Err(msg) => {
+            // Enum rather than special string here.
+            if msg == "Unexpected end of input." {
+                return false;
+            } else {
+                println!("Error: {:?}", msg)
+            }
+        }
+    };
+    true
+}
+
 fn run_shell() {
     println!(
         "Welcome to the magnificent Rust Python {} interpreter",
@@ -94,20 +119,28 @@ fn run_shell() {
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
     // Read a single line:
+    let mut input = String::new();
     loop {
-        let mut input = String::new();
-        print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
+        let mut line = String::new();
+        if input == String::new() {
+            print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
+        } else {
+            print!("..... ");
+        }
         io::stdout().flush().ok().expect("Could not flush stdout");
-        match io::stdin().read_line(&mut input) {
+        match io::stdin().read_line(&mut line) {
             Ok(0) => {
                 break;
             }
             Ok(_) => {
+                input += &line;
                 debug!("You entered {:?}", input);
-                match eval(&mut vm, &input, vars.clone()) {
-                    Ok(value) => println!("{}", vm.to_str(value)),
-                    Err(value) => println!("Error: {:?}", value),
-                };
+                if shell_exec(&mut vm, &input, vars.clone()) {
+                    // Line was complete.
+                    input = String::new();
+                } else {
+                    // More input needed.
+                }
             }
             Err(msg) => {
                 panic!("Error: {:?}", msg)
