@@ -1,3 +1,5 @@
+extern crate lalrpop_util;
+
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
@@ -41,6 +43,8 @@ pub fn parse(filename: &Path) -> Result<ast::Program, String> {
 pub fn parse_program(source: &String) -> Result<ast::Program, String> {
     let lxr = lexer::Lexer::new(&source);
     match python::ProgramParser::new().parse(lxr) {
+        Err(lalrpop_util::ParseError::UnrecognizedToken{token: None, expected: _}) =>
+            Err(String::from("Unexpected end of input.")),
         Err(why) => Err(String::from(format!("{:?}", why))),
         Ok(p) => Ok(p),
     }
