@@ -25,7 +25,7 @@ mod tests {
     fn test_print_42() {
         let source = String::from("print('Hello world')\n");
         let mut vm = VirtualMachine::new();
-        let vars = vm.new_scope(None);
+        let vars = vm.context().new_scope(None);
         let result = eval(&mut vm, &source, vars);
 
         // TODO: check result?
