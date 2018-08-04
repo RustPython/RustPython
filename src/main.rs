@@ -55,7 +55,7 @@ fn _run_string(source: &String) {
     let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec).unwrap();
     debug!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
-    let vars = vm.new_scope(Some(builtins)); // Keep track of local variables
+    let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
     match vm.run_code_obj(code_obj, vars) {
         Ok(_value) => {}
         Err(exc) => {
@@ -92,7 +92,7 @@ fn run_shell() {
     );
     let mut vm = VirtualMachine::new();
     let builtins = vm.get_builtin_scope();
-    let vars = vm.new_scope(Some(builtins)); // Keep track of local variables
+    let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
     // Read a single line:
     loop {
         let mut input = String::new();

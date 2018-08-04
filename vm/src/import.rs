@@ -10,13 +10,17 @@ use std::io::ErrorKind::NotFound;
 
 use self::rustpython_parser::parser;
 use super::compile;
-use super::pyobject::{PyObject, PyObjectKind, PyResult};
+use super::pyobject::{PyObject, PyObjectKind, PyResult, DictProtocol};
 use super::vm::VirtualMachine;
 
 pub fn import(vm: &mut VirtualMachine, name: &String) -> PyResult {
-    // Time to search for module in any place:
-    // TODO: handle 'import sys' as special case?
+    // First, see if we already loaded the module:
+    let sys_modules = vm.sys_module.get_item(&"modules".to_string());
+    if sys_modules.contains_key(name) {
+        return Ok(sys_modules.get_item(name))
+    }
 
+    // Time to search for module in any place:
     let filepath = find_source(name).map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
     let source = parser::read_file(filepath.as_path())
         .map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
@@ -32,7 +36,7 @@ pub fn import(vm: &mut VirtualMachine, name: &String) -> PyResult {
     };
 
     let builtins = vm.get_builtin_scope();
-    let scope = vm.new_scope(Some(builtins));
+    let scope = vm.context().new_scope(Some(builtins));
 
     match vm.run_code_obj(code_obj, scope.clone()) {
         Ok(value) => {}

@@ -5,7 +5,6 @@
  */
 
 use std::cell::RefMut;
-use std::collections::HashMap;
 use std::ops::Deref;
 
 use super::builtins;
@@ -18,6 +17,8 @@ use super::objtuple;
 use super::pyobject::{DictProtocol, PyContext, PyObject, PyObjectKind, PyObjectRef,
                       PyResult, ParentProtocol, Scope, IdProtocol, PyFuncArgs};
 
+use super::sysmodule;
+
 // use objects::objects;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
@@ -25,6 +26,7 @@ use super::pyobject::{DictProtocol, PyContext, PyObject, PyObjectKind, PyObjectR
 pub struct VirtualMachine {
     frames: Vec<Frame>,
     builtins: PyObjectRef,
+    pub sys_module: PyObjectRef,
     ctx: PyContext,
 }
 
@@ -51,15 +53,6 @@ impl VirtualMachine {
 
     pub fn new_dict(&self) -> PyObjectRef {
         self.ctx.new_dict()
-    }
-
-    pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
-        let locals = self.ctx.new_dict();
-        let scope = Scope {
-            locals: locals,
-            parent: parent,
-        };
-        PyObject { kind: PyObjectKind::Scope { scope: scope }, typ: None }.into_ref()
     }
 
     pub fn new_exception(&self, msg: String) -> PyObjectRef {
@@ -93,9 +86,11 @@ impl VirtualMachine {
     pub fn new() -> VirtualMachine {
         let ctx = PyContext::new();
         let builtins = builtins::make_module(&ctx);
+        let sysmod = sysmodule::mk_module(&ctx);
         VirtualMachine {
             frames: vec![],
             builtins: builtins,
+            sys_module: sysmod,
             ctx: ctx,
         }
     }
@@ -467,7 +462,7 @@ impl VirtualMachine {
         match f.kind {
             PyObjectKind::RustFunction { ref function } => f.call(self, args),
             PyObjectKind::Function { ref code, ref scope } => {
-                let mut scope = self.new_scope(Some(scope.clone()));
+                let mut scope = self.ctx.new_scope(Some(scope.clone()));
                 let code_object = copy_code(code.clone());
                 for (name, value) in code_object.arg_names.iter().zip(args.args) {
                     scope.set_item(name, value);

@@ -105,6 +105,25 @@ impl PyContext {
         )
     }
 
+    pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
+        let locals = self.new_dict();
+        let scope = Scope {
+            locals: locals,
+            parent: parent,
+        };
+        PyObject { kind: PyObjectKind::Scope { scope: scope }, typ: None }.into_ref()
+    }
+
+    pub fn new_module(&self, name: &String, scope: PyObjectRef) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::Module {
+                name: name.clone(),
+                dict: scope.clone(),
+            },
+            self.type_type.clone(),
+        )
+    }
+
     pub fn new_rustfunc(&self, function: RustPyFunc) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::RustFunction { function: function },
@@ -208,6 +227,7 @@ impl DictProtocol for PyObjectRef {
             } => {
                 el.insert(k.to_string(), v);
             },
+            PyObjectKind::Module { ref name, ref mut dict } => dict.set_item(k, v),
             PyObjectKind::Scope { ref mut scope } => {
                 scope.locals.set_item(k, v);
             },

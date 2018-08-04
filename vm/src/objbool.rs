@@ -1,5 +1,5 @@
 
-use super::pyobject::{PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObjectKind, PyObjectRef};
 
 pub fn boolval(o: PyObjectRef) -> bool {
     let obj = o.borrow();
