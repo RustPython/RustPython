@@ -69,6 +69,18 @@ mod tests {
     use super::parse_statement;
 
     #[test]
+    fn test_parse_empty() {
+        let parse_ast = parse_program(&String::from("\n"));
+
+        assert_eq!(
+            parse_ast,
+            Ok(ast::Program {
+                statements: vec![]
+            })
+        )
+    }
+
+    #[test]
     fn test_parse_print_hello() {
         let source = String::from("print('Hello world')\n");
         let parse_ast = parse_program(&source).unwrap();
