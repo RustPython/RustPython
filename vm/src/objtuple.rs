@@ -32,7 +32,7 @@ pub fn get_item(vm: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -
             let step = match step {
                 //Some(step) => step as usize,
                 &None => 1 as usize,
-                _ => unimplemented!(),
+                _ => unimplemented!("stepped slicing not supported for type {:?}", l),
             };
             // TODO: we could potentially avoid this copy and use slice
             let obj = PyObject::new(

@@ -6,7 +6,6 @@ pub fn boolval(o: PyObjectRef) -> bool {
     match obj.kind {
         PyObjectKind::Boolean { value } => value,
         PyObjectKind::Integer { value } => value != 0,
-        _ => unimplemented!(),
+        ref kind => unimplemented!("converting to boolean unsupported for: {:?}", kind),
     }
 }
-
