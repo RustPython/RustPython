@@ -120,6 +120,20 @@ pub fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.context().new_int(len as i32))
 }
 
+pub fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() != 1 {
+        unimplemented!("only the single-parameter range is implemented");
+    }
+    match args.args[0].borrow().kind {
+        PyObjectKind::Integer { ref value } => {
+            let range_elements: Vec<PyObjectRef> =
+                (0..*value).map(|num| vm.context().new_int(num)).collect();
+            Ok(vm.context().new_list(Some(range_elements)))
+        }
+        _ => panic!("first argument to range must be an integer"),
+    }
+}
+
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
     let mut dict = HashMap::new();
@@ -133,6 +147,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
+    dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
     dict.insert("len".to_string(), ctx.new_rustfunc(builtin_len));
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
     let scope = PyObject::new(PyObjectKind::Scope { scope: Scope { locals: d2, parent: None} }, ctx.type_type.clone());
