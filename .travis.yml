@@ -24,13 +24,18 @@ matrix:
               directories:
                   - /home/travis/.cargo
                   - target
-          before_script:
-            - curl -sSf https://build.travis-ci.org/files/rustup-init.sh | sh -s -- --default-toolchain=stable -y
-            - export PATH=$HOME/.cargo/bin:$PATH
-          install:
-            - pip install pipenv
-            - (cd tests; pipenv install)
-          script:
-            # Build outside of the test runner
-            - cargo build --verbose --release
-            - (cd tests; pipenv run pytest)
+          env:
+              - TRAVIS_RUST_VERSION=stable
+          script: tests/.travis-runner.sh
+        - language: python
+          python: 3.6
+          cache:
+              pip: true
+              # Because we're using the Python Travis environment, we can't use
+              # the built-in cargo cacher
+              directories:
+                  - /home/travis/.cargo
+                  - target
+          env:
+              - TRAVIS_RUST_VERSION=beta
+          script: tests/.travis-runner.sh
