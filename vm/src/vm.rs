@@ -303,6 +303,12 @@ impl VirtualMachine {
         }
     }
 
+    fn _modulo(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        let b2 = &*b.borrow();
+        let a2 = &*a.borrow();
+        Ok(PyObject::new(a2 % b2, self.get_type()))
+    }
+
     fn execute_binop(&mut self, op: &bytecode::BinaryOperator) -> Option<PyResult> {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
@@ -315,6 +321,7 @@ impl VirtualMachine {
             &bytecode::BinaryOperator::Power => self._pow(a_ref, b_ref),
             &bytecode::BinaryOperator::Divide => self._div(a_ref, b_ref),
             &bytecode::BinaryOperator::Subscript => self.subscript(a_ref, b_ref),
+            &bytecode::BinaryOperator::Modulo => self._modulo(a_ref, b_ref),
             _ => panic!("NOT IMPL {:?}", op),
         };
         match result {
