@@ -199,6 +199,13 @@ impl Compiler {
                 // Create bytecode for this function:
                 self.code_object_stack.push(CodeObject::new(args.to_vec()));
                 self.compile_statements(body);
+
+                // Emit None at end:
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
+                self.emit(Instruction::ReturnValue);
+
                 let code = self.code_object_stack.pop().unwrap();
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code { code: code },
