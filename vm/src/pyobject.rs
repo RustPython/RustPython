@@ -87,10 +87,10 @@ impl PyContext {
         )
     }
 
-    pub fn new_list(&self) -> PyObjectRef {
+    pub fn new_list(&self, elements: Option<Vec<PyObjectRef>>) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::List {
-                elements: Vec::new(),
+                elements: elements.unwrap_or(Vec::new()),
             },
             self.type_type.clone(),
         )
