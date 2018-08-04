@@ -130,6 +130,11 @@ impl Compiler {
             ast::Statement::While { test, body, orelse } => {
                 let start_label = self.new_label();
                 let end_label = self.new_label();
+                self.emit(Instruction::SetupLoop {
+                    start: start_label,
+                    end: end_label,
+                });
+
                 self.set_label(start_label);
 
                 self.compile_expression(test);
