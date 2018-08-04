@@ -333,11 +333,8 @@ impl Compiler {
         match expression {
             ast::Expression::BoolOp { a, op, b } => match op {
                 ast::BooleanOperator::And => {
-                    // TODO: insert short circuitry here by detecting type of expression
-                    let end_label1 = self.new_label();
                     self.compile_test(a, not_label);
                     self.compile_test(b, not_label);
-                    panic!("Not impl");
                 }
                 ast::BooleanOperator::Or => {
                     // TODO: implement short circuit code by fiddeling with the labels
@@ -368,13 +365,22 @@ impl Compiler {
                 }
                 self.emit(Instruction::CallFunction { count: count });
             }
-            ast::Expression::BoolOp { a, op, b } => match op {
-                ast::BooleanOperator::And => {
-                    panic!("Not impl");
-                }
-                ast::BooleanOperator::Or => {
-                    panic!("Not impl");
-                }
+            ast::Expression::BoolOp { a, op, b } => {
+                let not_label = self.new_label();
+                let end_label = self.new_label();
+                self.compile_test(expression, not_label);
+                // Load const True
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Boolean { value: true},
+                });
+                self.emit(Instruction::Jump { target: end_label });
+
+                self.set_label(not_label);
+                // Load const False
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Boolean { value: false},
+                });
+                self.set_label(end_label);
             },
             ast::Expression::Binop { a, op, b } => {
                 self.compile_expression(&*a);
