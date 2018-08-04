@@ -289,18 +289,9 @@ AtomExpr: ast::Expression = {
 Subscript: ast::Expression = {
   <e:Test> => e,
   <e1:Test?> ":" <e2:Test?> <e3:SliceOp?>  => {
-    let s1 = match e1 {
-      None => ast::Expression::None,
-      Some(e) => e,
-    };
-    let s2 = match e2 {
-      None => ast::Expression::None,
-      Some(e) => e,
-    };
-    let s3 = match e3 {
-      None => ast::Expression::None,
-      Some(e) => e,
-    };
+    let s1 = e1.unwrap_or(ast::Expression::None);
+    let s2 = e2.unwrap_or(ast::Expression::None);
+    let s3 = e3.unwrap_or(ast::Expression::None);
     ast::Expression::Slice { elements: vec![s1, s2, s3] }
   }
 };
