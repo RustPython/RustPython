@@ -8,3 +8,34 @@ rust:
 script:
     - cargo build --verbose --all
     - cargo test --verbose --all
+
+cache: cargo
+
+matrix:
+    include:
+        # To test the snippets, we use Travis' Python environment (because
+        # installing rust ourselves is a lot easier than installing Python)
+        - language: python
+          python: 3.6
+          cache:
+              pip: true
+              # Because we're using the Python Travis environment, we can't use
+              # the built-in cargo cacher
+              directories:
+                  - /home/travis/.cargo
+                  - target
+          env:
+              - TRAVIS_RUST_VERSION=stable
+          script: tests/.travis-runner.sh
+        - language: python
+          python: 3.6
+          cache:
+              pip: true
+              # Because we're using the Python Travis environment, we can't use
+              # the built-in cargo cacher
+              directories:
+                  - /home/travis/.cargo
+                  - target
+          env:
+              - TRAVIS_RUST_VERSION=beta
+          script: tests/.travis-runner.sh
