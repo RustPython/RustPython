@@ -476,8 +476,8 @@ impl VirtualMachine {
                 self.run_frame(frame)
             }
             PyObjectKind::Class { name: _ } => self.new_instance(func_ref.clone(), args),
-            _ => {
-                unimplemented!();
+            ref kind => {
+                unimplemented!("invoke unimplemented for: {:?}", kind);
             }
         }
     }
@@ -498,7 +498,7 @@ impl VirtualMachine {
         // Lookup name in obj
         let obj = match parent.borrow().kind {
             PyObjectKind::Module { ref name, ref dict } => dict.get_item(attr_name),
-            _ => unimplemented!(),
+            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         };
         self.push_value(obj);
         None
