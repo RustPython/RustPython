@@ -221,7 +221,7 @@ impl<'input> Lexer<'input> {
 
     fn is_char(&self) -> bool {
         match self.chr0 {
-            Some('a'...'z') | Some('A'...'Z') | Some('_') => return true,
+            Some('a'...'z') | Some('A'...'Z') | Some('_') | Some('0'...'9') => return true,
             _ => return false,
         }
     }
