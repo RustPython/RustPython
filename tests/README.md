@@ -1,7 +1,10 @@
 
 # Test snippets
 
-This directory contains a set of test snippets which can be run in python.
+This directory contains two sets of test snippets which can be run in
+Python.  The `snippets/` directory contains functional tests, and the
+`benchmarks/` directory contains snippets for use in benchmarking
+RustPython's performance.
 
 
 ## Running with CPython + RustPython
