@@ -35,7 +35,12 @@ pub fn subscript(vm: &mut VirtualMachine, value: &String, b: PyObjectRef) -> PyR
             };
             Ok(vm.new_str(match step {
                 &None | &Some(1) => value[start2..stop2].to_string(),
-                &Some(num) => value[start2..stop2].chars().step_by(num as usize).collect(),
+                &Some(num) => {
+                    if num < 0 {
+                        unimplemented!("negative step indexing not yet supported")
+                    };
+                    value[start2..stop2].chars().step_by(num as usize).collect()
+                }
             }))
         }
         _ => panic!(
