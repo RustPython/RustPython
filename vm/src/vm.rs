@@ -100,9 +100,7 @@ impl VirtualMachine {
     pub fn get_builtin_scope(&mut self) -> PyObjectRef {
         let a2 = &*self.builtins.borrow();
         match a2.kind {
-            PyObjectKind::Module { ref name, ref dict } => {
-                dict.clone()
-            },
+            PyObjectKind::Module { name: _, ref dict } => dict.clone(),
             _ => { panic!("OMG"); }
         }
     }
@@ -469,7 +467,7 @@ impl VirtualMachine {
         let f = func_ref.borrow();
 
         match f.kind {
-            PyObjectKind::RustFunction { ref function } => f.call(self, args),
+            PyObjectKind::RustFunction { function: _ } => f.call(self, args),
             PyObjectKind::Function { ref code, ref scope } => {
                 let mut scope = self.ctx.new_scope(Some(scope.clone()));
                 let code_object = copy_code(code.clone());
@@ -501,7 +499,7 @@ impl VirtualMachine {
         let parent = self.pop_value();
         // Lookup name in obj
         let obj = match parent.borrow().kind {
-            PyObjectKind::Module { ref name, ref dict } => dict.get_item(attr_name),
+            PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         };
         self.push_value(obj);
@@ -650,7 +648,7 @@ impl VirtualMachine {
                         self.pop_value();
 
                         // End of for loop
-                        let end_label = if let Block::Loop { start, end } = self.last_block() {
+                        let end_label = if let Block::Loop { start: _, end } = self.last_block() {
                             *end
                         } else {
                             panic!("Wrong block type")
@@ -727,7 +725,7 @@ impl VirtualMachine {
 
             bytecode::Instruction::Break => {
                 let block = self.unwind_loop();
-                if let Block::Loop { start, end } = block {
+                if let Block::Loop { start: _, end } = block {
                     self.jump(&end);
                 }
                 None
@@ -738,7 +736,7 @@ impl VirtualMachine {
             }
             bytecode::Instruction::Continue => {
                 let block = self.unwind_loop();
-                if let Block::Loop { start, end } = block {
+                if let Block::Loop { start, end: _ } = block {
                     self.jump(&start);
                 } else {
                     assert!(false);
