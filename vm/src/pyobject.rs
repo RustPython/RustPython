@@ -585,7 +585,11 @@ impl PartialEq for PyObject {
             (PyObjectKind::String { value: ref v1s }, &PyObjectKind::String { value: ref v2s }) => {
                 v2s == v1s
             }
-            (PyObjectKind::List { elements: ref l1 }, PyObjectKind::List { elements: ref l2 }) => {
+            (PyObjectKind::List { elements: ref l1 }, PyObjectKind::List { elements: ref l2 })
+            | (
+                PyObjectKind::Tuple { elements: ref l1 },
+                PyObjectKind::Tuple { elements: ref l2 },
+            ) => {
                 if l1.len() == l2.len() {
                     Iterator::zip(l1.iter(), l2.iter()).all(|elem| elem.0 == elem.1)
                 } else {
