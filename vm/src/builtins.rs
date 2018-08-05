@@ -212,8 +212,9 @@ fn builtin_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         panic!("str expects exactly one parameter");
     };
     let s = match args.args[0].borrow().kind {
-        PyObjectKind::Integer { ref value } => args.args[0].borrow().str(),
-        PyObjectKind::String { ref value } => args.args[0].borrow().str(),
+        PyObjectKind::Integer { value: _ } | PyObjectKind::String { value: _ } => {
+            args.args[0].borrow().str()
+        }
         _ => {
             return Err(vm.context()
                   .new_str("TypeError: object of this type cannot be converted to str".to_string()))
