@@ -14,8 +14,10 @@ use super::import::import;
 use super::objlist;
 use super::objstr;
 use super::objtuple;
-use super::pyobject::{DictProtocol, PyContext, PyObject, PyObjectKind, PyObjectRef,
-                      PyResult, ParentProtocol, Scope, IdProtocol, PyFuncArgs};
+use super::pyobject::{
+    DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind,
+    PyObjectRef, PyResult,
+};
 
 use super::sysmodule;
 
