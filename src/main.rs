@@ -110,6 +110,28 @@ fn shell_exec(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> b
     true
 }
 
+fn read_until_empty_line(input: &mut String) -> Result<i32, std::io::Error> {
+    loop {
+        print!("..... ");
+        io::stdout().flush().ok().expect("Could not flush stdout");
+        let mut line = String::new();
+        match io::stdin().read_line(&mut line) {
+            Ok(0) => {
+                return Ok(0);
+            }
+            Ok(1) => {
+                return Ok(1);
+            }
+            Ok(_) => {
+                input.push_str(&line);
+            }
+            Err(msg) => {
+                return Err(msg);
+            }
+        }
+    }
+}
+
 fn run_shell() {
     println!(
         "Welcome to the magnificent Rust Python {} interpreter",
@@ -121,25 +143,29 @@ fn run_shell() {
     // Read a single line:
     let mut input = String::new();
     loop {
-        let mut line = String::new();
-        if input == String::new() {
-            print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
-        } else {
-            print!("..... ");
-        }
+        print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
         io::stdout().flush().ok().expect("Could not flush stdout");
-        match io::stdin().read_line(&mut line) {
+        match io::stdin().read_line(&mut input) {
             Ok(0) => {
                 break;
             }
             Ok(_) => {
-                input += &line;
                 debug!("You entered {:?}", input);
                 if shell_exec(&mut vm, &input, vars.clone()) {
                     // Line was complete.
                     input = String::new();
                 } else {
-                    // More input needed.
+                    match read_until_empty_line(&mut input) {
+                        Ok(0) => {
+                            break;
+                        }
+                        Ok(_) => {
+                            shell_exec(&mut vm, &input, vars.clone());
+                        }
+                        Err(msg) => {
+                            panic!("Error: {:?}", msg)
+                        }
+                    }
                 }
             }
             Err(msg) => {
