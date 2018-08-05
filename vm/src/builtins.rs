@@ -203,7 +203,24 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_slice
 // builtin_sorted
 // builtin_staticmethod
-// builtin_str
+
+// TODO: should with following format
+// class str(object='')
+// class str(object=b'', encoding='utf-8', errors='strict')
+fn builtin_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() != 1 {
+        panic!("str expects exactly one parameter");
+    };
+    let s = match args.args[0].borrow().kind {
+        PyObjectKind::Integer { ref value } => args.args[0].borrow().str(),
+        PyObjectKind::String { ref value } => args.args[0].borrow().str(),
+        _ => {
+            return Err(vm.context()
+                  .new_str("TypeError: object of this type has no len()".to_string()))
+        },
+    };
+    Ok(vm.new_str(s))
+}
 // builtin_sum
 // builtin_super
 // builtin_tuple
@@ -226,6 +243,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
+    dict.insert(String::from("str"), ctx.new_rustfunc(builtin_str));
     dict.insert(String::from("type"), ctx.type_type.clone());
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
     let scope = PyObject::new(PyObjectKind::Scope { scope: Scope { locals: d2, parent: None} }, ctx.type_type.clone());
