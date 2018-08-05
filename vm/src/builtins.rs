@@ -216,7 +216,7 @@ fn builtin_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectKind::String { ref value } => args.args[0].borrow().str(),
         _ => {
             return Err(vm.context()
-                  .new_str("TypeError: object of this type has no len()".to_string()))
+                  .new_str("TypeError: object of this type cannot be converted to str".to_string()))
         },
     };
     Ok(vm.new_str(s))
