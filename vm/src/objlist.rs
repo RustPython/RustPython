@@ -29,19 +29,25 @@ pub fn get_item(vm: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -
                 &Some(stop) => get_pos(l, stop),
                 &None => l.len() as usize,
             };
-            let step = match step {
-                //Some(step) => step as usize,
-                &None => 1 as usize,
-                _ => unimplemented!("stepped slicing not supported for type {:?}", l),
-            };
             // TODO: we could potentially avoid this copy and use slice
-            let obj = PyObject::new(
+            Ok(PyObject::new(
                 PyObjectKind::List {
-                    elements: l[start..stop].to_vec(),
+                    elements: match step {
+                        &None | &Some(1) => l[start..stop].to_vec(),
+                        &Some(num) => {
+                            if num < 0 {
+                                unimplemented!("negative step indexing not yet supported")
+                            };
+                            l[start..stop]
+                                .iter()
+                                .step_by(num as usize)
+                                .cloned()
+                                .collect()
+                        }
+                    },
                 },
                 vm.get_type(),
-            );
-            Ok(obj)
+            ))
         }
         _ => Err(vm.new_exception(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
