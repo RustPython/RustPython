@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Sub, Rem};
 use std::rc::Rc;
 use super::vm::VirtualMachine;
 
@@ -544,6 +544,23 @@ impl<'a> Div<&'a PyObject> for &'a PyObject {
             }
             _ => {
                 panic!("NOT IMPL");
+            }
+        }
+    }
+}
+
+impl<'a> Rem<&'a PyObject> for &'a PyObject {
+    type Output = PyObjectKind;
+
+    fn rem(self, rhs: &'a PyObject) -> Self::Output {
+        match (&self.kind, &rhs.kind) {
+            (PyObjectKind::Integer { value: value1 }, PyObjectKind::Integer { value: value2 }) => {
+                PyObjectKind::Integer {
+                    value: value1 % value2,
+                }
+            }
+            (kind1, kind2) => {
+                unimplemented!("% not implemented for kinds: {:?} {:?}", kind1, kind2);
             }
         }
     }
