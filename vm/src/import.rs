@@ -4,9 +4,9 @@
 
 extern crate rustpython_parser;
 
-use std::path::{Path, PathBuf};
 use std::io;
 use std::io::ErrorKind::NotFound;
+use std::path::PathBuf;
 
 use self::rustpython_parser::parser;
 use super::compile;
