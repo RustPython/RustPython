@@ -365,14 +365,18 @@ impl PyObject {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            PyObjectKind::Tuple { ref elements } => format!(
-                "({})",
-                elements
-                    .iter()
-                    .map(|elem| elem.borrow().str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            PyObjectKind::Tuple { ref elements } => if elements.len() == 1 {
+                format!("({},)", elements[0].borrow().str())
+            } else {
+                format!(
+                    "({})",
+                    elements
+                        .iter()
+                        .map(|elem| elem.borrow().str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            },
             PyObjectKind::Dict { ref elements } => format!(
                 "{{ {} }}",
                 elements
