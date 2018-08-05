@@ -20,29 +20,16 @@ pub fn get_item(vm: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -
                 Err(vm.new_exception("Index out of bounds!".to_string()))
             }
         }
-        PyObjectKind::Slice { start, stop, step } => {
-            let start = match start {
-                &Some(start) => get_pos(l, start),
-                &None => 0,
-            };
-            let stop = match stop {
-                &Some(stop) => get_pos(l, stop),
-                &None => l.len() as usize,
-            };
-            let step = match step {
-                //Some(step) => step as usize,
-                &None => 1 as usize,
-                _ => unimplemented!("stepped slicing not supported for type {:?}", l),
-            };
-            // TODO: we could potentially avoid this copy and use slice
-            let obj = PyObject::new(
-                PyObjectKind::Tuple {
-                    elements: l[start..stop].to_vec(),
-                },
-                vm.get_type(),
-            );
-            Ok(obj)
-        }
+        PyObjectKind::Slice {
+            start: _,
+            stop: _,
+            step: _,
+        } => Ok(PyObject::new(
+            PyObjectKind::Tuple {
+                elements: super::objlist::get_slice_items(l, &b),
+            },
+            vm.get_type(),
+        )),
         _ => Err(vm.new_exception(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
             l, b

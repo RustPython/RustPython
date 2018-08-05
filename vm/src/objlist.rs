@@ -9,7 +9,7 @@ fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     }
 }
 
-fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef> {
+pub fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef> {
     // TODO: we could potentially avoid this copy and use slice
     match &(slice.borrow()).kind {
         PyObjectKind::Slice { start, stop, step } => {
