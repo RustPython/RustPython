@@ -751,7 +751,12 @@ impl VirtualMachine {
                     PyObjectKind::None =>
                         (),
                     _ => {
-                        builtins::builtin_print(self, PyFuncArgs { args: vec![expr.clone()] });
+                        builtins::builtin_print(
+                            self,
+                            PyFuncArgs {
+                                args: vec![expr.clone()],
+                            },
+                        ).unwrap();
                     }
                 }
                 None
