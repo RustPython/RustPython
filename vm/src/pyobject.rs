@@ -559,8 +559,8 @@ impl<'a> Rem<&'a PyObject> for &'a PyObject {
                     value: value1 % value2,
                 }
             }
-            _ => {
-                panic!("NOT IMPL");
+            (kind1, kind2) => {
+                unimplemented!("% not implemented for kinds: {:?} {:?}", kind1, kind2);
             }
         }
     }
