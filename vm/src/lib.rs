@@ -14,6 +14,7 @@ mod import;
 mod objdict;
 mod objint;
 mod objlist;
+mod objsequence;
 mod objstr;
 mod objtuple;
 mod objtype;

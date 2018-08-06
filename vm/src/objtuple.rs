@@ -4,7 +4,7 @@ use super::vm::VirtualMachine;
 pub fn get_item(vm: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyResult {
     match &(b.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = super::objlist::get_pos(l, *value);
+            let pos_index = super::objsequence::get_pos(l, *value);
             if pos_index < l.len() {
                 let obj = l[pos_index].clone();
                 Ok(obj)
@@ -18,7 +18,7 @@ pub fn get_item(vm: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -
             step: _,
         } => Ok(PyObject::new(
             PyObjectKind::Tuple {
-                elements: super::objlist::get_slice_items(l, &b),
+                elements: super::objsequence::get_slice_items(l, &b),
             },
             vm.get_type(),
         )),
