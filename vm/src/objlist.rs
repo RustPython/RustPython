@@ -1,7 +1,7 @@
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
-fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
+pub fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     if p < 0 {
         l.len() - ((-p) as usize)
     } else {
