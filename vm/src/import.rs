@@ -39,7 +39,7 @@ pub fn import(vm: &mut VirtualMachine, name: &String) -> PyResult {
     let scope = vm.context().new_scope(Some(builtins));
 
     match vm.run_code_obj(code_obj, scope.clone()) {
-        Ok(value) => {}
+        Ok(_) => {}
         Err(value) => return Err(value),
     }
 

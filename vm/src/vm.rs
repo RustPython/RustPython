@@ -152,8 +152,8 @@ impl VirtualMachine {
                     // Exception handled?
                     // TODO: how do we know if the exception is handled?
                     let is_handled = true;
-                    if (is_handled) {
-                        return None
+                    if is_handled {
+                        return None;
                     }
                 },
                 Some(_) => {},
