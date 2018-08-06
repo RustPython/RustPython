@@ -342,7 +342,7 @@ TestList: Vec<ast::Expression> = {
 };
 
 FunctionArguments: Vec<ast::Expression> = {
-  <e: Comma<Expression>> => e,
+  <e: Comma<Test>> => e,
 };
 
 Comma<T>: Vec<T> = {
