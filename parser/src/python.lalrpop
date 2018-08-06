@@ -310,11 +310,12 @@ Atom: ast::Expression = {
       Some(elements) => ast::Expression::List { elements },
     }
   },
-  "(" <e:TestList?> ")" => {
+  "(" <e:TestList?> <trailing_comma:","?> ")" => {
      match e {
          None => ast::Expression::Tuple { elements: Vec::new() },
          Some(elements) => {
-             if elements.len() == 1 {
+             if elements.len() == 1 && trailing_comma.is_none() {
+               // This is "(e)", which is equivalent to "e"
                elements.into_iter().next().unwrap()
              } else {
                ast::Expression::Tuple { elements }
@@ -331,6 +332,7 @@ ExpressionList: Vec<ast::Expression> = {
   <e: Comma<Expression>> => e,
 };
 
+#[inline]
 TestList: Vec<ast::Expression> = {
   <e1:Test> <e2: ("," Test)*> => {
     let mut l = vec![e1];
