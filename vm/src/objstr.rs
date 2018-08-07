@@ -1,23 +1,12 @@
+use super::objsequence;
 use super::pyobject::{PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
-
-fn str_pos(s: &String, p: i32) -> usize {
-    if p < 0 {
-        s.len() - ((-p) as usize)
-    } else if p as usize > s.len() {
-        // This is for the slicing case where the end element is greater than the length of the
-        // string
-        s.len()
-    } else {
-        p as usize
-    }
-}
 
 pub fn subscript(vm: &mut VirtualMachine, value: &String, b: PyObjectRef) -> PyResult {
     // let value = a
     match &(*b.borrow()).kind {
         &PyObjectKind::Integer { value: ref pos } => {
-            let idx = str_pos(value, *pos);
+            let idx = objsequence::get_pos(value.len(), *pos);
             Ok(vm.new_str(value[idx..idx + 1].to_string()))
         }
         &PyObjectKind::Slice {
@@ -27,11 +16,11 @@ pub fn subscript(vm: &mut VirtualMachine, value: &String, b: PyObjectRef) -> PyR
         } => {
             let start2: usize = match start {
                 // &Some(_) => panic!("Bad start index for string slicing {:?}", start),
-                &Some(start) => str_pos(value, start),
+                &Some(start) => objsequence::get_pos(value.len(), start),
                 &None => 0,
             };
             let stop2: usize = match stop {
-                &Some(stop) => str_pos(value, stop),
+                &Some(stop) => objsequence::get_pos(value.len(), stop),
                 // &Some(_) => panic!("Bad stop index for string slicing"),
                 &None => value.len() as usize,
             };
