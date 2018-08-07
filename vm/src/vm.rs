@@ -14,7 +14,6 @@ use super::frame::{Block, Frame, copy_code};
 use super::import::import;
 use super::objlist;
 use super::objstr;
-use super::objtuple;
 use super::pyobject::{
     DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind,
     PyObjectRef, PyResult,
@@ -238,8 +237,9 @@ impl VirtualMachine {
         let a2 = &*a.borrow();
         match &a2.kind {
             PyObjectKind::String { ref value } => objstr::subscript(self, value, b),
-            PyObjectKind::List { ref elements } => objlist::get_item(self, elements, b),
-            PyObjectKind::Tuple { ref elements } => objtuple::get_item(self, elements, b),
+            PyObjectKind::List { ref elements } | PyObjectKind::Tuple { ref elements } => {
+                super::objsequence::get_item(self, &a, elements, b)
+            }
             _ => Err(self.new_exception(format!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
                 a, b
