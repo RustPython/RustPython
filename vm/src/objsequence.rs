@@ -13,7 +13,28 @@ pub fn get_pos(sequence_length: usize, p: i32) -> usize {
     }
 }
 
-fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef> {
+pub trait PySliceableSequence {
+    fn do_slice(&self, start: usize, stop: usize) -> Self;
+    fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self;
+    fn len(&self) -> usize;
+}
+
+impl PySliceableSequence for Vec<PyObjectRef> {
+    fn do_slice(&self, start: usize, stop: usize) -> Self {
+        self[start..stop].to_vec()
+    }
+    fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self {
+        self[start..stop].iter().step_by(step).cloned().collect()
+    }
+    fn len(&self) -> usize {
+        self.len()
+    }
+}
+
+pub fn get_slice_items<S>(l: &S, slice: &PyObjectRef) -> S
+where
+    S: PySliceableSequence,
+{
     // TODO: we could potentially avoid this copy and use slice
     match &(slice.borrow()).kind {
         PyObjectKind::Slice { start, stop, step } => {
@@ -26,16 +47,12 @@ fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef
                 &None => l.len() as usize,
             };
             match step {
-                &None | &Some(1) => l[start..stop].to_vec(),
+                &None | &Some(1) => l.do_slice(start, stop),
                 &Some(num) => {
                     if num < 0 {
                         unimplemented!("negative step indexing not yet supported")
                     };
-                    l[start..stop]
-                        .iter()
-                        .step_by(num as usize)
-                        .cloned()
-                        .collect()
+                    l.do_stepped_slice(start, stop, num as usize)
                 }
             }
         }
