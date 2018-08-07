@@ -10,7 +10,7 @@ pub fn set_item(
 ) -> PyResult {
     match &(idx.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = super::objsequence::get_pos(l, *value);
+            let pos_index = super::objsequence::get_pos(l.len(), *value);
             l[pos_index] = obj;
             Ok(vm.get_none())
         }

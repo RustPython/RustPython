@@ -1,13 +1,13 @@
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
-pub fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
+pub fn get_pos(sequence_length: usize, p: i32) -> usize {
     if p < 0 {
-        l.len() - ((-p) as usize)
-    } else if p as usize > l.len() {
+        sequence_length - ((-p) as usize)
+    } else if p as usize > sequence_length {
         // This is for the slicing case where the end element is greater than the length of the
         // sequence
-        l.len()
+        sequence_length
     } else {
         p as usize
     }
@@ -18,11 +18,11 @@ fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef
     match &(slice.borrow()).kind {
         PyObjectKind::Slice { start, stop, step } => {
             let start = match start {
-                &Some(start) => get_pos(l, start),
+                &Some(start) => get_pos(l.len(), start),
                 &None => 0,
             };
             let stop = match stop {
-                &Some(stop) => get_pos(l, stop),
+                &Some(stop) => get_pos(l.len(), stop),
                 &None => l.len() as usize,
             };
             match step {
@@ -51,7 +51,7 @@ pub fn get_item(
 ) -> PyResult {
     match &(subscript.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = get_pos(elements, *value);
+            let pos_index = get_pos(elements.len(), *value);
             if pos_index < elements.len() {
                 let obj = elements[pos_index].clone();
                 Ok(obj)
