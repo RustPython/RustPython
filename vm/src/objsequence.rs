@@ -41,15 +41,15 @@ fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef
 
 pub fn get_item(
     vm: &mut VirtualMachine,
-    a: &PyObjectRef,
-    l: &Vec<PyObjectRef>,
-    b: PyObjectRef,
+    sequence: &PyObjectRef,
+    elements: &Vec<PyObjectRef>,
+    subscript: PyObjectRef,
 ) -> PyResult {
-    match &(b.borrow()).kind {
+    match &(subscript.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = get_pos(l, *value);
-            if pos_index < l.len() {
-                let obj = l[pos_index].clone();
+            let pos_index = get_pos(elements, *value);
+            if pos_index < elements.len() {
+                let obj = elements[pos_index].clone();
                 Ok(obj)
             } else {
                 Err(vm.new_exception("Index out of bounds!".to_string()))
@@ -60,12 +60,12 @@ pub fn get_item(
             stop: _,
             step: _,
         } => Ok(PyObject::new(
-            match &(a.borrow()).kind {
+            match &(sequence.borrow()).kind {
                 PyObjectKind::Tuple { elements: _ } => PyObjectKind::Tuple {
-                    elements: get_slice_items(l, &b),
+                    elements: get_slice_items(elements, &subscript),
                 },
                 PyObjectKind::List { elements: _ } => PyObjectKind::List {
-                    elements: get_slice_items(l, &b),
+                    elements: get_slice_items(elements, &subscript),
                 },
                 ref kind => panic!("sequence get_item called for non-sequence: {:?}", kind),
             },
@@ -73,7 +73,7 @@ pub fn get_item(
         )),
         _ => Err(vm.new_exception(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-            l, b
+            sequence, subscript
         ))),
     }
 }
