@@ -64,6 +64,8 @@ pub enum Instruction {
     BuildMap { size: usize },
     BuildSlice { size: usize },
     PrintExpr,
+    LoadBuildClass,
+    StoreLocals,
 }
 
 #[derive(Debug, Clone)]

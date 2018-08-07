@@ -141,8 +141,11 @@ impl PyContext {
         )
     }
 
-    pub fn new_class(&self, name: String) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Class { name: name }, self.type_type.clone())
+    pub fn new_class(&self, name: String, namespace: PyObjectRef) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Class {
+            name: name,
+            dict: namespace.clone()
+        }, self.type_type.clone())
     }
 
     /* TODO: something like this?
@@ -312,11 +315,12 @@ pub enum PyObjectKind {
     None,
     Class {
         name: String,
-        // dict: PyObjectRef,
+        dict: PyObjectRef,
     },
     RustFunction {
         function: RustPyFunc,
     },
+    Type
 }
 
 impl fmt::Debug for PyObjectKind {
@@ -337,8 +341,9 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
             &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
-            &PyObjectKind::Class { name: _ } => write!(f, "class"),
+            &PyObjectKind::Class { name: _, dict: _ } => write!(f, "class"),
             &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
+            &PyObjectKind::Type => write!(f, "type"),
         }
     }
 }
@@ -396,7 +401,8 @@ impl PyObject {
                     .join(", ")
             ),
             PyObjectKind::None => String::from("None"),
-            PyObjectKind::Class { ref name } => format!("<class '{}'>", name),
+            PyObjectKind::Class { ref name, dict: ref _dict } => 
+                format!("<class '{}'>", name),
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),

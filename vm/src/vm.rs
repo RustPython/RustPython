@@ -14,11 +14,19 @@ use super::frame::{Block, Frame, copy_code};
 use super::import::import;
 use super::objlist;
 use super::objstr;
+use super::objtype;
 use super::pyobject::{
-    DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind,
-    PyObjectRef, PyResult,
+    DictProtocol,
+    IdProtocol,
+    ParentProtocol,
+    PyContext,
+    PyFuncArgs,
+    PyObject,
+    PyObjectKind,
+    PyObjectRef,
+    PyResult,
+    Scope, 
 };
-
 use super::sysmodule;
 
 // use objects::objects;
@@ -57,8 +65,17 @@ impl VirtualMachine {
         self.ctx.new_dict()
     }
 
+    pub fn new_class(&self, name: String, namespace: PyObjectRef) -> PyObjectRef {
+        self.ctx.new_class(name, namespace)
+    }
+
     pub fn new_exception(&self, msg: String) -> PyObjectRef {
         self.new_str(msg)
+    }
+
+    pub fn new_scope(&mut self) -> PyObjectRef {
+        let parent_scope = self.current_frame().locals.clone();
+        self.ctx.new_scope(Some(parent_scope))
     }
 
     pub fn get_none(&self) -> PyObjectRef {
@@ -464,7 +481,7 @@ impl VirtualMachine {
         Ok(obj)
     }
 
-    fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
+    pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         let f = func_ref.borrow();
 
         match f.kind {
@@ -478,7 +495,8 @@ impl VirtualMachine {
                 let frame = Frame::new(code.clone(), scope);
                 self.run_frame(frame)
             }
-            PyObjectKind::Class { name: _ } => self.new_instance(func_ref.clone(), args),
+            PyObjectKind::Class { name: _, dict: _ } =>
+                self.new_instance(func_ref.clone(), args),
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
@@ -770,6 +788,28 @@ impl VirtualMachine {
                 }
                 None
             }
+            bytecode::Instruction::LoadBuildClass => {
+                let rustfunc = PyObject::new(
+                    PyObjectKind::RustFunction {
+                        function: builtins::builtin_build_class_
+                    },
+                    objtype::create_type()
+                );
+                self.push_value(rustfunc);
+                None
+            }
+            bytecode::Instruction::StoreLocals => {
+                let locals = self.pop_value();
+                let ref mut frame = self.current_frame();
+                match frame.locals.borrow_mut().kind {
+                    PyObjectKind::Scope { ref mut scope } => {
+                        scope.locals = locals;
+                    }
+                    _ =>
+                        panic!("We really expect our scope to be a scope!")
+                }
+                None
+            },
             _ => panic!("NOT IMPL {:?}", instruction),
         }
     }
