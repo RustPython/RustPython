@@ -4,6 +4,10 @@ use super::vm::VirtualMachine;
 pub fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     if p < 0 {
         l.len() - ((-p) as usize)
+    } else if p as usize > l.len() {
+        // This is for the slicing case where the end element is greater than the length of the
+        // sequence
+        l.len()
     } else {
         p as usize
     }

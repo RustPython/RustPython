@@ -5,6 +5,8 @@ fn str_pos(s: &String, p: i32) -> usize {
     if p < 0 {
         s.len() - ((-p) as usize)
     } else if p as usize > s.len() {
+        // This is for the slicing case where the end element is greater than the length of the
+        // string
         s.len()
     } else {
         p as usize
