@@ -140,6 +140,7 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         panic!("len(s) expects exactly one parameter");
     }
     let len = match args.args[0].borrow().kind {
+        PyObjectKind::Dict { ref elements } => elements.len(),
         PyObjectKind::List { ref elements } => elements.len(),
         PyObjectKind::Tuple { ref elements } => elements.len(),
         PyObjectKind::String { ref value } => value.len(),
