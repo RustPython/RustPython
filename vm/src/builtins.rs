@@ -69,7 +69,13 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_complex
 // builtin_delattr
-// builtin_dict
+
+fn builtin_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if !args.args.is_empty() {
+        unimplemented!("only zero-arg version of dict is currently supported")
+    }
+    Ok(vm.new_dict())
+}
 
 fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.is_empty() {
@@ -140,6 +146,7 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         panic!("len(s) expects exactly one parameter");
     }
     let len = match args.args[0].borrow().kind {
+        PyObjectKind::Dict { ref elements } => elements.len(),
         PyObjectKind::List { ref elements } => elements.len(),
         PyObjectKind::Tuple { ref elements } => elements.len(),
         PyObjectKind::String { ref value } => value.len(),
@@ -236,6 +243,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
+    dict.insert(String::from("dict"), ctx.new_rustfunc(builtin_dict));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
