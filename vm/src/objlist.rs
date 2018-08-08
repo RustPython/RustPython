@@ -1,18 +1,10 @@
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
-fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
-    if p < 0 {
-        l.len() - ((-p) as usize)
-    } else {
-        p as usize
-    }
-}
-
 pub fn get_item(vm: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -> PyResult {
     match &(b.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = get_pos(l, *value);
+            let pos_index = super::objsequence::get_pos(l, *value);
             if pos_index < l.len() {
                 let obj = l[pos_index].clone();
                 Ok(obj)
@@ -20,35 +12,16 @@ pub fn get_item(vm: &mut VirtualMachine, l: &Vec<PyObjectRef>, b: PyObjectRef) -
                 Err(vm.new_exception("Index out of bounds!".to_string()))
             }
         }
-        PyObjectKind::Slice { start, stop, step } => {
-            let start = match start {
-                &Some(start) => get_pos(l, start),
-                &None => 0,
-            };
-            let stop = match stop {
-                &Some(stop) => get_pos(l, stop),
-                &None => l.len() as usize,
-            };
-            // TODO: we could potentially avoid this copy and use slice
-            Ok(PyObject::new(
-                PyObjectKind::List {
-                    elements: match step {
-                        &None | &Some(1) => l[start..stop].to_vec(),
-                        &Some(num) => {
-                            if num < 0 {
-                                unimplemented!("negative step indexing not yet supported")
-                            };
-                            l[start..stop]
-                                .iter()
-                                .step_by(num as usize)
-                                .cloned()
-                                .collect()
-                        }
-                    },
-                },
-                vm.get_type(),
-            ))
-        }
+        PyObjectKind::Slice {
+            start: _,
+            stop: _,
+            step: _,
+        } => Ok(PyObject::new(
+            PyObjectKind::List {
+                elements: super::objsequence::get_slice_items(l, &b),
+            },
+            vm.get_type(),
+        )),
         _ => Err(vm.new_exception(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
             l, b
@@ -65,7 +38,7 @@ pub fn set_item(
 ) -> PyResult {
     match &(idx.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = get_pos(l, *value);
+            let pos_index = super::objsequence::get_pos(l, *value);
             l[pos_index] = obj;
             Ok(vm.get_none())
         }
