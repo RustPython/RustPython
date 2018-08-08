@@ -323,6 +323,7 @@ Atom: ast::Expression = {
          }
      }
   },
+  "{" "}" => ast::Expression::Dict { elements: Vec::new() },
   "True" => ast::Expression::True,
   "False" => ast::Expression::False,
   "None" => ast::Expression::None,
@@ -385,6 +386,8 @@ extern {
         ")" => lexer::Tok::Rpar,
         "[" => lexer::Tok::Lsqb,
         "]" => lexer::Tok::Rsqb,
+        "{" => lexer::Tok::Lbrace,
+        "}" => lexer::Tok::Rbrace,
         "=" => lexer::Tok::Equal,
         "+=" => lexer::Tok::PlusEqual,
         "-=" => lexer::Tok::MinusEqual,

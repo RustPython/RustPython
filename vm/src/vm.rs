@@ -5,6 +5,7 @@
  */
 
 use std::cell::RefMut;
+use std::collections::hash_map::HashMap;
 use std::ops::Deref;
 
 use super::builtins;
@@ -568,9 +569,14 @@ impl VirtualMachine {
                     let obj = self.pop_value();
                     elements.push((key, obj));
                 }
-                panic!("To be implemented!")
-                //let list_obj = PyObject::Tuple { elements: elements }.into_ref();
-                //frame.stack.push(list_obj);
+                let map_obj = PyObject::new(
+                    PyObjectKind::Dict {
+                        elements: HashMap::new(),
+                    },
+                    self.get_type(),
+                );
+                self.push_value(map_obj);
+                None
             }
             bytecode::Instruction::BuildSlice { size } => {
                 assert!(*size == 2 || *size == 3);

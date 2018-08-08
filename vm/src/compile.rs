@@ -465,6 +465,9 @@ impl Compiler {
                 }
                 self.emit(Instruction::BuildTuple { size: size });
             }
+            ast::Expression::Dict { elements } => {
+                self.emit(Instruction::BuildMap { size: 0 });
+            }
             ast::Expression::Slice { elements } => {
                 let size = elements.len();
                 for element in elements {
