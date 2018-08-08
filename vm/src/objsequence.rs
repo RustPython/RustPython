@@ -1,14 +1,19 @@
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::vm::VirtualMachine;
 
 pub fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
     if p < 0 {
         l.len() - ((-p) as usize)
+    } else if p as usize > l.len() {
+        // This is for the slicing case where the end element is greater than the length of the
+        // sequence
+        l.len()
     } else {
         p as usize
     }
 }
 
-pub fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef> {
+fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef> {
     // TODO: we could potentially avoid this copy and use slice
     match &(slice.borrow()).kind {
         PyObjectKind::Slice { start, stop, step } => {
@@ -35,5 +40,44 @@ pub fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjec
             }
         }
         kind => panic!("get_slice_items called with non-slice: {:?}", kind),
+    }
+}
+
+pub fn get_item(
+    vm: &mut VirtualMachine,
+    sequence: &PyObjectRef,
+    elements: &Vec<PyObjectRef>,
+    subscript: PyObjectRef,
+) -> PyResult {
+    match &(subscript.borrow()).kind {
+        PyObjectKind::Integer { value } => {
+            let pos_index = get_pos(elements, *value);
+            if pos_index < elements.len() {
+                let obj = elements[pos_index].clone();
+                Ok(obj)
+            } else {
+                Err(vm.new_exception("Index out of bounds!".to_string()))
+            }
+        }
+        PyObjectKind::Slice {
+            start: _,
+            stop: _,
+            step: _,
+        } => Ok(PyObject::new(
+            match &(sequence.borrow()).kind {
+                PyObjectKind::Tuple { elements: _ } => PyObjectKind::Tuple {
+                    elements: get_slice_items(elements, &subscript),
+                },
+                PyObjectKind::List { elements: _ } => PyObjectKind::List {
+                    elements: get_slice_items(elements, &subscript),
+                },
+                ref kind => panic!("sequence get_item called for non-sequence: {:?}", kind),
+            },
+            vm.get_type(),
+        )),
+        _ => Err(vm.new_exception(format!(
+            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+            sequence, subscript
+        ))),
     }
 }

@@ -16,7 +16,6 @@ mod objint;
 mod objlist;
 mod objsequence;
 mod objstr;
-mod objtuple;
 mod objtype;
 mod objbool;
 pub mod pyobject;
