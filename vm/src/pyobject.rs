@@ -42,6 +42,9 @@ impl fmt::Display for PyObjectRef {
 pub struct PyContext {
     pub type_type: PyObjectRef,
     pub int_type: PyObjectRef,
+    pub list_type: PyObjectRef,
+    pub tuple_type: PyObjectRef,
+    pub dict_type: PyObjectRef,
 }
 
 /*
@@ -59,10 +62,17 @@ impl PyContext {
     pub fn new() -> PyContext {
         let type_type = objtype::create_type();
         let int_type = objint::create_type(type_type.clone());
+        // TODO: How to represent builtin types?
+        let list_type = type_type.clone();
+        let tuple_type = type_type.clone();
+        let dict_type = type_type.clone();
         // let str_type = objstr::make_type();
         PyContext {
             type_type: type_type,
             int_type: int_type,
+            list_type: list_type,
+            tuple_type: tuple_type,
+            dict_type: dict_type,
         }
     }
 
@@ -205,7 +215,7 @@ impl DictProtocol for PyObjectRef {
     fn contains_key(&self, k: &String) -> bool {
         match self.borrow().kind {
             PyObjectKind::Dict { ref elements } => elements.contains_key(k),
-            PyObjectKind::Module { ref name, ref dict } => dict.contains_key(k),
+            PyObjectKind::Module { name: _, ref dict } => dict.contains_key(k),
             PyObjectKind::Scope { ref scope } => scope.locals.contains_key(k),
             _ => panic!("TODO"),
         }
@@ -214,7 +224,7 @@ impl DictProtocol for PyObjectRef {
     fn get_item(&self, k: &String) -> PyObjectRef {
         match self.borrow().kind {
             PyObjectKind::Dict { ref elements } => elements[k].clone(),
-            PyObjectKind::Module { ref name, ref dict } => dict.get_item(k),
+            PyObjectKind::Module { name: _, ref dict } => dict.get_item(k),
             PyObjectKind::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }
@@ -227,7 +237,7 @@ impl DictProtocol for PyObjectRef {
             } => {
                 el.insert(k.to_string(), v);
             },
-            PyObjectKind::Module { ref name, ref mut dict } => dict.set_item(k, v),
+            PyObjectKind::Module { name: _, ref mut dict } => dict.set_item(k, v),
             PyObjectKind::Scope { ref mut scope } => {
                 scope.locals.set_item(k, v);
             },
@@ -316,19 +326,19 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Integer { ref value } => write!(f, "int {}", value),
             &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
             &PyObjectKind::Boolean { ref value } => write!(f, "boolean {}", value),
-            &PyObjectKind::List { ref elements } => write!(f, "list"),
-            &PyObjectKind::Tuple { ref elements } => write!(f, "tuple"),
-            &PyObjectKind::Dict { ref elements } => write!(f, "dict"),
-            &PyObjectKind::Iterator { ref position, ref iterated_obj } => write!(f, "iterator"),
-            &PyObjectKind::Slice { ref start, ref stop, ref step } => write!(f, "slice"),
-            &PyObjectKind::NameError { ref name } => write!(f, "NameError"),
+            &PyObjectKind::List { elements: _ } => write!(f, "list"),
+            &PyObjectKind::Tuple { elements: _ } => write!(f, "tuple"),
+            &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
+            &PyObjectKind::Iterator { position: _, iterated_obj: _ } => write!(f, "iterator"),
+            &PyObjectKind::Slice { start: _, stop: _, step: _ } => write!(f, "slice"),
+            &PyObjectKind::NameError { name: _ } => write!(f, "NameError"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
-            &PyObjectKind::Function { ref code, ref scope } => write!(f, "function"),
-            &PyObjectKind::Module { ref name, ref dict } => write!(f, "module"),
-            &PyObjectKind::Scope { ref scope } => write!(f, "scope"),
+            &PyObjectKind::Function { code: _, scope: _ } => write!(f, "function"),
+            &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
+            &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
-            &PyObjectKind::Class { ref name } => write!(f, "class"),
-            &PyObjectKind::RustFunction { ref function } => write!(f, "rust function"),
+            &PyObjectKind::Class { name: _ } => write!(f, "class"),
+            &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
         }
     }
 }

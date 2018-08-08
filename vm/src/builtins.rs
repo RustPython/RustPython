@@ -243,16 +243,19 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
+    // TODO: can we just insert dict here?
     dict.insert(String::from("dict"), ctx.new_rustfunc(builtin_dict));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
     dict.insert(String::from("int"), ctx.int_type.clone());
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
+    dict.insert(String::from("list"), ctx.list_type.clone());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
     dict.insert(String::from("str"), ctx.new_rustfunc(builtin_str));
+    dict.insert(String::from("tuple"), ctx.tuple_type.clone());
     dict.insert(String::from("type"), ctx.type_type.clone());
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
     let scope = PyObject::new(PyObjectKind::Scope { scope: Scope { locals: d2, parent: None} }, ctx.type_type.clone());
