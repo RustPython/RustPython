@@ -563,18 +563,23 @@ impl VirtualMachine {
                 None
             }
             bytecode::Instruction::BuildMap { size } => {
-                let mut elements = Vec::new();
+                let mut elements = HashMap::new();
                 for _x in 0..*size {
-                    let key = self.pop_value();
                     let obj = self.pop_value();
-                    elements.push((key, obj));
+                    // XXX: Currently, we only support String keys, so we have to unwrap the
+                    // PyObject (and ensure it is a String).
+                    let key_pyobj = self.pop_value();
+                    let key = match key_pyobj.borrow().kind {
+                        PyObjectKind::String { ref value } => value.clone(),
+                        ref kind => unimplemented!(
+                            "Only strings can be used as dict keys, we saw: {:?}",
+                            kind
+                        ),
+                    };
+                    elements.insert(key, obj);
                 }
-                let map_obj = PyObject::new(
-                    PyObjectKind::Dict {
-                        elements: HashMap::new(),
-                    },
-                    self.get_type(),
-                );
+                let map_obj =
+                    PyObject::new(PyObjectKind::Dict { elements: elements }, self.get_type());
                 self.push_value(map_obj);
                 None
             }

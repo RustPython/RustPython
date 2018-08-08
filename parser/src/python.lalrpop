@@ -323,10 +323,22 @@ Atom: ast::Expression = {
          }
      }
   },
-  "{" "}" => ast::Expression::Dict { elements: Vec::new() },
+  "{" <e:TestDict?> "}" => ast::Expression::Dict { elements: e.unwrap_or(Vec::new()) },
   "True" => ast::Expression::True,
   "False" => ast::Expression::False,
   "None" => ast::Expression::None,
+};
+
+TestDict: Vec<(ast::Expression, ast::Expression)> = {
+    <e1:DictEntry> <e2:("," DictEntry)*> => {
+        let mut d = vec![e1];
+        d.extend(e2.into_iter().map(|x| x.1));
+        d
+    }
+};
+
+DictEntry: (ast::Expression, ast::Expression) = {
+    <e1: Test> ":" <e2: Test> => (e1, e2),
 };
 
 ExpressionList: Vec<ast::Expression> = {
