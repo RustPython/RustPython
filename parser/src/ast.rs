@@ -124,6 +124,9 @@ pub enum Expression {
     Tuple {
         elements: Vec<Expression>,
     },
+    Dict {
+        elements: Vec<(Expression, Expression)>,
+    },
     Slice {
         elements: Vec<Expression>,
     },
