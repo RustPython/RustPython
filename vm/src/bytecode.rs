@@ -38,6 +38,7 @@ pub enum Instruction {
     LoadName { name: String },
     StoreName { name: String },
     StoreSubscript,
+    StoreAttr { name: String },
     LoadConst { value: Constant },
     UnaryOperation { op: UnaryOperator },
     BinaryOperation { op: BinaryOperator },

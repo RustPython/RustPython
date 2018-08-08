@@ -483,7 +483,7 @@ impl VirtualMachine {
         let init = type_ref.get_attr(&String::from("__init__"));
         let mut self_args = PyFuncArgs { args: args.args };
         self_args.args.insert(0, obj.clone());
-        self.invoke(init, self_args);
+        self.invoke(init, self_args).unwrap();
         Ok(obj)
     }
 
@@ -524,6 +524,13 @@ impl VirtualMachine {
         let parent = self.pop_value();
         let obj = parent.get_attr(attr_name);
         self.push_value(obj);
+        None
+    }
+
+    fn store_attr(&mut self, attr_name: &String) -> Option<PyResult> {
+        let parent = self.pop_value();
+        let value = self.pop_value();
+        parent.set_attr(attr_name, value);
         None
     }
 
@@ -629,6 +636,7 @@ impl VirtualMachine {
             }
             bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(op),
             bytecode::Instruction::LoadAttr { ref name } => self.load_attr(name),
+            bytecode::Instruction::StoreAttr { ref name } => self.store_attr(name),
             bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(op),
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(op),
             bytecode::Instruction::ReturnValue => {

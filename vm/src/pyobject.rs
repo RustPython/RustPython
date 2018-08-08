@@ -210,6 +210,7 @@ impl ParentProtocol for PyObjectRef {
 
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &String) -> PyObjectRef;
+    fn set_attr(&self, attr_name: &String, value: PyObjectRef);
 }
 
 impl AttributeProtocol for PyObjectRef {
@@ -220,6 +221,14 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         }
+    }
+
+    fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
+        match self.borrow_mut().kind {
+            PyObjectKind::Instance { ref mut dict } =>
+                dict.set_item(attr_name, value),
+            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+        };
     }
 }
 

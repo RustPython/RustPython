@@ -351,8 +351,14 @@ impl Compiler {
                 self.compile_expression(b);
                 self.emit(Instruction::StoreSubscript);
             }
+            ast::Expression::Attribute { value, name } => {
+                self.compile_expression(value);
+                self.emit(Instruction::StoreAttr {
+                    name: name.to_string()
+                });
+            }
             _ => {
-                panic!("WTF");
+                panic!("WTF: {:?}", target);
             }
         }
     }
