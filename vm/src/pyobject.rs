@@ -208,6 +208,21 @@ impl ParentProtocol for PyObjectRef {
     }
 }
 
+pub trait AttributeProtocol {
+    fn get_attr(&self, attr_name: &String) -> PyObjectRef;
+}
+
+impl AttributeProtocol for PyObjectRef {
+    fn get_attr(&self, attr_name: &String) -> PyObjectRef {
+        match self.borrow().kind {
+            PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
+            PyObjectKind::Class { name: _, ref dict } => dict.get_item(attr_name),
+            PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
+            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+        }
+    }
+}
+
 pub trait DictProtocol {
     fn contains_key(&self, k: &String) -> bool;
     fn get_item(&self, k: &String) -> PyObjectRef;
@@ -317,6 +332,9 @@ pub enum PyObjectKind {
         name: String,
         dict: PyObjectRef,
     },
+    Instance {
+        dict: PyObjectRef
+    },
     RustFunction {
         function: RustPyFunc,
     },
@@ -342,6 +360,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
             &PyObjectKind::Class { name: _, dict: _ } => write!(f, "class"),
+            &PyObjectKind::Instance { dict: _ } => write!(f, "instance"),
             &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
             &PyObjectKind::Type => write!(f, "type"),
         }
@@ -403,6 +422,8 @@ impl PyObject {
             PyObjectKind::None => String::from("None"),
             PyObjectKind::Class { ref name, dict: ref _dict } => 
                 format!("<class '{}'>", name),
+            PyObjectKind::Instance { dict: _ } =>
+                format!("<instance>"),
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),

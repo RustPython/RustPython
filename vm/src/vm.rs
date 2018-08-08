@@ -16,6 +16,7 @@ use super::objlist;
 use super::objstr;
 use super::objtype;
 use super::pyobject::{
+    AttributeProtocol,
     DictProtocol,
     IdProtocol,
     ParentProtocol,
@@ -477,7 +478,12 @@ impl VirtualMachine {
 
     fn new_instance(&mut self, type_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         // more or less __new__ operator
-        let obj = PyObject::new(PyObjectKind::None, type_ref.clone());
+        let dict = self.new_dict();
+        let obj = PyObject::new(PyObjectKind::Instance{dict: dict}, type_ref.clone());
+        let init = type_ref.get_attr(&String::from("__init__"));
+        let mut self_args = PyFuncArgs { args: args.args };
+        self_args.args.insert(0, obj.clone());
+        self.invoke(init, self_args);
         Ok(obj)
     }
 
@@ -516,11 +522,7 @@ impl VirtualMachine {
 
     fn load_attr(&mut self, attr_name: &String) -> Option<PyResult> {
         let parent = self.pop_value();
-        // Lookup name in obj
-        let obj = match parent.borrow().kind {
-            PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
-            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
-        };
+        let obj = parent.get_attr(attr_name);
         self.push_value(obj);
         None
     }
