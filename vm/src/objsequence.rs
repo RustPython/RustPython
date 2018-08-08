@@ -1,45 +1,61 @@
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
+use std::marker::Sized;
 
-pub fn get_pos(l: &Vec<PyObjectRef>, p: i32) -> usize {
-    if p < 0 {
-        l.len() - ((-p) as usize)
-    } else if p as usize > l.len() {
-        // This is for the slicing case where the end element is greater than the length of the
-        // sequence
-        l.len()
-    } else {
-        p as usize
+pub trait PySliceableSequence {
+    fn do_slice(&self, start: usize, stop: usize) -> Self;
+    fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self;
+    fn len(&self) -> usize;
+    fn get_pos(&self, p: i32) -> usize {
+        if p < 0 {
+            self.len() - ((-p) as usize)
+        } else if p as usize > self.len() {
+            // This is for the slicing case where the end element is greater than the length of the
+            // sequence
+            self.len()
+        } else {
+            p as usize
+        }
+    }
+    fn get_slice_items(&self, slice: &PyObjectRef) -> Self
+    where
+        Self: Sized,
+    {
+        // TODO: we could potentially avoid this copy and use slice
+        match &(slice.borrow()).kind {
+            PyObjectKind::Slice { start, stop, step } => {
+                let start = match start {
+                    &Some(start) => self.get_pos(start),
+                    &None => 0,
+                };
+                let stop = match stop {
+                    &Some(stop) => self.get_pos(stop),
+                    &None => self.len() as usize,
+                };
+                match step {
+                    &None | &Some(1) => self.do_slice(start, stop),
+                    &Some(num) => {
+                        if num < 0 {
+                            unimplemented!("negative step indexing not yet supported")
+                        };
+                        self.do_stepped_slice(start, stop, num as usize)
+                    }
+                }
+            }
+            kind => panic!("get_slice_items called with non-slice: {:?}", kind),
+        }
     }
 }
 
-fn get_slice_items(l: &Vec<PyObjectRef>, slice: &PyObjectRef) -> Vec<PyObjectRef> {
-    // TODO: we could potentially avoid this copy and use slice
-    match &(slice.borrow()).kind {
-        PyObjectKind::Slice { start, stop, step } => {
-            let start = match start {
-                &Some(start) => get_pos(l, start),
-                &None => 0,
-            };
-            let stop = match stop {
-                &Some(stop) => get_pos(l, stop),
-                &None => l.len() as usize,
-            };
-            match step {
-                &None | &Some(1) => l[start..stop].to_vec(),
-                &Some(num) => {
-                    if num < 0 {
-                        unimplemented!("negative step indexing not yet supported")
-                    };
-                    l[start..stop]
-                        .iter()
-                        .step_by(num as usize)
-                        .cloned()
-                        .collect()
-                }
-            }
-        }
-        kind => panic!("get_slice_items called with non-slice: {:?}", kind),
+impl PySliceableSequence for Vec<PyObjectRef> {
+    fn do_slice(&self, start: usize, stop: usize) -> Self {
+        self[start..stop].to_vec()
+    }
+    fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self {
+        self[start..stop].iter().step_by(step).cloned().collect()
+    }
+    fn len(&self) -> usize {
+        self.len()
     }
 }
 
@@ -51,7 +67,7 @@ pub fn get_item(
 ) -> PyResult {
     match &(subscript.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = get_pos(elements, *value);
+            let pos_index = elements.get_pos(*value);
             if pos_index < elements.len() {
                 let obj = elements[pos_index].clone();
                 Ok(obj)
@@ -66,10 +82,10 @@ pub fn get_item(
         } => Ok(PyObject::new(
             match &(sequence.borrow()).kind {
                 PyObjectKind::Tuple { elements: _ } => PyObjectKind::Tuple {
-                    elements: get_slice_items(elements, &subscript),
+                    elements: elements.get_slice_items(&subscript),
                 },
                 PyObjectKind::List { elements: _ } => PyObjectKind::List {
-                    elements: get_slice_items(elements, &subscript),
+                    elements: elements.get_slice_items(&subscript),
                 },
                 ref kind => panic!("sequence get_item called for non-sequence: {:?}", kind),
             },

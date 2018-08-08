@@ -1,3 +1,4 @@
+use super::objsequence::PySliceableSequence;
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
@@ -10,7 +11,7 @@ pub fn set_item(
 ) -> PyResult {
     match &(idx.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = super::objsequence::get_pos(l, *value);
+            let pos_index = l.get_pos(*value);
             l[pos_index] = obj;
             Ok(vm.get_none())
         }
