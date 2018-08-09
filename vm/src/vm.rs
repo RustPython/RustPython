@@ -483,7 +483,8 @@ impl VirtualMachine {
         let init = type_ref.get_attr(&String::from("__init__"));
         let mut self_args = PyFuncArgs { args: args.args };
         self_args.args.insert(0, obj.clone());
-        self.invoke(init, self_args).unwrap();
+        self.invoke(init, self_args)?;
+        // TODO Raise TypeError if init returns not None.
         Ok(obj)
     }
 
