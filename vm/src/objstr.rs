@@ -1,4 +1,3 @@
-use super::objsequence;
 use super::objsequence::PySliceableSequence;
 use super::pyobject::{PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
