@@ -98,9 +98,9 @@ FlowStatement: ast::Statement = {
 };
 
 ImportStatement: ast::Statement = {
-  "import" <n:DottedName> => ast::Statement::Import { module: n, symbol: None },
-  "from" <n:DottedName> "import" <i:Identifier> => {
-      ast::Statement::Import { module: n, symbol: Some(i) }
+  "import" <n:DottedName> => ast::Statement::Import { module: n, symbols: None },
+  "from" <n:DottedName> "import" <i: Comma<Identifier>> => {
+      ast::Statement::Import { module: n, symbols: Some(i) }
   }
 };
 

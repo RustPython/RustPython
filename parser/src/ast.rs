@@ -29,7 +29,7 @@ pub enum Statement {
     },
     Import {
         module: String,
-        symbol: Option<String>,
+        symbols: Option<Vec<String>>,
     },
     Pass,
     Assert {
