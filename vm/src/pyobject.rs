@@ -347,7 +347,6 @@ pub enum PyObjectKind {
     RustFunction {
         function: RustPyFunc,
     },
-    Type
 }
 
 impl fmt::Debug for PyObjectKind {
@@ -371,7 +370,6 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Class { name: _, dict: _ } => write!(f, "class"),
             &PyObjectKind::Instance { dict: _ } => write!(f, "instance"),
             &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
-            &PyObjectKind::Type => write!(f, "type"),
         }
     }
 }
