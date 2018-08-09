@@ -106,10 +106,26 @@ impl Compiler {
     fn compile_statement(&mut self, statement: &ast::Statement) {
         trace!("Compiling {:?}", statement);
         match statement {
-            ast::Statement::Import { name } => {
-                self.emit(Instruction::Import { name: name.clone() });
-                self.emit(Instruction::StoreName { name: name.clone() });
-            }
+            ast::Statement::Import { module, symbols } => match symbols {
+                Some(symbols) => for symbol in symbols {
+                    self.emit(Instruction::Import {
+                        name: module.clone(),
+                        symbol: Some(symbol.clone()),
+                    });
+                    self.emit(Instruction::StoreName {
+                        name: symbol.clone(),
+                    });
+                },
+                None => {
+                    self.emit(Instruction::Import {
+                        name: module.clone(),
+                        symbol: None,
+                    });
+                    self.emit(Instruction::StoreName {
+                        name: module.clone(),
+                    });
+                }
+            },
             ast::Statement::Expression { expression } => {
                 self.compile_expression(expression);
 

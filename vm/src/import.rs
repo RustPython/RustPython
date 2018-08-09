@@ -13,15 +13,15 @@ use super::compile;
 use super::pyobject::{PyObject, PyObjectKind, PyResult, DictProtocol};
 use super::vm::VirtualMachine;
 
-pub fn import(vm: &mut VirtualMachine, name: &String) -> PyResult {
+fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
     // First, see if we already loaded the module:
     let sys_modules = vm.sys_module.get_item(&"modules".to_string());
-    if sys_modules.contains_key(name) {
-        return Ok(sys_modules.get_item(name))
+    if sys_modules.contains_key(module) {
+        return Ok(sys_modules.get_item(module));
     }
 
     // Time to search for module in any place:
-    let filepath = find_source(name).map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
+    let filepath = find_source(module).map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
     let source = parser::read_file(filepath.as_path())
         .map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
 
@@ -42,14 +42,23 @@ pub fn import(vm: &mut VirtualMachine, name: &String) -> PyResult {
         Ok(_) => {}
         Err(value) => return Err(value),
     }
+    Ok(scope)
+}
 
-    let obj = PyObject::new(
-        PyObjectKind::Module {
-            name: name.clone(),
-            dict: scope.clone(),
-        },
-        vm.get_type(),
-    );
+pub fn import(vm: &mut VirtualMachine, module: &String, symbol: &Option<String>) -> PyResult {
+    let scope = import_module(vm, module)?;
+    // If we're importing a symbol, look it up and use it, otherwise construct a module and return
+    // that
+    let obj = match symbol {
+        Some(symbol) => scope.get_item(symbol),
+        None => PyObject::new(
+            PyObjectKind::Module {
+                name: module.clone(),
+                dict: scope.clone(),
+            },
+            vm.get_type(),
+        ),
+    };
     Ok(obj)
 }
 

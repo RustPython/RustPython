@@ -34,7 +34,10 @@ pub type Label = usize;
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
-    Import { name: String },
+    Import {
+        name: String,
+        symbol: Option<String>,
+    },
     LoadName { name: String },
     StoreName { name: String },
     StoreSubscript,
