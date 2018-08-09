@@ -53,7 +53,9 @@ def perform_test(filename, method, test_type):
 
 def run_via_cpython(filename):
     """ Simply invoke python itself on the script """
-    subprocess.check_call([sys.executable, filename])
+    env = os.environ.copy()
+    env['PYTHONPATH'] = '.'
+    subprocess.check_call([sys.executable, filename], env=env)
 
 
 def run_via_cpython_bytecode(filename, test_type):
@@ -76,8 +78,12 @@ def run_via_rustpython(filename, test_type):
     log_level = 'info' if test_type == _TestType.benchmark else 'trace'
     env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
     env['RUST_BACKTRACE'] = '1'
+    # XXX: Once we support PYTHONPATH (or similar), we should use that instead
+    # of changing directory
+    cwd = os.path.dirname(filename)
     with pushd(RUSTPYTHON_RUNNER_DIR):
-        subprocess.check_call(['cargo', 'run', '--release', filename], env=env)
+        subprocess.check_call(
+            ['cargo', 'run', '--release', filename], env=env, cwd=cwd)
 
 
 def create_test_function(cls, filename, method, test_type):
