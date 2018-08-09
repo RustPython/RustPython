@@ -139,6 +139,16 @@ impl<'input> Lexer<'input> {
         let mut string_content = String::new();
         let start_pos = self.location;
 
+        // If the next two characters are also the quote character, then we have a triple-quoted
+        // string; consume those two characters and ensure that we require a triple-quote to close
+        let triple_quoted = if self.chr0 == Some(quote_char) && self.chr1 == Some(quote_char) {
+            self.next_char();
+            self.next_char();
+            true
+        } else {
+            false
+        };
+
         loop {
             match self.next_char() {
                 Some('\\') => {
@@ -198,7 +208,19 @@ impl<'input> Lexer<'input> {
                 }
                 Some(c) => {
                     if c == quote_char {
-                        break;
+                        if triple_quoted {
+                            // Look ahead at the next two characters; if we have two more
+                            // quote_chars, it's the end of the string; consume the remaining
+                            // closing quotes and break the loop
+                            if self.chr0 == Some(quote_char) && self.chr1 == Some(quote_char) {
+                                self.next_char();
+                                self.next_char();
+                                break;
+                            }
+                            string_content.push(c);
+                        } else {
+                            break;
+                        }
                     } else {
                         string_content.push(c);
                     }
