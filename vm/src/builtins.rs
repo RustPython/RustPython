@@ -269,3 +269,15 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     obj
 }
 
+pub fn builtin_build_class_(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let function = args.args[0].clone();
+    let a1 = &*args.args[1].borrow();
+    let name = match &a1.kind {
+        PyObjectKind::String { value: name } => name,
+        _ => panic!("Class name must be a string."),
+    };
+
+    let new_dict = vm.new_dict();
+    &vm.invoke(function, PyFuncArgs { args: vec![ new_dict.clone() ] });
+    Ok(vm.new_class(name.to_string(), new_dict))
+}

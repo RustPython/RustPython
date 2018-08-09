@@ -72,6 +72,7 @@ pub enum Statement {
     },
     ClassDef {
         name: String,
+        body: Vec<Statement>,
         // TODO: docstring: String,
     },
     FunctionDef {

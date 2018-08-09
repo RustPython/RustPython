@@ -141,8 +141,11 @@ impl PyContext {
         )
     }
 
-    pub fn new_class(&self, name: String) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Class { name: name }, self.type_type.clone())
+    pub fn new_class(&self, name: String, namespace: PyObjectRef) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Class {
+            name: name,
+            dict: namespace.clone()
+        }, self.type_type.clone())
     }
 
     /* TODO: something like this?
@@ -202,6 +205,30 @@ impl ParentProtocol for PyObjectRef {
             },
             _ => panic!("TODO"),
         }
+    }
+}
+
+pub trait AttributeProtocol {
+    fn get_attr(&self, attr_name: &String) -> PyObjectRef;
+    fn set_attr(&self, attr_name: &String, value: PyObjectRef);
+}
+
+impl AttributeProtocol for PyObjectRef {
+    fn get_attr(&self, attr_name: &String) -> PyObjectRef {
+        match self.borrow().kind {
+            PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
+            PyObjectKind::Class { name: _, ref dict } => dict.get_item(attr_name),
+            PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
+            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+        }
+    }
+
+    fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
+        match self.borrow_mut().kind {
+            PyObjectKind::Instance { ref mut dict } =>
+                dict.set_item(attr_name, value),
+            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+        };
     }
 }
 
@@ -312,7 +339,10 @@ pub enum PyObjectKind {
     None,
     Class {
         name: String,
-        // dict: PyObjectRef,
+        dict: PyObjectRef,
+    },
+    Instance {
+        dict: PyObjectRef
     },
     RustFunction {
         function: RustPyFunc,
@@ -337,7 +367,8 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
             &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
-            &PyObjectKind::Class { name: _ } => write!(f, "class"),
+            &PyObjectKind::Class { name: _, dict: _ } => write!(f, "class"),
+            &PyObjectKind::Instance { dict: _ } => write!(f, "instance"),
             &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
         }
     }
@@ -396,7 +427,10 @@ impl PyObject {
                     .join(", ")
             ),
             PyObjectKind::None => String::from("None"),
-            PyObjectKind::Class { ref name } => format!("<class '{}'>", name),
+            PyObjectKind::Class { ref name, dict: ref _dict } => 
+                format!("<class '{}'>", name),
+            PyObjectKind::Instance { dict: _ } =>
+                format!("<instance>"),
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),

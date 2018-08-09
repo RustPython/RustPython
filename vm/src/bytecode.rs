@@ -38,6 +38,7 @@ pub enum Instruction {
     LoadName { name: String },
     StoreName { name: String },
     StoreSubscript,
+    StoreAttr { name: String },
     LoadConst { value: Constant },
     UnaryOperation { op: UnaryOperator },
     BinaryOperation { op: BinaryOperator },
@@ -64,6 +65,8 @@ pub enum Instruction {
     BuildMap { size: usize },
     BuildSlice { size: usize },
     PrintExpr,
+    LoadBuildClass,
+    StoreLocals,
 }
 
 #[derive(Debug, Clone)]

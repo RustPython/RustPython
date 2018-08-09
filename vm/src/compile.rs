@@ -229,8 +229,41 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Statement::ClassDef { name } => {
-                // TODO?
+            ast::Statement::ClassDef { name, body } => {
+                self.emit(Instruction::LoadBuildClass);
+                self.code_object_stack.push(
+                    CodeObject::new(vec![String::from("__locals__")]));
+                self.emit(Instruction::LoadName {
+                    name: String::from("__locals__")});
+                self.emit(Instruction::StoreLocals);
+                self.compile_statements(body);
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
+                self.emit(Instruction::ReturnValue);
+
+                let code = self.code_object_stack.pop().unwrap();
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Code { code: code },
+                });
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: name.clone(),
+                    },
+                });
+                // Turn code object into function object:
+                self.emit(Instruction::MakeFunction);
+
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: name.clone(),
+                    },
+                });
+                self.emit(Instruction::CallFunction { count: 2 });
+
+                self.emit(Instruction::StoreName {
+                    name: name.to_string(),
+                });
             }
             ast::Statement::Assert { test, msg } => {
                 // TODO: if some flag, ignore all assert statements!
@@ -318,8 +351,14 @@ impl Compiler {
                 self.compile_expression(b);
                 self.emit(Instruction::StoreSubscript);
             }
+            ast::Expression::Attribute { value, name } => {
+                self.compile_expression(value);
+                self.emit(Instruction::StoreAttr {
+                    name: name.to_string()
+                });
+            }
             _ => {
-                panic!("WTF");
+                panic!("WTF: {:?}", target);
             }
         }
     }

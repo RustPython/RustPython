@@ -190,4 +190,22 @@ mod tests {
             })
         )
     }
+
+    #[test]
+    fn test_parse_class() {
+        let source = String::from("class Foo:\n def __init__(self):\n  pass\n");
+        assert_eq!(
+            parse_statement(&source),
+            Ok(ast::Statement::ClassDef {
+                name: String::from("Foo"),
+                body: vec![
+                    ast::Statement::FunctionDef {
+                        name: String::from("__init__"),
+                        args: vec![String::from("self")],
+                        body: vec![ast::Statement::Pass],
+                    }
+                ],
+            })
+        )
+    }
 }

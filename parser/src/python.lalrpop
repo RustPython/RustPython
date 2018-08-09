@@ -178,7 +178,9 @@ TypedArgsList: Vec<String> = {
 };
 
 ClassDef: ast::Statement = {
-  "class" <n:Identifier> <_a:("(" ")")?> ":" <_s:Suite> => ast::Statement::ClassDef { name: n },
+  "class" <n:Identifier> <_a:("(" ")")?> ":" <s:Suite> => ast::Statement::ClassDef {
+	  name: n,
+	  body: s},
 };
 
 Test: ast::Expression = {

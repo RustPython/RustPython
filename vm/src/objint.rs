@@ -26,7 +26,7 @@ pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
     let typ = PyObject::new(
         PyObjectKind::Class {
             name: "int".to_string(),
-            // dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone() ),
+            dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone() ),
         },
         type_type.clone(),
     );
