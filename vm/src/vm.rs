@@ -509,8 +509,8 @@ impl VirtualMachine {
         }
     }
 
-    fn import(&mut self, name: &String) -> Option<PyResult> {
-        let obj = match import(self, name) {
+    fn import(&mut self, module: &String, symbol: &Option<String>) -> Option<PyResult> {
+        let obj = match import(self, module, symbol) {
             Ok(value) => value,
             Err(value) => return Some(Err(value)),
         };
@@ -563,7 +563,10 @@ impl VirtualMachine {
                 self.push_value(obj);
                 None
             }
-            bytecode::Instruction::Import { ref name } => self.import(name),
+            bytecode::Instruction::Import {
+                ref name,
+                ref symbol,
+            } => self.import(name, symbol),
             bytecode::Instruction::LoadName { ref name } => self.load_name(name),
             bytecode::Instruction::StoreName { ref name } => {
                 // take top of stack and assign in scope:

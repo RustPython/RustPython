@@ -28,7 +28,8 @@ pub enum Statement {
         value: Option<Vec<Expression>>,
     },
     Import {
-        name: String,
+        module: String,
+        symbol: Option<String>,
     },
     Pass,
     Assert {
