@@ -21,6 +21,14 @@ pub struct Program {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct SingleImport {
+    pub module: String,
+    // (symbol name in module, name it should be assigned locally)
+    pub symbol: Option<String>,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum Statement {
     Break,
     Continue,
@@ -28,7 +36,7 @@ pub enum Statement {
         value: Option<Vec<Expression>>,
     },
     Import {
-        name: String,
+        import_parts: Vec<SingleImport>,
     },
     Pass,
     Assert {
