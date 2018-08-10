@@ -16,7 +16,7 @@ struct Compiler {
 
 pub fn compile(vm: &mut VirtualMachine, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
-    compiler.push_code_object(CodeObject::new(Vec::new()));
+    compiler.push_new_code_object();
     match mode {
         Mode::Exec => match parser::parse_program(source) {
             Ok(ast) => {
@@ -77,7 +77,7 @@ impl Compiler {
         }
     }
 
-    fn push_code_object(&mut self, code_object: CodeObject) {
+    fn push_new_code_object(&mut self) {
         self.code_object_stack.push(CodeObject::new(Vec::new()));
     }
 
