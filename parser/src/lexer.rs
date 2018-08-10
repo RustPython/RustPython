@@ -1,6 +1,5 @@
 pub use super::token::Tok;
 use std::collections::HashMap;
-use std::iter::FromIterator;
 use std::str::CharIndices;
 use std::str::FromStr;
 
@@ -21,11 +20,6 @@ pub enum LexicalError {
 }
 
 pub type Spanned<Tok> = Result<(usize, Tok, usize), LexicalError>;
-
-pub fn lex_source(source: &String) -> Vec<Tok> {
-    let lexer = Lexer::new(source);
-    Vec::from_iter(lexer.map(|x| x.unwrap().1))
-}
 
 impl<'input> Lexer<'input> {
     pub fn new(input: &'input str) -> Self {
@@ -676,12 +670,17 @@ impl<'input> Iterator for Lexer<'input> {
 
 #[cfg(test)]
 mod tests {
-    use super::Tok;
-    use super::lex_source;
+    use super::{Lexer, Tok};
+    use std::iter::FromIterator;
 
     const WINDOWS_EOL: &str = "\r\n";
     const MAC_EOL: &str = "\r";
     const UNIX_EOL: &str = "\n";
+
+    pub fn lex_source(source: &String) -> Vec<Tok> {
+        let lexer = Lexer::new(source);
+        Vec::from_iter(lexer.map(|x| x.unwrap().1))
+    }
 
     macro_rules! test_line_comment {
         ($($name:ident: $eol:expr,)*) => {
