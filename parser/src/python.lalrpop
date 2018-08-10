@@ -98,7 +98,37 @@ FlowStatement: ast::Statement = {
 };
 
 ImportStatement: ast::Statement = {
-  "import" <n:DottedName> => ast::Statement::Import { name: n },
+  "import" <i: Comma<ImportPart<<DottedName>>>> => {
+    ast::Statement::Import {
+        import_parts: i
+            .iter()
+            .map(|(n, a)|
+                ast::SingleImport {
+                    module: n.to_string(),
+                    symbol: None,
+                    alias: a.clone()
+                })
+            .collect()
+    }
+  },
+  "from" <n:DottedName> "import" <i: Comma<ImportPart<Identifier>>> => {
+    ast::Statement::Import {
+        import_parts: i
+            .iter()
+            .map(|(i, a)|
+                ast::SingleImport {
+                    module: n.to_string(),
+                    symbol: Some(i.to_string()),
+                    alias: a.clone()
+                })
+            .collect()
+    }
+  },
+};
+
+#[inline]
+ImportPart<I>: (String, Option<String>) = {
+    <i:I> <a: ("as" Identifier)?> => (i, a.map(|a| a.1)),
 };
 
 DottedName: String = {
@@ -436,6 +466,7 @@ extern {
         "in" => lexer::Tok::In,
         "is" => lexer::Tok::Is,
         "import" => lexer::Tok::Import,
+        "from" => lexer::Tok::From,
         "not" => lexer::Tok::Not,
         "or" => lexer::Tok::Or,
         "pass" => lexer::Tok::Pass,
