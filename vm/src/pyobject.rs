@@ -700,6 +700,7 @@ mod tests {
 
     #[test]
     fn test_type_type() {
-        let ctx = PyContext::new();
+        // TODO: Write this test
+        PyContext::new();
     }
 }
