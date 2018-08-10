@@ -22,7 +22,7 @@ pub fn set_item(
     }
 }
 
-pub fn append(vm: &mut VirtualMachine, _l: PyObjectRef, _other: PyObjectRef) -> PyResult {
+pub fn _append(vm: &mut VirtualMachine, _l: PyObjectRef, _other: PyObjectRef) -> PyResult {
     // TODO: Implement objlist::append
     Ok(vm.get_none())
 }
@@ -31,6 +31,6 @@ pub fn append(vm: &mut VirtualMachine, _l: PyObjectRef, _other: PyObjectRef) -> 
 pub fn make_type() -> PyObjectRef {
 
     // dict.insert("__set_item__".to_string(), set_item);
-    dict.insert("append".to_string(), append)
+    dict.insert("append".to_string(), _append)
 }
 */
