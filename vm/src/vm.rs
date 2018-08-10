@@ -33,13 +33,6 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
-    fn call(&mut self, f: PyObjectRef) -> PyResult {
-        let args = PyFuncArgs {
-            args: Vec::new(),
-        };
-        self.invoke(f, args)
-    }
-
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
         let frame = Frame::new(code, scope);
         self.run_frame(frame)
