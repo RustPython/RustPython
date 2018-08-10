@@ -7,8 +7,6 @@ fn str(vm: &mut VirtualMachine, _args: PyFuncArgs) -> Result<PyObjectRef, PyObje
     Ok(vm.new_str("todo".to_string()))
 }
 
-fn add() {}
-
 /*
 fn set_attr(a: &mut PyObjectRef, name: String, b: PyObjectRef) {
     a.borrow().dict.insert(name, b);
