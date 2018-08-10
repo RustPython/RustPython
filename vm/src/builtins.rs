@@ -28,7 +28,8 @@ fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     get_locals(vm)
 }
 
-fn dir_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyObjectRef {
+fn dir_object(vm: &mut VirtualMachine, _obj: PyObjectRef) -> PyObjectRef {
+    // TODO: Implement dir for objects
     let d = vm.new_dict();
     d
 }
@@ -161,9 +162,11 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_list
 
 fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() != 0 {
+        panic!("locals() doesn't take any arguments");
+    }
     Ok(vm.get_locals())
 }
-
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);

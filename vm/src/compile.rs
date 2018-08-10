@@ -16,7 +16,7 @@ struct Compiler {
 
 pub fn compile(vm: &mut VirtualMachine, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
-    compiler.push_code_object(CodeObject::new(Vec::new()));
+    compiler.push_new_code_object();
     match mode {
         Mode::Exec => match parser::parse_program(source) {
             Ok(ast) => {
@@ -77,7 +77,7 @@ impl Compiler {
         }
     }
 
-    fn push_code_object(&mut self, code_object: CodeObject) {
+    fn push_new_code_object(&mut self) {
         self.code_object_stack.push(CodeObject::new(Vec::new()));
     }
 
@@ -156,7 +156,12 @@ impl Compiler {
                 }
                 self.set_label(end_label);
             }
-            ast::Statement::While { test, body, orelse } => {
+            ast::Statement::While {
+                test,
+                body,
+                orelse: _,
+            } => {
+                // TODO: Handle while-loop else clauses
                 let start_label = self.new_label();
                 let end_label = self.new_label();
                 self.emit(Instruction::SetupLoop {
@@ -173,15 +178,16 @@ impl Compiler {
                 });
                 self.set_label(end_label);
             }
-            ast::Statement::With { items, body } => {
+            ast::Statement::With { items: _, body: _ } => {
                 // TODO
             }
             ast::Statement::For {
                 target,
                 iter,
                 body,
-                orelse,
+                orelse: _,
             } => {
+                // TODO: Handle for loop else clauses
                 // The thing iterated:
                 for i in iter {
                     self.compile_expression(i);
@@ -347,8 +353,8 @@ impl Compiler {
                 self.compile_op(op);
                 self.compile_store(target);
             }
-            ast::Statement::Delete { targets } => {
-                // Remove the given names from the scope
+            ast::Statement::Delete { targets: _ } => {
+                // TODO: Remove the given names from the scope
                 // self.emit(Instruction::DeleteName);
             }
             ast::Statement::Pass => {
@@ -409,8 +415,9 @@ impl Compiler {
                     self.compile_test(b, not_label);
                 }
                 ast::BooleanOperator::Or => {
+                    // TODO: Implement boolean or
                     // TODO: implement short circuit code by fiddeling with the labels
-                    let end_label1 = self.new_label();
+                    self.new_label();
                     self.compile_test(a, not_label);
                     self.compile_test(b, not_label);
                     panic!("Not impl");
@@ -437,7 +444,7 @@ impl Compiler {
                 }
                 self.emit(Instruction::CallFunction { count: count });
             }
-            ast::Expression::BoolOp { a, op, b } => {
+            ast::Expression::BoolOp { a: _, op: _, b: _ } => {
                 let not_label = self.new_label();
                 let end_label = self.new_label();
                 self.compile_test(expression, not_label);

@@ -434,7 +434,7 @@ impl PyObject {
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
-            PyObjectKind::Module { ref name, ref dict } => format!("<module '{}'>", name),
+            PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
             PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),
             PyObjectKind::Slice {
                 ref start,
@@ -630,9 +630,6 @@ impl PartialEq for PyObject {
                 curr_frame.stack.push(Rc::new(NativeType::Boolean(v2f == v1f)));
             },
             */
-            (PyObjectKind::String { value: ref v1s }, &PyObjectKind::String { value: ref v2s }) => {
-                v2s == v1s
-            }
             (PyObjectKind::List { elements: ref l1 }, PyObjectKind::List { elements: ref l2 })
             | (
                 PyObjectKind::Tuple { elements: ref l1 },

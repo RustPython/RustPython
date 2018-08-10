@@ -10,23 +10,14 @@ use std::ops::Deref;
 
 use super::builtins;
 use super::bytecode;
-use super::frame::{Block, Frame, copy_code};
+use super::frame::{copy_code, Block, Frame};
 use super::import::import;
 use super::objlist;
 use super::objstr;
 use super::objtype;
 use super::pyobject::{
-    AttributeProtocol,
-    DictProtocol,
-    IdProtocol,
-    ParentProtocol,
-    PyContext,
-    PyFuncArgs,
-    PyObject,
-    PyObjectKind,
-    PyObjectRef,
-    PyResult,
-    Scope, 
+    AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
+    PyObjectKind, PyObjectRef, PyResult,
 };
 use super::sysmodule;
 
@@ -42,13 +33,6 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
-    fn call(&mut self, f: PyObjectRef) -> PyResult {
-        let args = PyFuncArgs {
-            args: Vec::new(),
-        };
-        self.invoke(f, args)
-    }
-
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
         let frame = Frame::new(code, scope);
         self.run_frame(frame)
@@ -702,7 +686,7 @@ impl VirtualMachine {
                 None
             }
             bytecode::Instruction::MakeFunction => {
-                let qualified_name = self.pop_value();
+                let _qualified_name = self.pop_value();
                 let code_obj = self.pop_value();
                 // pop argc arguments
                 // argument: name, args, globals
