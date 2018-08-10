@@ -1,7 +1,7 @@
 use super::pyobject::{PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
-pub fn set_item(
+pub fn _set_item(
     vm: &mut VirtualMachine,
     _d: PyObjectRef,
     _idx: PyObjectRef,
@@ -14,6 +14,6 @@ pub fn set_item(
 /* TODO:
 pub fn make_type() -> PyObjectRef {
 
-    // dict.insert("__set_item__".to_string(), set_item);
+    // dict.insert("__set_item__".to_string(), _set_item);
 }
 */
