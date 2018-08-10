@@ -434,7 +434,7 @@ impl PyObject {
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
-            PyObjectKind::Module { ref name, ref dict } => format!("<module '{}'>", name),
+            PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
             PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),
             PyObjectKind::Slice {
                 ref start,

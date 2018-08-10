@@ -686,7 +686,7 @@ impl VirtualMachine {
                 None
             }
             bytecode::Instruction::MakeFunction => {
-                let qualified_name = self.pop_value();
+                let _qualified_name = self.pop_value();
                 let code_obj = self.pop_value();
                 // pop argc arguments
                 // argument: name, args, globals

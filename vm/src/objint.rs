@@ -2,7 +2,8 @@ use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyFuncArgs};
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
 
-fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+fn str(vm: &mut VirtualMachine, _args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    // TODO: Implement objint::str
     Ok(vm.new_str("todo".to_string()))
 }
 

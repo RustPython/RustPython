@@ -22,7 +22,8 @@ pub fn set_item(
     }
 }
 
-pub fn append(vm: &mut VirtualMachine, l: PyObjectRef, other: PyObjectRef) -> PyResult {
+pub fn append(vm: &mut VirtualMachine, _l: PyObjectRef, _other: PyObjectRef) -> PyResult {
+    // TODO: Implement objlist::append
     Ok(vm.get_none())
 }
 

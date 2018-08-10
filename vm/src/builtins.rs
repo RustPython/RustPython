@@ -28,7 +28,8 @@ fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     get_locals(vm)
 }
 
-fn dir_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyObjectRef {
+fn dir_object(vm: &mut VirtualMachine, _obj: PyObjectRef) -> PyObjectRef {
+    // TODO: Implement dir for objects
     let d = vm.new_dict();
     d
 }
