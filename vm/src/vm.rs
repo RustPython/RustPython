@@ -10,23 +10,14 @@ use std::ops::Deref;
 
 use super::builtins;
 use super::bytecode;
-use super::frame::{Block, Frame, copy_code};
+use super::frame::{copy_code, Block, Frame};
 use super::import::import;
 use super::objlist;
 use super::objstr;
 use super::objtype;
 use super::pyobject::{
-    AttributeProtocol,
-    DictProtocol,
-    IdProtocol,
-    ParentProtocol,
-    PyContext,
-    PyFuncArgs,
-    PyObject,
-    PyObjectKind,
-    PyObjectRef,
-    PyResult,
-    Scope, 
+    AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
+    PyObjectKind, PyObjectRef, PyResult,
 };
 use super::sysmodule;
 
