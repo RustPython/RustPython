@@ -1,5 +1,5 @@
 use super::objsequence::PySliceableSequence;
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
 // set_item:
