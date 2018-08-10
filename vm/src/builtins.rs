@@ -161,9 +161,11 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_list
 
 fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() != 0 {
+        panic!("locals() doesn't take any arguments");
+    }
     Ok(vm.get_locals())
 }
-
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
