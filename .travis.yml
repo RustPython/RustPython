@@ -39,3 +39,16 @@ matrix:
           env:
               - TRAVIS_RUST_VERSION=beta
           script: tests/.travis-runner.sh
+        - name: rustfmt
+          language: rust
+          rust: nightly
+          cache: cargo
+          before_script:
+              - rustup component add rustfmt-preview
+          script:
+              # Code references the generated python.rs, so put something in
+              # place to make `cargo fmt` happy.  (We use `echo` rather than
+              # `touch` because rustfmt complains about the empty file touch
+              # creates.)
+              - echo > parser/src/python.rs
+              - cargo fmt --all -- --check
