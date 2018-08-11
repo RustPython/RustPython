@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use self::rustpython_parser::parser;
 use super::compile;
-use super::pyobject::{PyObject, PyObjectKind, PyResult, DictProtocol};
+use super::pyobject::{DictProtocol, PyObject, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
 fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
@@ -64,10 +64,16 @@ pub fn import(vm: &mut VirtualMachine, module: &String, symbol: &Option<String>)
 
 fn find_source(name: &String) -> io::Result<PathBuf> {
     let suffixes = [".py", "/__init__.py"];
-    let filepaths = suffixes.iter().map(|suffix| format!("{}{}", name, suffix)).map(|filename| PathBuf::from(filename));
+    let filepaths = suffixes
+        .iter()
+        .map(|suffix| format!("{}{}", name, suffix))
+        .map(|filename| PathBuf::from(filename));
 
     match filepaths.filter(|p| p.exists()).next() {
         Some(path) => Ok(path.to_path_buf()),
-        None => Err(io::Error::new(NotFound, format!("Module ({}) could not be found.", name)))
+        None => Err(io::Error::new(
+            NotFound,
+            format!("Module ({}) could not be found.", name),
+        )),
     }
 }

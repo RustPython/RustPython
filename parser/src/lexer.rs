@@ -119,11 +119,8 @@ impl<'input> Lexer<'input> {
                 Some('\r') => {
                     return;
                 }
-                Some(_) => {
-                }
-                None => {
-                    return
-                }
+                Some(_) => {}
+                None => return,
             }
         }
     }
@@ -150,12 +147,8 @@ impl<'input> Lexer<'input> {
                         Some('\\') => {
                             string_content.push('\\');
                         }
-                        Some('\'') => {
-                            string_content.push('\'')
-                        }
-                        Some('\"') => {
-                            string_content.push('\"')
-                        }
+                        Some('\'') => string_content.push('\''),
+                        Some('\"') => string_content.push('\"'),
                         Some('\n') => {
                             // Ignore Unix EOL character
                         }
@@ -170,27 +163,17 @@ impl<'input> Lexer<'input> {
                                 }
                             }
                         }
-                        Some('a') => {
-                            string_content.push('\x07')
-                        }
-                        Some('b') => {
-                            string_content.push('\x08')
-                        }
-                        Some('f') => {
-                            string_content.push('\x0c')
-                        }
+                        Some('a') => string_content.push('\x07'),
+                        Some('b') => string_content.push('\x08'),
+                        Some('f') => string_content.push('\x0c'),
                         Some('n') => {
                             string_content.push('\n');
                         }
-                        Some('r') => {
-                            string_content.push('\r')
-                        },
+                        Some('r') => string_content.push('\r'),
                         Some('t') => {
                             string_content.push('\t');
                         }
-                        Some('v') => {
-                            string_content.push('\x0b')
-                        }
+                        Some('v') => string_content.push('\x0b'),
                         Some(c) => {
                             string_content.push('\\');
                             string_content.push(c);

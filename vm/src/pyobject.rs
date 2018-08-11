@@ -1,13 +1,13 @@
 use super::bytecode;
 use super::objint;
 use super::objtype;
+use super::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::{Add, Div, Mul, Sub, Rem};
+use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
-use super::vm::VirtualMachine;
 
 /* Python objects and references.
 
@@ -53,8 +53,8 @@ pub struct PyContext {
  */
 #[derive(Debug)]
 pub struct Scope {
-    pub locals: PyObjectRef, // Variables
-    pub parent: Option<PyObjectRef>,  // Parent scope
+    pub locals: PyObjectRef,         // Variables
+    pub parent: Option<PyObjectRef>, // Parent scope
 }
 
 // Basic objects:
@@ -121,7 +121,10 @@ impl PyContext {
             locals: locals,
             parent: parent,
         };
-        PyObject { kind: PyObjectKind::Scope { scope: scope }, typ: None }.into_ref()
+        PyObject {
+            kind: PyObjectKind::Scope { scope: scope },
+            typ: None,
+        }.into_ref()
     }
 
     pub fn new_module(&self, name: &String, scope: PyObjectRef) -> PyObjectRef {
@@ -142,10 +145,13 @@ impl PyContext {
     }
 
     pub fn new_class(&self, name: String, namespace: PyObjectRef) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Class {
-            name: name,
-            dict: namespace.clone()
-        }, self.type_type.clone())
+        PyObject::new(
+            PyObjectKind::Class {
+                name: name,
+                dict: namespace.clone(),
+            },
+            self.type_type.clone(),
+        )
     }
 
     /* TODO: something like this?
@@ -225,8 +231,7 @@ impl AttributeProtocol for PyObjectRef {
 
     fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
         match self.borrow_mut().kind {
-            PyObjectKind::Instance { ref mut dict } =>
-                dict.set_item(attr_name, value),
+            PyObjectKind::Instance { ref mut dict } => dict.set_item(attr_name, value),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         };
     }
@@ -263,11 +268,14 @@ impl DictProtocol for PyObjectRef {
                 elements: ref mut el,
             } => {
                 el.insert(k.to_string(), v);
-            },
-            PyObjectKind::Module { name: _, ref mut dict } => dict.set_item(k, v),
+            }
+            PyObjectKind::Module {
+                name: _,
+                ref mut dict,
+            } => dict.set_item(k, v),
             PyObjectKind::Scope { ref mut scope } => {
                 scope.locals.set_item(k, v);
-            },
+            }
             _ => panic!("TODO"),
         };
     }
@@ -342,7 +350,7 @@ pub enum PyObjectKind {
         dict: PyObjectRef,
     },
     Instance {
-        dict: PyObjectRef
+        dict: PyObjectRef,
     },
     RustFunction {
         function: RustPyFunc,
@@ -359,8 +367,15 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::List { elements: _ } => write!(f, "list"),
             &PyObjectKind::Tuple { elements: _ } => write!(f, "tuple"),
             &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
-            &PyObjectKind::Iterator { position: _, iterated_obj: _ } => write!(f, "iterator"),
-            &PyObjectKind::Slice { start: _, stop: _, step: _ } => write!(f, "slice"),
+            &PyObjectKind::Iterator {
+                position: _,
+                iterated_obj: _,
+            } => write!(f, "iterator"),
+            &PyObjectKind::Slice {
+                start: _,
+                stop: _,
+                step: _,
+            } => write!(f, "slice"),
             &PyObjectKind::NameError { name: _ } => write!(f, "NameError"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectKind::Function { code: _, scope: _ } => write!(f, "function"),
@@ -427,10 +442,11 @@ impl PyObject {
                     .join(", ")
             ),
             PyObjectKind::None => String::from("None"),
-            PyObjectKind::Class { ref name, dict: ref _dict } => 
-                format!("<class '{}'>", name),
-            PyObjectKind::Instance { dict: _ } =>
-                format!("<instance>"),
+            PyObjectKind::Class {
+                ref name,
+                dict: ref _dict,
+            } => format!("<class '{}'>", name),
+            PyObjectKind::Instance { dict: _ } => format!("<instance>"),
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),

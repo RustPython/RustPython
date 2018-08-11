@@ -36,10 +36,7 @@ pub fn copy_code(code_obj: PyObjectRef) -> bytecode::CodeObject {
 }
 
 impl Frame {
-    pub fn new(
-        code: PyObjectRef,
-        globals: PyObjectRef,
-    ) -> Frame {
+    pub fn new(code: PyObjectRef, globals: PyObjectRef) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         /*
@@ -106,12 +103,14 @@ impl Frame {
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let stack_str = self.stack
+        let stack_str = self
+            .stack
             .iter()
             .map(|elem| format!("\n  > {}", elem.borrow_mut().str()))
             .collect::<Vec<_>>()
             .join("");
-        let block_str = self.blocks
+        let block_str = self
+            .blocks
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()

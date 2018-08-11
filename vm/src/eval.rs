@@ -18,8 +18,8 @@ pub fn eval(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> PyR
 
 #[cfg(test)]
 mod tests {
-    use super::VirtualMachine;
     use super::eval;
+    use super::VirtualMachine;
 
     #[test]
     fn test_print_42() {

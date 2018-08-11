@@ -1,7 +1,5 @@
-
 // Loosely based on token.h from CPython source:
-#[derive(Debug)]
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Tok {
     Name { name: String },
     Number { value: i32 },
@@ -21,7 +19,7 @@ pub enum Tok {
     Star,
     Slash,
     Vbar,  // '|'
-    Amper,  // '&'
+    Amper, // '&'
     Less,
     Greater,
     Equal,
@@ -38,18 +36,18 @@ pub enum Tok {
     LeftShift,
     RightShift,
     DoubleStar,
-    DoubleStarEqual,  // '**='
+    DoubleStarEqual, // '**='
     PlusEqual,
     MinusEqual,
     StarEqual,
     SlashEqual,
     PercentEqual,
-    AmperEqual,  // '&='
+    AmperEqual, // '&='
     VbarEqual,
-    CircumflexEqual,  // '^='
+    CircumflexEqual, // '^='
     LeftShiftEqual,
     RightShiftEqual,
-    DoubleSlash,  // '//'
+    DoubleSlash, // '//'
     DoubleSlashEqual,
     At,
     AtEqual,
@@ -57,7 +55,6 @@ pub enum Tok {
     Ellipsis,
 
     // Keywords (alphabetically):
-
     False,
     None,
     True,

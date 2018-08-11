@@ -14,7 +14,11 @@ struct Compiler {
     nxt_label: usize,
 }
 
-pub fn compile(vm: &mut VirtualMachine, source: &String, mode: Mode) -> Result<PyObjectRef, String> {
+pub fn compile(
+    vm: &mut VirtualMachine,
+    source: &String,
+    mode: Mode,
+) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
     compiler.push_new_code_object();
     match mode {
@@ -46,7 +50,7 @@ pub fn compile(vm: &mut VirtualMachine, source: &String, mode: Mode) -> Result<P
                     }
                 }
                 compiler.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::None
+                    value: bytecode::Constant::None,
                 });
                 compiler.emit(Instruction::ReturnValue);
             }
@@ -255,10 +259,11 @@ impl Compiler {
             }
             ast::Statement::ClassDef { name, body } => {
                 self.emit(Instruction::LoadBuildClass);
-                self.code_object_stack.push(
-                    CodeObject::new(vec![String::from("__locals__")]));
+                self.code_object_stack
+                    .push(CodeObject::new(vec![String::from("__locals__")]));
                 self.emit(Instruction::LoadName {
-                    name: String::from("__locals__")});
+                    name: String::from("__locals__"),
+                });
                 self.emit(Instruction::StoreLocals);
                 self.compile_statements(body);
                 self.emit(Instruction::LoadConst {
@@ -378,7 +383,7 @@ impl Compiler {
             ast::Expression::Attribute { value, name } => {
                 self.compile_expression(value);
                 self.emit(Instruction::StoreAttr {
-                    name: name.to_string()
+                    name: name.to_string(),
                 });
             }
             _ => {
@@ -423,7 +428,8 @@ impl Compiler {
                     panic!("Not impl");
                 }
             },
-            _ => {  // If all else fail, fall back to simple checking of boolean value:
+            _ => {
+                // If all else fail, fall back to simple checking of boolean value:
                 self.compile_expression(expression);
                 self.emit(Instruction::UnaryOperation {
                     op: bytecode::UnaryOperator::Not,
@@ -450,17 +456,17 @@ impl Compiler {
                 self.compile_test(expression, not_label);
                 // Load const True
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Boolean { value: true},
+                    value: bytecode::Constant::Boolean { value: true },
                 });
                 self.emit(Instruction::Jump { target: end_label });
 
                 self.set_label(not_label);
                 // Load const False
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Boolean { value: false},
+                    value: bytecode::Constant::Boolean { value: false },
                 });
                 self.set_label(end_label);
-            },
+            }
             ast::Expression::Binop { a, op, b } => {
                 self.compile_expression(&*a);
                 self.compile_expression(&*b);
@@ -546,12 +552,12 @@ impl Compiler {
             }
             ast::Expression::True => {
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Boolean { value: true},
+                    value: bytecode::Constant::Boolean { value: true },
                 });
             }
             ast::Expression::False => {
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Boolean { value: false},
+                    value: bytecode::Constant::Boolean { value: false },
                 });
             }
             ast::Expression::None => {

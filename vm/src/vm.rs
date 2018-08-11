@@ -103,7 +103,9 @@ impl VirtualMachine {
         let a2 = &*self.builtins.borrow();
         match a2.kind {
             PyObjectKind::Module { name: _, ref dict } => dict.clone(),
-            _ => { panic!("OMG"); }
+            _ => {
+                panic!("OMG");
+            }
         }
     }
 
@@ -136,10 +138,8 @@ impl VirtualMachine {
         loop {
             let block = self.pop_block();
             match block {
-                Some(Block::Loop { start: _, end: __ }) => {
-                     break block.unwrap()
-                },
-                Some(Block::TryExcept {}) => {},
+                Some(Block::Loop { start: _, end: __ }) => break block.unwrap(),
+                Some(Block::TryExcept {}) => {}
                 None => panic!("No block to break / continue"),
             }
         }
@@ -150,15 +150,15 @@ impl VirtualMachine {
         loop {
             let block = self.pop_block();
             match block {
-                Some(Block::TryExcept { }) => {
+                Some(Block::TryExcept {}) => {
                     // Exception handled?
                     // TODO: how do we know if the exception is handled?
                     let is_handled = true;
                     if is_handled {
                         return None;
                     }
-                },
-                Some(_) => {},
+                }
+                Some(_) => {}
                 None => break,
             }
         }
@@ -194,7 +194,7 @@ impl VirtualMachine {
             if scope.contains_key(name) {
                 let obj = scope.get_item(name);
                 self.push_value(obj);
-                break None
+                break None;
             } else if scope.has_parent() {
                 scope = scope.get_parent();
             } else {
@@ -204,7 +204,7 @@ impl VirtualMachine {
                     },
                     self.get_type(),
                 );
-                break Some(Err(name_error))
+                break Some(Err(name_error));
             }
         }
     }
@@ -223,7 +223,7 @@ impl VirtualMachine {
                 Some(Err(exception)) => {
                     // unwind block stack on exception and find any handlers.
                     match self.unwind_exception(exception) {
-                        None => {},
+                        None => {}
                         Some(exception) => break Err(exception),
                     }
                 }
@@ -463,7 +463,7 @@ impl VirtualMachine {
     fn new_instance(&mut self, type_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         // more or less __new__ operator
         let dict = self.new_dict();
-        let obj = PyObject::new(PyObjectKind::Instance{dict: dict}, type_ref.clone());
+        let obj = PyObject::new(PyObjectKind::Instance { dict: dict }, type_ref.clone());
         let init = type_ref.get_attr(&String::from("__init__"));
         let mut self_args = PyFuncArgs { args: args.args };
         self_args.args.insert(0, obj.clone());
@@ -477,7 +477,10 @@ impl VirtualMachine {
 
         match f.kind {
             PyObjectKind::RustFunction { function: _ } => f.call(self, args),
-            PyObjectKind::Function { ref code, ref scope } => {
+            PyObjectKind::Function {
+                ref code,
+                ref scope,
+            } => {
                 let mut scope = self.ctx.new_scope(Some(scope.clone()));
                 let code_object = copy_code(code.clone());
                 for (name, value) in code_object.arg_names.iter().zip(args.args) {
@@ -486,8 +489,7 @@ impl VirtualMachine {
                 let frame = Frame::new(code.clone(), scope);
                 self.run_frame(frame)
             }
-            PyObjectKind::Class { name: _, dict: _ } =>
-                self.new_instance(func_ref.clone(), args),
+            PyObjectKind::Class { name: _, dict: _ } => self.new_instance(func_ref.clone(), args),
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
@@ -608,8 +610,7 @@ impl VirtualMachine {
                         PyObjectKind::Integer { value } => Some(value),
                         PyObjectKind::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
-                    })
-                    .collect();
+                    }).collect();
 
                 let start = out[0];
                 let stop = out[1];
@@ -691,16 +692,20 @@ impl VirtualMachine {
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.current_frame().locals.clone();
-                let obj = PyObject::new(PyObjectKind::Function { code: code_obj, scope: scope }, self.get_type());
+                let obj = PyObject::new(
+                    PyObjectKind::Function {
+                        code: code_obj,
+                        scope: scope,
+                    },
+                    self.get_type(),
+                );
                 self.push_value(obj);
                 None
             }
             bytecode::Instruction::CallFunction { count } => {
                 let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                 // TODO: kwargs
-                let args = PyFuncArgs {
-                    args: args
-                };
+                let args = PyFuncArgs { args: args };
                 let func_ref = self.pop_value();
 
                 // Call function:
@@ -773,8 +778,7 @@ impl VirtualMachine {
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
                 match expr.borrow().kind {
-                    PyObjectKind::None =>
-                        (),
+                    PyObjectKind::None => (),
                     _ => {
                         builtins::builtin_print(
                             self,
@@ -789,9 +793,9 @@ impl VirtualMachine {
             bytecode::Instruction::LoadBuildClass => {
                 let rustfunc = PyObject::new(
                     PyObjectKind::RustFunction {
-                        function: builtins::builtin_build_class_
+                        function: builtins::builtin_build_class_,
                     },
-                    objtype::create_type()
+                    objtype::create_type(),
                 );
                 self.push_value(rustfunc);
                 None
@@ -803,11 +807,10 @@ impl VirtualMachine {
                     PyObjectKind::Scope { ref mut scope } => {
                         scope.locals = locals;
                     }
-                    _ =>
-                        panic!("We really expect our scope to be a scope!")
+                    _ => panic!("We really expect our scope to be a scope!"),
                 }
                 None
-            },
+            }
             _ => panic!("NOT IMPL {:?}", instruction),
         }
     }

@@ -11,11 +11,13 @@ pub fn create_type() -> PyObjectRef {
     let dict = PyObject::new(
         PyObjectKind::Dict {
             elements: HashMap::new(),
-        }, typ.clone());
+        },
+        typ.clone(),
+    );
     (*typ.borrow_mut()).kind = PyObjectKind::Class {
-            name: String::from("type"),
-            dict: dict,
-        };
+        name: String::from("type"),
+        dict: dict,
+    };
     (*typ.borrow_mut()).typ = Some(typ.clone());
     typ
 }

@@ -1,4 +1,4 @@
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyFuncArgs};
+use super::pyobject::{PyFuncArgs, PyObject, PyObjectKind, PyObjectRef};
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
 
@@ -25,7 +25,7 @@ pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
     let typ = PyObject::new(
         PyObjectKind::Class {
             name: "int".to_string(),
-            dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone() ),
+            dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
         },
         type_type.clone(),
     );
