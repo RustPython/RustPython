@@ -21,7 +21,7 @@ pub struct CodeObject {
 }
 
 impl CodeObject {
-    pub fn new(arg_names : Vec<String>) -> CodeObject {
+    pub fn new(arg_names: Vec<String>) -> CodeObject {
         CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
@@ -38,35 +38,72 @@ pub enum Instruction {
         name: String,
         symbol: Option<String>,
     },
-    LoadName { name: String },
-    StoreName { name: String },
+    LoadName {
+        name: String,
+    },
+    StoreName {
+        name: String,
+    },
     StoreSubscript,
-    StoreAttr { name: String },
-    LoadConst { value: Constant },
-    UnaryOperation { op: UnaryOperator },
-    BinaryOperation { op: BinaryOperator },
-    LoadAttr { name: String },
-    CompareOperation { op: ComparisonOperator },
+    StoreAttr {
+        name: String,
+    },
+    LoadConst {
+        value: Constant,
+    },
+    UnaryOperation {
+        op: UnaryOperator,
+    },
+    BinaryOperation {
+        op: BinaryOperator,
+    },
+    LoadAttr {
+        name: String,
+    },
+    CompareOperation {
+        op: ComparisonOperator,
+    },
     Pop,
-    Rotate { amount: usize },
+    Rotate {
+        amount: usize,
+    },
     Duplicate,
     GetIter,
     Pass,
     Continue,
     Break,
-    Jump { target: Label },
-    JumpIf { target: Label },
+    Jump {
+        target: Label,
+    },
+    JumpIf {
+        target: Label,
+    },
     MakeFunction,
-    CallFunction { count: usize },
+    CallFunction {
+        count: usize,
+    },
     ForIter,
     ReturnValue,
-    SetupLoop { start: Label, end: Label },
+    SetupLoop {
+        start: Label,
+        end: Label,
+    },
     PopBlock,
-    Raise { argc: usize },
-    BuildTuple { size: usize },
-    BuildList { size: usize },
-    BuildMap { size: usize },
-    BuildSlice { size: usize },
+    Raise {
+        argc: usize,
+    },
+    BuildTuple {
+        size: usize,
+    },
+    BuildList {
+        size: usize,
+    },
+    BuildMap {
+        size: usize,
+    },
+    BuildSlice {
+        size: usize,
+    },
     PrintExpr,
     LoadBuildClass,
     StoreLocals,
@@ -132,7 +169,8 @@ pub enum BlockType {
 
 impl fmt::Debug for CodeObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let inst_str = self.instructions
+        let inst_str = self
+            .instructions
             .iter()
             .enumerate()
             .map(|(i, inst)| format!("Inst {}: {:?}", i, inst))

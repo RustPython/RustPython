@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::compile;
-use super::pyobject::DictProtocol;
-use super::pyobject::{PyContext, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope, IdProtocol, PyFuncArgs};
-use super::vm::VirtualMachine;
 use super::objbool;
-
+use super::pyobject::DictProtocol;
+use super::pyobject::{
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope,
+};
+use super::vm::VirtualMachine;
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let mut d = vm.new_dict();
@@ -56,7 +57,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() < 1 {
-        return Err(vm.new_exception("Expected more arguments".to_string()))
+        return Err(vm.new_exception("Expected more arguments".to_string()));
     }
     // TODO:
     let mode = compile::Mode::Eval;
@@ -93,24 +94,27 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let args = args.args;
     if args.len() > 3 {
-        return Err(vm.new_exception("Expected at maximum of 3 arguments".to_string()))
+        return Err(vm.new_exception("Expected at maximum of 3 arguments".to_string()));
     } else if args.len() > 2 {
         // TODO: handle optional global and locals
     } else {
-        return Err(vm.new_exception("Expected at least one argument".to_string()))
+        return Err(vm.new_exception("Expected at least one argument".to_string()));
     }
     let source = args[0].clone();
     let _globals = args[1].clone();
     let locals = args[2].clone();
 
-    let code_obj = source; // if source.borrow().kind 
+    let code_obj = source; // if source.borrow().kind
 
     // Construct new scope:
     let scope_inner = Scope {
         locals: locals,
         parent: None,
     };
-    let scope = PyObject { kind: PyObjectKind::Scope { scope: scope_inner }, typ: None }.into_ref();
+    let scope = PyObject {
+        kind: PyObjectKind::Scope { scope: scope_inner },
+        typ: None,
+    }.into_ref();
 
     // Run the source:
     vm.run_code_obj(code_obj, scope)
@@ -130,7 +134,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() != 1 {
-        return Err(vm.new_exception("Expected only one argument".to_string()))
+        return Err(vm.new_exception("Expected only one argument".to_string()));
     }
 
     Ok(vm.context().new_int(args.args[0].get_id() as i32))
@@ -152,7 +156,8 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectKind::Tuple { ref elements } => elements.len(),
         PyObjectKind::String { ref value } => value.len(),
         _ => {
-            return Err(vm.context()
+            return Err(vm
+                .context()
                 .new_str("TypeError: object of this type has no len()".to_string()))
         }
     };
@@ -226,9 +231,10 @@ fn builtin_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             args.args[0].borrow().str()
         }
         _ => {
-            return Err(vm.context()
-                  .new_str("TypeError: object of this type cannot be converted to str".to_string()))
-        },
+            return Err(vm
+                .context()
+                .new_str("TypeError: object of this type cannot be converted to str".to_string()))
+        }
     };
     Ok(vm.new_str(s))
 }
@@ -261,7 +267,15 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("tuple"), ctx.tuple_type.clone());
     dict.insert(String::from("type"), ctx.type_type.clone());
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
-    let scope = PyObject::new(PyObjectKind::Scope { scope: Scope { locals: d2, parent: None} }, ctx.type_type.clone());
+    let scope = PyObject::new(
+        PyObjectKind::Scope {
+            scope: Scope {
+                locals: d2,
+                parent: None,
+            },
+        },
+        ctx.type_type.clone(),
+    );
     let obj = PyObject::new(
         PyObjectKind::Module {
             name: "__builtins__".to_string(),
@@ -281,6 +295,11 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResu
     };
 
     let new_dict = vm.new_dict();
-    &vm.invoke(function, PyFuncArgs { args: vec![ new_dict.clone() ] });
+    &vm.invoke(
+        function,
+        PyFuncArgs {
+            args: vec![new_dict.clone()],
+        },
+    );
     Ok(vm.new_class(name.to_string(), new_dict))
 }

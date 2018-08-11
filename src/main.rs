@@ -9,8 +9,8 @@ extern crate rustpython_vm;
 
 use clap::{App, Arg};
 use rustpython_parser::parser;
-use rustpython_vm::VirtualMachine;
 use rustpython_vm::compile;
+use rustpython_vm::VirtualMachine;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
@@ -29,14 +29,12 @@ fn main() {
                 .short("v")
                 .multiple(true)
                 .help("Give the verbosity"),
-        )
-        .arg(
+        ).arg(
             Arg::with_name("c")
                 .short("c")
                 .takes_value(true)
                 .help("run the given string as a program"),
-        )
-        .get_matches();
+        ).get_matches();
 
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
@@ -95,7 +93,7 @@ fn shell_exec(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> b
                 }
                 Err(msg) => {
                     println!("Error: {:?}", msg);
-                },
+                }
             }
         }
         Err(msg) => {
@@ -140,6 +138,7 @@ fn run_shell() {
     let mut vm = VirtualMachine::new();
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
+
     // Read a single line:
     let mut input = String::new();
     loop {
@@ -162,15 +161,11 @@ fn run_shell() {
                         Ok(_) => {
                             shell_exec(&mut vm, &input, vars.clone());
                         }
-                        Err(msg) => {
-                            panic!("Error: {:?}", msg)
-                        }
+                        Err(msg) => panic!("Error: {:?}", msg),
                     }
                 }
             }
-            Err(msg) => {
-                panic!("Error: {:?}", msg)
-            }
+            Err(msg) => panic!("Error: {:?}", msg),
         };
     }
 }

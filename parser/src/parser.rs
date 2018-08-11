@@ -43,8 +43,10 @@ pub fn parse(filename: &Path) -> Result<ast::Program, String> {
 pub fn parse_program(source: &String) -> Result<ast::Program, String> {
     let lxr = lexer::Lexer::new(&source);
     match python::ProgramParser::new().parse(lxr) {
-        Err(lalrpop_util::ParseError::UnrecognizedToken{token: None, expected: _}) =>
-            Err(String::from("Unexpected end of input.")),
+        Err(lalrpop_util::ParseError::UnrecognizedToken {
+            token: None,
+            expected: _,
+        }) => Err(String::from("Unexpected end of input.")),
         Err(why) => Err(String::from(format!("{:?}", why))),
         Ok(p) => Ok(p),
     }
@@ -76,12 +78,7 @@ mod tests {
     fn test_parse_empty() {
         let parse_ast = parse_program(&String::from("\n"));
 
-        assert_eq!(
-            parse_ast,
-            Ok(ast::Program {
-                statements: vec![]
-            })
-        )
+        assert_eq!(parse_ast, Ok(ast::Program { statements: vec![] }))
     }
 
     #[test]
@@ -91,20 +88,16 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Program {
-                statements: vec![
-                    ast::Statement::Expression {
-                        expression: ast::Expression::Call {
-                            function: Box::new(ast::Expression::Identifier {
-                                name: String::from("print"),
-                            }),
-                            args: vec![
-                                ast::Expression::String {
-                                    value: String::from("Hello world"),
-                                },
-                            ],
-                        },
+                statements: vec![ast::Statement::Expression {
+                    expression: ast::Expression::Call {
+                        function: Box::new(ast::Expression::Identifier {
+                            name: String::from("print"),
+                        }),
+                        args: vec![ast::Expression::String {
+                            value: String::from("Hello world"),
+                        },],
                     },
-                ],
+                },],
             }
         );
     }
@@ -116,21 +109,19 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Program {
-                statements: vec![
-                    ast::Statement::Expression {
-                        expression: ast::Expression::Call {
-                            function: Box::new(ast::Expression::Identifier {
-                                name: String::from("print"),
-                            }),
-                            args: vec![
-                                ast::Expression::String {
-                                    value: String::from("Hello world"),
-                                },
-                                ast::Expression::Number { value: 2 },
-                            ],
-                        },
+                statements: vec![ast::Statement::Expression {
+                    expression: ast::Expression::Call {
+                        function: Box::new(ast::Expression::Identifier {
+                            name: String::from("print"),
+                        }),
+                        args: vec![
+                            ast::Expression::String {
+                                value: String::from("Hello world"),
+                            },
+                            ast::Expression::Number { value: 2 },
+                        ],
                     },
-                ],
+                },],
             }
         );
     }
@@ -143,26 +134,18 @@ mod tests {
             parse_ast,
             ast::Statement::If {
                 test: ast::Expression::Number { value: 1 },
-                body: vec![
-                    ast::Statement::Expression {
-                        expression: ast::Expression::Number { value: 10 },
-                    },
-                ],
-                orelse: Some(vec![
-                    ast::Statement::If {
-                        test: ast::Expression::Number { value: 2 },
-                        body: vec![
-                            ast::Statement::Expression {
-                                expression: ast::Expression::Number { value: 20 },
-                            },
-                        ],
-                        orelse: Some(vec![
-                            ast::Statement::Expression {
-                                expression: ast::Expression::Number { value: 30 },
-                            },
-                        ]),
-                    },
-                ]),
+                body: vec![ast::Statement::Expression {
+                    expression: ast::Expression::Number { value: 10 },
+                },],
+                orelse: Some(vec![ast::Statement::If {
+                    test: ast::Expression::Number { value: 2 },
+                    body: vec![ast::Statement::Expression {
+                        expression: ast::Expression::Number { value: 20 },
+                    },],
+                    orelse: Some(vec![ast::Statement::Expression {
+                        expression: ast::Expression::Number { value: 30 },
+                    },]),
+                },]),
             }
         );
     }
@@ -176,17 +159,16 @@ mod tests {
             Ok(ast::Statement::Expression {
                 expression: ast::Expression::Lambda {
                     args: vec![String::from("x"), String::from("y")],
-                    body:
-                        Box::new(ast::Expression::Binop {
-                            a: Box::new(ast::Expression::Identifier {
-                                name: String::from("x"),
-                            }),
-                            op: ast::Operator::Mult,
-                            b: Box::new(ast::Expression::Identifier {
-                                name: String::from("y"),
-                            })
+                    body: Box::new(ast::Expression::Binop {
+                        a: Box::new(ast::Expression::Identifier {
+                            name: String::from("x"),
+                        }),
+                        op: ast::Operator::Mult,
+                        b: Box::new(ast::Expression::Identifier {
+                            name: String::from("y"),
                         })
-                    }
+                    })
+                }
             })
         )
     }
@@ -198,13 +180,11 @@ mod tests {
             parse_statement(&source),
             Ok(ast::Statement::ClassDef {
                 name: String::from("Foo"),
-                body: vec![
-                    ast::Statement::FunctionDef {
-                        name: String::from("__init__"),
-                        args: vec![String::from("self")],
-                        body: vec![ast::Statement::Pass],
-                    }
-                ],
+                body: vec![ast::Statement::FunctionDef {
+                    name: String::from("__init__"),
+                    args: vec![String::from("self")],
+                    body: vec![ast::Statement::Pass],
+                }],
             })
         )
     }
