@@ -195,6 +195,19 @@ impl IdProtocol for PyObjectRef {
     }
 }
 
+pub trait TypeProtocol {
+    fn typ(&self) -> PyObjectRef;
+}
+
+impl TypeProtocol for PyObjectRef {
+    fn typ(&self) -> PyObjectRef {
+        match self.borrow().typ {
+            Some(ref typ) => typ.clone(),
+            None => panic!("Object doesn't have a type!"),
+        }
+    }
+}
+
 pub trait ParentProtocol {
     fn has_parent(&self) -> bool;
     fn get_parent(&self) -> PyObjectRef;

@@ -17,7 +17,7 @@ use super::objstr;
 use super::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult,
+    PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::sysmodule;
 
