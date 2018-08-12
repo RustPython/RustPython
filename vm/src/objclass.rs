@@ -1,5 +1,5 @@
 use super::pyobject::AttributeProtocol;
-use super::pyobject::{PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
+use super::pyobject::{PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::vm::VirtualMachine;
 
 pub fn get_attribute(
@@ -17,13 +17,16 @@ pub fn get_attribute(
             vm.invoke(
                 attr_class.get_attr(&String::from("__get__")),
                 PyFuncArgs {
-                    args: vec![attr, cls],
+                    args: vec![attr, obj, cls],
                 },
             )
         } else {
             Ok(attr)
         }
     } else {
-        Err(vm.new_exception(String::from("TypeError goes here!")))
+        Err(vm.new_exception(format!(
+            "AttributeError: {:?} object has no attribute {}",
+            cls, name
+        )))
     }
 }

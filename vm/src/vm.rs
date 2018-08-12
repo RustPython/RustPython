@@ -12,6 +12,7 @@ use super::builtins;
 use super::bytecode;
 use super::frame::{copy_code, Block, Frame};
 use super::import::import;
+use super::objclass;
 use super::objlist;
 use super::objstr;
 use super::objtype;
@@ -66,6 +67,10 @@ impl VirtualMachine {
     pub fn get_none(&self) -> PyObjectRef {
         // TODO
         self.ctx.new_bool(false)
+    }
+
+    pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
+        self.ctx.new_bound_method(function, object)
     }
 
     pub fn get_type(&self) -> PyObjectRef {
@@ -490,6 +495,16 @@ impl VirtualMachine {
                 self.run_frame(frame)
             }
             PyObjectKind::Class { name: _, dict: _ } => self.new_instance(func_ref.clone(), args),
+            PyObjectKind::BoundMethod {
+                ref function,
+                ref object,
+            } => {
+                let mut self_args = PyFuncArgs {
+                    args: args.args.clone(),
+                };
+                self_args.args.insert(0, object.clone());
+                self.invoke(function.clone(), self_args)
+            }
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
@@ -507,11 +522,26 @@ impl VirtualMachine {
         None
     }
 
+    fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &String) -> PyResult {
+        let typ = obj.typ();
+        let typ_ref = typ.borrow();
+        match typ_ref.kind {
+            PyObjectKind::Class { .. } => {
+                objclass::get_attribute(self, typ.clone(), obj.clone(), attr_name)
+            }
+            _ => panic!("It's not a class: {:?}", typ),
+        }
+    }
+
     fn load_attr(&mut self, attr_name: &String) -> Option<PyResult> {
         let parent = self.pop_value();
-        let obj = parent.get_attr(attr_name);
-        self.push_value(obj);
-        None
+        match self.get_attribute(parent, attr_name) {
+            Ok(obj) => {
+                self.push_value(obj);
+                None
+            }
+            Err(err) => Some(Err(err)),
+        }
     }
 
     fn store_attr(&mut self, attr_name: &String) -> Option<PyResult> {

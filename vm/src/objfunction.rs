@@ -1,4 +1,4 @@
-use super::pyobject::{PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
+use super::pyobject::{PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
 
@@ -23,6 +23,18 @@ pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
     typ
 }
 
+pub fn create_bound_method_type(type_type: PyObjectRef) -> PyObjectRef {
+    let dict = HashMap::new();
+    let typ = PyObject::new(
+        PyObjectKind::Class {
+            name: "method".to_string(),
+            dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
+        },
+        type_type.clone(),
+    );
+    typ
+}
+
 fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    unimplemented!("not yet!");
+    Ok(vm.new_bound_method(args.args[0].clone(), args.args[1].clone()))
 }

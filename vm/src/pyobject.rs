@@ -47,6 +47,7 @@ pub struct PyContext {
     pub tuple_type: PyObjectRef,
     pub dict_type: PyObjectRef,
     pub function_type: PyObjectRef,
+    pub bound_method_type: PyObjectRef,
 }
 
 /*
@@ -70,6 +71,7 @@ impl PyContext {
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
             function_type: objfunction::create_type(type_type.clone()),
+            bound_method_type: objfunction::create_bound_method_type(type_type.clone()),
             type_type: type_type,
         }
     }
@@ -159,6 +161,16 @@ impl PyContext {
                 scope: scope,
             },
             self.function_type.clone(),
+        )
+    }
+
+    pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::BoundMethod {
+                function: function,
+                object: object,
+            },
+            self.bound_method_type.clone(),
         )
     }
 
@@ -370,6 +382,10 @@ pub enum PyObjectKind {
         code: PyObjectRef,
         scope: PyObjectRef,
     },
+    BoundMethod {
+        function: PyObjectRef,
+        object: PyObjectRef,
+    },
     Scope {
         scope: Scope,
     },
@@ -412,6 +428,10 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::NameError { name: _ } => write!(f, "NameError"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectKind::Function { code: _, scope: _ } => write!(f, "function"),
+            &PyObjectKind::BoundMethod {
+                function: _,
+                object: _,
+            } => write!(f, "bound-method"),
             &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
             &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
@@ -482,6 +502,7 @@ impl PyObject {
             PyObjectKind::Instance { dict: _ } => format!("<instance>"),
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
+            PyObjectKind::BoundMethod { .. } => format!("<bound-method>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
             PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),
