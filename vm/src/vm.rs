@@ -65,8 +65,7 @@ impl VirtualMachine {
     }
 
     pub fn get_none(&self) -> PyObjectRef {
-        // TODO
-        self.ctx.new_bool(false)
+        self.ctx.none.clone()
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
@@ -573,7 +572,7 @@ impl VirtualMachine {
                     &bytecode::Constant::Code { ref code } => {
                         PyObject::new(PyObjectKind::Code { code: code.clone() }, self.get_type())
                     }
-                    &bytecode::Constant::None => PyObject::new(PyObjectKind::None, self.get_type()),
+                    &bytecode::Constant::None => self.ctx.none.clone(),
                 };
                 self.push_value(obj);
                 None

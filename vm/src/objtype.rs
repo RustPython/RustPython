@@ -7,7 +7,11 @@ use std::collections::HashMap;
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef};
 
 pub fn create_type() -> PyObjectRef {
-    let typ = PyObject::default().into_ref();
+    let typ = PyObject {
+        kind: PyObjectKind::None,
+        typ: None,
+    }.into_ref();
+
     let dict = PyObject::new(
         PyObjectKind::Dict {
             elements: HashMap::new(),
