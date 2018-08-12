@@ -238,14 +238,26 @@ impl ParentProtocol for PyObjectRef {
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &String) -> PyObjectRef;
     fn set_attr(&self, attr_name: &String, value: PyObjectRef);
+    fn has_attr(&self, attr_name: &String) -> bool;
 }
 
 impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &String) -> PyObjectRef {
-        match self.borrow().kind {
+        let obj = self.borrow();
+        match obj.kind {
             PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
             PyObjectKind::Class { name: _, ref dict } => dict.get_item(attr_name),
             PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
+            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+        }
+    }
+
+    fn has_attr(&self, attr_name: &String) -> bool {
+        let obj = self.borrow();
+        match obj.kind {
+            PyObjectKind::Module { name: _, ref dict } => dict.contains_key(attr_name),
+            PyObjectKind::Class { name: _, ref dict } => dict.contains_key(attr_name),
+            PyObjectKind::Instance { ref dict } => dict.contains_key(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         }
     }
