@@ -1,14 +1,14 @@
 class Foo:
-    print("Defining class")
-    def __init__(self):
-        print("initing: ", self)
-        self.x = 5
+    def __init__(self, x):
+        self.x = x
+
+    def square(self):
+        return self.x * self.x
 
     y = 7
 
-print("Done defining: ", Foo)
-print("Init: ", Foo.__init__)
-print("y = ", Foo.y)
-foo = Foo()
-print("Done initting: ", foo)
-print("Foo's x: ", foo.x)
+foo = Foo(5)
+
+assert foo.y == Foo.y
+assert foo.x == 5
+assert foo.square() == 25

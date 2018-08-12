@@ -1,4 +1,5 @@
 use super::bytecode;
+use super::objfunction;
 use super::objint;
 use super::objtype;
 use super::vm::VirtualMachine;
@@ -45,6 +46,8 @@ pub struct PyContext {
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub dict_type: PyObjectRef,
+    pub function_type: PyObjectRef,
+    pub bound_method_type: PyObjectRef,
 }
 
 /*
@@ -61,18 +64,15 @@ pub struct Scope {
 impl PyContext {
     pub fn new() -> PyContext {
         let type_type = objtype::create_type();
-        let int_type = objint::create_type(type_type.clone());
-        // TODO: How to represent builtin types?
-        let list_type = type_type.clone();
-        let tuple_type = type_type.clone();
-        let dict_type = type_type.clone();
-        // let str_type = objstr::make_type();
+
         PyContext {
+            int_type: objint::create_type(type_type.clone()),
+            list_type: type_type.clone(),
+            tuple_type: type_type.clone(),
+            dict_type: type_type.clone(),
+            function_type: objfunction::create_type(type_type.clone()),
+            bound_method_type: objfunction::create_bound_method_type(type_type.clone()),
             type_type: type_type,
-            int_type: int_type,
-            list_type: list_type,
-            tuple_type: tuple_type,
-            dict_type: dict_type,
         }
     }
 
@@ -154,6 +154,26 @@ impl PyContext {
         )
     }
 
+    pub fn new_function(&self, code_obj: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::Function {
+                code: code_obj,
+                scope: scope,
+            },
+            self.function_type.clone(),
+        )
+    }
+
+    pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::BoundMethod {
+                function: function,
+                object: object,
+            },
+            self.bound_method_type.clone(),
+        )
+    }
+
     /* TODO: something like this?
     pub fn new_instance(&self, name: String) -> PyObjectRef {
         PyObject::new(PyObjectKind::Class { name: name }, self.type_type.clone())
@@ -187,6 +207,19 @@ impl IdProtocol for PyObjectRef {
     }
 }
 
+pub trait TypeProtocol {
+    fn typ(&self) -> PyObjectRef;
+}
+
+impl TypeProtocol for PyObjectRef {
+    fn typ(&self) -> PyObjectRef {
+        match self.borrow().typ {
+            Some(ref typ) => typ.clone(),
+            None => panic!("Object doesn't have a type!"),
+        }
+    }
+}
+
 pub trait ParentProtocol {
     fn has_parent(&self) -> bool;
     fn get_parent(&self) -> PyObjectRef;
@@ -217,14 +250,26 @@ impl ParentProtocol for PyObjectRef {
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &String) -> PyObjectRef;
     fn set_attr(&self, attr_name: &String, value: PyObjectRef);
+    fn has_attr(&self, attr_name: &String) -> bool;
 }
 
 impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &String) -> PyObjectRef {
-        match self.borrow().kind {
+        let obj = self.borrow();
+        match obj.kind {
             PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
             PyObjectKind::Class { name: _, ref dict } => dict.get_item(attr_name),
             PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
+            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+        }
+    }
+
+    fn has_attr(&self, attr_name: &String) -> bool {
+        let obj = self.borrow();
+        match obj.kind {
+            PyObjectKind::Module { name: _, ref dict } => dict.contains_key(attr_name),
+            PyObjectKind::Class { name: _, ref dict } => dict.contains_key(attr_name),
+            PyObjectKind::Instance { ref dict } => dict.contains_key(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         }
     }
@@ -337,6 +382,10 @@ pub enum PyObjectKind {
         code: PyObjectRef,
         scope: PyObjectRef,
     },
+    BoundMethod {
+        function: PyObjectRef,
+        object: PyObjectRef,
+    },
     Scope {
         scope: Scope,
     },
@@ -379,6 +428,10 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::NameError { name: _ } => write!(f, "NameError"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectKind::Function { code: _, scope: _ } => write!(f, "function"),
+            &PyObjectKind::BoundMethod {
+                function: _,
+                object: _,
+            } => write!(f, "bound-method"),
             &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
             &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
@@ -449,6 +502,7 @@ impl PyObject {
             PyObjectKind::Instance { dict: _ } => format!("<instance>"),
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
+            PyObjectKind::BoundMethod { .. } => format!("<bound-method>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
             PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),
