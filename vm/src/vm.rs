@@ -692,13 +692,7 @@ impl VirtualMachine {
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.current_frame().locals.clone();
-                let obj = PyObject::new(
-                    PyObjectKind::Function {
-                        code: code_obj,
-                        scope: scope,
-                    },
-                    self.get_type(),
-                );
+                let obj = self.ctx.new_function(code_obj, scope);
                 self.push_value(obj);
                 None
             }

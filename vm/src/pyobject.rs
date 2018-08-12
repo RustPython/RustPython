@@ -1,4 +1,5 @@
 use super::bytecode;
+use super::objfunction;
 use super::objint;
 use super::objtype;
 use super::vm::VirtualMachine;
@@ -45,6 +46,7 @@ pub struct PyContext {
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub dict_type: PyObjectRef,
+    pub function_type: PyObjectRef,
 }
 
 /*
@@ -61,18 +63,14 @@ pub struct Scope {
 impl PyContext {
     pub fn new() -> PyContext {
         let type_type = objtype::create_type();
-        let int_type = objint::create_type(type_type.clone());
-        // TODO: How to represent builtin types?
-        let list_type = type_type.clone();
-        let tuple_type = type_type.clone();
-        let dict_type = type_type.clone();
-        // let str_type = objstr::make_type();
+
         PyContext {
+            int_type: objint::create_type(type_type.clone()),
+            list_type: type_type.clone(),
+            tuple_type: type_type.clone(),
+            dict_type: type_type.clone(),
+            function_type: objfunction::create_type(type_type.clone()),
             type_type: type_type,
-            int_type: int_type,
-            list_type: list_type,
-            tuple_type: tuple_type,
-            dict_type: dict_type,
         }
     }
 
@@ -151,6 +149,16 @@ impl PyContext {
                 dict: namespace.clone(),
             },
             self.type_type.clone(),
+        )
+    }
+
+    pub fn new_function(&self, code_obj: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::Function {
+                code: code_obj,
+                scope: scope,
+            },
+            self.function_type.clone(),
         )
     }
 
