@@ -336,7 +336,7 @@ Atom: ast::Expression = {
   <s:String> => ast::Expression::String { value: s },
   <n:Number> => ast::Expression::Number { value: n },
   <i:Identifier> => ast::Expression::Identifier { name: i },
-  "[" <e:TestList?> "]" => {
+  "[" <e:TestList?> <_trailing_comma:","?> "]" => {
     match e {
       None => ast::Expression::List { elements: Vec::new() },
       Some(elements) => ast::Expression::List { elements },
@@ -362,7 +362,7 @@ Atom: ast::Expression = {
 };
 
 TestDict: Vec<(ast::Expression, ast::Expression)> = {
-    <e1:DictEntry> <e2:("," DictEntry)*> => {
+    <e1:DictEntry> <e2:("," DictEntry)*> <_trailing_comma:","?> => {
         let mut d = vec![e1];
         d.extend(e2.into_iter().map(|x| x.1));
         d
