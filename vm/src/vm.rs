@@ -469,10 +469,8 @@ impl VirtualMachine {
         // more or less __new__ operator
         let dict = self.new_dict();
         let obj = PyObject::new(PyObjectKind::Instance { dict: dict }, type_ref.clone());
-        let init = type_ref.get_attr(&String::from("__init__"));
-        let mut self_args = PyFuncArgs { args: args.args };
-        self_args.args.insert(0, obj.clone());
-        self.invoke(init, self_args)?;
+        let init = objclass::get_attribute(self, type_ref, obj.clone(), &String::from("__init__"))?;
+        self.invoke(init, args)?;
         // TODO Raise TypeError if init returns not None.
         Ok(obj)
     }
