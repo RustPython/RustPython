@@ -42,6 +42,7 @@ impl fmt::Display for PyObjectRef {
 #[derive(Debug)]
 pub struct PyContext {
     pub type_type: PyObjectRef,
+    pub none: PyObjectRef,
     pub int_type: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
@@ -70,6 +71,7 @@ impl PyContext {
             list_type: type_type.clone(),
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
+            none: PyObject::new(PyObjectKind::None, type_type.clone()),
             function_type: objfunction::create_type(type_type.clone()),
             bound_method_type: objfunction::create_bound_method_type(type_type.clone()),
             type_type: type_type,
@@ -185,16 +187,6 @@ pub struct PyObject {
     pub kind: PyObjectKind,
     pub typ: Option<PyObjectRef>,
     // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
-}
-
-impl Default for PyObject {
-    fn default() -> PyObject {
-        PyObject {
-            kind: PyObjectKind::None,
-            typ: None,
-            // dict: HashMap::new(),
-        }
-    }
 }
 
 pub trait IdProtocol {
