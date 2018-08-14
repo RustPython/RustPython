@@ -24,10 +24,10 @@ pub fn set_item(
 }
 
 fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.append called with: {:?}", args);
     if args.args.len() == 2 {
         let l = args.args[0].clone();
         let o = args.args[1].clone();
-        trace!("list.append called with: {:?}", args);
         let mut list_obj = l.borrow_mut();
         if let PyObjectKind::List { ref mut elements } = list_obj.kind {
             elements.push(o);
@@ -40,12 +40,35 @@ fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.reverse called with: {:?}", args);
+    if args.args.len() == 1 {
+        let l = args.args[0].clone();
+        let mut list_obj = l.borrow_mut();
+        if let PyObjectKind::List { ref mut elements } = list_obj.kind {
+            elements.reverse();
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_exception("list.reverse is called with no list".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("list.reverse requires one arguments".to_string()))
+    }
+}
+
 pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
     let mut dict = HashMap::new();
     dict.insert(
         "append".to_string(),
         PyObject::new(
             PyObjectKind::RustFunction { function: append },
+            type_type.clone(),
+        ),
+    );
+    dict.insert(
+        "reverse".to_string(),
+        PyObject::new(
+            PyObjectKind::RustFunction { function: reverse },
             type_type.clone(),
         ),
     );
