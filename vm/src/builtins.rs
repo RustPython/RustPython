@@ -6,7 +6,7 @@ use super::compile;
 use super::objbool;
 use super::pyobject::DictProtocol;
 use super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope,
 };
 use super::vm::VirtualMachine;
 
@@ -129,9 +129,39 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_float
 // builtin_format
 // builtin_frozenset
-// builtin_getattr
+
+fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let args = args.args;
+    if args.len() == 2 {
+        let obj = args[0].clone();
+        let attr = args[1].borrow();
+        if let PyObjectKind::String { ref value } = attr.kind {
+            Ok(obj.get_attr(value))
+        } else {
+            Err(vm.new_exception("Attr can only be str for now".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("Expected 2 arguments".to_string()))
+    }
+}
+
 // builtin_globals
-// builtin_hasattr
+
+fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let args = args.args;
+    if args.len() == 2 {
+        let obj = args[0].clone();
+        let attr = args[1].borrow();
+        if let PyObjectKind::String { ref value } = attr.kind {
+            Ok(vm.context().new_bool(obj.has_attr(value)))
+        } else {
+            Err(vm.new_exception("Attr can only be str for now".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("Expected 2 arguments".to_string()))
+    }
+}
+
 // builtin_hash
 // builtin_help
 // builtin_hex
@@ -154,18 +184,23 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() != 1 {
         panic!("len(s) expects exactly one parameter");
     }
-    let len = match args.args[0].borrow().kind {
-        PyObjectKind::Dict { ref elements } => elements.len(),
-        PyObjectKind::List { ref elements } => elements.len(),
-        PyObjectKind::Tuple { ref elements } => elements.len(),
-        PyObjectKind::String { ref value } => value.len(),
+    match args.args[0].borrow().kind {
+        PyObjectKind::Dict { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
+        PyObjectKind::List { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
+        PyObjectKind::Tuple { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
+        PyObjectKind::String { ref value } => Ok(vm.context().new_int(value.len() as i32)),
         _ => {
-            return Err(vm
-                .context()
-                .new_str("TypeError: object of this type has no len()".to_string()))
+            let len_method_name = "__len__".to_string();
+            if args.args[0].has_attr(&len_method_name) {
+                let len_method = args.args[0].get_attr(&len_method_name);
+                vm.invoke(len_method, PyFuncArgs::default())
+            } else {
+                return Err(vm
+                    .context()
+                    .new_str(format!("TypeError: object of this {:?} type has no method {:?}", args.args[0], len_method_name).to_string()))
+            }
         }
-    };
-    Ok(vm.context().new_int(len as i32))
+    }
 }
 
 // builtin_list
@@ -260,6 +295,8 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("dict"), ctx.new_rustfunc(builtin_dict));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
+    dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
+    dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
     dict.insert(String::from("int"), ctx.int_type.clone());
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));

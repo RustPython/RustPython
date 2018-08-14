@@ -40,6 +40,38 @@ fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.clear called with: {:?}", args);
+    if args.args.len() == 1 {
+        let l = args.args[0].clone();
+        let mut list_obj = l.borrow_mut();
+        if let PyObjectKind::List { ref mut elements } = list_obj.kind {
+            elements.clear();
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_exception("list.clear is called with no list".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("list.clear requires one arguments".to_string()))
+    }
+}
+
+fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.len called with: {:?}", args);
+    // TODO: for this argument amount checking we could probably write some nice macro or templated function!
+    if args.args.len() == 1 {
+        let l = args.args[0].clone();
+        let list_obj = l.borrow();
+        if let PyObjectKind::List { ref elements } = list_obj.kind {
+            Ok(vm.context().new_int(elements.len() as i32))
+        } else {
+            Err(vm.new_exception("list.len is called with no list".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("list.len requires one arguments".to_string()))
+    }
+}
+
 fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.reverse called with: {:?}", args);
     if args.args.len() == 1 {
@@ -59,9 +91,23 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn create_type(type_type: PyObjectRef, method_type: PyObjectRef) -> PyObjectRef {
     let mut dict = HashMap::new();
     dict.insert(
+        "__len__".to_string(),
+        PyObject::new(
+            PyObjectKind::RustFunction { function: len },
+            method_type.clone(),
+        ),
+    );
+    dict.insert(
         "append".to_string(),
         PyObject::new(
             PyObjectKind::RustFunction { function: append },
+            method_type.clone(),
+        ),
+    );
+    dict.insert(
+        "clear".to_string(),
+        PyObject::new(
+            PyObjectKind::RustFunction { function: clear },
             method_type.clone(),
         ),
     );
