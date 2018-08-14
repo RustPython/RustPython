@@ -1,6 +1,7 @@
 use super::objsequence::PySliceableSequence;
-use super::pyobject::{PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObjectKind, PyObjectRef, PyResult, PyObject, PyFuncArgs};
 use super::vm::VirtualMachine;
+use std::collections::HashMap;
 
 // set_item:
 pub fn set_item(
@@ -22,15 +23,31 @@ pub fn set_item(
     }
 }
 
-pub fn _append(vm: &mut VirtualMachine, _l: PyObjectRef, _other: PyObjectRef) -> PyResult {
+fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement objlist::append
+    // println!("{:?}", args);
+    // if let PyObjectKind
+    // Ok(vm.new_bound_method(args.args[0].clone(), args.args[1].clone()))
     Ok(vm.get_none())
 }
 
-/* TODO:
-pub fn make_type() -> PyObjectRef {
-
-    // dict.insert("__set_item__".to_string(), set_item);
-    dict.insert("append".to_string(), _append)
+pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
+    let mut dict = HashMap::new();
+    dict.insert(
+        "append".to_string(),
+        PyObject::new(
+            PyObjectKind::RustFunction {
+                function: append,
+            },
+            type_type.clone(),
+        ),
+    );
+    let typ = PyObject::new(
+        PyObjectKind::Class {
+            name: "list".to_string(),
+            dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
+        },
+        type_type.clone(),
+    );
+    typ
 }
-*/

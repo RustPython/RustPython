@@ -1,6 +1,7 @@
 use super::bytecode;
 use super::objfunction;
 use super::objint;
+use super::objlist;
 use super::objtype;
 use super::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -68,7 +69,7 @@ impl PyContext {
 
         PyContext {
             int_type: objint::create_type(type_type.clone()),
-            list_type: type_type.clone(),
+            list_type: objlist::create_type(type_type.clone()),
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
@@ -104,7 +105,7 @@ impl PyContext {
             PyObjectKind::List {
                 elements: elements.unwrap_or(Vec::new()),
             },
-            self.type_type.clone(),
+            self.list_type.clone(),
         )
     }
 
@@ -252,6 +253,7 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
             PyObjectKind::Class { name: _, ref dict } => dict.get_item(attr_name),
             PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
+            PyObjectKind::List { elements: _ } => self.typ().get_attr(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         }
     }
@@ -262,6 +264,7 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(attr_name),
             PyObjectKind::Class { name: _, ref dict } => dict.contains_key(attr_name),
             PyObjectKind::Instance { ref dict } => dict.contains_key(attr_name),
+            PyObjectKind::List { elements: _ } => self.typ().has_attr(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         }
     }
@@ -286,7 +289,7 @@ impl DictProtocol for PyObjectRef {
             PyObjectKind::Dict { ref elements } => elements.contains_key(k),
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(k),
             PyObjectKind::Scope { ref scope } => scope.locals.contains_key(k),
-            _ => panic!("TODO"),
+            ref kind => unimplemented!("TODO {:?}", kind),
         }
     }
 
@@ -427,7 +430,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
             &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
-            &PyObjectKind::Class { name: _, dict: _ } => write!(f, "class"),
+            &PyObjectKind::Class { ref name, dict: _ } => write!(f, "class {:?}", name),
             &PyObjectKind::Instance { dict: _ } => write!(f, "instance"),
             &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
         }

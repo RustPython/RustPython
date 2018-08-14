@@ -595,7 +595,7 @@ impl VirtualMachine {
             bytecode::Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(*size);
                 let list_obj =
-                    PyObject::new(PyObjectKind::List { elements: elements }, self.get_type());
+                    self.context().new_list( Some(elements) );
                 self.push_value(list_obj);
                 None
             }
