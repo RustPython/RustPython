@@ -33,6 +33,23 @@ pub struct VirtualMachine {
     ctx: PyContext,
 }
 
+enum Invoke {
+    Rust {
+        function: fn(&mut VirtualMachine, PyFuncArgs) -> PyResult,
+        args: PyFuncArgs,
+    },
+    Frame {
+        frame: Frame,
+    },
+    Reinvoke {
+        function: PyObjectRef,
+        args: PyFuncArgs,
+    },
+    NewInstance {
+        args: PyFuncArgs,
+    },
+}
+
 impl VirtualMachine {
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
         let frame = Frame::new(code, scope);
@@ -476,10 +493,8 @@ impl VirtualMachine {
     }
 
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
-        let f = func_ref.borrow();
-
-        match f.kind {
-            PyObjectKind::RustFunction { function: _ } => f.call(self, args),
+        let invoke = match func_ref.borrow().kind {
+            PyObjectKind::RustFunction { function } => Invoke::Rust { function, args },
             PyObjectKind::Function {
                 ref code,
                 ref scope,
@@ -490,9 +505,9 @@ impl VirtualMachine {
                     scope.set_item(name, value);
                 }
                 let frame = Frame::new(code.clone(), scope);
-                self.run_frame(frame)
+                Invoke::Frame { frame }
             }
-            PyObjectKind::Class { name: _, dict: _ } => self.new_instance(func_ref.clone(), args),
+            PyObjectKind::Class { name: _, dict: _ } => Invoke::NewInstance { args: args },
             PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
@@ -501,11 +516,20 @@ impl VirtualMachine {
                     args: args.args.clone(),
                 };
                 self_args.args.insert(0, object.clone());
-                self.invoke(function.clone(), self_args)
+                Invoke::Reinvoke {
+                    function: function.clone(),
+                    args: self_args,
+                }
             }
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
+        };
+        match invoke {
+            Invoke::Rust { function, args } => function(self, args),
+            Invoke::Frame { frame } => self.run_frame(frame),
+            Invoke::Reinvoke { function, args } => self.invoke(function, args),
+            Invoke::NewInstance { args } => self.new_instance(func_ref, args),
         }
     }
 
