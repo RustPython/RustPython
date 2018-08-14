@@ -6,7 +6,8 @@ use super::compile;
 use super::objbool;
 use super::pyobject::DictProtocol;
 use super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    PyResult, Scope,
 };
 use super::vm::VirtualMachine;
 
@@ -195,9 +196,12 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 let len_method = args.args[0].get_attr(&len_method_name);
                 vm.invoke(len_method, PyFuncArgs::default())
             } else {
-                return Err(vm
-                    .context()
-                    .new_str(format!("TypeError: object of this {:?} type has no method {:?}", args.args[0], len_method_name).to_string()))
+                Err(vm.context().new_str(
+                    format!(
+                        "TypeError: object of this {:?} type has no method {:?}",
+                        args.args[0], len_method_name
+                    ).to_string()
+                ))
             }
         }
     }
@@ -253,7 +257,24 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_reversed
 // builtin_round
 // builtin_set
-// builtin_setattr
+
+fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let args = args.args;
+    if args.len() == 3 {
+        let obj = args[0].clone();
+        let attr = args[1].borrow();
+        let value = args[2].clone();
+        if let PyObjectKind::String { value: ref name } = attr.kind {
+            obj.set_attr(name, value);
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_exception("Attr can only be str for now".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("Expected 3 arguments".to_string()))
+    }
+}
+
 // builtin_slice
 // builtin_sorted
 // builtin_staticmethod
@@ -279,8 +300,6 @@ fn builtin_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 // builtin_sum
 // builtin_super
-// builtin_tuple
-// builtin_type
 // builtin_vars
 // builtin_zip
 // builtin___import__
@@ -304,6 +323,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
+    dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
     dict.insert(String::from("str"), ctx.new_rustfunc(builtin_str));
     dict.insert(String::from("tuple"), ctx.tuple_type.clone());
     dict.insert(String::from("type"), ctx.type_type.clone());
