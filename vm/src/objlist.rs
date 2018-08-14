@@ -1,5 +1,5 @@
 use super::objsequence::PySliceableSequence;
-use super::pyobject::{PyObjectKind, PyObjectRef, PyResult, PyObject, PyFuncArgs};
+use super::pyobject::{PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
 
@@ -25,10 +25,16 @@ pub fn set_item(
 
 fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement objlist::append
-    // println!("{:?}", args);
-    // if let PyObjectKind
+    trace!("list.append called with: {:?}", args);
+    if let PyObjectKind::List { ref elements } = args.args[0].borrow().kind {
+        warn!("implement append here: {:?}", elements);
+        // elements.push(args.args[1].clone());
+        Ok(vm.get_none())
+    } else {
+        unimplemented!("Raise error when list.append is called with no list")
+        // Err()
+    }
     // Ok(vm.new_bound_method(args.args[0].clone(), args.args[1].clone()))
-    Ok(vm.get_none())
 }
 
 pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
@@ -36,9 +42,7 @@ pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
     dict.insert(
         "append".to_string(),
         PyObject::new(
-            PyObjectKind::RustFunction {
-                function: append,
-            },
+            PyObjectKind::RustFunction { function: append },
             type_type.clone(),
         ),
     );

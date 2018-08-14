@@ -91,10 +91,10 @@ impl PyContext {
         PyObject::new(PyObjectKind::Boolean { value: b }, self.type_type.clone())
     }
 
-    pub fn new_tuple(&self) -> PyObjectRef {
+    pub fn new_tuple(&self, elements: Option<Vec<PyObjectRef>>) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::Tuple {
-                elements: Vec::new(),
+                elements: elements.unwrap_or(Vec::new()),
             },
             self.type_type.clone(),
         )
