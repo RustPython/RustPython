@@ -30,8 +30,12 @@ fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
 }
 
 fn dir_object(vm: &mut VirtualMachine, _obj: PyObjectRef) -> PyObjectRef {
-    // TODO: Implement dir for objects
     let d = vm.new_dict();
+    // TODO: loop over dict of instance, next of class?
+    // TODO: Implement dir for objects
+    // for i in obj.iter_items() {
+    //    d.set_item(k, v);
+    // }
     d
 }
 

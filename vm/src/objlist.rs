@@ -24,17 +24,20 @@ pub fn set_item(
 }
 
 fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    // TODO: Implement objlist::append
-    trace!("list.append called with: {:?}", args);
-    if let PyObjectKind::List { ref elements } = args.args[0].borrow().kind {
-        warn!("implement append here: {:?}", elements);
-        // elements.push(args.args[1].clone());
-        Ok(vm.get_none())
+    if args.args.len() == 2 {
+        let l = args.args[0].clone();
+        let o = args.args[1].clone();
+        trace!("list.append called with: {:?}", args);
+        let mut list_obj = l.borrow_mut();
+        if let PyObjectKind::List { ref mut elements } = list_obj.kind {
+            elements.push(o);
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_exception("list.append is called with no list".to_string()))
+        }
     } else {
-        unimplemented!("Raise error when list.append is called with no list")
-        // Err()
+        Err(vm.new_exception("list.append requires two arguments".to_string()))
     }
-    // Ok(vm.new_bound_method(args.args[0].clone(), args.args[1].clone()))
 }
 
 pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
