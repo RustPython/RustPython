@@ -1,6 +1,7 @@
 use super::bytecode;
 use super::objfunction;
 use super::objint;
+use super::objlist;
 use super::objtype;
 use super::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -65,15 +66,17 @@ pub struct Scope {
 impl PyContext {
     pub fn new() -> PyContext {
         let type_type = objtype::create_type();
+        let function_type = objfunction::create_type(type_type.clone());
+        let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
 
         PyContext {
             int_type: objint::create_type(type_type.clone()),
-            list_type: type_type.clone(),
+            list_type: objlist::create_type(type_type.clone(), function_type.clone()),
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
-            function_type: objfunction::create_type(type_type.clone()),
-            bound_method_type: objfunction::create_bound_method_type(type_type.clone()),
+            function_type: function_type,
+            bound_method_type: bound_method_type,
             type_type: type_type,
         }
     }
@@ -90,10 +93,10 @@ impl PyContext {
         PyObject::new(PyObjectKind::Boolean { value: b }, self.type_type.clone())
     }
 
-    pub fn new_tuple(&self) -> PyObjectRef {
+    pub fn new_tuple(&self, elements: Option<Vec<PyObjectRef>>) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::Tuple {
-                elements: Vec::new(),
+                elements: elements.unwrap_or(Vec::new()),
             },
             self.type_type.clone(),
         )
@@ -104,7 +107,7 @@ impl PyContext {
             PyObjectKind::List {
                 elements: elements.unwrap_or(Vec::new()),
             },
-            self.type_type.clone(),
+            self.list_type.clone(),
         )
     }
 
@@ -262,7 +265,7 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(attr_name),
             PyObjectKind::Class { name: _, ref dict } => dict.contains_key(attr_name),
             PyObjectKind::Instance { ref dict } => dict.contains_key(attr_name),
-            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+            _ => false,
         }
     }
 
@@ -286,7 +289,7 @@ impl DictProtocol for PyObjectRef {
             PyObjectKind::Dict { ref elements } => elements.contains_key(k),
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(k),
             PyObjectKind::Scope { ref scope } => scope.locals.contains_key(k),
-            _ => panic!("TODO"),
+            ref kind => unimplemented!("TODO {:?}", kind),
         }
     }
 
@@ -427,7 +430,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
             &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
-            &PyObjectKind::Class { name: _, dict: _ } => write!(f, "class"),
+            &PyObjectKind::Class { ref name, dict: _ } => write!(f, "class {:?}", name),
             &PyObjectKind::Instance { dict: _ } => write!(f, "instance"),
             &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
         }
