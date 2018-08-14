@@ -66,15 +66,17 @@ pub struct Scope {
 impl PyContext {
     pub fn new() -> PyContext {
         let type_type = objtype::create_type();
+        let function_type = objfunction::create_type(type_type.clone());
+        let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
 
         PyContext {
             int_type: objint::create_type(type_type.clone()),
-            list_type: objlist::create_type(type_type.clone()),
+            list_type: objlist::create_type(type_type.clone(), function_type.clone()),
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
-            function_type: objfunction::create_type(type_type.clone()),
-            bound_method_type: objfunction::create_bound_method_type(type_type.clone()),
+            function_type: function_type,
+            bound_method_type: bound_method_type,
             type_type: type_type,
         }
     }
@@ -253,7 +255,6 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
             PyObjectKind::Class { name: _, ref dict } => dict.get_item(attr_name),
             PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
-            PyObjectKind::List { elements: _ } => self.typ().get_attr(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         }
     }
@@ -264,8 +265,7 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(attr_name),
             PyObjectKind::Class { name: _, ref dict } => dict.contains_key(attr_name),
             PyObjectKind::Instance { ref dict } => dict.contains_key(attr_name),
-            PyObjectKind::List { elements: _ } => self.typ().has_attr(attr_name),
-            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+            _ => false,
         }
     }
 

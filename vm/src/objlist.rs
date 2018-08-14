@@ -56,20 +56,20 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
+pub fn create_type(type_type: PyObjectRef, method_type: PyObjectRef) -> PyObjectRef {
     let mut dict = HashMap::new();
     dict.insert(
         "append".to_string(),
         PyObject::new(
             PyObjectKind::RustFunction { function: append },
-            type_type.clone(),
+            method_type.clone(),
         ),
     );
     dict.insert(
         "reverse".to_string(),
         PyObject::new(
             PyObjectKind::RustFunction { function: reverse },
-            type_type.clone(),
+            method_type.clone(),
         ),
     );
     let typ = PyObject::new(
