@@ -151,16 +151,6 @@ impl PyContext {
         )
     }
 
-    pub fn new_class(&self, name: String, namespace: PyObjectRef) -> PyObjectRef {
-        PyObject::new(
-            PyObjectKind::Class {
-                name: name,
-                dict: namespace.clone(),
-            },
-            self.type_type.clone(),
-        )
-    }
-
     pub fn new_function(&self, code_obj: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::Function {

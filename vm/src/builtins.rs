@@ -5,6 +5,7 @@ use std::io::{self, Write};
 
 use super::compile;
 use super::objbool;
+use super::objtype;
 use super::pyobject::DictProtocol;
 use super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
@@ -378,13 +379,13 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResu
         PyObjectKind::String { value: name } => name,
         _ => panic!("Class name must be a string."),
     };
-
-    let new_dict = vm.new_dict();
+    let metaclass = vm.get_type();
+    let namespace = vm.new_dict();
     &vm.invoke(
         function,
         PyFuncArgs {
-            args: vec![new_dict.clone()],
+            args: vec![namespace.clone()],
         },
     );
-    Ok(vm.new_class(name.to_string(), new_dict))
+    objtype::new(metaclass, name.to_string(), vec![], namespace)
 }

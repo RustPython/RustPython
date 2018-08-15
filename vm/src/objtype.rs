@@ -31,15 +31,15 @@ pub fn new(
     name: String,
     _bases: Vec<PyObjectRef>,
     dict: PyObjectRef,
-) -> PyObjectRef {
-    PyObject::new(
+) -> PyResult {
+    Ok(PyObject::new(
         PyObjectKind::Class {
             name: name,
             dict: dict,
             // bases: bases
         },
         typ,
-    )
+    ))
 }
 
 fn noop(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
@@ -60,5 +60,5 @@ pub fn create_object(type_type: PyObjectRef, function_type: PyObjectRef) -> PyOb
         String::from("object"),
         vec![],
         PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
-    )
+    ).unwrap()
 }

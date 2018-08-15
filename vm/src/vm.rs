@@ -51,10 +51,6 @@ impl VirtualMachine {
         self.ctx.new_dict()
     }
 
-    pub fn new_class(&self, name: String, namespace: PyObjectRef) -> PyObjectRef {
-        self.ctx.new_class(name, namespace)
-    }
-
     pub fn new_exception(&self, msg: String) -> PyObjectRef {
         self.new_str(msg)
     }
