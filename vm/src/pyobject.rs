@@ -50,6 +50,7 @@ pub struct PyContext {
     pub dict_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
+    pub object: PyObjectRef,
 }
 
 /*
@@ -75,6 +76,7 @@ impl PyContext {
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
+            object: objtype::create_object(type_type.clone(), function_type.clone()),
             function_type: function_type,
             bound_method_type: bound_method_type,
             type_type: type_type,
