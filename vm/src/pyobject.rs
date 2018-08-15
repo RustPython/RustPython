@@ -270,8 +270,8 @@ impl AttributeProtocol for PyObjectRef {
     }
 
     fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
-        match self.borrow_mut().kind {
-            PyObjectKind::Instance { ref mut dict } => dict.set_item(attr_name, value),
+        match self.borrow().kind {
+            PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         };
     }
@@ -280,7 +280,7 @@ impl AttributeProtocol for PyObjectRef {
 pub trait DictProtocol {
     fn contains_key(&self, k: &String) -> bool;
     fn get_item(&self, k: &String) -> PyObjectRef;
-    fn set_item(&mut self, k: &String, v: PyObjectRef);
+    fn set_item(&self, k: &String, v: PyObjectRef);
 }
 
 impl DictProtocol for PyObjectRef {
@@ -302,7 +302,7 @@ impl DictProtocol for PyObjectRef {
         }
     }
 
-    fn set_item(&mut self, k: &String, v: PyObjectRef) {
+    fn set_item(&self, k: &String, v: PyObjectRef) {
         match self.borrow_mut().kind {
             PyObjectKind::Dict {
                 elements: ref mut el,
@@ -331,6 +331,19 @@ impl fmt::Debug for PyObject {
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
     // TODO: add kwargs here
+}
+
+impl PyFuncArgs {
+    pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
+        let mut args = PyFuncArgs {
+            args: self.args.clone(),
+        };
+        args.args.insert(0, item);
+        return args;
+    }
+    pub fn shift(&mut self) -> PyObjectRef {
+        self.args.remove(0)
+    }
 }
 
 type RustPyFunc = fn(vm: &mut VirtualMachine, PyFuncArgs) -> PyResult;
@@ -444,16 +457,6 @@ impl PyObject {
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
         }.into_ref()
-    }
-
-    pub fn call(&self, vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-        match self.kind {
-            PyObjectKind::RustFunction { ref function } => function(vm, args),
-            _ => {
-                println!("Not impl {:?}", self);
-                panic!("Not impl");
-            }
-        }
     }
 
     pub fn str(&self) -> String {

@@ -106,7 +106,7 @@ impl fmt::Debug for Frame {
         let stack_str = self
             .stack
             .iter()
-            .map(|elem| format!("\n  > {}", elem.borrow_mut().str()))
+            .map(|elem| format!("\n  > {}", elem.borrow().str()))
             .collect::<Vec<_>>()
             .join("");
         let block_str = self
@@ -119,7 +119,7 @@ impl fmt::Debug for Frame {
             PyObjectKind::Scope { ref scope } => match scope.locals.borrow().kind {
                 PyObjectKind::Dict { ref elements } => elements
                     .iter()
-                    .map(|elem| format!("\n  {} = {}", elem.0, elem.1.borrow_mut().str()))
+                    .map(|elem| format!("\n  {} = {}", elem.0, elem.1.borrow().str()))
                     .collect::<Vec<_>>()
                     .join(""),
                 ref unexpected => panic!(
