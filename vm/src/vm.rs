@@ -502,6 +502,10 @@ impl VirtualMachine {
                 self_args.args.insert(0, object.clone());
                 self.invoke(function.clone(), self_args)
             }
+            PyObjectKind::Instance { .. } => {
+                let function = self.get_attribute(func_ref.clone(), &String::from("__call__"))?;
+                self.invoke(function, args)
+            }
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
