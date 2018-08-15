@@ -11,7 +11,7 @@ use super::pyobject::{
 use super::vm::VirtualMachine;
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
-    let mut d = vm.new_dict();
+    let d = vm.new_dict();
     // TODO: implement dict_iter_items?
     let locals = vm.get_locals();
     match locals.borrow().kind {

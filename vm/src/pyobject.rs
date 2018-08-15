@@ -270,8 +270,8 @@ impl AttributeProtocol for PyObjectRef {
     }
 
     fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
-        match self.borrow_mut().kind {
-            PyObjectKind::Instance { ref mut dict } => dict.set_item(attr_name, value),
+        match self.borrow().kind {
+            PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         };
     }
@@ -280,7 +280,7 @@ impl AttributeProtocol for PyObjectRef {
 pub trait DictProtocol {
     fn contains_key(&self, k: &String) -> bool;
     fn get_item(&self, k: &String) -> PyObjectRef;
-    fn set_item(&mut self, k: &String, v: PyObjectRef);
+    fn set_item(&self, k: &String, v: PyObjectRef);
 }
 
 impl DictProtocol for PyObjectRef {
@@ -302,7 +302,7 @@ impl DictProtocol for PyObjectRef {
         }
     }
 
-    fn set_item(&mut self, k: &String, v: PyObjectRef) {
+    fn set_item(&self, k: &String, v: PyObjectRef) {
         match self.borrow_mut().kind {
             PyObjectKind::Dict {
                 elements: ref mut el,
