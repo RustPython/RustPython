@@ -191,16 +191,13 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
     match args.args[0].borrow().kind {
         PyObjectKind::Dict { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
-        PyObjectKind::List { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
         PyObjectKind::Tuple { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
         PyObjectKind::String { ref value } => Ok(vm.context().new_int(value.len() as i32)),
         _ => {
             let len_method_name = "__len__".to_string();
-            if args.args[0].has_attr(&len_method_name) {
-                let len_method = args.args[0].get_attr(&len_method_name);
-                vm.invoke(len_method, PyFuncArgs::default())
-            } else {
-                Err(vm.context().new_str(
+            match vm.get_attribute(args.args[0].clone(), &len_method_name) {
+                Ok(value) => vm.invoke(value, PyFuncArgs::default()),
+                Err(..) => Err(vm.context().new_str(
                     format!(
                         "TypeError: object of this {:?} type has no method {:?}",
                         args.args[0], len_method_name
