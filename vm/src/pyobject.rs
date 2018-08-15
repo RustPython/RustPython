@@ -333,6 +333,19 @@ pub struct PyFuncArgs {
     // TODO: add kwargs here
 }
 
+impl PyFuncArgs {
+    pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
+        let mut args = PyFuncArgs {
+            args: self.args.clone(),
+        };
+        args.args.insert(0, item);
+        return args;
+    }
+    pub fn shift(&mut self) -> PyObjectRef {
+        self.args.remove(0)
+    }
+}
+
 type RustPyFunc = fn(vm: &mut VirtualMachine, PyFuncArgs) -> PyResult;
 
 pub enum PyObjectKind {
@@ -444,16 +457,6 @@ impl PyObject {
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
         }.into_ref()
-    }
-
-    pub fn call(&self, vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-        match self.kind {
-            PyObjectKind::RustFunction { ref function } => function(vm, args),
-            _ => {
-                println!("Not impl {:?}", self);
-                panic!("Not impl");
-            }
-        }
     }
 
     pub fn str(&self) -> String {

@@ -1,5 +1,5 @@
 use super::pyobject::AttributeProtocol;
-use super::pyobject::{PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use super::pyobject::{PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
 use super::vm::VirtualMachine;
 
 pub fn get_attribute(
@@ -29,4 +29,21 @@ pub fn get_attribute(
             cls, name
         )))
     }
+}
+
+pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    // more or less __new__ operator
+    let type_ref = args.shift();
+    let dict = vm.new_dict();
+    let obj = PyObject::new(PyObjectKind::Instance { dict: dict }, type_ref.clone());
+    let init = get_attribute(vm, type_ref, obj.clone(), &String::from("__init__"))?;
+    vm.invoke(init, args)?;
+    // TODO Raise TypeError if init returns not None.
+    Ok(obj)
+}
+
+pub fn call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    let instance = args.shift();
+    let function = get_attribute(vm, instance.typ(), instance, &String::from("__call__"))?;
+    vm.invoke(function, args)
 }

@@ -464,21 +464,9 @@ impl VirtualMachine {
         }
     }
 
-    fn new_instance(&mut self, type_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
-        // more or less __new__ operator
-        let dict = self.new_dict();
-        let obj = PyObject::new(PyObjectKind::Instance { dict: dict }, type_ref.clone());
-        let init = objclass::get_attribute(self, type_ref, obj.clone(), &String::from("__init__"))?;
-        self.invoke(init, args)?;
-        // TODO Raise TypeError if init returns not None.
-        Ok(obj)
-    }
-
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
-        let f = func_ref.borrow();
-
-        match f.kind {
-            PyObjectKind::RustFunction { function: _ } => f.call(self, args),
+        match func_ref.borrow().kind {
+            PyObjectKind::RustFunction { function } => function(self, args),
             PyObjectKind::Function {
                 ref code,
                 ref scope,
@@ -491,21 +479,14 @@ impl VirtualMachine {
                 let frame = Frame::new(code.clone(), scope);
                 self.run_frame(frame)
             }
-            PyObjectKind::Class { name: _, dict: _ } => self.new_instance(func_ref.clone(), args),
+            PyObjectKind::Class { name: _, dict: _ } => {
+                objclass::new_instance(self, args.insert(func_ref.clone()))
+            }
             PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
-            } => {
-                let mut self_args = PyFuncArgs {
-                    args: args.args.clone(),
-                };
-                self_args.args.insert(0, object.clone());
-                self.invoke(function.clone(), self_args)
-            }
-            PyObjectKind::Instance { .. } => {
-                let function = self.get_attribute(func_ref.clone(), &String::from("__call__"))?;
-                self.invoke(function, args)
-            }
+            } => self.invoke(function.clone(), args.insert(object.clone())),
+            PyObjectKind::Instance { .. } => objclass::call(self, args.insert(func_ref.clone())),
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
