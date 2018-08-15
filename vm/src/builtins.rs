@@ -1,7 +1,7 @@
 // use std::ops::Deref;
+use std::char;
 use std::collections::HashMap;
 use std::io::{self, Write};
-use std::char;
 
 use super::compile;
 use super::objbool;
