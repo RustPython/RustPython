@@ -137,7 +137,7 @@ fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let obj = args[0].clone();
         let attr = args[1].borrow();
         if let PyObjectKind::String { ref value } = attr.kind {
-            Ok(obj.get_attr(value))
+            vm.get_attribute(obj, value)
         } else {
             Err(vm.new_exception("Attr can only be str for now".to_string()))
         }
@@ -154,7 +154,11 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let obj = args[0].clone();
         let attr = args[1].borrow();
         if let PyObjectKind::String { ref value } = attr.kind {
-            Ok(vm.context().new_bool(obj.has_attr(value)))
+            let has_attr = match vm.get_attribute(obj, value) {
+                Ok(..) => true,
+                Err(..) => false,
+            };
+            Ok(vm.context().new_bool(has_attr))
         } else {
             Err(vm.new_exception("Attr can only be str for now".to_string()))
         }
@@ -200,7 +204,7 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     format!(
                         "TypeError: object of this {:?} type has no method {:?}",
                         args.args[0], len_method_name
-                    ).to_string()
+                    ).to_string(),
                 ))
             }
         }
