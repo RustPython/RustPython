@@ -504,7 +504,7 @@ impl VirtualMachine {
         None
     }
 
-    fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &String) -> PyResult {
+    pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &String) -> PyResult {
         let typ = obj.typ();
         let typ_ref = typ.borrow();
         match typ_ref.kind {

@@ -1,4 +1,5 @@
 // use std::ops::Deref;
+use std::char;
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -6,7 +7,8 @@ use super::compile;
 use super::objbool;
 use super::pyobject::DictProtocol;
 use super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, Scope,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    PyResult, Scope,
 };
 use super::vm::VirtualMachine;
 
@@ -56,7 +58,27 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_bytearray
 // builtin_bytes
 // builtin_callable
-// builtin_chr
+
+fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() != 1 {
+        return Err(vm.new_exception("Expected one arguments".to_string()));
+    }
+
+    let code_point_obj = args.args[0].borrow();
+
+    let code_point = *match code_point_obj.kind {
+        PyObjectKind::Integer { ref value } => value,
+        ref kind => unimplemented!("{:?} not implemented for chr", kind),
+    } as u32;
+
+    let txt = match char::from_u32(code_point) {
+        Some(value) => value.to_string(),
+        None => '_'.to_string(),
+    };
+
+    Ok(vm.new_str(txt))
+}
+
 // builtin_classmethod
 
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -129,9 +151,43 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_float
 // builtin_format
 // builtin_frozenset
-// builtin_getattr
+
+fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let args = args.args;
+    if args.len() == 2 {
+        let obj = args[0].clone();
+        let attr = args[1].borrow();
+        if let PyObjectKind::String { ref value } = attr.kind {
+            vm.get_attribute(obj, value)
+        } else {
+            Err(vm.new_exception("Attr can only be str for now".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("Expected 2 arguments".to_string()))
+    }
+}
+
 // builtin_globals
-// builtin_hasattr
+
+fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let args = args.args;
+    if args.len() == 2 {
+        let obj = args[0].clone();
+        let attr = args[1].borrow();
+        if let PyObjectKind::String { ref value } = attr.kind {
+            let has_attr = match vm.get_attribute(obj, value) {
+                Ok(..) => true,
+                Err(..) => false,
+            };
+            Ok(vm.context().new_bool(has_attr))
+        } else {
+            Err(vm.new_exception("Attr can only be str for now".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("Expected 2 arguments".to_string()))
+    }
+}
+
 // builtin_hash
 // builtin_help
 // builtin_hex
@@ -154,18 +210,23 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() != 1 {
         panic!("len(s) expects exactly one parameter");
     }
-    let len = match args.args[0].borrow().kind {
-        PyObjectKind::Dict { ref elements } => elements.len(),
-        PyObjectKind::List { ref elements } => elements.len(),
-        PyObjectKind::Tuple { ref elements } => elements.len(),
-        PyObjectKind::String { ref value } => value.len(),
+    match args.args[0].borrow().kind {
+        PyObjectKind::Dict { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
+        PyObjectKind::Tuple { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
+        PyObjectKind::String { ref value } => Ok(vm.context().new_int(value.len() as i32)),
         _ => {
-            return Err(vm
-                .context()
-                .new_str("TypeError: object of this type has no len()".to_string()))
+            let len_method_name = "__len__".to_string();
+            match vm.get_attribute(args.args[0].clone(), &len_method_name) {
+                Ok(value) => vm.invoke(value, PyFuncArgs::default()),
+                Err(..) => Err(vm.context().new_str(
+                    format!(
+                        "TypeError: object of this {:?} type has no method {:?}",
+                        args.args[0], len_method_name
+                    ).to_string(),
+                )),
+            }
         }
-    };
-    Ok(vm.context().new_int(len as i32))
+    }
 }
 
 // builtin_list
@@ -218,7 +279,24 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_reversed
 // builtin_round
 // builtin_set
-// builtin_setattr
+
+fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let args = args.args;
+    if args.len() == 3 {
+        let obj = args[0].clone();
+        let attr = args[1].borrow();
+        let value = args[2].clone();
+        if let PyObjectKind::String { value: ref name } = attr.kind {
+            obj.set_attr(name, value);
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_exception("Attr can only be str for now".to_string()))
+        }
+    } else {
+        Err(vm.new_exception("Expected 3 arguments".to_string()))
+    }
+}
+
 // builtin_slice
 // builtin_sorted
 // builtin_staticmethod
@@ -244,8 +322,6 @@ fn builtin_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 // builtin_sum
 // builtin_super
-// builtin_tuple
-// builtin_type
 // builtin_vars
 // builtin_zip
 // builtin___import__
@@ -255,11 +331,14 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let mut dict = HashMap::new();
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
+    dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     // TODO: can we just insert dict here?
     dict.insert(String::from("dict"), ctx.new_rustfunc(builtin_dict));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
+    dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
+    dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
     dict.insert(String::from("int"), ctx.int_type.clone());
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
@@ -267,6 +346,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
+    dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
     dict.insert(String::from("str"), ctx.new_rustfunc(builtin_str));
     dict.insert(String::from("tuple"), ctx.tuple_type.clone());
     dict.insert(String::from("type"), ctx.type_type.clone());

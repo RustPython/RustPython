@@ -327,7 +327,7 @@ impl fmt::Debug for PyObject {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
     // TODO: add kwargs here
