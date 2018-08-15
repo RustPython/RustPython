@@ -1,6 +1,7 @@
 // use std::ops::Deref;
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::char;
 
 use super::compile;
 use super::objbool;
@@ -57,7 +58,27 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_bytearray
 // builtin_bytes
 // builtin_callable
-// builtin_chr
+
+fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() != 1 {
+        return Err(vm.new_exception("Expected one arguments".to_string()));
+    }
+
+    let code_point_obj = args.args[0].borrow();
+
+    let code_point = *match code_point_obj.kind {
+        PyObjectKind::Integer { ref value } => value,
+        ref kind => unimplemented!("{:?} not implemented for chr", kind),
+    } as u32;
+
+    let txt = match char::from_u32(code_point) {
+        Some(value) => value.to_string(),
+        None => '_'.to_string(),
+    };
+
+    Ok(vm.new_str(txt))
+}
+
 // builtin_classmethod
 
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -202,7 +223,7 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                         "TypeError: object of this {:?} type has no method {:?}",
                         args.args[0], len_method_name
                     ).to_string(),
-                ))
+                )),
             }
         }
     }
@@ -310,6 +331,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let mut dict = HashMap::new();
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
+    dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     // TODO: can we just insert dict here?
     dict.insert(String::from("dict"), ctx.new_rustfunc(builtin_dict));
