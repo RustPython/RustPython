@@ -264,7 +264,8 @@ impl AttributeProtocol for PyObjectRef {
     fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
         match self.borrow().kind {
             PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
-            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+            PyObjectKind::Class { name: _, ref dict } => dict.set_item(attr_name, value),
+            ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
         };
     }
 }
