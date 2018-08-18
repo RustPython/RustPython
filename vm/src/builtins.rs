@@ -387,5 +387,10 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResu
             args: vec![namespace.clone()],
         },
     );
-    objtype::new(metaclass, name.to_string(), vec![], namespace)
+    objtype::new(
+        metaclass,
+        name.to_string(),
+        vec![vm.get_object()],
+        namespace,
+    )
 }

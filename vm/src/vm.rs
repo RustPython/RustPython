@@ -18,7 +18,7 @@ use super::objstr;
 use super::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyObjectKind, PyObjectRef, PyResult,
 };
 use super::sysmodule;
 
@@ -70,6 +70,10 @@ impl VirtualMachine {
 
     pub fn get_type(&self) -> PyObjectRef {
         self.ctx.type_type.clone()
+    }
+
+    pub fn get_object(&self) -> PyObjectRef {
+        self.ctx.object.clone()
     }
 
     pub fn get_locals(&self) -> PyObjectRef {
@@ -461,6 +465,7 @@ impl VirtualMachine {
     }
 
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
+        trace!("Invoke: {:?} {:?}", func_ref, args);
         match func_ref.borrow().kind {
             PyObjectKind::RustFunction { function } => function(self, args),
             PyObjectKind::Function {
@@ -475,9 +480,11 @@ impl VirtualMachine {
                 let frame = Frame::new(code.clone(), scope);
                 self.run_frame(frame)
             }
-            PyObjectKind::Class { name: _, dict: _ } => {
-                objclass::new_instance(self, args.insert(func_ref.clone()))
-            }
+            PyObjectKind::Class {
+                name: _,
+                dict: _,
+                mro: _,
+            } => objtype::call(self, func_ref.clone(), args),
             PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
@@ -501,14 +508,7 @@ impl VirtualMachine {
     }
 
     pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &String) -> PyResult {
-        let typ = obj.typ();
-        let typ_ref = typ.borrow();
-        match typ_ref.kind {
-            PyObjectKind::Class { .. } => {
-                objclass::get_attribute(self, typ.clone(), obj.clone(), attr_name)
-            }
-            _ => panic!("It's not a class: {:?}", typ),
-        }
+        objtype::get_attribute(self, obj.clone(), attr_name)
     }
 
     fn load_attr(&mut self, attr_name: &String) -> Option<PyResult> {
