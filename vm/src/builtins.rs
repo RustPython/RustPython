@@ -270,7 +270,7 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectKind::Integer { ref value } => {
             let range_elements: Vec<PyObjectRef> =
                 (0..*value).map(|num| vm.context().new_int(num)).collect();
-            Ok(vm.context().new_list(Some(range_elements)))
+            Ok(vm.context().new_list(range_elements))
         }
         _ => panic!("first argument to range must be an integer"),
     }

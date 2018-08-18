@@ -7,7 +7,7 @@
 use super::pyobject::{DictProtocol, PyContext, PyObjectRef};
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let path = ctx.new_list(None);
+    let path = ctx.new_list(vec![]);
     let modules = ctx.new_dict();
     let sys_name = "sys".to_string();
     let sys_mod = ctx.new_module(&sys_name, ctx.new_scope(None));
