@@ -42,6 +42,14 @@ pub fn init(context: &mut PyContext) {
         &String::from("__mro__"),
         context.new_member_descriptor(type_mro),
     );
+    context.type_type.set_attr(
+        &String::from("__class__"),
+        context.new_member_descriptor(type_new),
+    );
+    context.type_type.set_attr(
+        &String::from("__dict__"),
+        context.new_member_descriptor(type_dict),
+    );
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -52,6 +60,13 @@ fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             Ok(vm.context().new_tuple(mro.clone()))
         }
         _ => Err(vm.new_exception("Only classes have an MRO.".to_string())),
+    }
+}
+
+fn type_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    match args.args[0].borrow().kind {
+        PyObjectKind::Class { ref dict, .. } => Ok(dict.clone()),
+        _ => Err(vm.new_exception("type_dict must be called on a class.".to_string())),
     }
 }
 
