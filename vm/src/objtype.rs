@@ -1,6 +1,6 @@
 use super::pyobject::{
-    AttributeProtocol, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, ToRust,
-    TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    ToRust, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
@@ -30,23 +30,29 @@ pub fn create_type() -> PyObjectRef {
     typ
 }
 
-pub fn type_type_add_methods(type_type: PyObjectRef, function_type: PyObjectRef) {
-    type_type.set_attr(
-        &String::from("__call__"),
-        PyObject::new(
-            PyObjectKind::RustFunction {
-                function: type_call,
-            },
-            function_type.clone(),
-        ),
+pub fn init(context: &mut PyContext) {
+    context
+        .type_type
+        .set_attr(&String::from("__call__"), context.new_rustfunc(type_call));
+    context
+        .type_type
+        .set_attr(&String::from("__new__"), context.new_rustfunc(type_new));
+
+    context.type_type.set_attr(
+        &String::from("__mro__"),
+        context.new_member_descriptor(type_mro),
     );
-    type_type.set_attr(
-        &String::from("__new__"),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: type_new },
-            function_type.clone(),
-        ),
-    );
+}
+
+fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    match args.args[0].borrow().kind {
+        PyObjectKind::Class { ref mro, .. } => {
+            let mut mro = mro.clone();
+            mro.insert(0, args.args[0].clone());
+            Ok(vm.context().new_tuple(mro.clone()))
+        }
+        _ => Err(vm.new_exception("Only classes have an MRO.".to_string())),
+    }
 }
 
 pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
