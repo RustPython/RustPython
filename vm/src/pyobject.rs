@@ -151,7 +151,7 @@ impl PyContext {
     pub fn new_rustfunc(&self, function: RustPyFunc) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::RustFunction { function: function },
-            self.type_type.clone(),
+            self.function_type.clone(),
         )
     }
 
