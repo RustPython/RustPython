@@ -257,7 +257,7 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Statement::ClassDef { name, body } => {
+            ast::Statement::ClassDef { name, body, args } => {
                 self.emit(Instruction::LoadBuildClass);
                 self.code_object_stack
                     .push(CodeObject::new(vec![String::from("__locals__")]));
@@ -288,7 +288,13 @@ impl Compiler {
                         value: name.clone(),
                     },
                 });
-                self.emit(Instruction::CallFunction { count: 2 });
+
+                for base in args {
+                    self.emit(Instruction::LoadName { name: base.clone() });
+                }
+                self.emit(Instruction::CallFunction {
+                    count: 2 + args.len(),
+                });
 
                 self.emit(Instruction::StoreName {
                     name: name.to_string(),

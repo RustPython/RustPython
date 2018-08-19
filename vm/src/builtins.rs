@@ -372,13 +372,15 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     obj
 }
 
-pub fn builtin_build_class_(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let function = args.args[0].clone();
-    let a1 = &*args.args[1].borrow();
-    let name = match &a1.kind {
-        PyObjectKind::String { value: name } => name,
-        _ => panic!("Class name must be a string."),
+pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    let function = args.shift();
+    let name_arg = args.shift();
+    let name = match name_arg.borrow().kind {
+        PyObjectKind::String { ref value } => value.to_string(),
+        _ => panic!("Class name must by a string!"),
     };
+    let mut bases = args.args.clone();
+    bases.push(vm.context().object.clone());
     let metaclass = vm.get_type();
     let namespace = vm.new_dict();
     &vm.invoke(
@@ -387,10 +389,5 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResu
             args: vec![namespace.clone()],
         },
     );
-    objtype::new(
-        metaclass,
-        name.to_string(),
-        vec![vm.get_object()],
-        namespace,
-    )
+    objtype::new(metaclass, name, bases, namespace)
 }

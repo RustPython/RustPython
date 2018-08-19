@@ -1,11 +1,20 @@
-#
-# This doesn't work because equality is broken for classes
-#
+class X():
+    pass
 
-# assert object.__mro__ == (object,)
-# assert type.__mro__ == (type, object,)
+class Y():
+    pass
 
-# class A:
-#     pass
+class A(X, Y):
+    pass
 
-# assert A.__mro__ == (A, object)
+print(A.__mro__)
+
+class B(X, Y):
+    pass
+
+print(B.__mro__)
+
+class C(A, B):
+    pass
+
+print(C.__mro__)

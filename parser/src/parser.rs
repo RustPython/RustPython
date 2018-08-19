@@ -175,11 +175,12 @@ mod tests {
 
     #[test]
     fn test_parse_class() {
-        let source = String::from("class Foo:\n def __init__(self):\n  pass\n");
+        let source = String::from("class Foo(A, B):\n def __init__(self):\n  pass\n");
         assert_eq!(
             parse_statement(&source),
             Ok(ast::Statement::ClassDef {
                 name: String::from("Foo"),
+                args: vec![String::from("A"), String::from("B")],
                 body: vec![ast::Statement::FunctionDef {
                     name: String::from("__init__"),
                     args: vec![String::from("self")],
