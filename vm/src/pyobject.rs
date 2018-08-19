@@ -1,4 +1,5 @@
 use super::bytecode;
+use super::objclass;
 use super::objfunction;
 use super::objint;
 use super::objlist;
@@ -69,14 +70,14 @@ impl PyContext {
         let type_type = objtype::create_type();
         let function_type = objfunction::create_type(type_type.clone());
         let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
-
+        objtype::type_type_add_methods(type_type.clone(), function_type.clone());
         PyContext {
             int_type: objint::create_type(type_type.clone()),
             list_type: objlist::create_type(type_type.clone(), function_type.clone()),
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
-            object: objtype::create_object(type_type.clone(), function_type.clone()),
+            object: objclass::create_object(type_type.clone(), function_type.clone()),
             function_type: function_type,
             bound_method_type: bound_method_type,
             type_type: type_type,
@@ -147,16 +148,6 @@ impl PyContext {
     pub fn new_rustfunc(&self, function: RustPyFunc) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::RustFunction { function: function },
-            self.type_type.clone(),
-        )
-    }
-
-    pub fn new_class(&self, name: String, namespace: PyObjectRef) -> PyObjectRef {
-        PyObject::new(
-            PyObjectKind::Class {
-                name: name,
-                dict: namespace.clone(),
-            },
             self.type_type.clone(),
         )
     }
@@ -250,12 +241,43 @@ pub trait AttributeProtocol {
     fn has_attr(&self, attr_name: &String) -> bool;
 }
 
+fn class_get_item(class: &PyObjectRef, attr_name: &String) -> Option<PyObjectRef> {
+    let class = class.borrow();
+    match class.kind {
+        PyObjectKind::Class { ref dict, .. } => {
+            if dict.contains_key(attr_name) {
+                return Some(dict.get_item(attr_name));
+            }
+            None
+        }
+        _ => panic!("Only classes should be in MRO!"),
+    }
+}
+
+fn class_has_item(class: &PyObjectRef, attr_name: &String) -> bool {
+    let class = class.borrow();
+    match class.kind {
+        PyObjectKind::Class { ref dict, .. } => dict.contains_key(attr_name),
+        _ => panic!("Only classes should be in MRO!"),
+    }
+}
+
 impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &String) -> PyObjectRef {
         let obj = self.borrow();
         match obj.kind {
-            PyObjectKind::Module { name: _, ref dict } => dict.get_item(attr_name),
-            PyObjectKind::Class { name: _, ref dict } => dict.get_item(attr_name),
+            PyObjectKind::Module { ref dict, .. } => dict.get_item(attr_name),
+            PyObjectKind::Class { ref mro, .. } => {
+                if let Some(item) = class_get_item(self, attr_name) {
+                    return item;
+                }
+                for ref class in mro {
+                    if let Some(item) = class_get_item(class, attr_name) {
+                        return item;
+                    }
+                }
+                panic!("MRO search failed: {:?} {}", obj, attr_name);
+            }
             PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         }
@@ -265,7 +287,10 @@ impl AttributeProtocol for PyObjectRef {
         let obj = self.borrow();
         match obj.kind {
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(attr_name),
-            PyObjectKind::Class { name: _, ref dict } => dict.contains_key(attr_name),
+            PyObjectKind::Class { ref mro, .. } => {
+                class_has_item(self, attr_name)
+                    || mro.into_iter().any(|d| class_has_item(d, attr_name))
+            }
             PyObjectKind::Instance { ref dict } => dict.contains_key(attr_name),
             _ => false,
         }
@@ -274,7 +299,12 @@ impl AttributeProtocol for PyObjectRef {
     fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
         match self.borrow().kind {
             PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
-            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+            PyObjectKind::Class {
+                name: _,
+                ref dict,
+                mro: _,
+            } => dict.set_item(attr_name, value),
+            ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
         };
     }
 }
@@ -323,13 +353,32 @@ impl DictProtocol for PyObjectRef {
     }
 }
 
+pub trait ToRust {
+    fn to_vec(&self) -> Option<Vec<PyObjectRef>>;
+    fn to_str(&self) -> Option<String>;
+}
+
+impl ToRust for PyObjectRef {
+    fn to_vec(&self) -> Option<Vec<PyObjectRef>> {
+        match self.borrow().kind {
+            PyObjectKind::Tuple { ref elements } => Some(elements.clone()),
+            PyObjectKind::List { ref elements } => Some(elements.clone()),
+            _ => None,
+        }
+    }
+
+    fn to_str(&self) -> Option<String> {
+        Some(self.borrow().str())
+    }
+}
+
 impl fmt::Debug for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[PyObj {:?}]", self.kind)
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
     // TODO: add kwargs here
@@ -407,6 +456,7 @@ pub enum PyObjectKind {
     Class {
         name: String,
         dict: PyObjectRef,
+        mro: Vec<PyObjectRef>,
     },
     Instance {
         dict: PyObjectRef,
@@ -439,13 +489,17 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectKind::Function { code: _, scope: _ } => write!(f, "function"),
             &PyObjectKind::BoundMethod {
-                function: _,
-                object: _,
-            } => write!(f, "bound-method"),
+                ref function,
+                ref object,
+            } => write!(f, "bound-method: {:?} of {:?}", function, object),
             &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
             &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
             &PyObjectKind::None => write!(f, "None"),
-            &PyObjectKind::Class { ref name, dict: _ } => write!(f, "class {:?}", name),
+            &PyObjectKind::Class {
+                ref name,
+                dict: _,
+                mro: _,
+            } => write!(f, "class {:?}", name),
             &PyObjectKind::Instance { dict: _ } => write!(f, "instance"),
             &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
         }
@@ -498,6 +552,7 @@ impl PyObject {
             PyObjectKind::Class {
                 ref name,
                 dict: ref _dict,
+                mro: _,
             } => format!("<class '{}'>", name),
             PyObjectKind::Instance { dict: _ } => format!("<instance>"),
             PyObjectKind::Code { code: _ } => format!("<code>"),

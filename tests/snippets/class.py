@@ -1,5 +1,6 @@
 class Foo:
     def __init__(self, x):
+        assert x == 5
         self.x = x
 
     def square(self):

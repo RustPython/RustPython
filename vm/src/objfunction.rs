@@ -17,6 +17,7 @@ pub fn create_type(type_type: PyObjectRef) -> PyObjectRef {
         PyObjectKind::Class {
             name: "function".to_string(),
             dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
+            mro: vec![],
         },
         type_type.clone(),
     );
@@ -29,6 +30,7 @@ pub fn create_bound_method_type(type_type: PyObjectRef) -> PyObjectRef {
         PyObjectKind::Class {
             name: "method".to_string(),
             dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
+            mro: vec![],
         },
         type_type.clone(),
     );
