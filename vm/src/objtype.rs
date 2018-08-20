@@ -179,7 +179,7 @@ pub fn call(vm: &mut VirtualMachine, typ: PyObjectRef, args: PyFuncArgs) -> PyRe
 
 #[cfg(test)]
 mod tests {
-    use super::{create_type, linearise_mro, new};
+    use super::{linearise_mro, new};
     use super::{IdProtocol, PyContext, PyObjectRef};
 
     fn map_ids(obj: Option<Vec<PyObjectRef>>) -> Option<Vec<usize>> {
@@ -193,17 +193,17 @@ mod tests {
     fn test_linearise() {
         let context = PyContext::new();
         let object = context.object;
-        let type_type = create_type();
+        let type_type = context.type_type;
 
         let a = new(
             type_type.clone(),
-            String::from("A"),
+            "A",
             vec![object.clone()],
             type_type.clone(),
         ).unwrap();
         let b = new(
             type_type.clone(),
-            String::from("B"),
+            "B",
             vec![object.clone()],
             type_type.clone(),
         ).unwrap();
