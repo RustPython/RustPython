@@ -1,4 +1,5 @@
 use super::bytecode;
+use super::objdict;
 use super::objfunction;
 use super::objint;
 use super::objlist;
@@ -45,10 +46,10 @@ impl fmt::Display for PyObjectRef {
 pub struct PyContext {
     pub type_type: PyObjectRef,
     pub none: PyObjectRef,
+    pub dict_type: PyObjectRef,
     pub int_type: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
-    pub dict_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
@@ -69,9 +70,11 @@ pub struct Scope {
 impl PyContext {
     pub fn new() -> PyContext {
         let type_type = objtype::create_type();
+        let object = objobject::create_object(type_type.clone());
+        let dict_type = objdict::create_type(type_type.clone(), object.clone());
+
         let function_type = objfunction::create_type(type_type.clone());
         let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
-        let object = objobject::create_object(type_type.clone(), function_type.clone());
         let member_descriptor_type =
             objfunction::create_member_descriptor_type(type_type.clone(), object.clone()).unwrap();
 
@@ -79,7 +82,7 @@ impl PyContext {
             int_type: objint::create_type(type_type.clone()),
             list_type: objlist::create_type(type_type.clone(), object.clone()).unwrap(),
             tuple_type: type_type.clone(),
-            dict_type: type_type.clone(),
+            dict_type: dict_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
             object: object,
             function_type: function_type,
@@ -123,7 +126,7 @@ impl PyContext {
             PyObjectKind::Dict {
                 elements: HashMap::new(),
             },
-            self.type_type.clone(),
+            self.dict_type.clone(),
         )
     }
 
