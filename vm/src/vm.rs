@@ -547,7 +547,7 @@ impl VirtualMachine {
             bytecode::Instruction::LoadConst { ref value } => {
                 let obj = match value {
                     &bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
-                    // &bytecode::Constant::Float
+                    &bytecode::Constant::Float { ref value } => self.ctx.new_float(*value),
                     &bytecode::Constant::String { ref value } => self.new_str(value.clone()),
                     &bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
                     &bytecode::Constant::Code { ref code } => {

@@ -1,7 +1,6 @@
 pub use super::token::Tok;
 use std::collections::HashMap;
 use std::str::CharIndices;
-use std::str::FromStr;
 
 pub struct Lexer<'input> {
     chars: CharIndices<'input>,
@@ -100,9 +99,18 @@ impl<'input> Lexer<'input> {
         while self.is_number() {
             value_text.push(self.next_char().unwrap());
         }
+
+        // If float:
+        if let Some('.') = self.chr0 {
+            value_text.push(self.next_char().unwrap());
+            while self.is_number() {
+                value_text.push(self.next_char().unwrap());
+            }
+        }
+
         let end_pos = self.location;
 
-        let value = i32::from_str(&value_text).unwrap();
+        let value = value_text;
 
         return Ok((start_pos, Tok::Number { value: value }, end_pos));
     }
@@ -672,7 +680,7 @@ mod tests {
             fn $name() {
                 let source = String::from(format!(r"99232  # {}", $eol));
                 let tokens = lex_source(&source);
-                assert_eq!(tokens, vec![Tok::Number { value: 99232 }]);
+                assert_eq!(tokens, vec![Tok::Number { value: "99232".to_string() }]);
             }
             )*
         }
@@ -695,9 +703,9 @@ mod tests {
                 assert_eq!(
                     tokens,
                     vec![
-                        Tok::Number { value: 123 },
+                        Tok::Number { value: "123".to_string() },
                         Tok::Newline,
-                        Tok::Number { value: 456 },
+                        Tok::Number { value: "456".to_string() },
                     ]
                 )
             }
@@ -722,11 +730,11 @@ mod tests {
                     name: String::from("avariable"),
                 },
                 Tok::Equal,
-                Tok::Number { value: 99 },
+                Tok::Number { value: "99".to_string() },
                 Tok::Plus,
-                Tok::Number { value: 2 },
+                Tok::Number { value: "2".to_string() },
                 Tok::Minus,
-                Tok::Number { value: 0 },
+                Tok::Number { value: "0".to_string() },
             ]
         );
     }
@@ -751,7 +759,7 @@ mod tests {
                         Tok::Newline,
                         Tok::Indent,
                         Tok::Return,
-                        Tok::Number { value: 99 },
+                        Tok::Number { value: "99".to_string() },
                         Tok::Newline,
                         Tok::Dedent,
                     ]
@@ -794,7 +802,7 @@ mod tests {
                         Tok::Newline,
                         Tok::Indent,
                         Tok::Return,
-                        Tok::Number { value: 99 },
+                        Tok::Number { value: "99".to_string() },
                         Tok::Newline,
                         Tok::Dedent,
                         Tok::Dedent,
@@ -826,9 +834,9 @@ mod tests {
                         },
                         Tok::Equal,
                         Tok::Lsqb,
-                        Tok::Number { value: 1 },
+                        Tok::Number { value: "1".to_string() },
                         Tok::Comma,
-                        Tok::Number { value: 2 },
+                        Tok::Number { value: "2".to_string() },
                         Tok::Rsqb,
                         Tok::Newline,
                     ]

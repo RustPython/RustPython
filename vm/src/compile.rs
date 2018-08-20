@@ -523,8 +523,12 @@ impl Compiler {
                 self.emit(i);
             }
             ast::Expression::Number { value } => {
+                let const_value = match value {
+                    ast::Number::Integer { value } => bytecode::Constant::Integer { value: *value },
+                    ast::Number::Float { value } => bytecode::Constant::Float { value: *value },
+                };
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Integer { value: *value },
+                    value: const_value,
                 });
             }
             ast::Expression::List { elements } => {

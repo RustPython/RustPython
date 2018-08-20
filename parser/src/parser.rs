@@ -118,7 +118,9 @@ mod tests {
                             ast::Expression::String {
                                 value: String::from("Hello world"),
                             },
-                            ast::Expression::Number { value: 2 },
+                            ast::Expression::Number {
+                                value: ast::Number::Integer { value: 2 },
+                            },
                         ],
                     },
                 },],
@@ -133,17 +135,27 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Statement::If {
-                test: ast::Expression::Number { value: 1 },
+                test: ast::Expression::Number {
+                    value: ast::Number::Integer { value: 1 },
+                },
                 body: vec![ast::Statement::Expression {
-                    expression: ast::Expression::Number { value: 10 },
+                    expression: ast::Expression::Number {
+                        value: ast::Number::Integer { value: 10 },
+                    },
                 },],
                 orelse: Some(vec![ast::Statement::If {
-                    test: ast::Expression::Number { value: 2 },
+                    test: ast::Expression::Number {
+                        value: ast::Number::Integer { value: 2 },
+                    },
                     body: vec![ast::Statement::Expression {
-                        expression: ast::Expression::Number { value: 20 },
+                        expression: ast::Expression::Number {
+                            value: ast::Number::Integer { value: 20 },
+                        },
                     },],
                     orelse: Some(vec![ast::Statement::Expression {
-                        expression: ast::Expression::Number { value: 30 },
+                        expression: ast::Expression::Number {
+                            value: ast::Number::Integer { value: 30 },
+                        },
                     },]),
                 },]),
             }

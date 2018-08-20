@@ -95,6 +95,10 @@ impl PyContext {
         PyObject::new(PyObjectKind::Integer { value: i }, self.type_type.clone())
     }
 
+    pub fn new_float(&self, i: f64) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Float { value: i }, self.type_type.clone())
+    }
+
     pub fn new_str(&self, s: String) -> PyObjectRef {
         PyObject::new(PyObjectKind::String { value: s }, self.type_type.clone())
     }
@@ -526,6 +530,7 @@ impl PyObject {
         match self.kind {
             PyObjectKind::String { ref value } => value.clone(),
             PyObjectKind::Integer { ref value } => format!("{:?}", value),
+            PyObjectKind::Float { ref value } => format!("{:?}", value),
             PyObjectKind::Boolean { ref value } => format!("{:?}", value),
             PyObjectKind::List { ref elements } => format!(
                 "[{}]",
@@ -568,6 +573,7 @@ impl PyObject {
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
             PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),
+            PyObjectKind::NameError { ref name } => format!("NameError: {:?}", name),
             PyObjectKind::Slice {
                 ref start,
                 ref stop,
@@ -581,10 +587,6 @@ impl PyObject {
                 position,
                 iterated_obj.borrow_mut().str()
             ),
-            _ => {
-                println!("Not impl {:?}", self);
-                panic!("Not impl");
-            }
         }
     }
 
@@ -631,6 +633,20 @@ impl<'a> Add<&'a PyObject> for &'a PyObject {
             PyObjectKind::Integer { value: ref value1 } => match &rhs.kind {
                 PyObjectKind::Integer { value: ref value2 } => PyObjectKind::Integer {
                     value: value1 + value2,
+                },
+                PyObjectKind::Float { value: ref value2 } => PyObjectKind::Float {
+                    value: (*value1 as f64) + value2,
+                },
+                _ => {
+                    panic!("NOT IMPL");
+                }
+            },
+            PyObjectKind::Float { value: ref value1 } => match &rhs.kind {
+                PyObjectKind::Float { value: ref value2 } => PyObjectKind::Float {
+                    value: value1 + value2,
+                },
+                PyObjectKind::Integer { value: ref value2 } => PyObjectKind::Float {
+                    value: value1 + (*value2 as f64),
                 },
                 _ => {
                     panic!("NOT IMPL");
