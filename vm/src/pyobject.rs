@@ -66,25 +66,36 @@ pub struct Scope {
     pub parent: Option<PyObjectRef>, // Parent scope
 }
 
+fn _nothing() -> PyObjectRef {
+    PyObject {
+        kind: PyObjectKind::None,
+        typ: None,
+    }.into_ref()
+}
+
 // Basic objects:
 impl PyContext {
     pub fn new() -> PyContext {
-        let type_type = objtype::create_type();
-        let object = objobject::create_object(type_type.clone());
-        let dict_type = objdict::create_type(type_type.clone(), object.clone());
+        let type_type = _nothing();
+        let object_type = _nothing();
+        let dict_type = _nothing();
+
+        objtype::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
+        objobject::create_object(type_type.clone(), object_type.clone(), dict_type.clone());
+        objdict::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
 
         let function_type = objfunction::create_type(type_type.clone());
         let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
         let member_descriptor_type =
-            objfunction::create_member_descriptor_type(type_type.clone(), object.clone());
+            objfunction::create_member_descriptor_type(type_type.clone(), object_type.clone());
 
         let context = PyContext {
             int_type: objint::create_type(type_type.clone()),
-            list_type: objlist::create_type(type_type.clone(), object.clone()),
+            list_type: objlist::create_type(type_type.clone(), object_type.clone()),
             tuple_type: type_type.clone(),
             dict_type: dict_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
-            object: object,
+            object: object_type,
             function_type: function_type,
             bound_method_type: bound_method_type,
             member_descriptor_type: member_descriptor_type,

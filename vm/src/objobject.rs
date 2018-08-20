@@ -1,9 +1,9 @@
+use super::objdict;
 use super::objtype;
 use super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
 };
 use super::vm::VirtualMachine;
-use std::collections::HashMap;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
@@ -23,14 +23,13 @@ fn noop(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-pub fn create_object(type_type: PyObjectRef) -> PyObjectRef {
-    let dict = PyObject::new(
-        PyObjectKind::Dict {
-            elements: HashMap::new(),
-        },
-        type_type.clone(),
-    );
-    objtype::new(type_type.clone(), "object", vec![], dict).unwrap()
+pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
+    (*object_type.borrow_mut()).kind = PyObjectKind::Class {
+        name: String::from("object"),
+        dict: objdict::new(dict_type),
+        mro: vec![],
+    };
+    (*object_type.borrow_mut()).typ = Some(type_type.clone());
 }
 
 pub fn init(context: &PyContext) {

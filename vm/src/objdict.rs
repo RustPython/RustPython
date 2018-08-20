@@ -1,4 +1,3 @@
-use super::objtype;
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
@@ -13,21 +12,22 @@ pub fn _set_item(
     Ok(vm.get_none())
 }
 
-pub fn create_type(type_type: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-    let dict = PyObject {
-        kind: PyObjectKind::Dict {
+pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
+    PyObject::new(
+        PyObjectKind::Dict {
             elements: HashMap::new(),
         },
-        typ: None,
-    }.into_ref();
-    let dict_type = objtype::new(
-        type_type.clone(),
-        "dict",
-        vec![object.clone()],
-        dict.clone(),
-    ).unwrap();
-    (*dict.borrow_mut()).typ = Some(dict_type.clone());
-    dict_type
+        dict_type.clone(),
+    )
+}
+
+pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
+    (*dict_type.borrow_mut()).kind = PyObjectKind::Class {
+        name: String::from("type"),
+        dict: new(dict_type.clone()),
+        mro: vec![object_type],
+    };
+    (*dict_type.borrow_mut()).typ = Some(type_type.clone());
 }
 
 /* TODO:

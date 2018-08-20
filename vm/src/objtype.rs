@@ -3,31 +3,19 @@ use super::pyobject::{
     PyResult, ToRust, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use std::collections::HashMap;
+use super::objdict;
 
 /*
  * The magical type type
  */
 
-pub fn create_type() -> PyObjectRef {
-    let typ = PyObject {
-        kind: PyObjectKind::None,
-        typ: None,
-    }.into_ref();
-
-    let dict = PyObject::new(
-        PyObjectKind::Dict {
-            elements: HashMap::new(),
-        },
-        typ.clone(),
-    );
-    (*typ.borrow_mut()).kind = PyObjectKind::Class {
+pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
+    (*type_type.borrow_mut()).kind = PyObjectKind::Class {
         name: String::from("type"),
-        dict: dict,
-        mro: vec![],
+        dict: objdict::new(dict_type),
+        mro: vec![object_type],
     };
-    (*typ.borrow_mut()).typ = Some(typ.clone());
-    typ
+    (*type_type.borrow_mut()).typ = Some(type_type.clone());
 }
 
 pub fn init(context: &PyContext) {

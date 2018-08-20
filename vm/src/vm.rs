@@ -795,7 +795,7 @@ impl VirtualMachine {
                     PyObjectKind::RustFunction {
                         function: builtins::builtin_build_class_,
                     },
-                    objtype::create_type(),
+                    self.ctx.type_type.clone(),
                 );
                 self.push_value(rustfunc);
                 None
