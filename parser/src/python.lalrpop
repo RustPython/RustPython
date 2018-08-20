@@ -411,7 +411,9 @@ Number: ast::Number = {
 };
 
 String: String = {
-  <s:string> => s,
+  <s:string+> => {
+    s.join("")
+  },
 };
 Identifier: String = <s:name> => s;
 

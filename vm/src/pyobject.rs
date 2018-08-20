@@ -770,7 +770,7 @@ impl PartialEq for PyObject {
                 PyObjectKind::Integer { value: ref v1i },
                 PyObjectKind::Integer { value: ref v2i },
             ) => v2i == v1i,
-            ( PyObjectKind::Float { value: ref v1i }, PyObjectKind::Float { value: ref v2i }) => {
+            (PyObjectKind::Float { value: ref v1i }, PyObjectKind::Float { value: ref v2i }) => {
                 v2i == v1i
             }
             (PyObjectKind::String { value: ref v1i }, PyObjectKind::String { value: ref v2i }) => {
