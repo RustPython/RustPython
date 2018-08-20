@@ -104,6 +104,7 @@ impl PyContext {
         objtype::init(&context);
         objlist::init(&context);
         objobject::init(&context);
+        objdict::init(&context);
         context
     }
 

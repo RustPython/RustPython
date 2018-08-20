@@ -1,9 +1,9 @@
+use super::objdict;
 use super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
     PyResult, ToRust, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use super::objdict;
 
 /*
  * The magical type type
