@@ -1,8 +1,8 @@
 use super::bytecode;
-use super::objclass;
 use super::objfunction;
 use super::objint;
 use super::objlist;
+use super::objobject;
 use super::objtype;
 use super::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -71,7 +71,7 @@ impl PyContext {
         let type_type = objtype::create_type();
         let function_type = objfunction::create_type(type_type.clone());
         let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
-        let object = objclass::create_object(type_type.clone(), function_type.clone());
+        let object = objobject::create_object(type_type.clone(), function_type.clone());
         let member_descriptor_type =
             objfunction::create_member_descriptor_type(type_type.clone(), object.clone()).unwrap();
 
