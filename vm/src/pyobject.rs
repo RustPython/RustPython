@@ -76,11 +76,11 @@ impl PyContext {
         let function_type = objfunction::create_type(type_type.clone());
         let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
         let member_descriptor_type =
-            objfunction::create_member_descriptor_type(type_type.clone(), object.clone()).unwrap();
+            objfunction::create_member_descriptor_type(type_type.clone(), object.clone());
 
-        let mut context = PyContext {
+        let context = PyContext {
             int_type: objint::create_type(type_type.clone()),
-            list_type: objlist::create_type(type_type.clone(), object.clone()).unwrap(),
+            list_type: objlist::create_type(type_type.clone(), object.clone()),
             tuple_type: type_type.clone(),
             dict_type: dict_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
@@ -90,8 +90,9 @@ impl PyContext {
             member_descriptor_type: member_descriptor_type,
             type_type: type_type,
         };
-        objtype::init(&mut context);
-        objlist::init(&mut context);
+        objtype::init(&context);
+        objlist::init(&context);
+        objobject::init(&context);
         context
     }
 

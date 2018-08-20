@@ -1,5 +1,7 @@
 use super::objtype;
-use super::pyobject::{PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+};
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
 
@@ -21,28 +23,18 @@ fn noop(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-pub fn create_object(type_type: PyObjectRef, function_type: PyObjectRef) -> PyObjectRef {
-    let mut dict = HashMap::new();
-    dict.insert(
-        "__new__".to_string(),
-        PyObject::new(
-            PyObjectKind::RustFunction {
-                function: new_instance,
-            },
-            function_type.clone(),
-        ),
-    );
-    dict.insert(
-        "__init__".to_string(),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: noop },
-            function_type.clone(),
-        ),
-    );
-    objtype::new(
+pub fn create_object(type_type: PyObjectRef) -> PyObjectRef {
+    let dict = PyObject::new(
+        PyObjectKind::Dict {
+            elements: HashMap::new(),
+        },
         type_type.clone(),
-        "object",
-        vec![],
-        PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
-    ).unwrap()
+    );
+    objtype::new(type_type.clone(), "object", vec![], dict).unwrap()
+}
+
+pub fn init(context: &PyContext) {
+    let ref object = context.object;
+    object.set_attr("__new__", context.new_rustfunc(new_instance));
+    object.set_attr("__init__", context.new_rustfunc(noop));
 }

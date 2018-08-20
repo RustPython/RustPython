@@ -91,17 +91,17 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn create_type(type_type: PyObjectRef, object: PyObjectRef) -> PyResult {
+pub fn create_type(type_type: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
     let dict = PyObject::new(
         PyObjectKind::Dict {
             elements: HashMap::new(),
         },
         type_type.clone(),
     );
-    objtype::new(type_type.clone(), "list", vec![object.clone()], dict)
+    objtype::new(type_type.clone(), "list", vec![object.clone()], dict).unwrap()
 }
 
-pub fn init(context: &mut PyContext) {
+pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
     list_type.set_attr("__len__", context.new_rustfunc(len));
     list_type.set_attr("append", context.new_rustfunc(append));

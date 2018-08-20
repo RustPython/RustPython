@@ -30,7 +30,7 @@ pub fn create_type() -> PyObjectRef {
     typ
 }
 
-pub fn init(context: &mut PyContext) {
+pub fn init(context: &PyContext) {
     let ref type_type = context.type_type;
     type_type.set_attr("__call__", context.new_rustfunc(type_call));
     type_type.set_attr("__new__", context.new_rustfunc(type_new));
