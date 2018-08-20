@@ -1,6 +1,6 @@
 use super::pyobject::{
-    AttributeProtocol, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, ToRust,
-    TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    PyResult, ToRust, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
@@ -30,23 +30,51 @@ pub fn create_type() -> PyObjectRef {
     typ
 }
 
-pub fn type_type_add_methods(type_type: PyObjectRef, function_type: PyObjectRef) {
-    type_type.set_attr(
-        &String::from("__call__"),
-        PyObject::new(
-            PyObjectKind::RustFunction {
-                function: type_call,
-            },
-            function_type.clone(),
-        ),
+pub fn init(context: &mut PyContext) {
+    context
+        .type_type
+        .set_attr(&String::from("__call__"), context.new_rustfunc(type_call));
+    context
+        .type_type
+        .set_attr(&String::from("__new__"), context.new_rustfunc(type_new));
+
+    context.type_type.set_attr(
+        &String::from("__mro__"),
+        context.new_member_descriptor(type_mro),
     );
-    type_type.set_attr(
-        &String::from("__new__"),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: type_new },
-            function_type.clone(),
-        ),
+    context.type_type.set_attr(
+        &String::from("__class__"),
+        context.new_member_descriptor(type_new),
     );
+    context.type_type.set_attr(
+        &String::from("__dict__"),
+        context.new_member_descriptor(type_dict),
+    );
+}
+
+fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    match _mro(args.args[0].clone()) {
+        Some(mro) => Ok(vm.context().new_tuple(mro)),
+        None => Err(vm.new_exception("Only classes have an MRO.".to_string())),
+    }
+}
+
+fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
+    match cls.borrow().kind {
+        PyObjectKind::Class { ref mro, .. } => {
+            let mut mro = mro.clone();
+            mro.insert(0, cls.clone());
+            Some(mro)
+        }
+        _ => None,
+    }
+}
+
+fn type_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    match args.args[0].borrow().kind {
+        PyObjectKind::Class { ref dict, .. } => Ok(dict.clone()),
+        _ => Err(vm.new_exception("type_dict must be called on a class.".to_string())),
+    }
 }
 
 pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -56,7 +84,8 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if args.args.len() == 4 {
         let typ = args.args[0].clone();
         let name = args.args[1].to_str().unwrap();
-        let bases = args.args[2].to_vec().unwrap();
+        let mut bases = args.args[2].to_vec().unwrap();
+        bases.push(vm.context().object.clone());
         let dict = args.args[3].clone();
         new(typ, name, bases, dict)
     } else {
@@ -108,12 +137,61 @@ pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &String) -
     }
 }
 
+fn take_next_base(
+    mut bases: Vec<Vec<PyObjectRef>>,
+) -> Option<(PyObjectRef, Vec<Vec<PyObjectRef>>)> {
+    let mut next = None;
+
+    bases = bases.into_iter().filter(|x| !x.is_empty()).collect();
+
+    for base in &bases {
+        let head = base[0].clone();
+        if !(&bases)
+            .into_iter()
+            .any(|x| x[1..].into_iter().any(|x| x.get_id() == head.get_id()))
+        {
+            next = Some(head);
+            break;
+        }
+    }
+
+    if let Some(head) = next {
+        for ref mut item in &mut bases {
+            if item[0].get_id() == head.get_id() {
+                item.remove(0);
+            }
+        }
+        return Some((head, bases));
+    }
+    None
+}
+
+fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
+    debug!("Linearising MRO: {:?}", bases);
+    let mut result = vec![];
+    loop {
+        if (&bases).into_iter().all(|x| x.is_empty()) {
+            break;
+        }
+        match take_next_base(bases) {
+            Some((head, new_bases)) => {
+                result.push(head);
+                bases = new_bases;
+            }
+            None => return None,
+        }
+    }
+    Some(result)
+}
+
 pub fn new(typ: PyObjectRef, name: String, bases: Vec<PyObjectRef>, dict: PyObjectRef) -> PyResult {
+    let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
+    let mro = linearise_mro(mros).unwrap();
     Ok(PyObject::new(
         PyObjectKind::Class {
             name: name,
             dict: dict,
-            mro: bases,
+            mro: mro,
         },
         typ,
     ))
@@ -122,4 +200,52 @@ pub fn new(typ: PyObjectRef, name: String, bases: Vec<PyObjectRef>, dict: PyObje
 pub fn call(vm: &mut VirtualMachine, typ: PyObjectRef, args: PyFuncArgs) -> PyResult {
     let function = get_attribute(vm, typ, &String::from("__call__"))?;
     vm.invoke(function, args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{create_type, linearise_mro, new};
+    use super::{IdProtocol, PyContext, PyObjectRef};
+
+    fn map_ids(obj: Option<Vec<PyObjectRef>>) -> Option<Vec<usize>> {
+        match obj {
+            Some(vec) => Some(vec.into_iter().map(|x| x.get_id()).collect()),
+            None => None,
+        }
+    }
+
+    #[test]
+    fn test_linearise() {
+        let context = PyContext::new();
+        let object = context.object;
+        let type_type = create_type();
+
+        let a = new(
+            type_type.clone(),
+            String::from("A"),
+            vec![object.clone()],
+            type_type.clone(),
+        ).unwrap();
+        let b = new(
+            type_type.clone(),
+            String::from("B"),
+            vec![object.clone()],
+            type_type.clone(),
+        ).unwrap();
+
+        assert_eq!(
+            map_ids(linearise_mro(vec![
+                vec![object.clone()],
+                vec![object.clone()]
+            ])),
+            map_ids(Some(vec![object.clone()]))
+        );
+        assert_eq!(
+            map_ids(linearise_mro(vec![
+                vec![a.clone(), object.clone()],
+                vec![b.clone(), object.clone()],
+            ])),
+            map_ids(Some(vec![a.clone(), b.clone(), object.clone()]))
+        );
+    }
 }

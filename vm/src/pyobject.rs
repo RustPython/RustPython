@@ -51,6 +51,7 @@ pub struct PyContext {
     pub dict_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
+    pub member_descriptor_type: PyObjectRef,
     pub object: PyObjectRef,
 }
 
@@ -70,18 +71,24 @@ impl PyContext {
         let type_type = objtype::create_type();
         let function_type = objfunction::create_type(type_type.clone());
         let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
-        objtype::type_type_add_methods(type_type.clone(), function_type.clone());
-        PyContext {
+        let object = objclass::create_object(type_type.clone(), function_type.clone());
+        let member_descriptor_type =
+            objfunction::create_member_descriptor_type(type_type.clone(), object.clone()).unwrap();
+
+        let mut context = PyContext {
             int_type: objint::create_type(type_type.clone()),
             list_type: objlist::create_type(type_type.clone(), function_type.clone()),
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
-            object: objclass::create_object(type_type.clone(), function_type.clone()),
+            object: object,
             function_type: function_type,
             bound_method_type: bound_method_type,
+            member_descriptor_type: member_descriptor_type,
             type_type: type_type,
-        }
+        };
+        objtype::init(&mut context);
+        context
     }
 
     pub fn new_int(&self, i: i32) -> PyObjectRef {
@@ -96,20 +103,16 @@ impl PyContext {
         PyObject::new(PyObjectKind::Boolean { value: b }, self.type_type.clone())
     }
 
-    pub fn new_tuple(&self, elements: Option<Vec<PyObjectRef>>) -> PyObjectRef {
+    pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::Tuple {
-                elements: elements.unwrap_or(Vec::new()),
-            },
+            PyObjectKind::Tuple { elements: elements },
             self.type_type.clone(),
         )
     }
 
-    pub fn new_list(&self, elements: Option<Vec<PyObjectRef>>) -> PyObjectRef {
+    pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::List {
-                elements: elements.unwrap_or(Vec::new()),
-            },
+            PyObjectKind::List { elements: elements },
             self.list_type.clone(),
         )
     }
@@ -148,7 +151,7 @@ impl PyContext {
     pub fn new_rustfunc(&self, function: RustPyFunc) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::RustFunction { function: function },
-            self.type_type.clone(),
+            self.function_type.clone(),
         )
     }
 
@@ -172,11 +175,15 @@ impl PyContext {
         )
     }
 
-    /* TODO: something like this?
-    pub fn new_instance(&self, name: String) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Class { name: name }, self.type_type.clone())
+    pub fn new_member_descriptor(&self, function: RustPyFunc) -> PyObjectRef {
+        let dict = self.new_dict();
+        dict.set_item(&String::from("function"), self.new_rustfunc(function));
+        self.new_instance(dict, self.member_descriptor_type.clone())
     }
-    */
+
+    pub fn new_instance(&self, dict: PyObjectRef, class: PyObjectRef) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Instance { dict: dict }, class)
+    }
 }
 
 pub struct PyObject {

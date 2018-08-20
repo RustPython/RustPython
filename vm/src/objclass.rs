@@ -8,7 +8,6 @@ pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let type_ref = args.shift();
     let dict = vm.new_dict();
     let obj = PyObject::new(PyObjectKind::Instance { dict: dict }, type_ref.clone());
-    // TODO Raise TypeError if init returns not None.
     Ok(obj)
 }
 

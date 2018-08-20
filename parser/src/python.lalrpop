@@ -208,8 +208,9 @@ TypedArgsList: Vec<String> = {
 };
 
 ClassDef: ast::Statement = {
-  "class" <n:Identifier> <_a:("(" ")")?> ":" <s:Suite> => ast::Statement::ClassDef {
+  "class" <n:Identifier> <a:Parameters?> ":" <s:Suite> => ast::Statement::ClassDef {
 	  name: n,
+	  args: a.unwrap_or(vec![]),
 	  body: s},
 };
 

@@ -575,13 +575,13 @@ impl VirtualMachine {
             }
             bytecode::Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(*size);
-                let list_obj = self.context().new_list(Some(elements));
+                let list_obj = self.context().new_list(elements);
                 self.push_value(list_obj);
                 None
             }
             bytecode::Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(*size);
-                let list_obj = self.context().new_tuple(Some(elements));
+                let list_obj = self.context().new_tuple(elements);
                 self.push_value(list_obj);
                 None
             }
