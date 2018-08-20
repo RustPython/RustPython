@@ -41,7 +41,7 @@ pub fn create_object(type_type: PyObjectRef, function_type: PyObjectRef) -> PyOb
     );
     objtype::new(
         type_type.clone(),
-        String::from("object"),
+        "object",
         vec![],
         PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
     ).unwrap()

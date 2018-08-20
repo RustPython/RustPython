@@ -375,8 +375,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let function = args.shift();
     let name_arg = args.shift();
-    let name = match name_arg.borrow().kind {
-        PyObjectKind::String { ref value } => value.to_string(),
+    let name_arg_ref = name_arg.borrow();
+    let name = match name_arg_ref.kind {
+        PyObjectKind::String { ref value } => value,
         _ => panic!("Class name must by a string!"),
     };
     let mut bases = args.args.clone();

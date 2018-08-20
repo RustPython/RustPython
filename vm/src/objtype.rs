@@ -31,25 +31,12 @@ pub fn create_type() -> PyObjectRef {
 }
 
 pub fn init(context: &mut PyContext) {
-    context
-        .type_type
-        .set_attr(&String::from("__call__"), context.new_rustfunc(type_call));
-    context
-        .type_type
-        .set_attr(&String::from("__new__"), context.new_rustfunc(type_new));
-
-    context.type_type.set_attr(
-        &String::from("__mro__"),
-        context.new_member_descriptor(type_mro),
-    );
-    context.type_type.set_attr(
-        &String::from("__class__"),
-        context.new_member_descriptor(type_new),
-    );
-    context.type_type.set_attr(
-        &String::from("__dict__"),
-        context.new_member_descriptor(type_dict),
-    );
+    let ref type_type = context.type_type;
+    type_type.set_attr("__call__", context.new_rustfunc(type_call));
+    type_type.set_attr("__new__", context.new_rustfunc(type_new));
+    type_type.set_attr("__mro__", context.new_member_descriptor(type_mro));
+    type_type.set_attr("__class__", context.new_member_descriptor(type_new));
+    type_type.set_attr("__dict__", context.new_member_descriptor(type_dict));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -87,7 +74,7 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let mut bases = args.args[2].to_vec().unwrap();
         bases.push(vm.context().object.clone());
         let dict = args.args[3].clone();
-        new(typ, name, bases, dict)
+        new(typ, &name, bases, dict)
     } else {
         Err(vm.new_exception(format!("TypeError: type_new: {:?}", args)))
     }
@@ -184,12 +171,12 @@ fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
     Some(result)
 }
 
-pub fn new(typ: PyObjectRef, name: String, bases: Vec<PyObjectRef>, dict: PyObjectRef) -> PyResult {
+pub fn new(typ: PyObjectRef, name: &str, bases: Vec<PyObjectRef>, dict: PyObjectRef) -> PyResult {
     let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject::new(
         PyObjectKind::Class {
-            name: name,
+            name: String::from(name),
             dict: dict,
             mro: mro,
         },

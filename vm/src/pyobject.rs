@@ -77,7 +77,7 @@ impl PyContext {
 
         let mut context = PyContext {
             int_type: objint::create_type(type_type.clone()),
-            list_type: objlist::create_type(type_type.clone(), function_type.clone()),
+            list_type: objlist::create_type(type_type.clone(), object.clone()).unwrap(),
             tuple_type: type_type.clone(),
             dict_type: type_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
@@ -88,6 +88,7 @@ impl PyContext {
             type_type: type_type,
         };
         objtype::init(&mut context);
+        objlist::init(&mut context);
         context
     }
 
@@ -244,7 +245,7 @@ impl ParentProtocol for PyObjectRef {
 
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &String) -> PyObjectRef;
-    fn set_attr(&self, attr_name: &String, value: PyObjectRef);
+    fn set_attr(&self, attr_name: &str, value: PyObjectRef);
     fn has_attr(&self, attr_name: &String) -> bool;
 }
 
@@ -303,14 +304,14 @@ impl AttributeProtocol for PyObjectRef {
         }
     }
 
-    fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
+    fn set_attr(&self, attr_name: &str, value: PyObjectRef) {
         match self.borrow().kind {
-            PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
+            PyObjectKind::Instance { ref dict } => dict.set_item(&String::from(attr_name), value),
             PyObjectKind::Class {
                 name: _,
                 ref dict,
                 mro: _,
-            } => dict.set_item(attr_name, value),
+            } => dict.set_item(&String::from(attr_name), value),
             ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
         };
     }

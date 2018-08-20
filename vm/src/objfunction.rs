@@ -59,7 +59,7 @@ pub fn create_member_descriptor_type(type_type: PyObjectRef, object: PyObjectRef
 
     objtype::new(
         type_type.clone(),
-        String::from("member_descriptor"),
+        "member_descriptor",
         vec![object],
         PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
     )

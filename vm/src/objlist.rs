@@ -1,5 +1,8 @@
 use super::objsequence::PySliceableSequence;
-use super::pyobject::{PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::objtype;
+use super::pyobject::{
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+};
 use super::vm::VirtualMachine;
 use std::collections::HashMap;
 
@@ -88,43 +91,20 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn create_type(type_type: PyObjectRef, method_type: PyObjectRef) -> PyObjectRef {
-    let mut dict = HashMap::new();
-    dict.insert(
-        "__len__".to_string(),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: len },
-            method_type.clone(),
-        ),
-    );
-    dict.insert(
-        "append".to_string(),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: append },
-            method_type.clone(),
-        ),
-    );
-    dict.insert(
-        "clear".to_string(),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: clear },
-            method_type.clone(),
-        ),
-    );
-    dict.insert(
-        "reverse".to_string(),
-        PyObject::new(
-            PyObjectKind::RustFunction { function: reverse },
-            method_type.clone(),
-        ),
-    );
-    let typ = PyObject::new(
-        PyObjectKind::Class {
-            name: "list".to_string(),
-            dict: PyObject::new(PyObjectKind::Dict { elements: dict }, type_type.clone()),
-            mro: vec![],
+pub fn create_type(type_type: PyObjectRef, object: PyObjectRef) -> PyResult {
+    let dict = PyObject::new(
+        PyObjectKind::Dict {
+            elements: HashMap::new(),
         },
         type_type.clone(),
     );
-    typ
+    objtype::new(type_type.clone(), "list", vec![object.clone()], dict)
+}
+
+pub fn init(context: &mut PyContext) {
+    let ref list_type = context.list_type;
+    list_type.set_attr("__len__", context.new_rustfunc(len));
+    list_type.set_attr("append", context.new_rustfunc(append));
+    list_type.set_attr("clear", context.new_rustfunc(clear));
+    list_type.set_attr("reverse", context.new_rustfunc(reverse));
 }
