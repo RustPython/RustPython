@@ -730,11 +730,17 @@ mod tests {
                     name: String::from("avariable"),
                 },
                 Tok::Equal,
-                Tok::Number { value: "99".to_string() },
+                Tok::Number {
+                    value: "99".to_string()
+                },
                 Tok::Plus,
-                Tok::Number { value: "2".to_string() },
+                Tok::Number {
+                    value: "2".to_string()
+                },
                 Tok::Minus,
-                Tok::Number { value: "0".to_string() },
+                Tok::Number {
+                    value: "0".to_string()
+                },
             ]
         );
     }

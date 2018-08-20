@@ -199,10 +199,6 @@ pub enum Comparison {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Number {
-    Integer {
-        value: i32,
-    },
-    Float {
-        value: f64,
-    },
+    Integer { value: i32 },
+    Float { value: f64 },
 }

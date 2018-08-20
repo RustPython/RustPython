@@ -306,6 +306,18 @@ impl VirtualMachine {
                 &PyObjectKind::Integer { value: ref v1 },
                 &PyObjectKind::Integer { value: ref v2 },
             ) => Ok(self.ctx.new_int(v1.pow(*v2 as u32))),
+            (
+                &PyObjectKind::Float { value: ref v1 },
+                &PyObjectKind::Integer { value: ref v2 },
+            ) => Ok(self.ctx.new_float(v1.powf(*v2 as f64))),
+            (
+                &PyObjectKind::Integer { value: ref v1 },
+                &PyObjectKind::Float { value: ref v2 },
+            ) => Ok(self.ctx.new_float((*v1 as f64).powf(*v2))),
+            (
+                &PyObjectKind::Float { value: ref v1 },
+                &PyObjectKind::Float { value: ref v2 },
+            ) => Ok(self.ctx.new_float(v1.powf(*v2))),
             _ => panic!("Not impl"),
         }
     }
