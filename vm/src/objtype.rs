@@ -24,7 +24,6 @@ pub fn init(context: &PyContext) {
     type_type.set_attr("__new__", context.new_rustfunc(type_new));
     type_type.set_attr("__mro__", context.new_member_descriptor(type_mro));
     type_type.set_attr("__class__", context.new_member_descriptor(type_new));
-    type_type.set_attr("__dict__", context.new_member_descriptor(type_dict));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -42,13 +41,6 @@ fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
             Some(mro)
         }
         _ => None,
-    }
-}
-
-fn type_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].borrow().kind {
-        PyObjectKind::Class { ref dict, .. } => Ok(dict.clone()),
-        _ => Err(vm.new_exception("type_dict must be called on a class.".to_string())),
     }
 }
 
