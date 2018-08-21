@@ -1,8 +1,9 @@
 use super::bytecode;
-use super::objclass;
+use super::objdict;
 use super::objfunction;
 use super::objint;
 use super::objlist;
+use super::objobject;
 use super::objtype;
 use super::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -45,10 +46,10 @@ impl fmt::Display for PyObjectRef {
 pub struct PyContext {
     pub type_type: PyObjectRef,
     pub none: PyObjectRef,
+    pub dict_type: PyObjectRef,
     pub int_type: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
-    pub dict_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
@@ -65,29 +66,45 @@ pub struct Scope {
     pub parent: Option<PyObjectRef>, // Parent scope
 }
 
+fn _nothing() -> PyObjectRef {
+    PyObject {
+        kind: PyObjectKind::None,
+        typ: None,
+    }.into_ref()
+}
+
 // Basic objects:
 impl PyContext {
     pub fn new() -> PyContext {
-        let type_type = objtype::create_type();
+        let type_type = _nothing();
+        let object_type = _nothing();
+        let dict_type = _nothing();
+
+        objtype::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
+        objobject::create_object(type_type.clone(), object_type.clone(), dict_type.clone());
+        objdict::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
+
         let function_type = objfunction::create_type(type_type.clone());
         let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
-        let object = objclass::create_object(type_type.clone(), function_type.clone());
         let member_descriptor_type =
-            objfunction::create_member_descriptor_type(type_type.clone(), object.clone()).unwrap();
+            objfunction::create_member_descriptor_type(type_type.clone(), object_type.clone());
 
-        let mut context = PyContext {
+        let context = PyContext {
             int_type: objint::create_type(type_type.clone()),
-            list_type: objlist::create_type(type_type.clone(), function_type.clone()),
+            list_type: objlist::create_type(type_type.clone(), object_type.clone()),
             tuple_type: type_type.clone(),
-            dict_type: type_type.clone(),
+            dict_type: dict_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
-            object: object,
+            object: object_type,
             function_type: function_type,
             bound_method_type: bound_method_type,
             member_descriptor_type: member_descriptor_type,
             type_type: type_type,
         };
-        objtype::init(&mut context);
+        objtype::init(&context);
+        objlist::init(&context);
+        objobject::init(&context);
+        objdict::init(&context);
         context
     }
 
@@ -122,7 +139,7 @@ impl PyContext {
             PyObjectKind::Dict {
                 elements: HashMap::new(),
             },
-            self.type_type.clone(),
+            self.dict_type.clone(),
         )
     }
 
@@ -244,7 +261,7 @@ impl ParentProtocol for PyObjectRef {
 
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &String) -> PyObjectRef;
-    fn set_attr(&self, attr_name: &String, value: PyObjectRef);
+    fn set_attr(&self, attr_name: &str, value: PyObjectRef);
     fn has_attr(&self, attr_name: &String) -> bool;
 }
 
@@ -303,14 +320,14 @@ impl AttributeProtocol for PyObjectRef {
         }
     }
 
-    fn set_attr(&self, attr_name: &String, value: PyObjectRef) {
+    fn set_attr(&self, attr_name: &str, value: PyObjectRef) {
         match self.borrow().kind {
-            PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
+            PyObjectKind::Instance { ref dict } => dict.set_item(&String::from(attr_name), value),
             PyObjectKind::Class {
                 name: _,
                 ref dict,
                 mro: _,
-            } => dict.set_item(attr_name, value),
+            } => dict.set_item(&String::from(attr_name), value),
             ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
         };
     }

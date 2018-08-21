@@ -12,8 +12,8 @@ use super::builtins;
 use super::bytecode;
 use super::frame::{copy_code, Block, Frame};
 use super::import::import;
-use super::objclass;
 use super::objlist;
+use super::objobject;
 use super::objstr;
 use super::objtype;
 use super::pyobject::{
@@ -489,7 +489,7 @@ impl VirtualMachine {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectKind::Instance { .. } => objclass::call(self, args.insert(func_ref.clone())),
+            PyObjectKind::Instance { .. } => objobject::call(self, args.insert(func_ref.clone())),
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
@@ -795,7 +795,7 @@ impl VirtualMachine {
                     PyObjectKind::RustFunction {
                         function: builtins::builtin_build_class_,
                     },
-                    objtype::create_type(),
+                    self.ctx.type_type.clone(),
                 );
                 self.push_value(rustfunc);
                 None

@@ -99,13 +99,6 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_complex
 // builtin_delattr
 
-fn builtin_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if !args.args.is_empty() {
-        unimplemented!("only zero-arg version of dict is currently supported")
-    }
-    Ok(vm.new_dict())
-}
-
 fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.is_empty() {
         Ok(dir_locals(vm))
@@ -335,7 +328,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     // TODO: can we just insert dict here?
-    dict.insert(String::from("dict"), ctx.new_rustfunc(builtin_dict));
+    dict.insert(String::from("dict"), ctx.dict_type.clone());
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
     dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
@@ -375,8 +368,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let function = args.shift();
     let name_arg = args.shift();
-    let name = match name_arg.borrow().kind {
-        PyObjectKind::String { ref value } => value.to_string(),
+    let name_arg_ref = name_arg.borrow();
+    let name = match name_arg_ref.kind {
+        PyObjectKind::String { ref value } => value,
         _ => panic!("Class name must by a string!"),
     };
     let mut bases = args.args.clone();

@@ -1,55 +1,30 @@
+use super::objdict;
 use super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
     PyResult, ToRust, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use std::collections::HashMap;
 
 /*
  * The magical type type
  */
 
-pub fn create_type() -> PyObjectRef {
-    let typ = PyObject {
-        kind: PyObjectKind::None,
-        typ: None,
-    }.into_ref();
-
-    let dict = PyObject::new(
-        PyObjectKind::Dict {
-            elements: HashMap::new(),
-        },
-        typ.clone(),
-    );
-    (*typ.borrow_mut()).kind = PyObjectKind::Class {
+pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
+    (*type_type.borrow_mut()).kind = PyObjectKind::Class {
         name: String::from("type"),
-        dict: dict,
-        mro: vec![],
+        dict: objdict::new(dict_type),
+        mro: vec![object_type],
     };
-    (*typ.borrow_mut()).typ = Some(typ.clone());
-    typ
+    (*type_type.borrow_mut()).typ = Some(type_type.clone());
 }
 
-pub fn init(context: &mut PyContext) {
-    context
-        .type_type
-        .set_attr(&String::from("__call__"), context.new_rustfunc(type_call));
-    context
-        .type_type
-        .set_attr(&String::from("__new__"), context.new_rustfunc(type_new));
-
-    context.type_type.set_attr(
-        &String::from("__mro__"),
-        context.new_member_descriptor(type_mro),
-    );
-    context.type_type.set_attr(
-        &String::from("__class__"),
-        context.new_member_descriptor(type_new),
-    );
-    context.type_type.set_attr(
-        &String::from("__dict__"),
-        context.new_member_descriptor(type_dict),
-    );
+pub fn init(context: &PyContext) {
+    let ref type_type = context.type_type;
+    type_type.set_attr("__call__", context.new_rustfunc(type_call));
+    type_type.set_attr("__new__", context.new_rustfunc(type_new));
+    type_type.set_attr("__mro__", context.new_member_descriptor(type_mro));
+    type_type.set_attr("__class__", context.new_member_descriptor(type_new));
+    type_type.set_attr("__dict__", context.new_member_descriptor(type_dict));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -87,7 +62,7 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let mut bases = args.args[2].to_vec().unwrap();
         bases.push(vm.context().object.clone());
         let dict = args.args[3].clone();
-        new(typ, name, bases, dict)
+        new(typ, &name, bases, dict)
     } else {
         Err(vm.new_exception(format!("TypeError: type_new: {:?}", args)))
     }
@@ -99,13 +74,10 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let new = typ.get_attr(&String::from("__new__"));
     let obj = vm.invoke(new, args.insert(typ.clone()))?;
 
-    match get_attribute(vm, obj.typ(), &String::from("__init__")) {
-        Ok(init) => {
-            vm.invoke(init, args.insert(obj.clone()))?;
-        }
-        Err(_) => return Ok(obj),
+    if obj.typ().has_attr(&String::from("__init__")) {
+        let init = obj.typ().get_attr(&String::from("__init__"));
+        vm.invoke(init, args.insert(obj.clone()))?;
     }
-
     Ok(obj)
 }
 
@@ -184,12 +156,12 @@ fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
     Some(result)
 }
 
-pub fn new(typ: PyObjectRef, name: String, bases: Vec<PyObjectRef>, dict: PyObjectRef) -> PyResult {
+pub fn new(typ: PyObjectRef, name: &str, bases: Vec<PyObjectRef>, dict: PyObjectRef) -> PyResult {
     let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject::new(
         PyObjectKind::Class {
-            name: name,
+            name: String::from(name),
             dict: dict,
             mro: mro,
         },
@@ -204,7 +176,7 @@ pub fn call(vm: &mut VirtualMachine, typ: PyObjectRef, args: PyFuncArgs) -> PyRe
 
 #[cfg(test)]
 mod tests {
-    use super::{create_type, linearise_mro, new};
+    use super::{linearise_mro, new};
     use super::{IdProtocol, PyContext, PyObjectRef};
 
     fn map_ids(obj: Option<Vec<PyObjectRef>>) -> Option<Vec<usize>> {
@@ -218,17 +190,17 @@ mod tests {
     fn test_linearise() {
         let context = PyContext::new();
         let object = context.object;
-        let type_type = create_type();
+        let type_type = context.type_type;
 
         let a = new(
             type_type.clone(),
-            String::from("A"),
+            "A",
             vec![object.clone()],
             type_type.clone(),
         ).unwrap();
         let b = new(
             type_type.clone(),
-            String::from("B"),
+            "B",
             vec![object.clone()],
             type_type.clone(),
         ).unwrap();
