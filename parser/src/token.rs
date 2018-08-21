@@ -2,7 +2,7 @@
 #[derive(Debug, PartialEq)]
 pub enum Tok {
     Name { name: String },
-    Number { value: i32 },
+    Number { value: String },
     String { value: String },
     Newline,
     Indent,

@@ -2,6 +2,7 @@
 use super::ast;
 use super::lexer;
 use std::iter::FromIterator;
+use std::str::FromStr;
 
 grammar;
 
@@ -399,9 +400,20 @@ Comma<T>: Vec<T> = {
     }
 };
 
-Number: i32 = <s:number> => s;
+Number: ast::Number = {
+  <s:number> => {
+    if s.contains(".") {
+      ast::Number::Float { value: f64::from_str(&s).unwrap() }
+    } else {
+      ast::Number::Integer { value: i32::from_str(&s).unwrap() }
+    }
+  }
+};
+
 String: String = {
-  <s:string> => s,
+  <s:string+> => {
+    s.join("")
+  },
 };
 Identifier: String = <s:name> => s;
 
@@ -478,7 +490,7 @@ extern {
         "True" => lexer::Tok::True,
         "False" => lexer::Tok::False,
         "None" => lexer::Tok::None,
-        number => lexer::Tok::Number { value: <i32> },
+        number => lexer::Tok::Number { value: <String> },
         string => lexer::Tok::String { value: <String> },
         name => lexer::Tok::Name { name: <String> },
         "\n" => lexer::Tok::Newline,

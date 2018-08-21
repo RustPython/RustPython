@@ -126,7 +126,7 @@ pub enum Expression {
         args: Vec<Expression>,
     },
     Number {
-        value: i32,
+        value: Number,
     },
     List {
         elements: Vec<Expression>,
@@ -195,4 +195,10 @@ pub enum Comparison {
     NotIn,
     Is,
     IsNot,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Number {
+    Integer { value: i32 },
+    Float { value: f64 },
 }

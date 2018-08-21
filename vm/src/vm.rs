@@ -306,6 +306,15 @@ impl VirtualMachine {
                 &PyObjectKind::Integer { value: ref v1 },
                 &PyObjectKind::Integer { value: ref v2 },
             ) => Ok(self.ctx.new_int(v1.pow(*v2 as u32))),
+            (&PyObjectKind::Float { value: ref v1 }, &PyObjectKind::Integer { value: ref v2 }) => {
+                Ok(self.ctx.new_float(v1.powf(*v2 as f64)))
+            }
+            (&PyObjectKind::Integer { value: ref v1 }, &PyObjectKind::Float { value: ref v2 }) => {
+                Ok(self.ctx.new_float((*v1 as f64).powf(*v2)))
+            }
+            (&PyObjectKind::Float { value: ref v1 }, &PyObjectKind::Float { value: ref v2 }) => {
+                Ok(self.ctx.new_float(v1.powf(*v2)))
+            }
             _ => panic!("Not impl"),
         }
     }
@@ -547,7 +556,7 @@ impl VirtualMachine {
             bytecode::Instruction::LoadConst { ref value } => {
                 let obj = match value {
                     &bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
-                    // &bytecode::Constant::Float
+                    &bytecode::Constant::Float { ref value } => self.ctx.new_float(*value),
                     &bytecode::Constant::String { ref value } => self.new_str(value.clone()),
                     &bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
                     &bytecode::Constant::Code { ref code } => {
