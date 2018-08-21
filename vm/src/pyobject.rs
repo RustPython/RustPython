@@ -272,25 +272,20 @@ impl ParentProtocol for PyObjectRef {
 }
 
 pub trait AttributeProtocol {
-    fn get_attr(&self, attr_name: &String) -> PyObjectRef;
+    fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
     fn set_attr(&self, attr_name: &str, value: PyObjectRef);
-    fn has_attr(&self, attr_name: &String) -> bool;
+    fn has_attr(&self, attr_name: &str) -> bool;
 }
 
-fn class_get_item(class: &PyObjectRef, attr_name: &String) -> Option<PyObjectRef> {
+fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
     let class = class.borrow();
     match class.kind {
-        PyObjectKind::Class { ref dict, .. } => {
-            if dict.contains_key(attr_name) {
-                return Some(dict.get_item(attr_name));
-            }
-            None
-        }
+        PyObjectKind::Class { ref dict, .. } => dict.get_item(attr_name),
         _ => panic!("Only classes should be in MRO!"),
     }
 }
 
-fn class_has_item(class: &PyObjectRef, attr_name: &String) -> bool {
+fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
     let class = class.borrow();
     match class.kind {
         PyObjectKind::Class { ref dict, .. } => dict.contains_key(attr_name),
@@ -299,27 +294,27 @@ fn class_has_item(class: &PyObjectRef, attr_name: &String) -> bool {
 }
 
 impl AttributeProtocol for PyObjectRef {
-    fn get_attr(&self, attr_name: &String) -> PyObjectRef {
+    fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         let obj = self.borrow();
         match obj.kind {
             PyObjectKind::Module { ref dict, .. } => dict.get_item(attr_name),
             PyObjectKind::Class { ref mro, .. } => {
                 if let Some(item) = class_get_item(self, attr_name) {
-                    return item;
+                    return Some(item);
                 }
                 for ref class in mro {
                     if let Some(item) = class_get_item(class, attr_name) {
-                        return item;
+                        return Some(item);
                     }
                 }
-                panic!("MRO search failed: {:?} {}", obj, attr_name);
+                None
             }
             PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
             ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
         }
     }
 
-    fn has_attr(&self, attr_name: &String) -> bool {
+    fn has_attr(&self, attr_name: &str) -> bool {
         let obj = self.borrow();
         match obj.kind {
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(attr_name),
@@ -334,25 +329,25 @@ impl AttributeProtocol for PyObjectRef {
 
     fn set_attr(&self, attr_name: &str, value: PyObjectRef) {
         match self.borrow().kind {
-            PyObjectKind::Instance { ref dict } => dict.set_item(&String::from(attr_name), value),
+            PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
             PyObjectKind::Class {
                 name: _,
                 ref dict,
                 mro: _,
-            } => dict.set_item(&String::from(attr_name), value),
+            } => dict.set_item(attr_name, value),
             ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
         };
     }
 }
 
 pub trait DictProtocol {
-    fn contains_key(&self, k: &String) -> bool;
-    fn get_item(&self, k: &String) -> PyObjectRef;
-    fn set_item(&self, k: &String, v: PyObjectRef);
+    fn contains_key(&self, k: &str) -> bool;
+    fn get_item(&self, k: &str) -> Option<PyObjectRef>;
+    fn set_item(&self, k: &str, v: PyObjectRef);
 }
 
 impl DictProtocol for PyObjectRef {
-    fn contains_key(&self, k: &String) -> bool {
+    fn contains_key(&self, k: &str) -> bool {
         match self.borrow().kind {
             PyObjectKind::Dict { ref elements } => elements.contains_key(k),
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(k),
@@ -361,16 +356,19 @@ impl DictProtocol for PyObjectRef {
         }
     }
 
-    fn get_item(&self, k: &String) -> PyObjectRef {
+    fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         match self.borrow().kind {
-            PyObjectKind::Dict { ref elements } => elements[k].clone(),
+            PyObjectKind::Dict { ref elements } => match elements.get(k) {
+                Some(v) => Some(v.clone()),
+                None => None,
+            },
             PyObjectKind::Module { name: _, ref dict } => dict.get_item(k),
             PyObjectKind::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }
     }
 
-    fn set_item(&self, k: &String, v: PyObjectRef) {
+    fn set_item(&self, k: &str, v: PyObjectRef) {
         match self.borrow_mut().kind {
             PyObjectKind::Dict {
                 elements: ref mut el,

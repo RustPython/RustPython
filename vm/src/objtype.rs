@@ -63,12 +63,11 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     debug!("type_call: {:?}", args);
     let typ = args.shift();
-    let new = typ.get_attr(&String::from("__new__"));
+    let new = typ.get_attr("__new__").unwrap();
     let obj = vm.invoke(new, args.insert(typ.clone()))?;
 
-    if obj.typ().has_attr(&String::from("__init__")) {
-        let init = obj.typ().get_attr(&String::from("__init__"));
-        vm.invoke(init, args.insert(obj.clone()))?;
+    if let Some(init) = obj.typ().get_attr("__init__") {
+        let _ = vm.invoke(init, args.insert(obj.clone())).unwrap();
     }
     Ok(obj)
 }
@@ -76,12 +75,11 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
 pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &String) -> PyResult {
     let cls = obj.typ();
     trace!("get_attribute: {:?}, {:?}, {:?}", cls, obj, name);
-    if cls.has_attr(name) {
-        let attr = cls.get_attr(name);
+    if let Some(attr) = cls.get_attr(name) {
         let attr_class = attr.typ();
-        if attr_class.has_attr(&String::from("__get__")) {
+        if let Some(descriptor) = attr_class.get_attr("__get__") {
             return vm.invoke(
-                attr_class.get_attr(&String::from("__get__")),
+                descriptor,
                 PyFuncArgs {
                     args: vec![attr, obj, cls],
                 },
@@ -89,10 +87,10 @@ pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &String) -
         }
     }
 
-    if obj.has_attr(name) {
-        Ok(obj.get_attr(name))
-    } else if cls.has_attr(name) {
-        Ok(cls.get_attr(name))
+    if let Some(obj_attr) = obj.get_attr(name) {
+        Ok(obj_attr)
+    } else if let Some(cls_attr) = cls.get_attr(name) {
+        Ok(cls_attr)
     } else {
         Err(vm.new_exception(format!(
             "AttributeError: {:?} object has no attribute {}",

@@ -66,6 +66,8 @@ pub fn create_member_descriptor_type(type_type: PyObjectRef, object: PyObjectRef
 }
 
 fn member_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    let function = args.shift().get_attr(&String::from("function"));
-    vm.invoke(function, args)
+    match args.shift().get_attr("function") {
+        Some(function) => vm.invoke(function, args),
+        None => Err(vm.new_exception(String::from("Attribute Error"))),
+    }
 }
