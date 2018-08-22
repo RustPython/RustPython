@@ -195,6 +195,7 @@ CompoundStatement: ast::LocatedStatement = {
   IfStatement,
   WhileStatement,
   ForStatement,
+  TryStatement,
   WithStatement,
   FuncDef,
   ClassDef,
@@ -246,6 +247,45 @@ ForStatement: ast::LocatedStatement = {
     ast::LocatedStatement {
       location: loc,
       node: ast::Statement::For { target: e, iter: t, body: s, orelse: or_else },
+    }
+  },
+};
+
+TryStatement: ast::LocatedStatement = {
+  <loc:@L> "try" ":" <body:Suite> <handlers:ExceptClause+> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
+    let or_else = match else_suite {
+      Some(s) => Some(s.2),
+      None => None,
+    };
+    let finalbody = match finally {
+      Some(s) => Some(s.2),
+      None => None,
+    };
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Try {
+        body: body,
+        handlers: handlers,
+        orelse: or_else,
+        finalbody: finalbody,
+      },
+    }
+  },
+};
+
+ExceptClause: ast::ExceptHandler = {
+  "except" <typ:Test?> ":" <body:Suite> => {
+    ast::ExceptHandler {
+      typ: typ,
+      name: None,
+      body: body,
+    }
+  },
+  "except" <x:(Test "as" Identifier)> ":" <body:Suite> => {
+    ast::ExceptHandler {
+      typ: Some(x.0),
+      name: Some(x.2),
+      body: body,
     }
   },
 };
@@ -548,6 +588,8 @@ extern {
         "def" => lexer::Tok::Def,
         "elif" => lexer::Tok::Elif,
         "else" => lexer::Tok::Else,
+        "except" => lexer::Tok::Except,
+        "finally" => lexer::Tok::Finally,
         "for" => lexer::Tok::For,
         "if" => lexer::Tok::If,
         "in" => lexer::Tok::In,
@@ -559,6 +601,7 @@ extern {
         "pass" => lexer::Tok::Pass,
         "raise" => lexer::Tok::Raise,
         "return" => lexer::Tok::Return,
+        "try" => lexer::Tok::Try,
         "while" => lexer::Tok::While,
         "with" => lexer::Tok::With,
 	  "lambda" => lexer::Tok::Lambda,
