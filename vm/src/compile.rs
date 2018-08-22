@@ -42,7 +42,8 @@ pub fn compile(
         Mode::Single => match parser::parse_program(source) {
             Ok(ast) => {
                 for statement in ast.statements {
-                    if let &ast::StatementType::Expression { ref expression } = &statement.statement {
+                    if let &ast::StatementType::Expression { ref expression } = &statement.statement
+                    {
                         compiler.compile_expression(expression);
                         compiler.emit(Instruction::PrintExpr);
                     } else {
