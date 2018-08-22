@@ -1,4 +1,5 @@
 use super::bytecode;
+use super::exceptions;
 use super::objdict;
 use super::objfunction;
 use super::objint;
@@ -54,6 +55,7 @@ pub struct PyContext {
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
     pub object: PyObjectRef,
+    pub base_exception_type: PyObjectRef,
 }
 
 /*
@@ -95,21 +97,24 @@ impl PyContext {
             tuple_type: type_type.clone(),
             dict_type: dict_type.clone(),
             none: PyObject::new(PyObjectKind::None, type_type.clone()),
-            object: object_type,
+            object: object_type.clone(),
             function_type: function_type,
             bound_method_type: bound_method_type,
             member_descriptor_type: member_descriptor_type,
-            type_type: type_type,
+            type_type: type_type.clone(),
+            base_exception_type: exceptions::create_base_exception_type(type_type.clone(), object_type.clone()),
         };
         objtype::init(&context);
         objlist::init(&context);
         objobject::init(&context);
         objdict::init(&context);
+        // TODO: create exception hierarchy here?
+        // exceptions::create_zoo(&context);
         context
     }
 
     pub fn new_int(&self, i: i32) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Integer { value: i }, self.type_type.clone())
+        PyObject::new(PyObjectKind::Integer { value: i }, self.int_type.clone())
     }
 
     pub fn new_float(&self, i: f64) -> PyObjectRef {
@@ -127,7 +132,7 @@ impl PyContext {
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::Tuple { elements: elements },
-            self.type_type.clone(),
+            self.tuple_type.clone(),
         )
     }
 

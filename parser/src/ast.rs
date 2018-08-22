@@ -83,6 +83,15 @@ pub enum Statement {
         body: Vec<LocatedStatement>,
         orelse: Option<Vec<LocatedStatement>>,
     },
+    Raise {
+        expression: Option<Expression>,
+    },
+    Try {
+        body: Vec<LocatedStatement>,
+        handlers: Vec<Expression>,
+        orelse: Option<Vec<LocatedStatement>>,
+        finalbody: Option<Vec<LocatedStatement>>,
+    },
     ClassDef {
         name: String,
         body: Vec<LocatedStatement>,

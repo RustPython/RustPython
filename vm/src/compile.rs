@@ -235,6 +235,20 @@ impl Compiler {
                 self.set_label(end_label);
                 self.emit(Instruction::PopBlock);
             }
+            ast::Statement::Raise { expression } => {
+                match expression {
+                    Some(value) => {
+                        self.compile_expression(value);
+                        self.emit(Instruction::Raise { argc: 1 });
+                    }
+                    None => {
+                        unimplemented!();
+                    }
+                }
+            }
+            ast::Statement::Try {..} => {
+                unimplemented!();
+            }
             ast::Statement::FunctionDef { name, args, body } => {
                 // Create bytecode for this function:
                 self.code_object_stack.push(CodeObject::new(args.to_vec()));

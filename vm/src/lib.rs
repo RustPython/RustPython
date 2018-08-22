@@ -9,6 +9,7 @@ mod builtins;
 pub mod bytecode;
 pub mod compile;
 pub mod eval;
+mod exceptions;
 mod frame;
 mod import;
 mod objbool;

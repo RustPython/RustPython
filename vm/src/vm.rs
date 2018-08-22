@@ -227,8 +227,14 @@ impl VirtualMachine {
                 Some(Err(exception)) => {
                     // unwind block stack on exception and find any handlers.
                     match self.unwind_exception(exception) {
-                        None => {}
-                        Some(exception) => break Err(exception),
+                        None => {
+                        },
+                        Some(exception) => {
+                            let _traceback = self.get_attribute(exception.clone(), &"__traceback__".to_string());
+                            // TODO: append line number to traceback?
+                            // traceback.append();
+                            break Err(exception)
+                        },
                     }
                 }
             }
@@ -760,7 +766,7 @@ impl VirtualMachine {
                     0 | 2 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                error!("{:?}", exception);
+                info!("Exception raised: {:?}", exception);
                 Some(Err(exception))
             }
 

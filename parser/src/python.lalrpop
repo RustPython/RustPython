@@ -123,7 +123,12 @@ FlowStatement: ast::LocatedStatement = {
       node: ast::Statement::Return { value: t},
     }
   },
-  // raise
+  <loc:@L> "raise" <t:Test?> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Raise { expression: t },
+    }
+  },
   // yield
 };
 
@@ -552,6 +557,7 @@ extern {
         "not" => lexer::Tok::Not,
         "or" => lexer::Tok::Or,
         "pass" => lexer::Tok::Pass,
+        "raise" => lexer::Tok::Raise,
         "return" => lexer::Tok::Return,
         "while" => lexer::Tok::While,
         "with" => lexer::Tok::With,
