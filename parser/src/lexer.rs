@@ -27,7 +27,8 @@ pub struct Location {
 impl Location {
     pub fn new(row: usize, column: usize) -> Self {
         Location {
-            row: row, column: column,
+            row: row,
+            column: column,
         }
     }
 }
@@ -402,15 +403,11 @@ impl<'input> Lexer<'input> {
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((
-                                        tok_start,
-                                        Tok::DoubleStarEqual,
-                                        tok_end,
-                                    )));
+                                    return Some(Ok((tok_start, Tok::DoubleStarEqual, tok_end)));
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleStar, tok_end)))
+                                    return Some(Ok((tok_start, Tok::DoubleStar, tok_end)));
                                 }
                             }
                         }
@@ -435,19 +432,11 @@ impl<'input> Lexer<'input> {
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((
-                                        tok_start,
-                                        Tok::DoubleSlashEqual,
-                                        tok_end,
-                                    )));
+                                    return Some(Ok((tok_start, Tok::DoubleSlashEqual, tok_end)));
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((
-                                        tok_start,
-                                        Tok::DoubleSlash,
-                                        tok_end,
-                                    )))
+                                    return Some(Ok((tok_start, Tok::DoubleSlash, tok_end)));
                                 }
                             }
                         }
@@ -494,11 +483,7 @@ impl<'input> Lexer<'input> {
                         Some('=') => {
                             self.next_char();
                             let tok_end = self.get_pos();
-                            return Some(Ok((
-                                tok_start,
-                                Tok::CircumflexEqual,
-                                tok_end,
-                            )));
+                            return Some(Ok((tok_start, Tok::CircumflexEqual, tok_end)));
                         }
                         _ => {
                             let tok_end = self.get_pos();
@@ -605,7 +590,7 @@ impl<'input> Lexer<'input> {
                     return Some(self.eat_single_char(Tok::Colon));
                 }
                 Some(';') => {
-                    return Some(self.eat_single_char(Tok::Semi))
+                    return Some(self.eat_single_char(Tok::Semi));
                 }
                 Some('<') => {
                     let tok_start = self.get_pos();
@@ -617,15 +602,11 @@ impl<'input> Lexer<'input> {
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((
-                                        tok_start,
-                                        Tok::LeftShiftEqual,
-                                        tok_end,
-                                    )))
+                                    return Some(Ok((tok_start, Tok::LeftShiftEqual, tok_end)));
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::LeftShift, tok_end)))
+                                    return Some(Ok((tok_start, Tok::LeftShift, tok_end)));
                                 }
                             }
                         }
@@ -650,15 +631,11 @@ impl<'input> Lexer<'input> {
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((
-                                        tok_start,
-                                        Tok::RightShiftEqual,
-                                        tok_end,
-                                    )))
+                                    return Some(Ok((tok_start, Tok::RightShiftEqual, tok_end)));
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::RightShift, tok_end)))
+                                    return Some(Ok((tok_start, Tok::RightShift, tok_end)));
                                 }
                             }
                         }
@@ -669,7 +646,7 @@ impl<'input> Lexer<'input> {
                         }
                         _ => {
                             let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Greater, tok_end)))
+                            return Some(Ok((tok_start, Tok::Greater, tok_end)));
                         }
                     }
                 }
