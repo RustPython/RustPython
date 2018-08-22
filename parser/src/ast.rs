@@ -2,12 +2,9 @@
  * Implement abstract syntax tree nodes for the python language.
  */
 
+pub use super::lexer::Location;
 /*
 #[derive(Debug)]
-pub struct Location {
-    pub row: i32,
-    pub column: i32,
-}
 
 #[derive(Debug)]
 pub struct Node {
@@ -29,7 +26,13 @@ pub struct SingleImport {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Statement {
+pub struct Statement {
+    pub location: Location,
+    pub statement: StatementType,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum StatementType {
     Break,
     Continue,
     Return {

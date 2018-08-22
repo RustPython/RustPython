@@ -30,7 +30,7 @@ pub fn compile(
         },
         Mode::Eval => match parser::parse_statement(source) {
             Ok(statement) => {
-                if let &ast::Statement::Expression { ref expression } = &statement {
+                if let &ast::StatementType::Expression { ref expression } = &statement.statement {
                     compiler.compile_expression(expression);
                     compiler.emit(Instruction::ReturnValue);
                 } else {
@@ -42,7 +42,7 @@ pub fn compile(
         Mode::Single => match parser::parse_program(source) {
             Ok(ast) => {
                 for statement in ast.statements {
-                    if let &ast::Statement::Expression { ref expression } = &statement {
+                    if let &ast::StatementType::Expression { ref expression } = &statement.statement {
                         compiler.compile_expression(expression);
                         compiler.emit(Instruction::PrintExpr);
                     } else {
@@ -109,8 +109,8 @@ impl Compiler {
 
     fn compile_statement(&mut self, statement: &ast::Statement) {
         trace!("Compiling {:?}", statement);
-        match statement {
-            ast::Statement::Import { import_parts } => {
+        match &statement.statement {
+            ast::StatementType::Import { import_parts } => {
                 for ast::SingleImport {
                     module,
                     symbol,
@@ -132,13 +132,13 @@ impl Compiler {
                     });
                 }
             }
-            ast::Statement::Expression { expression } => {
+            ast::StatementType::Expression { expression } => {
                 self.compile_expression(expression);
 
                 // Pop result of stack, since we not use it:
                 self.emit(Instruction::Pop);
             }
-            ast::Statement::If { test, body, orelse } => {
+            ast::StatementType::If { test, body, orelse } => {
                 let end_label = self.new_label();
                 match orelse {
                     None => {
@@ -160,7 +160,7 @@ impl Compiler {
                 }
                 self.set_label(end_label);
             }
-            ast::Statement::While {
+            ast::StatementType::While {
                 test,
                 body,
                 orelse: _,
@@ -182,10 +182,10 @@ impl Compiler {
                 });
                 self.set_label(end_label);
             }
-            ast::Statement::With { items: _, body: _ } => {
+            ast::StatementType::With { items: _, body: _ } => {
                 // TODO
             }
-            ast::Statement::For {
+            ast::StatementType::For {
                 target,
                 iter,
                 body,
@@ -230,7 +230,7 @@ impl Compiler {
                 self.set_label(end_label);
                 self.emit(Instruction::PopBlock);
             }
-            ast::Statement::FunctionDef { name, args, body } => {
+            ast::StatementType::FunctionDef { name, args, body } => {
                 // Create bytecode for this function:
                 self.code_object_stack.push(CodeObject::new(args.to_vec()));
                 self.compile_statements(body);
@@ -257,7 +257,7 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Statement::ClassDef { name, body, args } => {
+            ast::StatementType::ClassDef { name, body, args } => {
                 self.emit(Instruction::LoadBuildClass);
                 self.code_object_stack
                     .push(CodeObject::new(vec![String::from("__locals__")]));
@@ -300,7 +300,7 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Statement::Assert { test, msg } => {
+            ast::StatementType::Assert { test, msg } => {
                 // TODO: if some flag, ignore all assert statements!
 
                 self.compile_expression(test);
@@ -323,13 +323,13 @@ impl Compiler {
                 }
                 self.set_label(end_label);
             }
-            ast::Statement::Break => {
+            ast::StatementType::Break => {
                 self.emit(Instruction::Break);
             }
-            ast::Statement::Continue => {
+            ast::StatementType::Continue => {
                 self.emit(Instruction::Continue);
             }
-            ast::Statement::Return { value } => {
+            ast::StatementType::Return { value } => {
                 match value {
                     Some(e) => {
                         let size = e.len();
@@ -349,14 +349,14 @@ impl Compiler {
 
                 self.emit(Instruction::ReturnValue);
             }
-            ast::Statement::Assign { targets, value } => {
+            ast::StatementType::Assign { targets, value } => {
                 self.compile_expression(value);
 
                 for target in targets {
                     self.compile_store(target);
                 }
             }
-            ast::Statement::AugAssign { target, op, value } => {
+            ast::StatementType::AugAssign { target, op, value } => {
                 self.compile_expression(target);
                 self.compile_expression(value);
 
@@ -364,11 +364,11 @@ impl Compiler {
                 self.compile_op(op);
                 self.compile_store(target);
             }
-            ast::Statement::Delete { targets: _ } => {
+            ast::StatementType::Delete { targets: _ } => {
                 // TODO: Remove the given names from the scope
                 // self.emit(Instruction::DeleteName);
             }
-            ast::Statement::Pass => {
+            ast::StatementType::Pass => {
                 self.emit(Instruction::Pass);
             }
         }

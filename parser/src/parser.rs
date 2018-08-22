@@ -88,14 +88,17 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Program {
-                statements: vec![ast::Statement::Expression {
-                    expression: ast::Expression::Call {
-                        function: Box::new(ast::Expression::Identifier {
-                            name: String::from("print"),
-                        }),
-                        args: vec![ast::Expression::String {
-                            value: String::from("Hello world"),
-                        },],
+                statements: vec![ast::Statement {
+                    location: ast::Location::new(1, 1),
+                    statement: ast::StatementType::Expression {
+                        expression: ast::Expression::Call {
+                            function: Box::new(ast::Expression::Identifier {
+                                name: String::from("print"),
+                            }),
+                            args: vec![ast::Expression::String {
+                                value: String::from("Hello world"),
+                            },],
+                        },
                     },
                 },],
             }
@@ -109,19 +112,22 @@ mod tests {
         assert_eq!(
             parse_ast,
             ast::Program {
-                statements: vec![ast::Statement::Expression {
-                    expression: ast::Expression::Call {
-                        function: Box::new(ast::Expression::Identifier {
-                            name: String::from("print"),
-                        }),
-                        args: vec![
-                            ast::Expression::String {
-                                value: String::from("Hello world"),
-                            },
-                            ast::Expression::Number {
-                                value: ast::Number::Integer { value: 2 },
-                            },
-                        ],
+                statements: vec![ast::Statement {
+                    location: ast::Location::new(1, 1),
+                    statement: ast::StatementType::Expression {
+                        expression: ast::Expression::Call {
+                            function: Box::new(ast::Expression::Identifier {
+                                name: String::from("print"),
+                            }),
+                            args: vec![
+                                ast::Expression::String {
+                                    value: String::from("Hello world"),
+                                },
+                                ast::Expression::Number {
+                                    value: ast::Number::Integer { value: 2 },
+                                },
+                            ],
+                        },
                     },
                 },],
             }
@@ -134,30 +140,45 @@ mod tests {
         let parse_ast = parse_statement(&source).unwrap();
         assert_eq!(
             parse_ast,
-            ast::Statement::If {
-                test: ast::Expression::Number {
-                    value: ast::Number::Integer { value: 1 },
-                },
-                body: vec![ast::Statement::Expression {
-                    expression: ast::Expression::Number {
-                        value: ast::Number::Integer { value: 10 },
-                    },
-                },],
-                orelse: Some(vec![ast::Statement::If {
+            ast::Statement {
+                location: ast::Location::new(1, 1),
+                statement: ast::StatementType::If {
                     test: ast::Expression::Number {
-                        value: ast::Number::Integer { value: 2 },
+                        value: ast::Number::Integer { value: 1 },
                     },
-                    body: vec![ast::Statement::Expression {
-                        expression: ast::Expression::Number {
-                            value: ast::Number::Integer { value: 20 },
+                    body: vec![ast::Statement {
+                        location: ast::Location::new(1, 7),
+                        statement: ast::StatementType::Expression {
+                            expression: ast::Expression::Number {
+                                value: ast::Number::Integer { value: 10 },
+                            }
                         },
                     },],
-                    orelse: Some(vec![ast::Statement::Expression {
-                        expression: ast::Expression::Number {
-                            value: ast::Number::Integer { value: 30 },
-                        },
+                    orelse: Some(vec![ast::Statement {
+                        location: ast::Location::new(2, 1),
+                        statement: ast::StatementType::If {
+                            test: ast::Expression::Number {
+                                value: ast::Number::Integer { value: 2 },
+                            },
+                            body: vec![ast::Statement {
+                                location: ast::Location::new(2, 9),
+                                statement: ast::StatementType::Expression {
+                                    expression: ast::Expression::Number {
+                                        value: ast::Number::Integer { value: 20 },
+                                    },
+                                },
+                            },],
+                            orelse: Some(vec![ast::Statement {
+                                location: ast::Location::new(3, 7),
+                                statement: ast::StatementType::Expression {
+                                    expression: ast::Expression::Number {
+                                        value: ast::Number::Integer { value: 30 },
+                                    },
+                                },
+                            },]),
+                        }
                     },]),
-                },]),
+                }
             }
         );
     }
@@ -168,18 +189,21 @@ mod tests {
         let parse_ast = parse_statement(&source);
         assert_eq!(
             parse_ast,
-            Ok(ast::Statement::Expression {
-                expression: ast::Expression::Lambda {
-                    args: vec![String::from("x"), String::from("y")],
-                    body: Box::new(ast::Expression::Binop {
-                        a: Box::new(ast::Expression::Identifier {
-                            name: String::from("x"),
-                        }),
-                        op: ast::Operator::Mult,
-                        b: Box::new(ast::Expression::Identifier {
-                            name: String::from("y"),
+            Ok(ast::Statement {
+                location: ast::Location::new(1, 1),
+                statement: ast::StatementType::Expression {
+                    expression: ast::Expression::Lambda {
+                        args: vec![String::from("x"), String::from("y")],
+                        body: Box::new(ast::Expression::Binop {
+                            a: Box::new(ast::Expression::Identifier {
+                                name: String::from("x"),
+                            }),
+                            op: ast::Operator::Mult,
+                            b: Box::new(ast::Expression::Identifier {
+                                name: String::from("y"),
+                            })
                         })
-                    })
+                    }
                 }
             })
         )
@@ -190,14 +214,23 @@ mod tests {
         let source = String::from("class Foo(A, B):\n def __init__(self):\n  pass\n");
         assert_eq!(
             parse_statement(&source),
-            Ok(ast::Statement::ClassDef {
-                name: String::from("Foo"),
-                args: vec![String::from("A"), String::from("B")],
-                body: vec![ast::Statement::FunctionDef {
-                    name: String::from("__init__"),
-                    args: vec![String::from("self")],
-                    body: vec![ast::Statement::Pass],
-                }],
+            Ok(ast::Statement {
+                location: ast::Location::new(1, 1),
+                statement: ast::StatementType::ClassDef {
+                    name: String::from("Foo"),
+                    args: vec![String::from("A"), String::from("B")],
+                    body: vec![ast::Statement {
+                        location: ast::Location::new(2, 2),
+                        statement: ast::StatementType::FunctionDef {
+                            name: String::from("__init__"),
+                            args: vec![String::from("self")],
+                            body: vec![ast::Statement {
+                                location: ast::Location::new(3, 3),
+                                statement: ast::StatementType::Pass,
+                            }],
+                        }
+                    }],
+                }
             })
         )
     }

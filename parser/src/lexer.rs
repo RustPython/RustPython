@@ -18,7 +18,7 @@ pub enum LexicalError {
     StringError,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Location {
     row: usize,
     column: usize,
@@ -49,6 +49,9 @@ impl<'input> Lexer<'input> {
         };
         lxr.next_char();
         lxr.next_char();
+        // Start at top row (=1) left column (=1)
+        lxr.location.row = 1;
+        lxr.location.column = 1;
         lxr
     }
 
@@ -137,9 +140,11 @@ impl<'input> Lexer<'input> {
             self.next_char();
             match self.chr0 {
                 Some('\n') => {
+                    self.new_line();
                     return;
                 }
                 Some('\r') => {
+                    self.new_line();
                     return;
                 }
                 Some(_) => {}
@@ -268,6 +273,11 @@ impl<'input> Lexer<'input> {
         self.location.clone()
     }
 
+    fn new_line(&mut self) {
+        self.location.row += 1;
+        self.location.column = 1;
+    }
+
     fn inner_next(&mut self) -> Option<Spanned<Tok>> {
         if !self.pending.is_empty() {
             return Some(self.pending.remove(0));
@@ -299,12 +309,14 @@ impl<'input> Lexer<'input> {
                                 self.next_char();
                             }
                             self.at_begin_of_line = true;
+                            self.new_line();
                             continue 'top_loop;
                         }
                         Some('\n') => {
                             // Empty line!
                             self.next_char();
                             self.at_begin_of_line = true;
+                            self.new_line();
                             continue 'top_loop;
                         }
                         _ => {
@@ -666,6 +678,7 @@ impl<'input> Lexer<'input> {
                     let tok_start = self.get_pos();
                     self.next_char();
                     let tok_end = self.get_pos();
+                    self.new_line();
 
                     // Depending on the nesting level, we emit newline or not:
                     if self.nesting == 0 {
@@ -679,6 +692,7 @@ impl<'input> Lexer<'input> {
                     let tok_start = self.get_pos();
                     self.next_char();
                     let tok_end = self.get_pos();
+                    self.new_line();
 
                     // Depending on the nesting level, we emit newline or not:
                     if self.nesting == 0 {
