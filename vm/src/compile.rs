@@ -12,6 +12,7 @@ use super::vm::VirtualMachine;
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
     nxt_label: usize,
+    current_source_location: ast::Location,
 }
 
 pub fn compile(
@@ -30,7 +31,7 @@ pub fn compile(
         },
         Mode::Eval => match parser::parse_statement(source) {
             Ok(statement) => {
-                if let &ast::Statement::Expression { ref expression } = &statement {
+                if let &ast::Statement::Expression { ref expression } = &statement.node {
                     compiler.compile_expression(expression);
                     compiler.emit(Instruction::ReturnValue);
                 } else {
@@ -42,7 +43,7 @@ pub fn compile(
         Mode::Single => match parser::parse_program(source) {
             Ok(ast) => {
                 for statement in ast.statements {
-                    if let &ast::Statement::Expression { ref expression } = &statement {
+                    if let &ast::Statement::Expression { ref expression } = &statement.node {
                         compiler.compile_expression(expression);
                         compiler.emit(Instruction::PrintExpr);
                     } else {
@@ -59,6 +60,7 @@ pub fn compile(
     };
 
     let code = compiler.pop_code_object();
+    trace!("Compilation completed: {:?}", code);
     Ok(PyObject::new(
         PyObjectKind::Code { code: code },
         vm.get_type(),
@@ -78,6 +80,7 @@ impl Compiler {
         Compiler {
             code_object_stack: Vec::new(),
             nxt_label: 0,
+            current_source_location: ast::Location::default(),
         }
     }
 
@@ -101,15 +104,17 @@ impl Compiler {
         self.emit(Instruction::ReturnValue);
     }
 
-    fn compile_statements(&mut self, statements: &Vec<ast::Statement>) {
+    fn compile_statements(&mut self, statements: &Vec<ast::LocatedStatement>) {
         for statement in statements {
             self.compile_statement(statement)
         }
     }
 
-    fn compile_statement(&mut self, statement: &ast::Statement) {
+    fn compile_statement(&mut self, statement: &ast::LocatedStatement) {
         trace!("Compiling {:?}", statement);
-        match statement {
+        self.set_source_location(&statement.location);
+
+        match &statement.node {
             ast::Statement::Import { import_parts } => {
                 for ast::SingleImport {
                     module,
@@ -607,6 +612,9 @@ impl Compiler {
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
         self.current_code_object().instructions.push(instruction);
+        // TODO: insert source filename
+        let location = self.current_source_location.clone();
+        self.current_code_object().locations.push(location);
     }
 
     fn current_code_object(&mut self) -> &mut CodeObject {
@@ -625,5 +633,9 @@ impl Compiler {
         let position = self.current_code_object().instructions.len();
         // assert!(label not in self.label_map)
         self.current_code_object().label_map.insert(label, position);
+    }
+
+    fn set_source_location(&mut self, location: &ast::Location) {
+        self.current_source_location = location.clone();
     }
 }

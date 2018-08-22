@@ -11,37 +11,42 @@ pub Program: ast::Program = {
 };
 
 // A file line either has a declaration, or an empty newline:
-FileLine: Option<ast::Statement> = {
+FileLine: Option<ast::LocatedStatement> = {
     <s:Statement> => Some(s),
     "\n" => None,
 };
 
-Suite: Vec<ast::Statement> = {
+Suite: Vec<ast::LocatedStatement> = {
   <s:SimpleStatement> => vec![s],
   "\n" indent <s:Statement+> dedent => s,
 };
 
-pub Statement: ast::Statement = {
+pub Statement: ast::LocatedStatement = {
   SimpleStatement,
   CompoundStatement,
 };
 
-SimpleStatement: ast::Statement = {
+SimpleStatement: ast::LocatedStatement = {
   <s:SmallStatement> "\n" => s,
   <s:SmallStatement> ";" => s,
 };
 
-SmallStatement: ast::Statement = {
+SmallStatement: ast::LocatedStatement = {
   // <e:Expression> => ast::Statement::Expression { expression: e },
   ExpressionStatement,
-  "pass" => ast::Statement::Pass,
+  <loc:@L> "pass" => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Pass,
+    }
+  },
   FlowStatement,
   ImportStatement,
   AssertStatement,
 };
 
-ExpressionStatement: ast::Statement = {
-  <e:TestList> <e2:AssignSuffix*> => {
+ExpressionStatement: ast::LocatedStatement = {
+  <loc:@L> <e:TestList> <e2:AssignSuffix*> => {
     //match e2 {
     //  None => ast::Statement::Expression { expression: e },
     //  Some(e3) => ast::Statement::Expression { expression: e },
@@ -52,21 +57,30 @@ ExpressionStatement: ast::Statement = {
        let rhs = e2.into_iter().next().unwrap();
        // ast::Expression::Tuple { elements: e2.into_iter().next().unwrap()
        let v = rhs.into_iter().next().unwrap();
-       let lhs = ast::Statement::Assign { targets: e, value: v };
+       let lhs = ast::LocatedStatement {
+         location: loc.clone(),
+         node: ast::Statement::Assign { targets: e, value: v },
+       };
       lhs
     } else {
       if e.len() > 1 {
         panic!("Not good?");
         // ast::Statement::Expression { expression: e[0] }
       } else {
-        ast::Statement::Expression { expression: e.into_iter().next().unwrap() }
+        ast::LocatedStatement {
+          location: loc.clone(),
+          node: ast::Statement::Expression { expression: e.into_iter().next().unwrap() },
+        }
       }
     }
   },
-  <e1:Test> <op:AugAssign> <e2:TestList> => {
+  <loc:@L> <e1:Test> <op:AugAssign> <e2:TestList> => {
     // TODO: this works in most cases:
     let rhs = e2.into_iter().next().unwrap();
-    ast::Statement::AugAssign { target: e1, op: op, value: rhs }
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::AugAssign { target: e1, op: op, value: rhs },
+    }
   },
 };
 
@@ -90,17 +104,34 @@ AugAssign: ast::Operator = {
   "//=" => ast::Operator::FloorDiv,
 };
 
-FlowStatement: ast::Statement = {
-  "break" => ast::Statement::Break,
-  "continue" => ast::Statement::Continue,
-  "return" <t:TestList?> => ast::Statement::Return { value: t},
+FlowStatement: ast::LocatedStatement = {
+  <loc:@L> "break" => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Break,
+    }
+  },
+  <loc:@L> "continue" => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Continue,
+    }
+  },
+  <loc:@L> "return" <t:TestList?> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Return { value: t},
+    }
+  },
   // raise
   // yield
 };
 
-ImportStatement: ast::Statement = {
-  "import" <i: Comma<ImportPart<<DottedName>>>> => {
-    ast::Statement::Import {
+ImportStatement: ast::LocatedStatement = {
+  <loc:@L> "import" <i: Comma<ImportPart<<DottedName>>>> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Import {
         import_parts: i
             .iter()
             .map(|(n, a)|
@@ -110,10 +141,13 @@ ImportStatement: ast::Statement = {
                     alias: a.clone()
                 })
             .collect()
+      },
     }
   },
-  "from" <n:DottedName> "import" <i: Comma<ImportPart<Identifier>>> => {
-    ast::Statement::Import {
+  <loc:@L> "from" <n:DottedName> "import" <i: Comma<ImportPart<Identifier>>> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Import {
         import_parts: i
             .iter()
             .map(|(i, a)|
@@ -123,6 +157,7 @@ ImportStatement: ast::Statement = {
                     alias: a.clone()
                 })
             .collect()
+      },
     }
   },
 };
@@ -136,17 +171,22 @@ DottedName: String = {
   <n:name> => n,
 };
 
-AssertStatement: ast::Statement = {
-  "assert" <t:Test> <m: ("," Test)?> => ast::Statement::Assert {
-    test: t,
-    msg: match m {
-      Some(e) => Some(e.1),
-      None => None,
+AssertStatement: ast::LocatedStatement = {
+  <loc:@L> "assert" <t:Test> <m: ("," Test)?> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Assert {
+        test: t,
+        msg: match m {
+          Some(e) => Some(e.1),
+          None => None,
+        }
+      }
     }
   },
 };
 
-CompoundStatement: ast::Statement = {
+CompoundStatement: ast::LocatedStatement = {
   IfStatement,
   WhileStatement,
   ForStatement,
@@ -155,8 +195,8 @@ CompoundStatement: ast::Statement = {
   ClassDef,
 };
 
-IfStatement: ast::Statement = {
-  "if" <t:Test> ":" <s1:Suite> <s2:("elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
+IfStatement: ast::LocatedStatement = {
+  <loc:@L> "if" <t:Test> ":" <s1:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
     // Determine last else:
     let mut last = match s3 {
       Some(s) => Some(s.2),
@@ -165,39 +205,62 @@ IfStatement: ast::Statement = {
 
     // handle elif:
     for i in s2.into_iter().rev() {
-      last = Some(vec![ast::Statement::If { test: i.1, body: i.3, orelse: last }]);
+      let x = ast::LocatedStatement {
+        location: i.0,
+        node: ast::Statement::If { test: i.2, body: i.4, orelse: last },
+      };
+      last = Some(vec![x]);
     }
 
-    ast::Statement::If { test: t, body: s1, orelse: last }
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::If { test: t, body: s1, orelse: last }
+    }
   },
 };
 
-WhileStatement: ast::Statement = {
-  "while" <e:Test> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
+WhileStatement: ast::LocatedStatement = {
+  <loc:@L> "while" <e:Test> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
     let or_else = match s2 {
       Some(s) => Some(s.2),
       None => None,
     };
-    ast::Statement::While { test: e, body: s, orelse: or_else }
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::While { test: e, body: s, orelse: or_else },
+    }
   },
 };
 
-ForStatement: ast::Statement = {
-  "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
+ForStatement: ast::LocatedStatement = {
+  <loc:@L> "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
     let or_else = match s2 {
       Some(s) => Some(s.2),
       None => None,
     };
-    ast::Statement::For { target: e, iter: t, body: s, orelse: or_else }
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::For { target: e, iter: t, body: s, orelse: or_else },
+    }
   },
 };
 
-WithStatement: ast::Statement = {
-  "with" <t:Test> "as" <_e:Expression> ":" <s:Suite> => ast::Statement::With { items: t, body: s },
+WithStatement: ast::LocatedStatement = {
+  <loc:@L> "with" <t:Test> "as" <_e:Expression> ":" <s:Suite> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::With { items: t, body: s },
+    }
+  },
 };
 
-FuncDef: ast::Statement = {
-  "def" <i:Identifier> <a:Parameters> ":" <s:Suite> => ast::Statement::FunctionDef { name: i, args: a, body: s },
+FuncDef: ast::LocatedStatement = {
+  <loc:@L> "def" <i:Identifier> <a:Parameters> ":" <s:Suite> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::FunctionDef { name: i, args: a, body: s }
+    }
+  },
 };
 
 Parameters: Vec<String> = {
@@ -208,11 +271,17 @@ TypedArgsList: Vec<String> = {
   <a: Comma<Identifier>> => a,
 };
 
-ClassDef: ast::Statement = {
-  "class" <n:Identifier> <a:Parameters?> ":" <s:Suite> => ast::Statement::ClassDef {
-	  name: n,
-	  args: a.unwrap_or(vec![]),
-	  body: s},
+ClassDef: ast::LocatedStatement = {
+  <loc:@L> "class" <n:Identifier> <a:Parameters?> ":" <s:Suite> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::ClassDef {
+          name: n,
+          args: a.unwrap_or(vec![]),
+          body: s
+      },
+    }
+  },
 };
 
 Test: ast::Expression = {
@@ -419,7 +488,7 @@ Identifier: String = <s:name> => s;
 
 // Hook external lexer:
 extern {
-    type Location = usize;
+    type Location = lexer::Location;
     type Error = lexer::LexicalError;
 
     enum lexer::Tok {

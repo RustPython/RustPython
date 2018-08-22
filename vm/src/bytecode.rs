@@ -10,6 +10,9 @@ let call_function = 0x64;
 /*
  * Primitive instruction type, which can be encoded and decoded.
  */
+extern crate rustpython_parser;
+
+use self::rustpython_parser::ast;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -17,6 +20,7 @@ use std::fmt;
 pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
+    pub locations: Vec<ast::Location>,
     pub arg_names: Vec<String>,
 }
 
@@ -25,6 +29,7 @@ impl CodeObject {
         CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
+            locations: Vec::new(),
             arg_names: arg_names,
         }
     }
@@ -172,6 +177,7 @@ impl fmt::Debug for CodeObject {
         let inst_str = self
             .instructions
             .iter()
+            .zip(self.locations.iter())
             .enumerate()
             .map(|(i, inst)| format!("Inst {}: {:?}", i, inst))
             .collect::<Vec<_>>()

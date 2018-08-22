@@ -2,12 +2,9 @@
  * Implement abstract syntax tree nodes for the python language.
  */
 
+pub use super::lexer::Location;
 /*
 #[derive(Debug)]
-pub struct Location {
-    pub row: i32,
-    pub column: i32,
-}
 
 #[derive(Debug)]
 pub struct Node {
@@ -17,7 +14,7 @@ pub struct Node {
 
 #[derive(Debug, PartialEq)]
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<LocatedStatement>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -27,6 +24,14 @@ pub struct SingleImport {
     pub symbol: Option<String>,
     pub alias: Option<String>,
 }
+
+#[derive(Debug, PartialEq)]
+pub struct Located<T> {
+    pub location: Location,
+    pub node: T,
+}
+
+pub type LocatedStatement = Located<Statement>;
 
 #[derive(Debug, PartialEq)]
 pub enum Statement {
@@ -60,27 +65,27 @@ pub enum Statement {
     },
     If {
         test: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Vec<LocatedStatement>,
+        orelse: Option<Vec<LocatedStatement>>,
     },
     While {
         test: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Vec<LocatedStatement>,
+        orelse: Option<Vec<LocatedStatement>>,
     },
     With {
         items: Expression,
-        body: Vec<Statement>,
+        body: Vec<LocatedStatement>,
     },
     For {
         target: Vec<Expression>,
         iter: Vec<Expression>,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Vec<LocatedStatement>,
+        orelse: Option<Vec<LocatedStatement>>,
     },
     ClassDef {
         name: String,
-        body: Vec<Statement>,
+        body: Vec<LocatedStatement>,
         args: Vec<String>,
         // TODO: docstring: String,
     },
@@ -88,7 +93,7 @@ pub enum Statement {
         name: String,
         args: Vec<String>,
         // docstring: String,
-        body: Vec<Statement>,
+        body: Vec<LocatedStatement>,
     },
 }
 
