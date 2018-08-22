@@ -14,7 +14,7 @@ pub struct Node {
 
 #[derive(Debug, PartialEq)]
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<LocatedStatement>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -26,13 +26,15 @@ pub struct SingleImport {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Statement {
+pub struct Located<T> {
     pub location: Location,
-    pub statement: StatementType,
+    pub node: T,
 }
 
+pub type LocatedStatement = Located<Statement>;
+
 #[derive(Debug, PartialEq)]
-pub enum StatementType {
+pub enum Statement {
     Break,
     Continue,
     Return {
@@ -63,27 +65,27 @@ pub enum StatementType {
     },
     If {
         test: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Vec<LocatedStatement>,
+        orelse: Option<Vec<LocatedStatement>>,
     },
     While {
         test: Expression,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Vec<LocatedStatement>,
+        orelse: Option<Vec<LocatedStatement>>,
     },
     With {
         items: Expression,
-        body: Vec<Statement>,
+        body: Vec<LocatedStatement>,
     },
     For {
         target: Vec<Expression>,
         iter: Vec<Expression>,
-        body: Vec<Statement>,
-        orelse: Option<Vec<Statement>>,
+        body: Vec<LocatedStatement>,
+        orelse: Option<Vec<LocatedStatement>>,
     },
     ClassDef {
         name: String,
-        body: Vec<Statement>,
+        body: Vec<LocatedStatement>,
         args: Vec<String>,
         // TODO: docstring: String,
     },
@@ -91,7 +93,7 @@ pub enum StatementType {
         name: String,
         args: Vec<String>,
         // docstring: String,
-        body: Vec<Statement>,
+        body: Vec<LocatedStatement>,
     },
 }
 
