@@ -419,7 +419,7 @@ Identifier: String = <s:name> => s;
 
 // Hook external lexer:
 extern {
-    type Location = usize;
+    type Location = lexer::Location;
     type Error = lexer::LexicalError;
 
     enum lexer::Tok {
