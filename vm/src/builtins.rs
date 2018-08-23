@@ -345,7 +345,10 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("tuple"), ctx.tuple_type.clone());
     dict.insert(String::from("type"), ctx.type_type.clone());
     dict.insert(String::from("object"), ctx.object.clone());
-    dict.insert(String::from("BaseException"), ctx.base_exception_type.clone());
+    dict.insert(
+        String::from("BaseException"),
+        ctx.base_exception_type.clone(),
+    );
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
     let scope = PyObject::new(
         PyObjectKind::Scope {

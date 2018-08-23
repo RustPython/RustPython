@@ -1,11 +1,9 @@
-
-use std::collections::HashMap;
 use super::pyobject::{PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
+use std::collections::HashMap;
 
 fn init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    // TODO: Implement objint::str
-    Ok(vm.new_str("todo".to_string()))
+    Ok(vm.get_none())
 }
 
 pub fn create_base_exception_type(type_type: PyObjectRef, object_type: PyObjectRef) -> PyObjectRef {

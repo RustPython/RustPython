@@ -235,28 +235,31 @@ impl Compiler {
                 self.set_label(end_label);
                 self.emit(Instruction::PopBlock);
             }
-            ast::Statement::Raise { expression } => {
-                match expression {
-                    Some(value) => {
-                        self.compile_expression(value);
-                        self.emit(Instruction::Raise { argc: 1 });
-                    }
-                    None => {
-                        unimplemented!();
-                    }
+            ast::Statement::Raise { expression } => match expression {
+                Some(value) => {
+                    self.compile_expression(value);
+                    self.emit(Instruction::Raise { argc: 1 });
                 }
-            }
-            ast::Statement::Try { body, handlers, orelse, finalbody } => {
+                None => {
+                    unimplemented!();
+                }
+            },
+            ast::Statement::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => {
                 let mut handler_label = self.new_label();
                 let finally_label = self.new_label();
                 let else_label = self.new_label();
                 // try:
-                self.emit(Instruction::SetupExcept { handler: handler_label});
+                self.emit(Instruction::SetupExcept {
+                    handler: handler_label,
+                });
                 self.compile_statements(body);
                 self.emit(Instruction::PopBlock);
-                self.emit(Instruction::Jump {
-                    target: else_label,
-                });
+                self.emit(Instruction::Jump { target: else_label });
 
                 // except handlers:
                 self.set_label(handler_label);
@@ -266,12 +269,19 @@ impl Compiler {
 
                     // TODO: self.emit(isinstance()) start of hack
                     self.emit(Instruction::LoadConst {
-                        value: bytecode::Constant::None,
+                        value: bytecode::Constant::Boolean { value: false },
                     });
                     // End of hack
-                    self.emit(Instruction::JumpIf { target: handler_label });
+                    self.emit(Instruction::JumpIf {
+                        target: handler_label,
+                    });
 
                     // We have a match
+                    if let Some(alias) = &handler.name {
+                        self.emit(Instruction::StoreName {
+                            name: alias.clone(),
+                        });
+                    }
                     self.compile_statements(&handler.body);
                     self.emit(Instruction::Jump {
                         target: finally_label,

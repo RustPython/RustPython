@@ -143,7 +143,7 @@ impl VirtualMachine {
             let block = self.pop_block();
             match block {
                 Some(Block::Loop { start: _, end: __ }) => break block.unwrap(),
-                Some(Block::TryExcept {}) => {}
+                Some(Block::TryExcept { .. }) => {}
                 None => panic!("No block to break / continue"),
             }
         }
@@ -154,13 +154,10 @@ impl VirtualMachine {
         loop {
             let block = self.pop_block();
             match block {
-                Some(Block::TryExcept {}) => {
-                    // Exception handled?
-                    // TODO: how do we know if the exception is handled?
-                    let is_handled = true;
-                    if is_handled {
-                        return None;
-                    }
+                Some(Block::TryExcept { handler }) => {
+                    self.push_value(exc);
+                    self.jump(&handler);
+                    return None;
                 }
                 Some(_) => {}
                 None => break,
@@ -227,14 +224,14 @@ impl VirtualMachine {
                 Some(Err(exception)) => {
                     // unwind block stack on exception and find any handlers.
                     match self.unwind_exception(exception) {
-                        None => {
-                        },
+                        None => {}
                         Some(exception) => {
-                            let _traceback = self.get_attribute(exception.clone(), &"__traceback__".to_string());
+                            // let _traceback =
+                            //    self.get_attribute(exception.clone(), &"__traceback__".to_string());
                             // TODO: append line number to traceback?
                             // traceback.append();
-                            break Err(exception)
-                        },
+                            break Err(exception);
+                        }
                     }
                 }
             }
@@ -658,6 +655,10 @@ impl VirtualMachine {
                     start: *start,
                     end: *end,
                 });
+                None
+            }
+            bytecode::Instruction::SetupExcept { handler } => {
+                self.push_block(Block::TryExcept { handler: *handler });
                 None
             }
             bytecode::Instruction::PopBlock => {

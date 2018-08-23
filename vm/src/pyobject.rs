@@ -102,7 +102,10 @@ impl PyContext {
             bound_method_type: bound_method_type,
             member_descriptor_type: member_descriptor_type,
             type_type: type_type.clone(),
-            base_exception_type: exceptions::create_base_exception_type(type_type.clone(), object_type.clone()),
+            base_exception_type: exceptions::create_base_exception_type(
+                type_type.clone(),
+                object_type.clone(),
+            ),
         };
         objtype::init(&context);
         objlist::init(&context);
