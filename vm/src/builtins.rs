@@ -196,7 +196,19 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 // builtin_int
-// builtin_isinstance
+
+fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() != 2 {
+        panic!("isinstance(s) expects exactly two parameters");
+    }
+
+    let obj = args.args[0].clone();
+    let typ = args.args[1].clone();
+
+    let isinstance = vm.isinstance(obj, typ);
+    Ok(vm.context().new_bool(isinstance))
+}
+
 // builtin_issubclass
 // builtin_iter
 
@@ -335,6 +347,10 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
     dict.insert(String::from("int"), ctx.int_type.clone());
+    dict.insert(
+        String::from("isinstance"),
+        ctx.new_rustfunc(builtin_isinstance),
+    );
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
     dict.insert(String::from("list"), ctx.list_type.clone());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));

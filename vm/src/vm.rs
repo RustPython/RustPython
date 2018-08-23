@@ -18,7 +18,7 @@ use super::objstr;
 use super::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult,
+    PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::sysmodule;
 
@@ -58,6 +58,10 @@ impl VirtualMachine {
     pub fn new_scope(&mut self) -> PyObjectRef {
         let parent_scope = self.current_frame().locals.clone();
         self.ctx.new_scope(Some(parent_scope))
+    }
+
+    pub fn isinstance(&self, obj: PyObjectRef, typ: PyObjectRef) -> bool {
+        self._is(obj.typ(), typ)
     }
 
     pub fn get_none(&self) -> PyObjectRef {
@@ -431,20 +435,18 @@ impl VirtualMachine {
         Ok(result)
     }
 
-    fn _id(&mut self, a: PyObjectRef) -> usize {
+    fn _id(&self, a: PyObjectRef) -> usize {
         a.get_id()
     }
 
-    fn _is(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
         // Pointer equal:
         let id_a = self._id(a);
         let id_b = self._id(b);
-        let result_bool = id_a == id_b;
-        let result = self.ctx.new_bool(result_bool);
-        Ok(result)
+        id_a == id_b
     }
 
-    fn _is_not(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    fn _is_not(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Pointer equal:
         let id_a = self._id(a);
         let id_b = self._id(b);
@@ -463,7 +465,7 @@ impl VirtualMachine {
             &bytecode::ComparisonOperator::LessOrEqual => self._le(a, b),
             &bytecode::ComparisonOperator::Greater => self._gt(a, b),
             &bytecode::ComparisonOperator::GreaterOrEqual => self._ge(a, b),
-            &bytecode::ComparisonOperator::Is => self._is(a, b),
+            &bytecode::ComparisonOperator::Is => Ok(self.ctx.new_bool(self._is(a, b))),
             &bytecode::ComparisonOperator::IsNot => self._is_not(a, b),
             _ => panic!("NOT IMPL {:?}", op),
         };
