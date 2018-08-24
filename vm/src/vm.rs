@@ -358,25 +358,20 @@ impl VirtualMachine {
     }
 
     fn execute_unop(&mut self, op: &bytecode::UnaryOperator) -> Option<PyResult> {
-        let a_ref = self.pop_value();
-        let a = &*a_ref.borrow();
+        let a = self.pop_value();
         let result = match op {
             &bytecode::UnaryOperator::Minus => {
                 // TODO:
                 // self.invoke('__neg__'
-                match a.kind {
+                match a.borrow().kind {
                     PyObjectKind::Integer { value: ref value1 } => Ok(self.ctx.new_int(-*value1)),
                     _ => panic!("Not impl {:?}", a),
                 }
             }
-            &bytecode::UnaryOperator::Not => {
-                // TODO:
-                // self.invoke('__neg__'
-                match a.kind {
-                    PyObjectKind::Boolean { value: ref value1 } => Ok(self.ctx.new_bool(!*value1)),
-                    _ => panic!("Not impl {:?}", a),
-                }
-            }
+            &bytecode::UnaryOperator::Not => match objbool::boolval(self, a) {
+                Ok(result) => Ok(self.ctx.new_bool(!result)),
+                Err(err) => Err(err),
+            },
             _ => panic!("Not impl {:?}", op),
         };
         match result {

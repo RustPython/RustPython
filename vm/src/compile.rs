@@ -570,6 +570,7 @@ impl Compiler {
                 // Perform operation:
                 let i = match op {
                     ast::UnaryOperator::Neg => bytecode::UnaryOperator::Minus,
+                    ast::UnaryOperator::Not => bytecode::UnaryOperator::Not,
                 };
                 let i = Instruction::UnaryOperation { op: i };
                 self.emit(i);
