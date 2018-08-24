@@ -50,6 +50,8 @@ pub struct PyContext {
     pub none: PyObjectRef,
     pub dict_type: PyObjectRef,
     pub int_type: PyObjectRef,
+    pub float_type: PyObjectRef,
+    pub bool_type: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub str_type: PyObjectRef,
@@ -110,7 +112,9 @@ impl PyContext {
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
         let int_type = create_type("int", &type_type, &object_type, &dict_type);
+        let float_type = create_type("float", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
+        let bool_type = create_type("bool", &type_type, &object_type, &dict_type);
 
         let base_exception_type =
             create_type("BaseException", &type_type, &object_type, &dict_type);
@@ -122,7 +126,9 @@ impl PyContext {
 
         let context = PyContext {
             int_type: int_type,
+            float_type: float_type,
             list_type: list_type,
+            bool_type: bool_type,
             tuple_type: tuple_type,
             dict_type: dict_type,
             none: none,
@@ -152,7 +158,7 @@ impl PyContext {
     }
 
     pub fn new_float(&self, i: f64) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Float { value: i }, self.type_type.clone())
+        PyObject::new(PyObjectKind::Float { value: i }, self.float_type.clone())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
@@ -160,7 +166,7 @@ impl PyContext {
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Boolean { value: b }, self.type_type.clone())
+        PyObject::new(PyObjectKind::Boolean { value: b }, self.bool_type.clone())
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
