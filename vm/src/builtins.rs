@@ -307,25 +307,6 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_sorted
 // builtin_staticmethod
 
-// TODO: should with following format
-// class str(object='')
-// class str(object=b'', encoding='utf-8', errors='strict')
-fn builtin_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 1 {
-        panic!("str expects exactly one parameter");
-    };
-    let s = match args.args[0].borrow().kind {
-        PyObjectKind::Integer { value: _ } | PyObjectKind::String { value: _ } => {
-            args.args[0].borrow().str()
-        }
-        _ => {
-            return Err(vm
-                .context()
-                .new_str("TypeError: object of this type cannot be converted to str".to_string()))
-        }
-    };
-    Ok(vm.new_str(s))
-}
 // builtin_sum
 // builtin_super
 // builtin_vars
@@ -357,7 +338,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
     dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
-    dict.insert(String::from("str"), ctx.new_rustfunc(builtin_str));
+    dict.insert(String::from("str"), ctx.str_type.clone()); // new_rustfunc(builtin_str));
     dict.insert(String::from("tuple"), ctx.tuple_type.clone());
     dict.insert(String::from("type"), ctx.type_type.clone());
     dict.insert(String::from("object"), ctx.object.clone());

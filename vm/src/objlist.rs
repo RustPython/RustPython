@@ -1,10 +1,8 @@
 use super::objsequence::PySliceableSequence;
-use super::objtype;
 use super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
 };
 use super::vm::VirtualMachine;
-use std::collections::HashMap;
 
 // set_item:
 pub fn set_item(
@@ -89,16 +87,6 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         Err(vm.new_exception("list.reverse requires one arguments".to_string()))
     }
-}
-
-pub fn create_type(type_type: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-    let dict = PyObject::new(
-        PyObjectKind::Dict {
-            elements: HashMap::new(),
-        },
-        type_type.clone(),
-    );
-    objtype::new(type_type.clone(), "list", vec![object.clone()], dict).unwrap()
 }
 
 pub fn init(context: &PyContext) {
