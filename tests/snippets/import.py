@@ -13,6 +13,12 @@ assert import_target.Y == aliased.Y
 assert import_target.X == aliased_func()
 assert import_target.Y == aliased_other_func()
 
+# TODO: Once we can determine current directory, use that to construct this
+# path:
+#import sys
+#sys.path.append("snippets/import_directory")
+#import nested_target
+
 #try:
 #    X
 #except NameError:

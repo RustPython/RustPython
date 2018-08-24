@@ -78,12 +78,9 @@ def run_via_rustpython(filename, test_type):
     log_level = 'info' if test_type == _TestType.benchmark else 'trace'
     env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
     env['RUST_BACKTRACE'] = '1'
-    # XXX: Once we support PYTHONPATH (or similar), we should use that instead
-    # of changing directory
-    cwd = os.path.dirname(filename)
-    with pushd(RUSTPYTHON_RUNNER_DIR):
-        subprocess.check_call(
-            ['cargo', 'run', '--release', filename], env=env, cwd=cwd)
+    env['PYTHONPATH'] = os.path.dirname(filename)
+    subprocess.check_call(
+        ['cargo', 'run', '--release', filename], env=env)
 
 
 def create_test_function(cls, filename, method, test_type):
