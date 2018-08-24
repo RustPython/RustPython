@@ -23,6 +23,7 @@ mod objstr;
 mod objtype;
 pub mod pyobject;
 mod sysmodule;
+mod traceback;
 mod vm;
 
 // pub use self::pyobject::Executor;

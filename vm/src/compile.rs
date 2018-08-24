@@ -423,6 +423,7 @@ impl Compiler {
                         self.emit(Instruction::CallFunction { count: 0 });
                     }
                 }
+                self.emit(Instruction::Raise { argc: 1 });
                 self.set_label(end_label);
             }
             ast::Statement::Break => {

@@ -354,10 +354,26 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("tuple"), ctx.tuple_type.clone());
     dict.insert(String::from("type"), ctx.type_type.clone());
     dict.insert(String::from("object"), ctx.object.clone());
+
+    // Exceptions:
     dict.insert(
         String::from("BaseException"),
         ctx.base_exception_type.clone(),
     );
+    let exception_type = ctx.new_class(&String::from("Exception"), ctx.base_exception_type.clone());
+    dict.insert(String::from("Exception"), exception_type.clone());
+    let assertion_error = ctx.new_class(&String::from("AssertionError"), exception_type.clone());
+    dict.insert(String::from("AssertionError"), assertion_error);
+    let attribute_error = ctx.new_class(&String::from("AttributeError"), exception_type.clone());
+    dict.insert(String::from("AttributeError"), attribute_error);
+    let name_error = ctx.new_class(&String::from("NameError"), exception_type.clone());
+    dict.insert(String::from("NameError"), name_error);
+    let runtime_error = ctx.new_class(&String::from("RuntimeError"), exception_type.clone());
+    dict.insert(String::from("RuntimeError"), runtime_error.clone());
+    let not_implemented_error =
+        ctx.new_class(&String::from("NotImplementedError"), runtime_error.clone());
+    dict.insert(String::from("NotImplementedError"), not_implemented_error);
+
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
     let scope = PyObject::new(
         PyObjectKind::Scope {

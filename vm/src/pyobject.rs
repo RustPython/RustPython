@@ -194,6 +194,10 @@ impl PyContext {
         )
     }
 
+    pub fn new_class(&self, name: &String, base: PyObjectRef) -> PyObjectRef {
+        objtype::new(self.type_type.clone(), name, vec![base], self.new_dict()).unwrap()
+    }
+
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
         let locals = self.new_dict();
         let scope = Scope {
