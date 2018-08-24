@@ -5,6 +5,7 @@ use super::objfunction;
 use super::objint;
 use super::objlist;
 use super::objobject;
+use super::objstr;
 use super::objtype;
 use super::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -139,6 +140,7 @@ impl PyContext {
         objdict::init(&context);
         objfunction::init(&context);
         objint::init(&context);
+        objstr::init(&context);
         exceptions::init(&context);
         // TODO: create exception hierarchy here?
         // exceptions::create_zoo(&context);
@@ -154,7 +156,7 @@ impl PyContext {
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(PyObjectKind::String { value: s }, self.type_type.clone())
+        PyObject::new(PyObjectKind::String { value: s }, self.str_type.clone())
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
