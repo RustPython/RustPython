@@ -83,6 +83,15 @@ pub enum Statement {
         body: Vec<LocatedStatement>,
         orelse: Option<Vec<LocatedStatement>>,
     },
+    Raise {
+        expression: Option<Expression>,
+    },
+    Try {
+        body: Vec<LocatedStatement>,
+        handlers: Vec<ExceptHandler>,
+        orelse: Option<Vec<LocatedStatement>>,
+        finalbody: Option<Vec<LocatedStatement>>,
+    },
     ClassDef {
         name: String,
         body: Vec<LocatedStatement>,
@@ -158,6 +167,13 @@ pub enum Expression {
     True,
     False,
     None,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ExceptHandler {
+    pub typ: Option<Expression>,
+    pub name: Option<String>,
+    pub body: Vec<LocatedStatement>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

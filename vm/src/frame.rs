@@ -12,7 +12,7 @@ pub enum Block {
     // TODO: Remove this allow once TryExcept is in use
     #[allow(dead_code)]
     // TODO: Implement try/except blocks
-    TryExcept,
+    TryExcept { handler: bytecode::Label },
 }
 
 pub struct Frame {

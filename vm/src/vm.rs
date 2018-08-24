@@ -18,7 +18,7 @@ use super::objstr;
 use super::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult,
+    PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::sysmodule;
 
@@ -58,6 +58,10 @@ impl VirtualMachine {
     pub fn new_scope(&mut self) -> PyObjectRef {
         let parent_scope = self.current_frame().locals.clone();
         self.ctx.new_scope(Some(parent_scope))
+    }
+
+    pub fn isinstance(&self, obj: PyObjectRef, typ: PyObjectRef) -> bool {
+        self._is(obj.typ(), typ)
     }
 
     pub fn get_none(&self) -> PyObjectRef {
@@ -143,7 +147,7 @@ impl VirtualMachine {
             let block = self.pop_block();
             match block {
                 Some(Block::Loop { start: _, end: __ }) => break block.unwrap(),
-                Some(Block::TryExcept {}) => {}
+                Some(Block::TryExcept { .. }) => {}
                 None => panic!("No block to break / continue"),
             }
         }
@@ -154,13 +158,10 @@ impl VirtualMachine {
         loop {
             let block = self.pop_block();
             match block {
-                Some(Block::TryExcept {}) => {
-                    // Exception handled?
-                    // TODO: how do we know if the exception is handled?
-                    let is_handled = true;
-                    if is_handled {
-                        return None;
-                    }
+                Some(Block::TryExcept { handler }) => {
+                    self.push_value(exc);
+                    self.jump(&handler);
+                    return None;
                 }
                 Some(_) => {}
                 None => break,
@@ -228,7 +229,13 @@ impl VirtualMachine {
                     // unwind block stack on exception and find any handlers.
                     match self.unwind_exception(exception) {
                         None => {}
-                        Some(exception) => break Err(exception),
+                        Some(exception) => {
+                            // let _traceback =
+                            //    self.get_attribute(exception.clone(), &"__traceback__".to_string());
+                            // TODO: append line number to traceback?
+                            // traceback.append();
+                            break Err(exception);
+                        }
                     }
                 }
             }
@@ -428,20 +435,18 @@ impl VirtualMachine {
         Ok(result)
     }
 
-    fn _id(&mut self, a: PyObjectRef) -> usize {
+    fn _id(&self, a: PyObjectRef) -> usize {
         a.get_id()
     }
 
-    fn _is(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
         // Pointer equal:
         let id_a = self._id(a);
         let id_b = self._id(b);
-        let result_bool = id_a == id_b;
-        let result = self.ctx.new_bool(result_bool);
-        Ok(result)
+        id_a == id_b
     }
 
-    fn _is_not(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    fn _is_not(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Pointer equal:
         let id_a = self._id(a);
         let id_b = self._id(b);
@@ -460,7 +465,7 @@ impl VirtualMachine {
             &bytecode::ComparisonOperator::LessOrEqual => self._le(a, b),
             &bytecode::ComparisonOperator::Greater => self._gt(a, b),
             &bytecode::ComparisonOperator::GreaterOrEqual => self._ge(a, b),
-            &bytecode::ComparisonOperator::Is => self._is(a, b),
+            &bytecode::ComparisonOperator::Is => Ok(self.ctx.new_bool(self._is(a, b))),
             &bytecode::ComparisonOperator::IsNot => self._is_not(a, b),
             _ => panic!("NOT IMPL {:?}", op),
         };
@@ -654,6 +659,10 @@ impl VirtualMachine {
                 });
                 None
             }
+            bytecode::Instruction::SetupExcept { handler } => {
+                self.push_block(Block::TryExcept { handler: *handler });
+                None
+            }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();
                 None
@@ -760,7 +769,7 @@ impl VirtualMachine {
                     0 | 2 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                error!("{:?}", exception);
+                info!("Exception raised: {:?}", exception);
                 Some(Err(exception))
             }
 

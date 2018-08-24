@@ -235,6 +235,81 @@ impl Compiler {
                 self.set_label(end_label);
                 self.emit(Instruction::PopBlock);
             }
+            ast::Statement::Raise { expression } => match expression {
+                Some(value) => {
+                    self.compile_expression(value);
+                    self.emit(Instruction::Raise { argc: 1 });
+                }
+                None => {
+                    unimplemented!();
+                }
+            },
+            ast::Statement::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => {
+                let mut handler_label = self.new_label();
+                let finally_label = self.new_label();
+                let else_label = self.new_label();
+                // try:
+                self.emit(Instruction::SetupExcept {
+                    handler: handler_label,
+                });
+                self.compile_statements(body);
+                self.emit(Instruction::PopBlock);
+                self.emit(Instruction::Jump { target: else_label });
+
+                // except handlers:
+                self.set_label(handler_label);
+                handler_label = self.new_label();
+                for handler in handlers {
+                    // Check if this handler can handle the exception:
+
+                    // TODO: self.emit(isinstance()) start of hack
+                    self.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::Boolean { value: false },
+                    });
+                    // End of hack
+                    self.emit(Instruction::JumpIf {
+                        target: handler_label,
+                    });
+
+                    // We have a match
+                    if let Some(alias) = &handler.name {
+                        self.emit(Instruction::StoreName {
+                            name: alias.clone(),
+                        });
+                    }
+                    self.compile_statements(&handler.body);
+                    self.emit(Instruction::Jump {
+                        target: finally_label,
+                    });
+
+                    // Emit a new label for the next handler
+                    self.set_label(handler_label);
+                    handler_label = self.new_label();
+                }
+                self.emit(Instruction::Jump {
+                    target: handler_label,
+                });
+
+                // We successfully ran the try block:
+                // else:
+                self.set_label(else_label);
+                if let Some(statements) = orelse {
+                    self.compile_statements(statements);
+                }
+
+                // finally:
+                self.set_label(finally_label);
+                if let Some(statements) = finalbody {
+                    self.compile_statements(statements);
+                }
+
+                // unimplemented!();
+            }
             ast::Statement::FunctionDef { name, args, body } => {
                 // Create bytecode for this function:
                 self.code_object_stack.push(CodeObject::new(args.to_vec()));

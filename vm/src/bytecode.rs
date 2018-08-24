@@ -93,6 +93,9 @@ pub enum Instruction {
         start: Label,
         end: Label,
     },
+    SetupExcept {
+        handler: Label,
+    },
     PopBlock,
     Raise {
         argc: usize,
