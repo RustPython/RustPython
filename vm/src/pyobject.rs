@@ -1,5 +1,6 @@
 use super::bytecode;
 use super::exceptions;
+use super::objbool;
 use super::objdict;
 use super::objfunction;
 use super::objint;
@@ -147,6 +148,7 @@ impl PyContext {
         objfunction::init(&context);
         objint::init(&context);
         objstr::init(&context);
+        objbool::init(&context);
         exceptions::init(&context);
         // TODO: create exception hierarchy here?
         // exceptions::create_zoo(&context);
@@ -456,6 +458,10 @@ pub struct PyFuncArgs {
 }
 
 impl PyFuncArgs {
+    pub fn new() -> PyFuncArgs {
+        PyFuncArgs { args: vec![] }
+    }
+
     pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
         let mut args = PyFuncArgs {
             args: self.args.clone(),
@@ -852,6 +858,7 @@ impl PartialEq for PyObject {
                     false
                 }
             }
+            (PyObjectKind::Boolean { value: a }, PyObjectKind::Boolean { value: b }) => a == b,
             _ => panic!(
                 "TypeError in COMPARE_OP: can't compare {:?} with {:?}",
                 self, other

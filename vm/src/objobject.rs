@@ -32,6 +32,7 @@ pub fn init(context: &PyContext) {
     let ref object = context.object;
     object.set_attr("__new__", context.new_rustfunc(new_instance));
     object.set_attr("__dict__", context.new_member_descriptor(object_dict));
+    object.set_attr("__bool__", context.new_rustfunc(object_bool));
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -40,4 +41,8 @@ fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectKind::Instance { ref dict, .. } => Ok(dict.clone()),
         _ => Err(vm.new_exception("TypeError: no dictionary.".to_string())),
     }
+}
+
+fn object_bool(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.context().new_bool(true))
 }

@@ -45,11 +45,23 @@ fn dir_object(vm: &mut VirtualMachine, _obj: PyObjectRef) -> PyObjectRef {
 // builtin_abs
 
 fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    Ok(vm.new_bool(args.args.into_iter().all(|e| objbool::boolval(e))))
+    for item in args.args {
+        let result = objbool::boolval(vm, item)?;
+        if !result {
+            return Ok(vm.new_bool(false));
+        }
+    }
+    Ok(vm.new_bool(true))
 }
 
 fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    Ok(vm.new_bool(args.args.into_iter().any(|e| objbool::boolval(e))))
+    for item in args.args {
+        let result = objbool::boolval(vm, item)?;
+        if result {
+            return Ok(vm.new_bool(true));
+        }
+    }
+    Ok(vm.new_bool(false))
 }
 
 // builtin_ascii
@@ -318,9 +330,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let mut dict = HashMap::new();
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
+    dict.insert(String::from("bool"), ctx.bool_type.clone());
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
-    // TODO: can we just insert dict here?
     dict.insert(String::from("dict"), ctx.dict_type.clone());
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
