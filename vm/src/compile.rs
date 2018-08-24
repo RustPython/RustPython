@@ -517,10 +517,7 @@ impl Compiler {
             _ => {
                 // If all else fail, fall back to simple checking of boolean value:
                 self.compile_expression(expression);
-                self.emit(Instruction::UnaryOperation {
-                    op: bytecode::UnaryOperator::Not,
-                });
-                self.emit(Instruction::JumpIf { target: not_label });
+                self.emit(Instruction::JumpIfFalse { target: not_label });
             }
         }
     }

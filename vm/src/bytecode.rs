@@ -83,6 +83,9 @@ pub enum Instruction {
     JumpIf {
         target: Label,
     },
+    JumpIfFalse {
+        target: Label,
+    },
     MakeFunction,
     CallFunction {
         count: usize,

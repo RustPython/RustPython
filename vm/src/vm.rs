@@ -758,6 +758,19 @@ impl VirtualMachine {
                 }
             }
 
+            bytecode::Instruction::JumpIfFalse { target } => {
+                let obj = self.pop_value();
+                match objbool::boolval(self, obj) {
+                    Ok(value) => {
+                        if !value {
+                            self.jump(target);
+                        }
+                        None
+                    }
+                    Err(value) => Some(Err(value)),
+                }
+            }
+
             bytecode::Instruction::Raise { argc } => {
                 let exception = match argc {
                     1 => self.pop_value(),
