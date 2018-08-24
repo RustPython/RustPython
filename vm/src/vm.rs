@@ -197,7 +197,7 @@ impl VirtualMachine {
         let mut scope = self.current_frame().locals.clone();
         loop {
             if scope.contains_key(name) {
-                let obj = scope.get_item(name);
+                let obj = scope.get_item(name).unwrap();
                 self.push_value(obj);
                 break None;
             } else if scope.has_parent() {

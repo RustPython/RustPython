@@ -15,9 +15,9 @@ use super::vm::VirtualMachine;
 
 fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
     // First, see if we already loaded the module:
-    let sys_modules = vm.sys_module.get_item(&"modules".to_string());
-    if sys_modules.contains_key(module) {
-        return Ok(sys_modules.get_item(module));
+    let sys_modules = vm.sys_module.get_item("modules").unwrap();
+    if let Some(module) = sys_modules.get_item(module) {
+        return Ok(module);
     }
 
     // Time to search for module in any place:
@@ -50,7 +50,7 @@ pub fn import(vm: &mut VirtualMachine, module: &String, symbol: &Option<String>)
     // If we're importing a symbol, look it up and use it, otherwise construct a module and return
     // that
     let obj = match symbol {
-        Some(symbol) => scope.get_item(symbol),
+        Some(symbol) => scope.get_item(symbol).unwrap(),
         None => PyObject::new(
             PyObjectKind::Module {
                 name: module.clone(),

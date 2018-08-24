@@ -19,10 +19,6 @@ pub fn call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     vm.invoke(function, args)
 }
 
-fn noop(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.get_none())
-}
-
 pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
     (*object_type.borrow_mut()).kind = PyObjectKind::Class {
         name: String::from("object"),
@@ -35,5 +31,13 @@ pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, dict_type
 pub fn init(context: &PyContext) {
     let ref object = context.object;
     object.set_attr("__new__", context.new_rustfunc(new_instance));
-    object.set_attr("__init__", context.new_rustfunc(noop));
+    object.set_attr("__dict__", context.new_member_descriptor(object_dict));
+}
+
+fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    match args.args[0].borrow().kind {
+        PyObjectKind::Class { ref dict, .. } => Ok(dict.clone()),
+        PyObjectKind::Instance { ref dict, .. } => Ok(dict.clone()),
+        _ => Err(vm.new_exception("TypeError: no dictionary.".to_string())),
+    }
 }
