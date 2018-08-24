@@ -263,25 +263,44 @@ impl Compiler {
 
                 // except handlers:
                 self.set_label(handler_label);
+                // Exception is on top of stack now
                 handler_label = self.new_label();
                 for handler in handlers {
-                    // Check if this handler can handle the exception:
+                    // If we gave a typ,
+                    // check if this handler can handle the exception:
+                    if let Some(exc_type) = &handler.typ {
+                        // Duplicate exception for test:
+                        self.emit(Instruction::Duplicate);
 
-                    // TODO: self.emit(isinstance()) start of hack
-                    self.emit(Instruction::LoadConst {
-                        value: bytecode::Constant::Boolean { value: false },
-                    });
-                    // End of hack
-                    self.emit(Instruction::JumpIf {
-                        target: handler_label,
-                    });
-
-                    // We have a match
-                    if let Some(alias) = &handler.name {
-                        self.emit(Instruction::StoreName {
-                            name: alias.clone(),
+                        // Check exception type:
+                        self.emit(Instruction::LoadName {
+                            name: String::from("isinstance"),
                         });
+                        self.emit(Instruction::Rotate { amount: 2 });
+                        self.compile_expression(exc_type);
+                        self.emit(Instruction::CallFunction { count: 2 });
+
+                        // We cannot handle this exception type:
+                        self.emit(Instruction::JumpIfFalse {
+                            target: handler_label,
+                        });
+
+                        // We have a match, store in name (except x as y)
+                        if let Some(alias) = &handler.name {
+                            self.emit(Instruction::StoreName {
+                                name: alias.clone(),
+                            });
+                        } else {
+                            // Drop exception from top of stack:
+                            self.emit(Instruction::Pop);
+                        }
+                    } else {
+                        // Catch all!
+                        // Drop exception from top of stack:
+                        self.emit(Instruction::Pop);
                     }
+
+                    // Handler code:
                     self.compile_statements(&handler.body);
                     self.emit(Instruction::Jump {
                         target: finally_label,
@@ -294,6 +313,9 @@ impl Compiler {
                 self.emit(Instruction::Jump {
                     target: handler_label,
                 });
+                // If code flows here, we have an unhandled exception,
+                // raise again!
+                self.emit(Instruction::Raise { argc: 1 });
 
                 // We successfully ran the try block:
                 // else:

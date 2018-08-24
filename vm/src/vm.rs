@@ -583,6 +583,36 @@ impl VirtualMachine {
                 self.pop_value();
                 None
             }
+            bytecode::Instruction::Duplicate => {
+                // Duplicate top of stack
+                let value = self.pop_value();
+                self.push_value(value.clone());
+                self.push_value(value);
+                None
+            }
+            bytecode::Instruction::Rotate { amount } => {
+                // Shuffles top of stack amount down
+                if amount < &2 {
+                    panic!("Can only rotate two or more values");
+                }
+
+                let mut values = Vec::new();
+
+                // Pop all values from stack:
+                for _ in 0..*amount {
+                    values.push(self.pop_value());
+                }
+
+                // Push top of stack back first:
+                self.push_value(values.remove(0));
+
+                // Push other value back in order:
+                values.reverse();
+                for value in values {
+                    self.push_value(value);
+                }
+                None
+            }
             bytecode::Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(*size);
                 let list_obj = self.context().new_list(elements);
@@ -832,7 +862,6 @@ impl VirtualMachine {
                 }
                 None
             }
-            _ => panic!("NOT IMPL {:?}", instruction),
         }
     }
 
