@@ -1,6 +1,6 @@
 use super::objtype;
 use super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
 };
 use super::vm::VirtualMachine;
 
@@ -14,7 +14,7 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
         PyObjectKind::Dict { ref elements } => !elements.is_empty(),
         PyObjectKind::String { ref value } => !value.is_empty(),
         _ => {
-            let f = objtype::get_attribute(vm, obj.typ(), &String::from("__bool__"))?;
+            let f = objtype::get_attribute(vm, obj.clone(), &String::from("__bool__"))?;
             match vm.invoke(f, PyFuncArgs::new()) {
                 Ok(result) => match result.borrow().kind {
                     PyObjectKind::Boolean { value } => value,

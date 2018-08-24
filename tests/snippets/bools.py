@@ -22,3 +22,9 @@ if not {} and not [1]:
 
 if not object():
     raise BaseException
+
+class Falsey:
+    def __bool__(self):
+        return False
+
+assert not Falsey()
