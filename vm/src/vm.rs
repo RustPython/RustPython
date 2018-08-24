@@ -12,6 +12,7 @@ use super::builtins;
 use super::bytecode;
 use super::frame::{copy_code, Block, Frame};
 use super::import::import;
+use super::objbool;
 use super::objlist;
 use super::objobject;
 use super::objstr;
@@ -746,21 +747,15 @@ impl VirtualMachine {
             }
             bytecode::Instruction::JumpIf { target } => {
                 let obj = self.pop_value();
-                // TODO: determine if this value is True-ish:
-                //if *v == NativeType::Boolean(true) {
-                //    curr_frame.lasti = curr_frame.labels.get(target).unwrap().clone();
-                //}
-                let x = obj.borrow();
-                let result: bool = match x.kind {
-                    PyObjectKind::Boolean { ref value } => *value,
-                    _ => {
-                        panic!("Not impl {:?}", x);
+                match objbool::boolval(self, obj) {
+                    Ok(value) => {
+                        if value {
+                            self.jump(target);
+                        }
+                        None
                     }
-                };
-                if result {
-                    self.jump(target);
+                    Err(value) => Some(Err(value)),
                 }
-                None
             }
 
             bytecode::Instruction::Raise { argc } => {
