@@ -836,8 +836,12 @@ impl PartialEq for PyObject {
                 PyObjectKind::Integer { value: ref v1i },
                 PyObjectKind::Integer { value: ref v2i },
             ) => v2i == v1i,
-            (PyObjectKind::Float { value: ref v1i }, PyObjectKind::Float { value: ref v2i }) => {
-                v2i == v1i
+            (PyObjectKind::Float { value: a }, PyObjectKind::Float { value: b }) => a == b,
+            (PyObjectKind::Integer { value: a }, PyObjectKind::Float { value: b }) => {
+                *a as f64 == *b
+            }
+            (PyObjectKind::Float { value: a }, PyObjectKind::Integer { value: b }) => {
+                *a == *b as f64
             }
             (PyObjectKind::String { value: ref v1i }, PyObjectKind::String { value: ref v2i }) => {
                 *v2i == *v1i
