@@ -202,6 +202,7 @@ pub enum BooleanOperator {
 #[derive(Debug, PartialEq, Clone)]
 pub enum UnaryOperator {
     Neg,
+    Not,
 }
 
 #[derive(Debug, PartialEq, Clone)]

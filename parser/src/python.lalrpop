@@ -353,6 +353,7 @@ AndTest: ast::Expression = {
 };
 
 NotTest: ast::Expression = {
+  "not" <e:NotTest> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Not },
   <e:Comparison> => e,
 };
 

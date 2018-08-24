@@ -12,6 +12,7 @@ use super::builtins;
 use super::bytecode;
 use super::frame::{copy_code, Block, Frame};
 use super::import::import;
+use super::objbool;
 use super::objlist;
 use super::objobject;
 use super::objstr;
@@ -357,25 +358,20 @@ impl VirtualMachine {
     }
 
     fn execute_unop(&mut self, op: &bytecode::UnaryOperator) -> Option<PyResult> {
-        let a_ref = self.pop_value();
-        let a = &*a_ref.borrow();
+        let a = self.pop_value();
         let result = match op {
             &bytecode::UnaryOperator::Minus => {
                 // TODO:
                 // self.invoke('__neg__'
-                match a.kind {
+                match a.borrow().kind {
                     PyObjectKind::Integer { value: ref value1 } => Ok(self.ctx.new_int(-*value1)),
                     _ => panic!("Not impl {:?}", a),
                 }
             }
-            &bytecode::UnaryOperator::Not => {
-                // TODO:
-                // self.invoke('__neg__'
-                match a.kind {
-                    PyObjectKind::Boolean { value: ref value1 } => Ok(self.ctx.new_bool(!*value1)),
-                    _ => panic!("Not impl {:?}", a),
-                }
-            }
+            &bytecode::UnaryOperator::Not => match objbool::boolval(self, a) {
+                Ok(result) => Ok(self.ctx.new_bool(!result)),
+                Err(err) => Err(err),
+            },
             _ => panic!("Not impl {:?}", op),
         };
         match result {
@@ -746,21 +742,28 @@ impl VirtualMachine {
             }
             bytecode::Instruction::JumpIf { target } => {
                 let obj = self.pop_value();
-                // TODO: determine if this value is True-ish:
-                //if *v == NativeType::Boolean(true) {
-                //    curr_frame.lasti = curr_frame.labels.get(target).unwrap().clone();
-                //}
-                let x = obj.borrow();
-                let result: bool = match x.kind {
-                    PyObjectKind::Boolean { ref value } => *value,
-                    _ => {
-                        panic!("Not impl {:?}", x);
+                match objbool::boolval(self, obj) {
+                    Ok(value) => {
+                        if value {
+                            self.jump(target);
+                        }
+                        None
                     }
-                };
-                if result {
-                    self.jump(target);
+                    Err(value) => Some(Err(value)),
                 }
-                None
+            }
+
+            bytecode::Instruction::JumpIfFalse { target } => {
+                let obj = self.pop_value();
+                match objbool::boolval(self, obj) {
+                    Ok(value) => {
+                        if !value {
+                            self.jump(target);
+                        }
+                        None
+                    }
+                    Err(value) => Some(Err(value)),
+                }
             }
 
             bytecode::Instruction::Raise { argc } => {

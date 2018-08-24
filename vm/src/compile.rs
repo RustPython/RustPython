@@ -517,10 +517,7 @@ impl Compiler {
             _ => {
                 // If all else fail, fall back to simple checking of boolean value:
                 self.compile_expression(expression);
-                self.emit(Instruction::UnaryOperation {
-                    op: bytecode::UnaryOperator::Not,
-                });
-                self.emit(Instruction::JumpIf { target: not_label });
+                self.emit(Instruction::JumpIfFalse { target: not_label });
             }
         }
     }
@@ -573,6 +570,7 @@ impl Compiler {
                 // Perform operation:
                 let i = match op {
                     ast::UnaryOperator::Neg => bytecode::UnaryOperator::Minus,
+                    ast::UnaryOperator::Not => bytecode::UnaryOperator::Not,
                 };
                 let i = Instruction::UnaryOperation { op: i };
                 self.emit(i);

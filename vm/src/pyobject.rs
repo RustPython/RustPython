@@ -1,5 +1,6 @@
 use super::bytecode;
 use super::exceptions;
+use super::objbool;
 use super::objdict;
 use super::objfunction;
 use super::objint;
@@ -147,6 +148,7 @@ impl PyContext {
         objfunction::init(&context);
         objint::init(&context);
         objstr::init(&context);
+        objbool::init(&context);
         exceptions::init(&context);
         // TODO: create exception hierarchy here?
         // exceptions::create_zoo(&context);
@@ -456,6 +458,10 @@ pub struct PyFuncArgs {
 }
 
 impl PyFuncArgs {
+    pub fn new() -> PyFuncArgs {
+        PyFuncArgs { args: vec![] }
+    }
+
     pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
         let mut args = PyFuncArgs {
             args: self.args.clone(),
@@ -794,8 +800,8 @@ impl<'a> Div<&'a PyObject> for &'a PyObject {
     fn div(self, rhs: &'a PyObject) -> Self::Output {
         match (&self.kind, &rhs.kind) {
             (PyObjectKind::Integer { value: value1 }, PyObjectKind::Integer { value: value2 }) => {
-                PyObjectKind::Integer {
-                    value: value1 / value2,
+                PyObjectKind::Float {
+                    value: *value1 as f64 / *value2 as f64,
                 }
             }
             _ => {
@@ -830,8 +836,12 @@ impl PartialEq for PyObject {
                 PyObjectKind::Integer { value: ref v1i },
                 PyObjectKind::Integer { value: ref v2i },
             ) => v2i == v1i,
-            (PyObjectKind::Float { value: ref v1i }, PyObjectKind::Float { value: ref v2i }) => {
-                v2i == v1i
+            (PyObjectKind::Float { value: a }, PyObjectKind::Float { value: b }) => a == b,
+            (PyObjectKind::Integer { value: a }, PyObjectKind::Float { value: b }) => {
+                *a as f64 == *b
+            }
+            (PyObjectKind::Float { value: a }, PyObjectKind::Integer { value: b }) => {
+                *a == *b as f64
             }
             (PyObjectKind::String { value: ref v1i }, PyObjectKind::String { value: ref v2i }) => {
                 *v2i == *v1i
@@ -852,6 +862,7 @@ impl PartialEq for PyObject {
                     false
                 }
             }
+            (PyObjectKind::Boolean { value: a }, PyObjectKind::Boolean { value: b }) => a == b,
             _ => panic!(
                 "TypeError in COMPARE_OP: can't compare {:?} with {:?}",
                 self, other
