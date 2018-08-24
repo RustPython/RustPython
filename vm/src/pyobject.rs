@@ -51,6 +51,7 @@ pub struct PyContext {
     pub int_type: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
+    pub str_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
@@ -75,6 +76,21 @@ fn _nothing() -> PyObjectRef {
     }.into_ref()
 }
 
+fn create_type(
+    name: &str,
+    type_type: &PyObjectRef,
+    object: &PyObjectRef,
+    dict_type: &PyObjectRef,
+) -> PyObjectRef {
+    let dict = PyObject::new(
+        PyObjectKind::Dict {
+            elements: HashMap::new(),
+        },
+        dict_type.clone(),
+    );
+    objtype::new(type_type.clone(), name, vec![object.clone()], dict).unwrap()
+}
+
 // Basic objects:
 impl PyContext {
     pub fn new() -> PyContext {
@@ -86,31 +102,44 @@ impl PyContext {
         objobject::create_object(type_type.clone(), object_type.clone(), dict_type.clone());
         objdict::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
 
-        let function_type = objfunction::create_type(type_type.clone());
-        let bound_method_type = objfunction::create_bound_method_type(type_type.clone());
+        let function_type = create_type("function", &type_type, &object_type, &dict_type);
+        let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
-            objfunction::create_member_descriptor_type(type_type.clone(), object_type.clone());
+            create_type("member_descriptor", &type_type, &object_type, &dict_type);
+        let str_type = create_type("str", &type_type, &object_type, &dict_type);
+        let list_type = create_type("list", &type_type, &object_type, &dict_type);
+        let int_type = create_type("int", &type_type, &object_type, &dict_type);
+        let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
+
+        let base_exception_type =
+            create_type("BaseException", &type_type, &object_type, &dict_type);
+
+        let none = PyObject::new(
+            PyObjectKind::None,
+            create_type("NoneType", &type_type, &object_type, &dict_type),
+        );
 
         let context = PyContext {
-            int_type: objint::create_type(type_type.clone()),
-            list_type: objlist::create_type(type_type.clone(), object_type.clone()),
-            tuple_type: type_type.clone(),
-            dict_type: dict_type.clone(),
-            none: PyObject::new(PyObjectKind::None, type_type.clone()),
-            object: object_type.clone(),
+            int_type: int_type,
+            list_type: list_type,
+            tuple_type: tuple_type,
+            dict_type: dict_type,
+            none: none,
+            str_type: str_type,
+            object: object_type,
             function_type: function_type,
             bound_method_type: bound_method_type,
             member_descriptor_type: member_descriptor_type,
-            type_type: type_type.clone(),
-            base_exception_type: exceptions::create_base_exception_type(
-                type_type.clone(),
-                object_type.clone(),
-            ),
+            type_type: type_type,
+            base_exception_type: base_exception_type,
         };
         objtype::init(&context);
         objlist::init(&context);
         objobject::init(&context);
         objdict::init(&context);
+        objfunction::init(&context);
+        objint::init(&context);
+        exceptions::init(&context);
         // TODO: create exception hierarchy here?
         // exceptions::create_zoo(&context);
         context
