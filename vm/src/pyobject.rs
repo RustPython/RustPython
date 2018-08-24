@@ -800,8 +800,8 @@ impl<'a> Div<&'a PyObject> for &'a PyObject {
     fn div(self, rhs: &'a PyObject) -> Self::Output {
         match (&self.kind, &rhs.kind) {
             (PyObjectKind::Integer { value: value1 }, PyObjectKind::Integer { value: value2 }) => {
-                PyObjectKind::Integer {
-                    value: value1 / value2,
+                PyObjectKind::Float {
+                    value: *value1 as f64 / *value2 as f64,
                 }
             }
             _ => {
