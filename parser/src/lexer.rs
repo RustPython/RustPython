@@ -228,6 +228,9 @@ impl<'input> Lexer<'input> {
                         }
                     } else {
                         if c == '\n' {
+                            if !triple_quoted {
+                                return Err(LexicalError::StringError);
+                            }
                             self.new_line();
                         }
                         string_content.push(c);
