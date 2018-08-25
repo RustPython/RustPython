@@ -773,28 +773,22 @@ impl VirtualMachine {
             }
             bytecode::Instruction::JumpIf { target } => {
                 let obj = self.pop_value();
-                match objbool::boolval(self, obj) {
-                    Ok(value) => {
-                        if value {
-                            self.jump(target);
-                        }
-                        None
-                    }
-                    Err(value) => Some(Err(value)),
-                }
+                self.jump_if(target, obj, true, false)
             }
 
             bytecode::Instruction::JumpIfFalse { target } => {
                 let obj = self.pop_value();
-                match objbool::boolval(self, obj) {
-                    Ok(value) => {
-                        if !value {
-                            self.jump(target);
-                        }
-                        None
-                    }
-                    Err(value) => Some(Err(value)),
-                }
+                self.jump_if(target, obj, false, false)
+            }
+
+            bytecode::Instruction::JumpIfOrPop { target } => {
+                let obj = self.last_value();
+                self.jump_if(target, obj, true, true)
+            }
+
+            bytecode::Instruction::JumpIfFalseOrPop { target } => {
+                let obj = self.last_value();
+                self.jump_if(target, obj, false, true)
             }
 
             bytecode::Instruction::Raise { argc } => {
@@ -876,6 +870,26 @@ impl VirtualMachine {
                 }
                 None
             }
+        }
+    }
+
+    fn jump_if(
+        &mut self,
+        label: &bytecode::Label,
+        obj: PyObjectRef,
+        jump_on: bool,
+        or_pop: bool,
+    ) -> Option<PyResult> {
+        match objbool::boolval(self, obj) {
+            Ok(value) => {
+                if value == jump_on {
+                    self.jump(label);
+                } else if or_pop {
+                    self.pop_value();
+                }
+                None
+            }
+            Err(value) => Some(Err(value)),
         }
     }
 

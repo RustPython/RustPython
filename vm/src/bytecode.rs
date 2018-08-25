@@ -83,7 +83,13 @@ pub enum Instruction {
     JumpIf {
         target: Label,
     },
+    JumpIfOrPop {
+        target: Label,
+    },
     JumpIfFalse {
+        target: Label,
+    },
+    JumpIfFalseOrPop {
         target: Label,
     },
     MakeFunction,
