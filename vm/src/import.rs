@@ -21,7 +21,8 @@ fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
     }
 
     // Time to search for module in any place:
-    let filepath = find_source(module).map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
+    let filepath =
+        find_source(vm, module).map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
     let source = parser::read_file(filepath.as_path())
         .map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
 
@@ -62,14 +63,29 @@ pub fn import(vm: &mut VirtualMachine, module: &String, symbol: &Option<String>)
     Ok(obj)
 }
 
-fn find_source(name: &String) -> io::Result<PathBuf> {
-    let suffixes = [".py", "/__init__.py"];
-    let filepaths = suffixes
-        .iter()
-        .map(|suffix| format!("{}{}", name, suffix))
-        .map(|filename| PathBuf::from(filename));
+fn find_source(vm: &VirtualMachine, name: &String) -> io::Result<PathBuf> {
+    let sys_path = vm.sys_module.get_item("path").unwrap();
+    let paths: Vec<PathBuf> = match sys_path.borrow().kind {
+        PyObjectKind::List { ref elements } => elements
+            .iter()
+            .filter_map(|item| match item.borrow().kind {
+                PyObjectKind::String { ref value } => Some(PathBuf::from(value)),
+                _ => None,
+            }).collect(),
+        _ => panic!("sys.path unexpectedly not a list"),
+    };
 
-    match filepaths.filter(|p| p.exists()).next() {
+    let suffixes = [".py", "/__init__.py"];
+    let mut filepaths = vec![];
+    for path in paths {
+        for suffix in suffixes.iter() {
+            let mut filepath = path.clone();
+            filepath.push(format!("{}{}", name, suffix));
+            filepaths.push(filepath);
+        }
+    }
+
+    match filepaths.iter().filter(|p| p.exists()).next() {
         Some(path) => Ok(path.to_path_buf()),
         None => Err(io::Error::new(
             NotFound,
