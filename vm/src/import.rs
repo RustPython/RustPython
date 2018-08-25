@@ -70,7 +70,7 @@ pub fn import(vm: &mut VirtualMachine, module: &String, symbol: &Option<String>)
 
 fn find_source(vm: &VirtualMachine, name: &String) -> io::Result<PathBuf> {
     let sys_path = vm.sys_module.get_item("path").unwrap();
-    let paths: Vec<PathBuf> = match sys_path.borrow().kind {
+    let mut paths: Vec<PathBuf> = match sys_path.borrow().kind {
         PyObjectKind::List { ref elements } => elements
             .iter()
             .filter_map(|item| match item.borrow().kind {
@@ -79,6 +79,19 @@ fn find_source(vm: &VirtualMachine, name: &String) -> io::Result<PathBuf> {
             }).collect(),
         _ => panic!("sys.path unexpectedly not a list"),
     };
+
+    let source_path = &vm.current_frame().code.source_path;
+    paths.insert(
+        0,
+        match source_path {
+            Some(source_path) => {
+                let mut source_pathbuf = PathBuf::from(source_path);
+                source_pathbuf.pop();
+                source_pathbuf
+            }
+            None => PathBuf::from("."),
+        },
+    );
 
     let suffixes = [".py", "/__init__.py"];
     let mut filepaths = vec![];
