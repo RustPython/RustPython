@@ -204,11 +204,9 @@ impl VirtualMachine {
             } else if scope.has_parent() {
                 scope = scope.get_parent();
             } else {
-                let name_error = PyObject::new(
-                    PyObjectKind::NameError {
-                        name: name.to_string(),
-                    },
-                    self.get_type(),
+                let name_error = self.context().new_instance(
+                    self.context().new_dict(),
+                    self.context().exceptions.name_error.clone(),
                 );
                 break Some(Err(name_error));
             }
@@ -583,6 +581,36 @@ impl VirtualMachine {
                 self.pop_value();
                 None
             }
+            bytecode::Instruction::Duplicate => {
+                // Duplicate top of stack
+                let value = self.pop_value();
+                self.push_value(value.clone());
+                self.push_value(value);
+                None
+            }
+            bytecode::Instruction::Rotate { amount } => {
+                // Shuffles top of stack amount down
+                if amount < &2 {
+                    panic!("Can only rotate two or more values");
+                }
+
+                let mut values = Vec::new();
+
+                // Pop all values from stack:
+                for _ in 0..*amount {
+                    values.push(self.pop_value());
+                }
+
+                // Push top of stack back first:
+                self.push_value(values.remove(0));
+
+                // Push other value back in order:
+                values.reverse();
+                for value in values {
+                    self.push_value(value);
+                }
+                None
+            }
             bytecode::Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(*size);
                 let list_obj = self.context().new_list(elements);
@@ -772,8 +800,23 @@ impl VirtualMachine {
                     0 | 2 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                info!("Exception raised: {:?}", exception);
-                Some(Err(exception))
+                if self.isinstance(
+                    exception.clone(),
+                    self.context().exceptions.base_exception_type.clone(),
+                ) {
+                    info!("Exception raised: {:?}", exception);
+                    Some(Err(exception))
+                } else {
+                    Some(Err(exception))
+                    // TODO: enable this when isinstance works properly:
+                    /*
+                    info!(
+                        "Can only raise BaseException derived types: {:?}",
+                        exception
+                    );
+                    let type_error = self.context().exceptions.type_error.clone();
+                    Some(Err(type_error))
+                    */                }
             }
 
             bytecode::Instruction::Break => {
@@ -832,7 +875,6 @@ impl VirtualMachine {
                 }
                 None
             }
-            _ => panic!("NOT IMPL {:?}", instruction),
         }
     }
 

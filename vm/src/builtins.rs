@@ -354,10 +354,39 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("tuple"), ctx.tuple_type.clone());
     dict.insert(String::from("type"), ctx.type_type.clone());
     dict.insert(String::from("object"), ctx.object.clone());
+
+    // Exceptions:
     dict.insert(
         String::from("BaseException"),
-        ctx.base_exception_type.clone(),
+        ctx.exceptions.base_exception_type.clone(),
     );
+    dict.insert(
+        String::from("Exception"),
+        ctx.exceptions.exception_type.clone(),
+    );
+    dict.insert(
+        String::from("AssertionError"),
+        ctx.exceptions.assertion_error.clone(),
+    );
+    dict.insert(
+        String::from("AttributeError"),
+        ctx.exceptions.attribute_error.clone(),
+    );
+    dict.insert(String::from("NameError"), ctx.exceptions.name_error.clone());
+    dict.insert(
+        String::from("RuntimeError"),
+        ctx.exceptions.runtime_error.clone(),
+    );
+    dict.insert(
+        String::from("NotImplementedError"),
+        ctx.exceptions.not_implemented_error.clone(),
+    );
+    dict.insert(String::from("TypeError"), ctx.exceptions.type_error.clone());
+    dict.insert(
+        String::from("ValueError"),
+        ctx.exceptions.value_error.clone(),
+    );
+
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
     let scope = PyObject::new(
         PyObjectKind::Scope {

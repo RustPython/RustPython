@@ -252,7 +252,7 @@ ForStatement: ast::LocatedStatement = {
 };
 
 TryStatement: ast::LocatedStatement = {
-  <loc:@L> "try" ":" <body:Suite> <handlers:ExceptClause+> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
+  <loc:@L> "try" ":" <body:Suite> <handlers:ExceptClause*> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
     let or_else = match else_suite {
       Some(s) => Some(s.2),
       None => None,

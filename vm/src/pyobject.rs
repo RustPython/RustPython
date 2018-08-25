@@ -60,7 +60,7 @@ pub struct PyContext {
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
     pub object: PyObjectRef,
-    pub base_exception_type: PyObjectRef,
+    pub exceptions: exceptions::ExceptionZoo,
 }
 
 /*
@@ -80,7 +80,7 @@ fn _nothing() -> PyObjectRef {
     }.into_ref()
 }
 
-fn create_type(
+pub fn create_type(
     name: &str,
     type_type: &PyObjectRef,
     object: &PyObjectRef,
@@ -97,7 +97,7 @@ fn create_type(
 
 // Basic objects:
 impl PyContext {
-    pub fn new() -> PyContext {
+    pub fn new() -> Self {
         let type_type = _nothing();
         let object_type = _nothing();
         let dict_type = _nothing();
@@ -116,9 +116,7 @@ impl PyContext {
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &object_type, &dict_type);
-
-        let base_exception_type =
-            create_type("BaseException", &type_type, &object_type, &dict_type);
+        let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
             PyObjectKind::None,
@@ -139,7 +137,7 @@ impl PyContext {
             bound_method_type: bound_method_type,
             member_descriptor_type: member_descriptor_type,
             type_type: type_type,
-            base_exception_type: base_exception_type,
+            exceptions: exceptions,
         };
         objtype::init(&context);
         objlist::init(&context);
@@ -192,6 +190,10 @@ impl PyContext {
             },
             self.dict_type.clone(),
         )
+    }
+
+    pub fn new_class(&self, name: &String, base: PyObjectRef) -> PyObjectRef {
+        objtype::new(self.type_type.clone(), name, vec![base], self.new_dict()).unwrap()
     }
 
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
