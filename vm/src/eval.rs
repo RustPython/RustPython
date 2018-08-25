@@ -5,7 +5,7 @@ use super::pyobject::{PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 
 pub fn eval(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> PyResult {
-    match compile::compile(vm, source, compile::Mode::Eval) {
+    match compile::compile(vm, source, compile::Mode::Eval, None) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)

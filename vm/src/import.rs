@@ -26,7 +26,12 @@ fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
     let source = parser::read_file(filepath.as_path())
         .map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
 
-    let code_obj = match compile::compile(vm, &source, compile::Mode::Exec) {
+    let code_obj = match compile::compile(
+        vm,
+        &source,
+        compile::Mode::Exec,
+        Some(filepath.to_str().unwrap().to_string()),
+    ) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             bytecode

@@ -22,15 +22,17 @@ pub struct CodeObject {
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<ast::Location>,
     pub arg_names: Vec<String>,
+    pub source_path: Option<String>,
 }
 
 impl CodeObject {
-    pub fn new(arg_names: Vec<String>) -> CodeObject {
+    pub fn new(arg_names: Vec<String>, source_path: Option<String>) -> CodeObject {
         CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
             locations: Vec::new(),
             arg_names: arg_names,
+            source_path: source_path,
         }
     }
 }

@@ -19,9 +19,10 @@ pub fn compile(
     vm: &mut VirtualMachine,
     source: &String,
     mode: Mode,
+    source_path: Option<String>,
 ) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
-    compiler.push_new_code_object();
+    compiler.push_new_code_object(source_path);
     match mode {
         Mode::Exec => match parser::parse_program(source) {
             Ok(ast) => {
@@ -84,8 +85,9 @@ impl Compiler {
         }
     }
 
-    fn push_new_code_object(&mut self) {
-        self.code_object_stack.push(CodeObject::new(Vec::new()));
+    fn push_new_code_object(&mut self, source_path: Option<String>) {
+        self.code_object_stack
+            .push(CodeObject::new(Vec::new(), source_path.clone()));
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
@@ -341,7 +343,8 @@ impl Compiler {
             }
             ast::Statement::FunctionDef { name, args, body } => {
                 // Create bytecode for this function:
-                self.code_object_stack.push(CodeObject::new(args.to_vec()));
+                self.code_object_stack
+                    .push(CodeObject::new(args.to_vec(), None));
                 self.compile_statements(body);
 
                 // Emit None at end:
@@ -369,7 +372,7 @@ impl Compiler {
             ast::Statement::ClassDef { name, body, args } => {
                 self.emit(Instruction::LoadBuildClass);
                 self.code_object_stack
-                    .push(CodeObject::new(vec![String::from("__locals__")]));
+                    .push(CodeObject::new(vec![String::from("__locals__")], None));
                 self.emit(Instruction::LoadName {
                     name: String::from("__locals__"),
                 });
@@ -694,7 +697,8 @@ impl Compiler {
                 });
             }
             ast::Expression::Lambda { args, body } => {
-                self.code_object_stack.push(CodeObject::new(args.to_vec()));
+                self.code_object_stack
+                    .push(CodeObject::new(args.to_vec(), None));
                 self.compile_expression(body);
                 self.emit(Instruction::ReturnValue);
                 let code = self.code_object_stack.pop().unwrap();
