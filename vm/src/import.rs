@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use self::rustpython_parser::parser;
 use super::compile;
 use super::pyobject::{DictProtocol, PyObject, PyObjectKind, PyResult};
+use super::stdlib;
 use super::vm::VirtualMachine;
 
 fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
@@ -20,8 +21,14 @@ fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
         return Ok(module);
     }
 
+    // Check for Rust-native modules
+    if let Some(module) = stdlib::get_modules(vm).get(module) {
+        return Ok(module.clone());
+    }
+
     // TODO: introduce import error:
     let import_error = vm.context().exceptions.exception_type.clone();
+
     // Time to search for module in any place:
     let filepath = find_source(vm, module)
         .map_err(|e| vm.new_exception(import_error.clone(), format!("Error: {:?}", e)))?;
