@@ -227,6 +227,9 @@ impl<'input> Lexer<'input> {
                             break;
                         }
                     } else {
+                        if c == '\n' {
+                            self.new_line();
+                        }
                         string_content.push(c);
                     }
                 }
