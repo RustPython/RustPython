@@ -140,11 +140,9 @@ impl<'input> Lexer<'input> {
             self.next_char();
             match self.chr0 {
                 Some('\n') => {
-                    self.new_line();
                     return;
                 }
                 Some('\r') => {
-                    self.new_line();
                     return;
                 }
                 Some(_) => {}
