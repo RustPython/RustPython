@@ -72,7 +72,8 @@ pub fn get_item(
                 let obj = elements[pos_index].clone();
                 Ok(obj)
             } else {
-                Err(vm.new_exception("Index out of bounds!".to_string()))
+                let value_error = vm.context().exceptions.value_error.clone();
+                Err(vm.new_exception(value_error, "Index out of bounds!".to_string()))
             }
         }
         PyObjectKind::Slice {
@@ -91,7 +92,7 @@ pub fn get_item(
             },
             vm.get_type(),
         )),
-        _ => Err(vm.new_exception(format!(
+        _ => Err(vm.new_type_error(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
             sequence, subscript
         ))),

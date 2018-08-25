@@ -34,10 +34,10 @@ fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             elements.push(o);
             Ok(vm.get_none())
         } else {
-            Err(vm.new_exception("list.append is called with no list".to_string()))
+            Err(vm.new_type_error("list.append is called with no list".to_string()))
         }
     } else {
-        Err(vm.new_exception("list.append requires two arguments".to_string()))
+        Err(vm.new_type_error("list.append requires two arguments".to_string()))
     }
 }
 
@@ -50,10 +50,10 @@ fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             elements.clear();
             Ok(vm.get_none())
         } else {
-            Err(vm.new_exception("list.clear is called with no list".to_string()))
+            Err(vm.new_type_error("list.clear is called with no list".to_string()))
         }
     } else {
-        Err(vm.new_exception("list.clear requires one arguments".to_string()))
+        Err(vm.new_type_error("list.clear requires one arguments".to_string()))
     }
 }
 
@@ -66,10 +66,10 @@ fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         if let PyObjectKind::List { ref elements } = list_obj.kind {
             Ok(vm.context().new_int(elements.len() as i32))
         } else {
-            Err(vm.new_exception("list.len is called with no list".to_string()))
+            Err(vm.new_type_error("list.len is called with no list".to_string()))
         }
     } else {
-        Err(vm.new_exception("list.len requires one arguments".to_string()))
+        Err(vm.new_type_error("list.len requires one arguments".to_string()))
     }
 }
 
@@ -82,10 +82,10 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             elements.reverse();
             Ok(vm.get_none())
         } else {
-            Err(vm.new_exception("list.reverse is called with no list".to_string()))
+            Err(vm.new_type_error("list.reverse is called with no list".to_string()))
         }
     } else {
-        Err(vm.new_exception("list.reverse requires one arguments".to_string()))
+        Err(vm.new_type_error("list.reverse requires one arguments".to_string()))
     }
 }
 

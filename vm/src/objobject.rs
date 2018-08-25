@@ -39,7 +39,7 @@ fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match args.args[0].borrow().kind {
         PyObjectKind::Class { ref dict, .. } => Ok(dict.clone()),
         PyObjectKind::Instance { ref dict, .. } => Ok(dict.clone()),
-        _ => Err(vm.new_exception("TypeError: no dictionary.".to_string())),
+        _ => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
     }
 }
 

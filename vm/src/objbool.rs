@@ -18,7 +18,7 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
             match vm.invoke(f, PyFuncArgs::new()) {
                 Ok(result) => match result.borrow().kind {
                     PyObjectKind::Boolean { value } => value,
-                    _ => return Err(vm.new_exception(String::from("TypeError"))),
+                    _ => return Err(vm.new_type_error(String::from("TypeError"))),
                 },
                 Err(err) => return Err(err),
             }

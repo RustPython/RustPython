@@ -19,7 +19,7 @@ use super::objstr;
 use super::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyObjectKind, PyObjectRef, PyResult,
 };
 use super::sysmodule;
 
@@ -52,17 +52,25 @@ impl VirtualMachine {
         self.ctx.new_dict()
     }
 
-    pub fn new_exception(&self, msg: String) -> PyObjectRef {
-        self.new_str(msg)
+    pub fn new_exception(&mut self, exc_type: PyObjectRef, msg: String) -> PyObjectRef {
+        // TODO: maybe there is a clearer way to create an instance:
+        info!("New exception created: {}", msg);
+        let args: Vec<PyObjectRef> = Vec::new();
+        let args = PyFuncArgs { args: args };
+
+        // Call function:
+        let exception = self.invoke(exc_type, args).unwrap();
+        exception
+    }
+
+    pub fn new_type_error(&mut self, msg: String) -> PyObjectRef {
+        let type_error = self.context().exceptions.type_error.clone();
+        self.new_exception(type_error, msg)
     }
 
     pub fn new_scope(&mut self) -> PyObjectRef {
         let parent_scope = self.current_frame().locals.clone();
         self.ctx.new_scope(Some(parent_scope))
-    }
-
-    pub fn isinstance(&self, obj: PyObjectRef, typ: PyObjectRef) -> bool {
-        self._is(obj.typ(), typ)
     }
 
     pub fn get_none(&self) -> PyObjectRef {
@@ -252,7 +260,7 @@ impl VirtualMachine {
             PyObjectKind::List { ref elements } | PyObjectKind::Tuple { ref elements } => {
                 super::objsequence::get_item(self, &a, elements, b)
             }
-            _ => Err(self.new_exception(format!(
+            _ => Err(self.new_type_error(format!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
                 a, b
             ))),
@@ -268,7 +276,7 @@ impl VirtualMachine {
             PyObjectKind::List { ref mut elements } => {
                 objlist::set_item(self, elements, idx, value)
             }
-            _ => Err(self.new_exception(format!(
+            _ => Err(self.new_type_error(format!(
                 "TypeError: __setitem__ assign type {:?} with index {:?} is not supported (yet?)",
                 obj, idx
             ))),
@@ -435,16 +443,11 @@ impl VirtualMachine {
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
         // Pointer equal:
-        let id_a = self._id(a);
-        let id_b = self._id(b);
-        id_a == id_b
+        a.is(&b)
     }
 
     fn _is_not(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        // Pointer equal:
-        let id_a = self._id(a);
-        let id_b = self._id(b);
-        let result_bool = id_a != id_b;
+        let result_bool = !a.is(&b);
         let result = self.ctx.new_bool(result_bool);
         Ok(result)
     }
@@ -800,23 +803,21 @@ impl VirtualMachine {
                     0 | 2 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                if self.isinstance(
+                if objtype::isinstance(
                     exception.clone(),
                     self.context().exceptions.base_exception_type.clone(),
                 ) {
                     info!("Exception raised: {:?}", exception);
                     Some(Err(exception))
                 } else {
-                    Some(Err(exception))
-                    // TODO: enable this when isinstance works properly:
-                    /*
-                    info!(
-                        "Can only raise BaseException derived types: {:?}",
+                    let msg = format!(
+                        "Can only raise BaseException derived types, not {:?}",
                         exception
                     );
-                    let type_error = self.context().exceptions.type_error.clone();
+                    let type_error_type = self.context().exceptions.type_error.clone();
+                    let type_error = self.new_exception(type_error_type, msg);
                     Some(Err(type_error))
-                    */                }
+                }
             }
 
             bytecode::Instruction::Break => {

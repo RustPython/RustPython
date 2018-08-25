@@ -72,3 +72,13 @@ except NameError as ex:
     l.append(3)
     print('boom', type(ex))
 assert l == [1, 3]
+
+
+l = []
+try:
+    l.append(1)
+    raise 1
+except TypeError as ex:
+    l.append(3)
+    print('boom', type(ex))
+assert l == [1, 3]
