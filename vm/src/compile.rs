@@ -313,8 +313,15 @@ impl Compiler {
                 self.emit(Instruction::Jump {
                     target: handler_label,
                 });
+                self.set_label(handler_label);
                 // If code flows here, we have an unhandled exception,
-                // raise again!
+                // emit finally code and raise again!
+                // Duplicate finally code here:
+                // TODO: this bytecode is now duplicate, could this be
+                // improved?
+                if let Some(statements) = finalbody {
+                    self.compile_statements(statements);
+                }
                 self.emit(Instruction::Raise { argc: 1 });
 
                 // We successfully ran the try block:

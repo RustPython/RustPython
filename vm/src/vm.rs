@@ -204,11 +204,9 @@ impl VirtualMachine {
             } else if scope.has_parent() {
                 scope = scope.get_parent();
             } else {
-                let name_error = PyObject::new(
-                    PyObjectKind::NameError {
-                        name: name.to_string(),
-                    },
-                    self.get_type(),
+                let name_error = self.context().new_instance(
+                    self.context().new_dict(),
+                    self.context().exceptions.name_error.clone(),
                 );
                 break Some(Err(name_error));
             }
@@ -802,8 +800,23 @@ impl VirtualMachine {
                     0 | 2 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                info!("Exception raised: {:?}", exception);
-                Some(Err(exception))
+                if self.isinstance(
+                    exception.clone(),
+                    self.context().exceptions.base_exception_type.clone(),
+                ) {
+                    info!("Exception raised: {:?}", exception);
+                    Some(Err(exception))
+                } else {
+                    Some(Err(exception))
+                    // TODO: enable this when isinstance works properly:
+                    /*
+                    info!(
+                        "Can only raise BaseException derived types: {:?}",
+                        exception
+                    );
+                    let type_error = self.context().exceptions.type_error.clone();
+                    Some(Err(type_error))
+                    */                }
             }
 
             bytecode::Instruction::Break => {

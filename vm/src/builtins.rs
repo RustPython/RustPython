@@ -358,21 +358,34 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // Exceptions:
     dict.insert(
         String::from("BaseException"),
-        ctx.base_exception_type.clone(),
+        ctx.exceptions.base_exception_type.clone(),
     );
-    let exception_type = ctx.new_class(&String::from("Exception"), ctx.base_exception_type.clone());
-    dict.insert(String::from("Exception"), exception_type.clone());
-    let assertion_error = ctx.new_class(&String::from("AssertionError"), exception_type.clone());
-    dict.insert(String::from("AssertionError"), assertion_error);
-    let attribute_error = ctx.new_class(&String::from("AttributeError"), exception_type.clone());
-    dict.insert(String::from("AttributeError"), attribute_error);
-    let name_error = ctx.new_class(&String::from("NameError"), exception_type.clone());
-    dict.insert(String::from("NameError"), name_error);
-    let runtime_error = ctx.new_class(&String::from("RuntimeError"), exception_type.clone());
-    dict.insert(String::from("RuntimeError"), runtime_error.clone());
-    let not_implemented_error =
-        ctx.new_class(&String::from("NotImplementedError"), runtime_error.clone());
-    dict.insert(String::from("NotImplementedError"), not_implemented_error);
+    dict.insert(
+        String::from("Exception"),
+        ctx.exceptions.exception_type.clone(),
+    );
+    dict.insert(
+        String::from("AssertionError"),
+        ctx.exceptions.assertion_error.clone(),
+    );
+    dict.insert(
+        String::from("AttributeError"),
+        ctx.exceptions.attribute_error.clone(),
+    );
+    dict.insert(String::from("NameError"), ctx.exceptions.name_error.clone());
+    dict.insert(
+        String::from("RuntimeError"),
+        ctx.exceptions.runtime_error.clone(),
+    );
+    dict.insert(
+        String::from("NotImplementedError"),
+        ctx.exceptions.not_implemented_error.clone(),
+    );
+    dict.insert(String::from("TypeError"), ctx.exceptions.type_error.clone());
+    dict.insert(
+        String::from("ValueError"),
+        ctx.exceptions.value_error.clone(),
+    );
 
     let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
     let scope = PyObject::new(
