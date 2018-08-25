@@ -248,16 +248,6 @@ fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_locals())
 }
 
-pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("print called with {:?}", args);
-    for a in args.args {
-        print!("{} ", a.borrow().str());
-    }
-    println!();
-    io::stdout().flush().unwrap();
-    Ok(vm.get_none())
-}
-
 // builtin_map
 // builtin_max
 // builtin_memoryview
@@ -268,7 +258,17 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_open
 // builtin_ord
 // builtin_pow
-// builtin_print
+
+pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("print called with {:?}", args);
+    for a in args.args {
+        print!("{} ", a.borrow().str());
+    }
+    println!();
+    io::stdout().flush().unwrap();
+    Ok(vm.get_none())
+}
+
 // builtin_property
 
 fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
