@@ -13,6 +13,26 @@ use super::pyobject::{
 };
 use super::vm::VirtualMachine;
 
+macro_rules! arg_count_check {
+    ( $vm: ident, $args:ident, $expected_count:expr ) => {
+        if $args.args.len() != $expected_count {
+            return Err($vm.new_type_error(format!("Expected {} arguments", $expected_count)));
+        }
+    };
+    ( $vm: ident, $args:ident, $expected_minimum:expr, $expected_maximum:expr ) => {
+        if $args.args.len() < $expected_minimum {
+            return Err($vm
+                .new_type_error(format!("Expected at least {} arguments", $expected_minimum)));
+        }
+        match $expected_maximum {
+            -1 => {}
+            count => if $args.args.len() as isize > $expected_maximum {
+                return Err($vm.new_type_error(format!("Expected at most {} arguments", count)));
+            },
+        }
+    };
+}
+
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
     // TODO: implement dict_iter_items?
@@ -73,9 +93,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_callable
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 1 {
-        return Err(vm.new_type_error("Expected one arguments".to_string()));
-    }
+    arg_count_check!(vm, args, 1);
 
     let code_point_obj = args.args[0].borrow();
 
@@ -95,9 +113,7 @@ fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_classmethod
 
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() < 1 {
-        return Err(vm.new_type_error("Expected more arguments".to_string()));
-    }
+    arg_count_check!(vm, args, 1, -1);
     // TODO:
     let mode = compile::Mode::Eval;
     let source = args.args[0].borrow().str();
@@ -124,14 +140,9 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_enumerate
 
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_count_check!(vm, args, 3);
     let args = args.args;
-    if args.len() > 3 {
-        return Err(vm.new_type_error("Expected at maximum of 3 arguments".to_string()));
-    } else if args.len() > 2 {
-        // TODO: handle optional global and locals
-    } else {
-        return Err(vm.new_type_error("Expected at least one argument".to_string()));
-    }
+    // TODO: handle optional global and locals
     let source = args[0].clone();
     let _globals = args[1].clone();
     let locals = args[2].clone();
@@ -159,38 +170,32 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_frozenset
 
 fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_count_check!(vm, args, 2);
     let args = args.args;
-    if args.len() == 2 {
-        let obj = args[0].clone();
-        let attr = args[1].borrow();
-        if let PyObjectKind::String { ref value } = attr.kind {
-            vm.get_attribute(obj, value)
-        } else {
-            Err(vm.new_type_error("Attr can only be str for now".to_string()))
-        }
+    let obj = args[0].clone();
+    let attr = args[1].borrow();
+    if let PyObjectKind::String { ref value } = attr.kind {
+        vm.get_attribute(obj, value)
     } else {
-        Err(vm.new_type_error("Expected 2 arguments".to_string()))
+        Err(vm.new_type_error("Attr can only be str for now".to_string()))
     }
 }
 
 // builtin_globals
 
 fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_count_check!(vm, args, 2);
     let args = args.args;
-    if args.len() == 2 {
-        let obj = args[0].clone();
-        let attr = args[1].borrow();
-        if let PyObjectKind::String { ref value } = attr.kind {
-            let has_attr = match vm.get_attribute(obj, value) {
-                Ok(..) => true,
-                Err(..) => false,
-            };
-            Ok(vm.context().new_bool(has_attr))
-        } else {
-            Err(vm.new_type_error("Attr can only be str for now".to_string()))
-        }
+    let obj = args[0].clone();
+    let attr = args[1].borrow();
+    if let PyObjectKind::String { ref value } = attr.kind {
+        let has_attr = match vm.get_attribute(obj, value) {
+            Ok(..) => true,
+            Err(..) => false,
+        };
+        Ok(vm.context().new_bool(has_attr))
     } else {
-        Err(vm.new_type_error("Expected 2 arguments".to_string()))
+        Err(vm.new_type_error("Attr can only be str for now".to_string()))
     }
 }
 
@@ -199,9 +204,7 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_hex
 
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 1 {
-        return Err(vm.new_type_error("Expected only one argument".to_string()));
-    }
+    arg_count_check!(vm, args, 1);
 
     Ok(vm.context().new_int(args.args[0].get_id() as i32))
 }
@@ -210,9 +213,7 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_int
 
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 2 {
-        panic!("isinstance(s) expects exactly two parameters");
-    }
+    arg_count_check!(vm, args, 2);
 
     let obj = args.args[0].clone();
     let typ = args.args[1].clone();
@@ -225,9 +226,7 @@ fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_iter
 
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 1 {
-        panic!("len(s) expects exactly one parameter");
-    }
+    arg_count_check!(vm, args, 1);
     match args.args[0].borrow().kind {
         PyObjectKind::Dict { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
         PyObjectKind::Tuple { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
@@ -250,9 +249,7 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_list
 
 fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 0 {
-        panic!("locals() doesn't take any arguments");
-    }
+    arg_count_check!(vm, args, 0);
     Ok(vm.get_locals())
 }
 
@@ -280,9 +277,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_property
 
 fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 1 {
-        unimplemented!("only the single-parameter range is implemented");
-    }
+    arg_count_check!(vm, args, 1);
     match args.args[0].borrow().kind {
         PyObjectKind::Integer { ref value } => {
             let range_elements: Vec<PyObjectRef> =
@@ -299,19 +294,16 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_set
 
 fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_count_check!(vm, args, 3);
     let args = args.args;
-    if args.len() == 3 {
-        let obj = args[0].clone();
-        let attr = args[1].borrow();
-        let value = args[2].clone();
-        if let PyObjectKind::String { value: ref name } = attr.kind {
-            obj.set_attr(name, value);
-            Ok(vm.get_none())
-        } else {
-            Err(vm.new_type_error("Attr can only be str for now".to_string()))
-        }
+    let obj = args[0].clone();
+    let attr = args[1].borrow();
+    let value = args[2].clone();
+    if let PyObjectKind::String { value: ref name } = attr.kind {
+        obj.set_attr(name, value);
+        Ok(vm.get_none())
     } else {
-        Err(vm.new_type_error("Expected 3 arguments".to_string()))
+        Err(vm.new_type_error("Attr can only be str for now".to_string()))
     }
 }
 
