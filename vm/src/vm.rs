@@ -154,8 +154,8 @@ impl VirtualMachine {
         self.current_frame_mut().pop_block()
     }
 
-    fn last_block(&mut self) -> &Block {
-        self.current_frame_mut().last_block()
+    fn last_block(&self) -> &Block {
+        self.current_frame().last_block()
     }
 
     fn unwind_loop(&mut self) -> Block {
@@ -198,8 +198,8 @@ impl VirtualMachine {
         self.current_frame_mut().pop_multiple(count)
     }
 
-    fn last_value(&mut self) -> PyObjectRef {
-        self.current_frame_mut().last_value()
+    fn last_value(&self) -> PyObjectRef {
+        self.current_frame().last_value()
     }
 
     fn store_name(&mut self, name: &String) -> Option<PyResult> {

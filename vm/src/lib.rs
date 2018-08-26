@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
+extern crate serde;
+extern crate serde_json;
 
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
@@ -22,6 +24,7 @@ mod objsequence;
 mod objstr;
 mod objtype;
 pub mod pyobject;
+pub mod stdlib;
 mod sysmodule;
 mod traceback;
 mod vm;

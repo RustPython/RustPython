@@ -82,7 +82,7 @@ impl Frame {
         self.blocks.pop()
     }
 
-    pub fn last_block(&mut self) -> &Block {
+    pub fn last_block(&self) -> &Block {
         self.blocks.last().unwrap()
     }
 
@@ -103,7 +103,7 @@ impl Frame {
         objs
     }
 
-    pub fn last_value(&mut self) -> PyObjectRef {
+    pub fn last_value(&self) -> PyObjectRef {
         self.stack.last().unwrap().clone()
     }
 }
