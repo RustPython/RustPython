@@ -31,7 +31,7 @@ pub struct VirtualMachine {
     frames: Vec<Frame>,
     builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
-    ctx: PyContext,
+    pub ctx: PyContext,
 }
 
 impl VirtualMachine {

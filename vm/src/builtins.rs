@@ -6,10 +6,9 @@ use std::io::{self, Write};
 use super::compile;
 use super::objbool;
 use super::objtype;
-use super::pyobject::DictProtocol;
 use super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
-    PyResult, Scope,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind,
+    PyObjectRef, PyResult, Scope, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 
@@ -22,14 +21,16 @@ macro_rules! arg_check {
         }
     };
     ( $vm: ident, $args:ident, $( ($arg_name:ident, $arg_type:expr) ),* ) => {
-        let mut expected_args = vec![];
+        let mut expected_args: Vec<(usize, &str, Option<PyObjectRef>)> = vec![];
         let mut arg_count = 0;
 
         $(
             if arg_count >= $args.args.len() {
                 // TODO: Report the number of expected arguments
                 return Err($vm.new_type_error(format!(
-                    "Expected more arguments (got: {})", $args.args.len())));
+                    "Expected more arguments (got: {})",
+                    $args.args.len()
+                )));
             }
             expected_args.push((arg_count, stringify!($arg_name), $arg_type));
             let $arg_name = &$args.args[arg_count];
@@ -42,44 +43,30 @@ macro_rules! arg_check {
         if $args.args.len() != expected_args.len() {
             return Err($vm.new_type_error(format!(
                 "Expected {} arguments (got: {})",
-                expected_args.len(), $args.args.len())));
+                expected_args.len(),
+                $args.args.len()
+            )));
         };
 
-        for (arg, (arg_position, arg_name, expected_type)) in $args.args.iter().zip(expected_args.iter()) {
-            let expected_type = match expected_type {
-                'c' => "code object",
-                'd' => "dict",
-                'i' => "integer",
-                's' => "string",
-                '*' => "any",
-                _ => unimplemented!("FIXME"),
-            };
-            let actual_type = match arg.borrow().kind {
-                PyObjectKind::String { .. } => "string",
-                PyObjectKind::Integer { .. } => "integer",
-                PyObjectKind::Float { .. } => "float",
-                PyObjectKind::Boolean { .. } => "bool",
-                PyObjectKind::List { .. } => "list",
-                PyObjectKind::Tuple { .. } => "tuple",
-                PyObjectKind::Dict { .. } => "dict",
-                PyObjectKind::Iterator { .. } => "iterator",
-                PyObjectKind::Slice { .. } => "slice",
-                PyObjectKind::NameError { .. } => "NameError",
-                PyObjectKind::Code { .. } => "code object",
-                PyObjectKind::Function { .. } => "function",
-                PyObjectKind::BoundMethod { .. } => "method",
-                PyObjectKind::Scope { .. } => "scope",
-                PyObjectKind::Module { .. } => "module",
-                PyObjectKind::None => "none",
-                PyObjectKind::Class { .. } => "class",
-                PyObjectKind::Instance { .. } => "instance",
-                PyObjectKind::RustFunction { .. } => "rustfunc",
-            };
-            if expected_type != "any" && expected_type != actual_type {
-                return Err($vm.new_type_error(format!(
-                    "argument of type {} is required for parameter {} ({}) (got: {})",
-                    expected_type, arg_position + 1, arg_name, actual_type
-                )));
+        for (arg, (arg_position, arg_name, expected_type)) in
+            $args.args.iter().zip(expected_args.iter())
+        {
+            match expected_type {
+                Some(expected_type) => {
+                    if !objtype::isinstance(arg.clone(), expected_type.clone()) {
+                        let arg_typ = arg.typ().clone();
+                        let actual_type = arg_typ.borrow().str().clone();
+                        return Err($vm.new_type_error(format!(
+                            "argument of type {} is required for parameter {} ({}) (got: {})",
+                            expected_type.borrow().str(),
+                            arg_position + 1,
+                            arg_name,
+                            actual_type
+                        )));
+                    }
+                }
+                // None indicates that we have no type requirement (i.e. we accept any type)
+                None => {}
             }
         }
     };
@@ -145,7 +132,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_callable
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (i, 'i'));
+    arg_check!(vm, args, (i, Some(vm.ctx.int_type.clone())));
 
     let code_point_obj = i.borrow();
 
@@ -168,7 +155,7 @@ fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_classmethod
 
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (source, '*'));
+    arg_check!(vm, args, (source, None));
     // TODO:
     let mode = compile::Mode::Eval;
     let source = source.borrow().str();
@@ -195,7 +182,13 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_enumerate
 
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (source, 'c'), (_globals, 'd'), (locals, 'd'));
+    arg_check!(
+        vm,
+        args,
+        (source, None), // TODO: Use more specific type
+        (_globals, Some(vm.ctx.dict_type.clone())),
+        (locals, Some(vm.ctx.dict_type.clone()))
+    );
     // TODO: handle optional global and locals
 
     let code_obj = source; // if source.borrow().kind
@@ -221,7 +214,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_frozenset
 
 fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, '*'), (attr, 's'));
+    arg_check!(vm, args, (obj, None), (attr, Some(vm.ctx.str_type.clone())));
     if let PyObjectKind::String { ref value } = attr.borrow().kind {
         vm.get_attribute(obj.clone(), value)
     } else {
@@ -232,7 +225,7 @@ fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_globals
 
 fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, '*'), (attr, 's'));
+    arg_check!(vm, args, (obj, None), (attr, Some(vm.ctx.str_type.clone())));
     if let PyObjectKind::String { ref value } = attr.borrow().kind {
         let has_attr = match vm.get_attribute(obj.clone(), value) {
             Ok(..) => true,
@@ -249,7 +242,7 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_hex
 
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, '*'));
+    arg_check!(vm, args, (obj, None));
 
     Ok(vm.context().new_int(obj.get_id() as i32))
 }
@@ -258,7 +251,7 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_int
 
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, '*'), (typ, '*'));
+    arg_check!(vm, args, (obj, None), (typ, None));
 
     let isinstance = objtype::isinstance(obj.clone(), typ.clone());
     Ok(vm.context().new_bool(isinstance))
@@ -268,7 +261,7 @@ fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_iter
 
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, '*'));
+    arg_check!(vm, args, (obj, None));
     match obj.borrow().kind {
         PyObjectKind::Dict { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
         PyObjectKind::Tuple { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
@@ -319,7 +312,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_property
 
 fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (range, 'i'));
+    arg_check!(vm, args, (range, Some(vm.ctx.int_type.clone())));
     match range.borrow().kind {
         PyObjectKind::Integer { ref value } => {
             let range_elements: Vec<PyObjectRef> =
@@ -336,7 +329,13 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_set
 
 fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, '*'), (attr, 's'), (value, '*'));
+    arg_check!(
+        vm,
+        args,
+        (obj, None),
+        (attr, Some(vm.ctx.str_type.clone())),
+        (value, None)
+    );
     if let PyObjectKind::String { value: ref name } = attr.borrow().kind {
         obj.clone().set_attr(name, value.clone());
         Ok(vm.get_none())
