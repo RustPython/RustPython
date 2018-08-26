@@ -545,16 +545,20 @@ impl Compiler {
                 ast::BooleanOperator::And => {
                     let false_label = self.new_label();
                     self.compile_expression(a);
-                    self.emit(Instruction::JumpIfFalseOrPop {
+                    self.emit(Instruction::Duplicate);
+                    self.emit(Instruction::JumpIfFalse {
                         target: false_label,
                     });
+                    self.emit(Instruction::Pop);
                     self.compile_expression(b);
                     self.set_label(false_label);
                 }
                 ast::BooleanOperator::Or => {
                     let true_label = self.new_label();
                     self.compile_expression(a);
-                    self.emit(Instruction::JumpIfOrPop { target: true_label });
+                    self.emit(Instruction::Duplicate);
+                    self.emit(Instruction::JumpIf { target: true_label });
+                    self.emit(Instruction::Pop);
                     self.compile_expression(b);
                     self.set_label(true_label);
                 }
