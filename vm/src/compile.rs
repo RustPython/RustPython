@@ -150,13 +150,15 @@ impl Compiler {
                 match orelse {
                     None => {
                         // Only if:
-                        self.compile_test(test, end_label);
+                        self.compile_expression(test);
+                        self.emit(Instruction::JumpIfFalse { target: end_label });
                         self.compile_statements(body);
                     }
                     Some(statements) => {
                         // if - else:
                         let else_label = self.new_label();
-                        self.compile_test(test, else_label);
+                        self.compile_expression(test);
+                        self.emit(Instruction::JumpIfFalse { target: else_label });
                         self.compile_statements(body);
                         self.emit(Instruction::Jump { target: end_label });
 
@@ -182,7 +184,8 @@ impl Compiler {
 
                 self.set_label(start_label);
 
-                self.compile_test(test, end_label);
+                self.compile_expression(test);
+                self.emit(Instruction::JumpIfFalse { target: end_label });
                 self.compile_statements(body);
                 self.emit(Instruction::Jump {
                     target: start_label,
@@ -530,31 +533,6 @@ impl Compiler {
         self.emit(Instruction::BinaryOperation { op: i });
     }
 
-    fn compile_test(&mut self, expression: &ast::Expression, not_label: Label) {
-        // Compile expression for test, and jump to label if false
-        match expression {
-            ast::Expression::BoolOp { a, op, b } => match op {
-                ast::BooleanOperator::And => {
-                    self.compile_test(a, not_label);
-                    self.compile_test(b, not_label);
-                }
-                ast::BooleanOperator::Or => {
-                    // TODO: Implement boolean or
-                    // TODO: implement short circuit code by fiddeling with the labels
-                    self.new_label();
-                    self.compile_test(a, not_label);
-                    self.compile_test(b, not_label);
-                    panic!("Not impl");
-                }
-            },
-            _ => {
-                // If all else fail, fall back to simple checking of boolean value:
-                self.compile_expression(expression);
-                self.emit(Instruction::JumpIfFalse { target: not_label });
-            }
-        }
-    }
-
     fn compile_expression(&mut self, expression: &ast::Expression) {
         trace!("Compiling {:?}", expression);
         match expression {
@@ -566,23 +544,28 @@ impl Compiler {
                 }
                 self.emit(Instruction::CallFunction { count: count });
             }
-            ast::Expression::BoolOp { a: _, op: _, b: _ } => {
-                let not_label = self.new_label();
-                let end_label = self.new_label();
-                self.compile_test(expression, not_label);
-                // Load const True
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Boolean { value: true },
-                });
-                self.emit(Instruction::Jump { target: end_label });
-
-                self.set_label(not_label);
-                // Load const False
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Boolean { value: false },
-                });
-                self.set_label(end_label);
-            }
+            ast::Expression::BoolOp { a, op, b } => match op {
+                ast::BooleanOperator::And => {
+                    let false_label = self.new_label();
+                    self.compile_expression(a);
+                    self.emit(Instruction::Duplicate);
+                    self.emit(Instruction::JumpIfFalse {
+                        target: false_label,
+                    });
+                    self.emit(Instruction::Pop);
+                    self.compile_expression(b);
+                    self.set_label(false_label);
+                }
+                ast::BooleanOperator::Or => {
+                    let true_label = self.new_label();
+                    self.compile_expression(a);
+                    self.emit(Instruction::Duplicate);
+                    self.emit(Instruction::JumpIf { target: true_label });
+                    self.emit(Instruction::Pop);
+                    self.compile_expression(b);
+                    self.set_label(true_label);
+                }
+            },
             ast::Expression::Binop { a, op, b } => {
                 self.compile_expression(&*a);
                 self.compile_expression(&*b);

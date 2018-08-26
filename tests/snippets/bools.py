@@ -10,6 +10,8 @@ assert not {}
 assert not ""
 assert not 0.0
 
+assert not None
+
 assert bool() == False
 assert bool(1) == True
 assert bool({}) == False
@@ -28,3 +30,12 @@ class Falsey:
         return False
 
 assert not Falsey()
+
+assert (True or fake)
+assert (False or True)
+assert not (False or False)
+assert ("thing" or 0) == "thing"
+
+assert (True and True)
+assert not (False and fake)
+assert (True and 5) == 5
