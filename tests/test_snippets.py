@@ -54,7 +54,6 @@ def perform_test(filename, method, test_type):
 def run_via_cpython(filename):
     """ Simply invoke python itself on the script """
     env = os.environ.copy()
-    env['PYTHONPATH'] = '.'
     subprocess.check_call([sys.executable, filename], env=env)
 
 
@@ -78,7 +77,6 @@ def run_via_rustpython(filename, test_type):
     log_level = 'info' if test_type == _TestType.benchmark else 'trace'
     env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
     env['RUST_BACKTRACE'] = '1'
-    env['PYTHONPATH'] = os.path.dirname(filename)
     subprocess.check_call(
         ['cargo', 'run', '--release', filename], env=env)
 

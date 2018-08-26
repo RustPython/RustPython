@@ -72,7 +72,7 @@ impl VirtualMachine {
     }
 
     pub fn new_scope(&mut self) -> PyObjectRef {
-        let parent_scope = self.current_frame().locals.clone();
+        let parent_scope = self.current_frame_mut().locals.clone();
         self.ctx.new_scope(Some(parent_scope))
     }
 
@@ -134,7 +134,11 @@ impl VirtualMachine {
         obj.borrow().str()
     }
 
-    fn current_frame(&mut self) -> &mut Frame {
+    pub fn current_frame(&self) -> &Frame {
+        self.frames.last().unwrap()
+    }
+
+    fn current_frame_mut(&mut self) -> &mut Frame {
         self.frames.last_mut().unwrap()
     }
 
@@ -143,15 +147,15 @@ impl VirtualMachine {
     }
 
     fn push_block(&mut self, block: Block) {
-        self.current_frame().push_block(block);
+        self.current_frame_mut().push_block(block);
     }
 
     fn pop_block(&mut self) -> Option<Block> {
-        self.current_frame().pop_block()
+        self.current_frame_mut().pop_block()
     }
 
     fn last_block(&mut self) -> &Block {
-        self.current_frame().last_block()
+        self.current_frame_mut().last_block()
     }
 
     fn unwind_loop(&mut self) -> Block {
@@ -183,24 +187,24 @@ impl VirtualMachine {
     }
 
     fn push_value(&mut self, obj: PyObjectRef) {
-        self.current_frame().push_value(obj);
+        self.current_frame_mut().push_value(obj);
     }
 
     fn pop_value(&mut self) -> PyObjectRef {
-        self.current_frame().pop_value()
+        self.current_frame_mut().pop_value()
     }
 
     fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
-        self.current_frame().pop_multiple(count)
+        self.current_frame_mut().pop_multiple(count)
     }
 
     fn last_value(&mut self) -> PyObjectRef {
-        self.current_frame().last_value()
+        self.current_frame_mut().last_value()
     }
 
     fn store_name(&mut self, name: &String) -> Option<PyResult> {
         let obj = self.pop_value();
-        self.current_frame().locals.set_item(name, obj);
+        self.current_frame_mut().locals.set_item(name, obj);
         None
     }
 
@@ -549,7 +553,7 @@ impl VirtualMachine {
 
     // Execute a single instruction:
     fn execute_instruction(&mut self) -> Option<PyResult> {
-        let instruction = self.current_frame().fetch_instruction();
+        let instruction = self.current_frame_mut().fetch_instruction();
         {
             trace!("=======");
             /* TODO:
@@ -874,7 +878,7 @@ impl VirtualMachine {
             }
             bytecode::Instruction::StoreLocals => {
                 let locals = self.pop_value();
-                let ref mut frame = self.current_frame();
+                let ref mut frame = self.current_frame_mut();
                 match frame.locals.borrow_mut().kind {
                     PyObjectKind::Scope { ref mut scope } => {
                         scope.locals = locals;
@@ -887,7 +891,7 @@ impl VirtualMachine {
     }
 
     fn jump(&mut self, label: &bytecode::Label) {
-        let current_frame = self.current_frame();
+        let current_frame = self.current_frame_mut();
         let target_pc = current_frame.code.label_map[label];
         trace!(
             "program counter from {:?} to {:?}",
