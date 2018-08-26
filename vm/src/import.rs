@@ -20,11 +20,13 @@ fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
         return Ok(module);
     }
 
+    // TODO: introduce import error:
+    let import_error = vm.context().exceptions.exception_type.clone();
     // Time to search for module in any place:
-    let filepath =
-        find_source(vm, module).map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
+    let filepath = find_source(vm, module)
+        .map_err(|e| vm.new_exception(import_error.clone(), format!("Error: {:?}", e)))?;
     let source = parser::read_file(filepath.as_path())
-        .map_err(|e| vm.new_exception(format!("Error: {:?}", e)))?;
+        .map_err(|e| vm.new_exception(import_error.clone(), format!("Error: {:?}", e)))?;
 
     let code_obj = match compile::compile(vm, &source, compile::Mode::Exec) {
         Ok(bytecode) => {

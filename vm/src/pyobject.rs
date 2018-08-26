@@ -264,11 +264,16 @@ pub struct PyObject {
 
 pub trait IdProtocol {
     fn get_id(&self) -> usize;
+    fn is(&self, other: &PyObjectRef) -> bool;
 }
 
 impl IdProtocol for PyObjectRef {
     fn get_id(&self) -> usize {
         self.as_ptr() as usize
+    }
+
+    fn is(&self, other: &PyObjectRef) -> bool {
+        self.get_id() == other.get_id()
     }
 }
 

@@ -16,6 +16,9 @@ fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn member_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     match args.shift().get_attr("function") {
         Some(function) => vm.invoke(function, args),
-        None => Err(vm.new_exception(String::from("Attribute Error"))),
+        None => {
+            let attribute_error = vm.context().exceptions.attribute_error.clone();
+            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
+        }
     }
 }

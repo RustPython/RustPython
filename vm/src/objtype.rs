@@ -29,7 +29,7 @@ pub fn init(context: &PyContext) {
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match _mro(args.args[0].clone()) {
         Some(mro) => Ok(vm.context().new_tuple(mro)),
-        None => Err(vm.new_exception("Only classes have an MRO.".to_string())),
+        None => Err(vm.new_type_error("Only classes have an MRO.".to_string())),
     }
 }
 
@@ -44,6 +44,11 @@ fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
     }
 }
 
+pub fn isinstance(obj: PyObjectRef, cls: PyObjectRef) -> bool {
+    let mro = _mro(obj.typ()).unwrap();
+    mro.into_iter().any(|c| c.is(&cls))
+}
+
 pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     debug!("type.__new__{:?}", args);
     if args.args.len() == 2 {
@@ -56,7 +61,7 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let dict = args.args[3].clone();
         new(typ, &name, bases, dict)
     } else {
-        Err(vm.new_exception(format!("TypeError: type_new: {:?}", args)))
+        Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }
 }
 
@@ -92,10 +97,11 @@ pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &String) -
     } else if let Some(cls_attr) = cls.get_attr(name) {
         Ok(cls_attr)
     } else {
-        Err(vm.new_exception(format!(
-            "AttributeError: {:?} object has no attribute {}",
-            cls, name
-        )))
+        let attribute_error = vm.context().exceptions.attribute_error.clone();
+        Err(vm.new_exception(
+            attribute_error,
+            format!("{:?} object has no attribute {}", cls, name),
+        ))
     }
 }
 

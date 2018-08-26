@@ -74,7 +74,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() != 1 {
-        return Err(vm.new_exception("Expected one arguments".to_string()));
+        return Err(vm.new_type_error("Expected one arguments".to_string()));
     }
 
     let code_point_obj = args.args[0].borrow();
@@ -96,7 +96,7 @@ fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() < 1 {
-        return Err(vm.new_exception("Expected more arguments".to_string()));
+        return Err(vm.new_type_error("Expected more arguments".to_string()));
     }
     // TODO:
     let mode = compile::Mode::Eval;
@@ -104,7 +104,7 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match compile::compile(vm, &source, mode) {
         Ok(value) => Ok(value),
-        Err(msg) => Err(vm.new_exception(msg)),
+        Err(msg) => Err(vm.new_type_error(msg)),
     }
 }
 
@@ -126,11 +126,11 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let args = args.args;
     if args.len() > 3 {
-        return Err(vm.new_exception("Expected at maximum of 3 arguments".to_string()));
+        return Err(vm.new_type_error("Expected at maximum of 3 arguments".to_string()));
     } else if args.len() > 2 {
         // TODO: handle optional global and locals
     } else {
-        return Err(vm.new_exception("Expected at least one argument".to_string()));
+        return Err(vm.new_type_error("Expected at least one argument".to_string()));
     }
     let source = args[0].clone();
     let _globals = args[1].clone();
@@ -166,10 +166,10 @@ fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         if let PyObjectKind::String { ref value } = attr.kind {
             vm.get_attribute(obj, value)
         } else {
-            Err(vm.new_exception("Attr can only be str for now".to_string()))
+            Err(vm.new_type_error("Attr can only be str for now".to_string()))
         }
     } else {
-        Err(vm.new_exception("Expected 2 arguments".to_string()))
+        Err(vm.new_type_error("Expected 2 arguments".to_string()))
     }
 }
 
@@ -187,10 +187,10 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
             Ok(vm.context().new_bool(has_attr))
         } else {
-            Err(vm.new_exception("Attr can only be str for now".to_string()))
+            Err(vm.new_type_error("Attr can only be str for now".to_string()))
         }
     } else {
-        Err(vm.new_exception("Expected 2 arguments".to_string()))
+        Err(vm.new_type_error("Expected 2 arguments".to_string()))
     }
 }
 
@@ -200,7 +200,7 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() != 1 {
-        return Err(vm.new_exception("Expected only one argument".to_string()));
+        return Err(vm.new_type_error("Expected only one argument".to_string()));
     }
 
     Ok(vm.context().new_int(args.args[0].get_id() as i32))
@@ -217,7 +217,7 @@ fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let obj = args.args[0].clone();
     let typ = args.args[1].clone();
 
-    let isinstance = vm.isinstance(obj, typ);
+    let isinstance = objtype::isinstance(obj, typ);
     Ok(vm.context().new_bool(isinstance))
 }
 
@@ -308,10 +308,10 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             obj.set_attr(name, value);
             Ok(vm.get_none())
         } else {
-            Err(vm.new_exception("Attr can only be str for now".to_string()))
+            Err(vm.new_type_error("Attr can only be str for now".to_string()))
         }
     } else {
-        Err(vm.new_exception("Expected 3 arguments".to_string()))
+        Err(vm.new_type_error("Expected 3 arguments".to_string()))
     }
 }
 
