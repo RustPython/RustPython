@@ -257,7 +257,7 @@ impl VirtualMachine {
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = self.ctx.new_tuple(vec![
                         self.ctx.new_str(filename.clone()),
-                        self.ctx.new_int(lineno.row as i32),
+                        self.ctx.new_int(lineno.get_row() as i32),
                     ]);
                     objlist::append(
                         self,

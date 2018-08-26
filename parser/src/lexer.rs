@@ -20,8 +20,8 @@ pub enum LexicalError {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Location {
-    pub row: usize,
-    pub column: usize,
+    row: usize,
+    column: usize,
 }
 
 impl Location {
@@ -30,6 +30,14 @@ impl Location {
             row: row,
             column: column,
         }
+    }
+
+    pub fn get_row(&self) -> usize {
+        self.row
+    }
+
+    pub fn get_column(&self) -> usize {
+        self.column
     }
 }
 

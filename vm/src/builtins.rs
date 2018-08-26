@@ -223,7 +223,7 @@ fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() != 2 {
-        panic!("isinstance(s) expects exactly two parameters");
+        panic!("issubclass expects exactly two parameters");
     }
 
     let cls1 = args.args[0].clone();
