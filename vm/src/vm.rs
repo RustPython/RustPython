@@ -295,7 +295,11 @@ impl VirtualMachine {
     fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         let b2 = &*b.borrow();
         let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 - b2, self.get_type()))
+        // TODO: Fix this correctly, and for all arithmetic operations
+        Ok(PyObject::new(
+            a2 - b2,
+            a2.typ.clone().unwrap_or(self.get_type()),
+        ))
     }
 
     fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
