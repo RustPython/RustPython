@@ -219,10 +219,9 @@ impl VirtualMachine {
             } else if scope.has_parent() {
                 scope = scope.get_parent();
             } else {
-                let name_error = self.context().new_instance(
-                    self.context().new_dict(),
-                    self.context().exceptions.name_error.clone(),
-                );
+                let name_error_type = self.ctx.exceptions.name_error.clone();
+                let msg = format!("Has not attribute '{}'", name);
+                let name_error = self.new_exception(name_error_type, msg);
                 break Some(Err(name_error));
             }
         }
@@ -230,6 +229,11 @@ impl VirtualMachine {
 
     fn run_frame(&mut self, frame: Frame) -> PyResult {
         self.frames.push(frame);
+        let filename = if let Some(source_path) = &self.current_frame().code.source_path {
+            source_path.to_string()
+        } else {
+            "<unknown>".to_string()
+        };
 
         // Execute until return or exception:
         let value = loop {
@@ -243,9 +247,24 @@ impl VirtualMachine {
                 Some(Err(exception)) => {
                     // unwind block stack on exception and find any handlers.
                     // Add an entry in the traceback:
-                    let traceback =
-                        self.get_attribute(exception.clone(), &"__traceback__".to_string());
+                    assert!(objtype::isinstance(
+                        exception.clone(),
+                        self.ctx.exceptions.base_exception_type.clone()
+                    ));
+                    let traceback = self
+                        .get_attribute(exception.clone(), &"__traceback__".to_string())
+                        .unwrap();
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
+                    let pos = self.ctx.new_tuple(vec![
+                        self.ctx.new_str(filename.clone()),
+                        self.ctx.new_int(lineno.row as i32),
+                    ]);
+                    objlist::append(
+                        self,
+                        PyFuncArgs {
+                            args: vec![traceback, pos],
+                        },
+                    ).unwrap();
                     // exception.__trace
                     match self.unwind_exception(exception) {
                         None => {}
@@ -901,7 +920,7 @@ impl VirtualMachine {
         current_frame.lasti = target_pc;
     }
 
-    fn get_lineno(&mut self) -> ast::Location {
+    fn get_lineno(&self) -> ast::Location {
         self.current_frame().get_lineno()
     }
 }

@@ -24,7 +24,7 @@ pub fn set_item(
     }
 }
 
-fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.append called with: {:?}", args);
     if args.args.len() == 2 {
         let l = args.args[0].clone();

@@ -58,6 +58,7 @@ fn _run_string(source: &String, source_path: Option<String>) {
     match vm.run_code_obj(code_obj, vars) {
         Ok(_value) => {}
         Err(exc) => {
+            // println!("X: {:?}", exc.get_attr("__traceback__"));
             panic!("Exception: {:?}", exc);
         }
     }
