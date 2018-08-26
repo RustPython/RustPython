@@ -4,6 +4,9 @@
  *   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
  */
 
+extern crate rustpython_parser;
+
+use self::rustpython_parser::ast;
 use std::cell::RefMut;
 use std::collections::hash_map::HashMap;
 use std::ops::Deref;
@@ -31,7 +34,7 @@ pub struct VirtualMachine {
     frames: Vec<Frame>,
     builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
-    ctx: PyContext,
+    pub ctx: PyContext,
 }
 
 impl VirtualMachine {
@@ -226,6 +229,7 @@ impl VirtualMachine {
 
         // Execute until return or exception:
         let value = loop {
+            let lineno = self.get_lineno();
             let result = self.execute_instruction();
             match result {
                 None => {}
@@ -234,11 +238,14 @@ impl VirtualMachine {
                 }
                 Some(Err(exception)) => {
                     // unwind block stack on exception and find any handlers.
+                    // Add an entry in the traceback:
+                    let traceback =
+                        self.get_attribute(exception.clone(), &"__traceback__".to_string());
+                    trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
+                    // exception.__trace
                     match self.unwind_exception(exception) {
                         None => {}
                         Some(exception) => {
-                            // let _traceback =
-                            //    self.get_attribute(exception.clone(), &"__traceback__".to_string());
                             // TODO: append line number to traceback?
                             // traceback.append();
                             break Err(exception);
@@ -888,5 +895,9 @@ impl VirtualMachine {
             target_pc
         );
         current_frame.lasti = target_pc;
+    }
+
+    fn get_lineno(&mut self) -> ast::Location {
+        self.current_frame().get_lineno()
     }
 }
