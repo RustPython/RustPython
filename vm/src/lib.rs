@@ -7,6 +7,10 @@ extern crate serde_json;
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
 
+// This is above everything else so that the defined macros are available everywhere
+#[macro_use]
+mod macros;
+
 mod builtins;
 pub mod bytecode;
 pub mod compile;
