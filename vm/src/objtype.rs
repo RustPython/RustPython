@@ -49,6 +49,11 @@ pub fn isinstance(obj: PyObjectRef, cls: PyObjectRef) -> bool {
     mro.into_iter().any(|c| c.is(&cls))
 }
 
+pub fn issubclass(typ: PyObjectRef, cls: PyObjectRef) -> bool {
+    let mro = _mro(typ).unwrap();
+    mro.into_iter().any(|c| c.is(&cls))
+}
+
 pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     debug!("type.__new__{:?}", args);
     if args.args.len() == 2 {

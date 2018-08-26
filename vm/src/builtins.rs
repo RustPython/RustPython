@@ -221,7 +221,17 @@ fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.context().new_bool(isinstance))
 }
 
-// builtin_issubclass
+fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() != 2 {
+        panic!("isinstance(s) expects exactly two parameters");
+    }
+
+    let cls1 = args.args[0].clone();
+    let cls2 = args.args[1].clone();
+
+    Ok(vm.context().new_bool(objtype::issubclass(cls1, cls2)))
+}
+
 // builtin_iter
 
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -343,6 +353,10 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(
         String::from("isinstance"),
         ctx.new_rustfunc(builtin_isinstance),
+    );
+    dict.insert(
+        String::from("issubclass"),
+        ctx.new_rustfunc(builtin_issubclass),
     );
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
     dict.insert(String::from("list"), ctx.list_type.clone());

@@ -14,3 +14,6 @@ inst = cls()
 assert type(inst) is cls
 assert type(cls) is metaclass
 assert type(metaclass) is type
+
+assert isinstance(type, type)
+assert issubclass(type, type)
