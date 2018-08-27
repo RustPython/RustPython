@@ -1,6 +1,7 @@
 use super::objsequence::PySliceableSequence;
+use super::objtype;
 use super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 
@@ -26,66 +27,48 @@ pub fn set_item(
 
 fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.append called with: {:?}", args);
-    if args.args.len() == 2 {
-        let l = args.args[0].clone();
-        let o = args.args[1].clone();
-        let mut list_obj = l.borrow_mut();
-        if let PyObjectKind::List { ref mut elements } = list_obj.kind {
-            elements.push(o);
-            Ok(vm.get_none())
-        } else {
-            Err(vm.new_type_error("list.append is called with no list".to_string()))
-        }
+    arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())), (x, None));
+    let mut list_obj = list.borrow_mut();
+    if let PyObjectKind::List { ref mut elements } = list_obj.kind {
+        elements.push(x.clone());
+        Ok(vm.get_none())
     } else {
-        Err(vm.new_type_error("list.append requires two arguments".to_string()))
+        Err(vm.new_type_error("list.append is called with no list".to_string()))
     }
 }
 
 fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.clear called with: {:?}", args);
-    if args.args.len() == 1 {
-        let l = args.args[0].clone();
-        let mut list_obj = l.borrow_mut();
-        if let PyObjectKind::List { ref mut elements } = list_obj.kind {
-            elements.clear();
-            Ok(vm.get_none())
-        } else {
-            Err(vm.new_type_error("list.clear is called with no list".to_string()))
-        }
+    arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())));
+    let mut list_obj = list.borrow_mut();
+    if let PyObjectKind::List { ref mut elements } = list_obj.kind {
+        elements.clear();
+        Ok(vm.get_none())
     } else {
-        Err(vm.new_type_error("list.clear requires one arguments".to_string()))
+        Err(vm.new_type_error("list.clear is called with no list".to_string()))
     }
 }
 
 fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
-    // TODO: for this argument amount checking we could probably write some nice macro or templated function!
-    if args.args.len() == 1 {
-        let l = args.args[0].clone();
-        let list_obj = l.borrow();
-        if let PyObjectKind::List { ref elements } = list_obj.kind {
-            Ok(vm.context().new_int(elements.len() as i32))
-        } else {
-            Err(vm.new_type_error("list.len is called with no list".to_string()))
-        }
+    arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())));
+    let list_obj = list.borrow();
+    if let PyObjectKind::List { ref elements } = list_obj.kind {
+        Ok(vm.context().new_int(elements.len() as i32))
     } else {
-        Err(vm.new_type_error("list.len requires one arguments".to_string()))
+        Err(vm.new_type_error("list.len is called with no list".to_string()))
     }
 }
 
 fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.reverse called with: {:?}", args);
-    if args.args.len() == 1 {
-        let l = args.args[0].clone();
-        let mut list_obj = l.borrow_mut();
-        if let PyObjectKind::List { ref mut elements } = list_obj.kind {
-            elements.reverse();
-            Ok(vm.get_none())
-        } else {
-            Err(vm.new_type_error("list.reverse is called with no list".to_string()))
-        }
+    arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())));
+    let mut list_obj = list.borrow_mut();
+    if let PyObjectKind::List { ref mut elements } = list_obj.kind {
+        elements.reverse();
+        Ok(vm.get_none())
     } else {
-        Err(vm.new_type_error("list.reverse requires one arguments".to_string()))
+        Err(vm.new_type_error("list.reverse is called with no list".to_string()))
     }
 }
 
