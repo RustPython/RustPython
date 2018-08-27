@@ -155,34 +155,74 @@ impl PyContext {
         context
     }
 
+    pub fn int_type(&self) -> PyObjectRef {
+        self.int_type.clone()
+    }
+
+    pub fn float_type(&self) -> PyObjectRef {
+        self.float_type.clone()
+    }
+
+    pub fn list_type(&self) -> PyObjectRef {
+        self.list_type.clone()
+    }
+    pub fn bool_type(&self) -> PyObjectRef {
+        self.bool_type.clone()
+    }
+    pub fn tuple_type(&self) -> PyObjectRef {
+        self.tuple_type.clone()
+    }
+    pub fn dict_type(&self) -> PyObjectRef {
+        self.dict_type.clone()
+    }
+    pub fn str_type(&self) -> PyObjectRef {
+        self.str_type.clone()
+    }
+    pub fn function_type(&self) -> PyObjectRef {
+        self.function_type.clone()
+    }
+    pub fn bound_method_type(&self) -> PyObjectRef {
+        self.bound_method_type.clone()
+    }
+    pub fn member_descriptor_type(&self) -> PyObjectRef {
+        self.member_descriptor_type.clone()
+    }
+    pub fn type_type(&self) -> PyObjectRef {
+        self.type_type.clone()
+    }
+
+    pub fn none(&self) -> PyObjectRef {
+        self.none.clone()
+    }
+    pub fn object(&self) -> PyObjectRef {
+        self.object.clone()
+    }
+
     pub fn new_int(&self, i: i32) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Integer { value: i }, self.int_type.clone())
+        PyObject::new(PyObjectKind::Integer { value: i }, self.int_type())
     }
 
     pub fn new_float(&self, i: f64) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Float { value: i }, self.float_type.clone())
+        PyObject::new(PyObjectKind::Float { value: i }, self.float_type())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(PyObjectKind::String { value: s }, self.str_type.clone())
+        PyObject::new(PyObjectKind::String { value: s }, self.str_type())
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Boolean { value: b }, self.bool_type.clone())
+        PyObject::new(PyObjectKind::Boolean { value: b }, self.bool_type())
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::Tuple { elements: elements },
-            self.tuple_type.clone(),
+            self.tuple_type(),
         )
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectKind::List { elements: elements },
-            self.list_type.clone(),
-        )
+        PyObject::new(PyObjectKind::List { elements: elements }, self.list_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
@@ -190,12 +230,12 @@ impl PyContext {
             PyObjectKind::Dict {
                 elements: HashMap::new(),
             },
-            self.dict_type.clone(),
+            self.dict_type(),
         )
     }
 
     pub fn new_class(&self, name: &String, base: PyObjectRef) -> PyObjectRef {
-        objtype::new(self.type_type.clone(), name, vec![base], self.new_dict()).unwrap()
+        objtype::new(self.type_type(), name, vec![base], self.new_dict()).unwrap()
     }
 
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
@@ -216,14 +256,14 @@ impl PyContext {
                 name: name.clone(),
                 dict: scope.clone(),
             },
-            self.type_type.clone(),
+            self.type_type(),
         )
     }
 
     pub fn new_rustfunc(&self, function: RustPyFunc) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::RustFunction { function: function },
-            self.function_type.clone(),
+            self.function_type(),
         )
     }
 
@@ -233,7 +273,7 @@ impl PyContext {
                 code: code_obj,
                 scope: scope,
             },
-            self.function_type.clone(),
+            self.function_type(),
         )
     }
 
@@ -243,14 +283,14 @@ impl PyContext {
                 function: function,
                 object: object,
             },
-            self.bound_method_type.clone(),
+            self.bound_method_type(),
         )
     }
 
     pub fn new_member_descriptor(&self, function: RustPyFunc) -> PyObjectRef {
         let dict = self.new_dict();
         dict.set_item(&String::from("function"), self.new_rustfunc(function));
-        self.new_instance(dict, self.member_descriptor_type.clone())
+        self.new_instance(dict, self.member_descriptor_type())
     }
 
     pub fn new_instance(&self, dict: PyObjectRef, class: PyObjectRef) -> PyObjectRef {

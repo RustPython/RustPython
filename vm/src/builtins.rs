@@ -72,7 +72,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_callable
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type.clone()))]);
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
 
     let code_point_obj = i.borrow();
 
@@ -127,8 +127,8 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [
             (source, None), // TODO: Use more specific type
-            (_globals, Some(vm.ctx.dict_type.clone())),
-            (locals, Some(vm.ctx.dict_type.clone()))
+            (_globals, Some(vm.ctx.dict_type())),
+            (locals, Some(vm.ctx.dict_type()))
         ]
     );
     // TODO: handle optional global and locals
@@ -159,7 +159,7 @@ fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(obj, None), (attr, Some(vm.ctx.str_type.clone()))]
+        required = [(obj, None), (attr, Some(vm.ctx.str_type()))]
     );
     if let PyObjectKind::String { ref value } = attr.borrow().kind {
         vm.get_attribute(obj.clone(), value)
@@ -174,7 +174,7 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(obj, None), (attr, Some(vm.ctx.str_type.clone()))]
+        required = [(obj, None), (attr, Some(vm.ctx.str_type()))]
     );
     if let PyObjectKind::String { ref value } = attr.borrow().kind {
         let has_attr = match vm.get_attribute(obj.clone(), value) {
@@ -272,11 +272,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_property
 
 fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(range, Some(vm.ctx.int_type.clone()))]
-    );
+    arg_check!(vm, args, required = [(range, Some(vm.ctx.int_type()))]);
     match range.borrow().kind {
         PyObjectKind::Integer { ref value } => {
             let range_elements: Vec<PyObjectRef> =
@@ -296,11 +292,7 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (obj, None),
-            (attr, Some(vm.ctx.str_type.clone())),
-            (value, None)
-        ]
+        required = [(obj, None), (attr, Some(vm.ctx.str_type())), (value, None)]
     );
     if let PyObjectKind::String { value: ref name } = attr.borrow().kind {
         obj.clone().set_attr(name, value.clone());
@@ -325,17 +317,17 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let mut dict = HashMap::new();
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
-    dict.insert(String::from("bool"), ctx.bool_type.clone());
+    dict.insert(String::from("bool"), ctx.bool_type());
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
-    dict.insert(String::from("dict"), ctx.dict_type.clone());
+    dict.insert(String::from("dict"), ctx.dict_type());
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
-    dict.insert(String::from("float"), ctx.float_type.clone());
+    dict.insert(String::from("float"), ctx.float_type());
     dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
     dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
-    dict.insert(String::from("int"), ctx.int_type.clone());
+    dict.insert(String::from("int"), ctx.int_type());
     dict.insert(
         String::from("isinstance"),
         ctx.new_rustfunc(builtin_isinstance),
@@ -345,15 +337,15 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         ctx.new_rustfunc(builtin_issubclass),
     );
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
-    dict.insert(String::from("list"), ctx.list_type.clone());
+    dict.insert(String::from("list"), ctx.list_type());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
     dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
-    dict.insert(String::from("str"), ctx.str_type.clone()); // new_rustfunc(builtin_str));
-    dict.insert(String::from("tuple"), ctx.tuple_type.clone());
-    dict.insert(String::from("type"), ctx.type_type.clone());
-    dict.insert(String::from("object"), ctx.object.clone());
+    dict.insert(String::from("str"), ctx.str_type()); // new_rustfunc(builtin_str));
+    dict.insert(String::from("tuple"), ctx.tuple_type());
+    dict.insert(String::from("type"), ctx.type_type());
+    dict.insert(String::from("object"), ctx.object());
 
     // Exceptions:
     dict.insert(
@@ -387,7 +379,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         ctx.exceptions.value_error.clone(),
     );
 
-    let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type.clone());
+    let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type());
     let scope = PyObject::new(
         PyObjectKind::Scope {
             scope: Scope {
@@ -395,14 +387,14 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
                 parent: None,
             },
         },
-        ctx.type_type.clone(),
+        ctx.type_type(),
     );
     let obj = PyObject::new(
         PyObjectKind::Module {
             name: "__builtins__".to_string(),
             dict: scope,
         },
-        ctx.type_type.clone(),
+        ctx.type_type(),
     );
     obj
 }
@@ -416,7 +408,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         _ => panic!("Class name must by a string!"),
     };
     let mut bases = args.args.clone();
-    bases.push(vm.context().object.clone());
+    bases.push(vm.context().object());
     let metaclass = vm.get_type();
     let namespace = vm.new_dict();
     &vm.invoke(

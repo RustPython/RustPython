@@ -77,7 +77,7 @@ impl VirtualMachine {
     }
 
     pub fn get_none(&self) -> PyObjectRef {
-        self.ctx.none.clone()
+        self.ctx.none()
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
@@ -85,11 +85,11 @@ impl VirtualMachine {
     }
 
     pub fn get_type(&self) -> PyObjectRef {
-        self.ctx.type_type.clone()
+        self.ctx.type_type()
     }
 
     pub fn get_object(&self) -> PyObjectRef {
-        self.ctx.object.clone()
+        self.ctx.object()
     }
 
     pub fn get_locals(&self) -> PyObjectRef {
@@ -598,7 +598,7 @@ impl VirtualMachine {
                     &bytecode::Constant::Code { ref code } => {
                         PyObject::new(PyObjectKind::Code { code: code.clone() }, self.get_type())
                     }
-                    &bytecode::Constant::None => self.ctx.none.clone(),
+                    &bytecode::Constant::None => self.ctx.none(),
                 };
                 self.push_value(obj);
                 None
@@ -699,7 +699,7 @@ impl VirtualMachine {
 
                 let obj = PyObject::new(
                     PyObjectKind::Slice { start, stop, step },
-                    self.ctx.type_type.clone(),
+                    self.ctx.type_type(),
                 );
                 self.push_value(obj);
                 None
@@ -735,7 +735,7 @@ impl VirtualMachine {
                         position: 0,
                         iterated_obj: iterated_obj,
                     },
-                    self.ctx.type_type.clone(),
+                    self.ctx.type_type(),
                 );
                 self.push_value(iter_obj);
                 None
@@ -894,7 +894,7 @@ impl VirtualMachine {
                     PyObjectKind::RustFunction {
                         function: builtins::builtin_build_class_,
                     },
-                    self.ctx.type_type.clone(),
+                    self.ctx.type_type(),
                 );
                 self.push_value(rustfunc);
                 None

@@ -40,7 +40,7 @@ fn bool_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(_zelf, Some(vm.ctx.type_type.clone()))],
+        required = [(_zelf, Some(vm.ctx.type_type()))],
         optional = [(val, None)]
     );
     Ok(match val {
