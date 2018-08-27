@@ -4,6 +4,9 @@
  *   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
  */
 
+extern crate rustpython_parser;
+
+use self::rustpython_parser::ast;
 use std::cell::RefMut;
 use std::collections::hash_map::HashMap;
 use std::ops::Deref;
@@ -216,10 +219,9 @@ impl VirtualMachine {
             } else if scope.has_parent() {
                 scope = scope.get_parent();
             } else {
-                let name_error = self.context().new_instance(
-                    self.context().new_dict(),
-                    self.context().exceptions.name_error.clone(),
-                );
+                let name_error_type = self.ctx.exceptions.name_error.clone();
+                let msg = format!("Has not attribute '{}'", name);
+                let name_error = self.new_exception(name_error_type, msg);
                 break Some(Err(name_error));
             }
         }
@@ -227,9 +229,15 @@ impl VirtualMachine {
 
     fn run_frame(&mut self, frame: Frame) -> PyResult {
         self.frames.push(frame);
+        let filename = if let Some(source_path) = &self.current_frame().code.source_path {
+            source_path.to_string()
+        } else {
+            "<unknown>".to_string()
+        };
 
         // Execute until return or exception:
         let value = loop {
+            let lineno = self.get_lineno();
             let result = self.execute_instruction();
             match result {
                 None => {}
@@ -238,11 +246,29 @@ impl VirtualMachine {
                 }
                 Some(Err(exception)) => {
                     // unwind block stack on exception and find any handlers.
+                    // Add an entry in the traceback:
+                    assert!(objtype::isinstance(
+                        exception.clone(),
+                        self.ctx.exceptions.base_exception_type.clone()
+                    ));
+                    let traceback = self
+                        .get_attribute(exception.clone(), &"__traceback__".to_string())
+                        .unwrap();
+                    trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
+                    let pos = self.ctx.new_tuple(vec![
+                        self.ctx.new_str(filename.clone()),
+                        self.ctx.new_int(lineno.get_row() as i32),
+                    ]);
+                    objlist::append(
+                        self,
+                        PyFuncArgs {
+                            args: vec![traceback, pos],
+                        },
+                    ).unwrap();
+                    // exception.__trace
                     match self.unwind_exception(exception) {
                         None => {}
                         Some(exception) => {
-                            // let _traceback =
-                            //    self.get_attribute(exception.clone(), &"__traceback__".to_string());
                             // TODO: append line number to traceback?
                             // traceback.append();
                             break Err(exception);
@@ -896,5 +922,9 @@ impl VirtualMachine {
             target_pc
         );
         current_frame.lasti = target_pc;
+    }
+
+    fn get_lineno(&self) -> ast::Location {
+        self.current_frame().get_lineno()
     }
 }

@@ -1,3 +1,6 @@
+extern crate rustpython_parser;
+
+use self::rustpython_parser::ast;
 use std::fmt;
 
 use super::bytecode;
@@ -65,6 +68,10 @@ impl Frame {
         let ins2 = self.code.instructions[self.lasti].clone();
         self.lasti += 1;
         ins2
+    }
+
+    pub fn get_lineno(&self) -> ast::Location {
+        self.code.locations[self.lasti].clone()
     }
 
     pub fn push_block(&mut self, block: Block) {

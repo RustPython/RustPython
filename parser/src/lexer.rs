@@ -31,6 +31,14 @@ impl Location {
             column: column,
         }
     }
+
+    pub fn get_row(&self) -> usize {
+        self.row
+    }
+
+    pub fn get_column(&self) -> usize {
+        self.column
+    }
 }
 
 pub type Spanned<Tok> = Result<(Location, Tok, Location), LexicalError>;

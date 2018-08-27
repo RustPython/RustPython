@@ -3,7 +3,16 @@ use super::pyobject::{
 };
 use super::vm::VirtualMachine;
 
-fn exception_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let zelf = args.args[0].clone();
+    let msg = if args.args.len() > 1 {
+        args.args[1].clone()
+    } else {
+        vm.new_str("No msg".to_string())
+    };
+    let traceback = vm.ctx.new_list(Vec::new());
+    zelf.set_attr("__msg__", msg);
+    zelf.set_attr("__traceback__", traceback);
     Ok(vm.get_none())
 }
 

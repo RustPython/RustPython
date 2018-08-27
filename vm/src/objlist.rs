@@ -25,7 +25,7 @@ pub fn set_item(
     }
 }
 
-fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.append called with: {:?}", args);
     arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())), (x, None));
     let mut list_obj = list.borrow_mut();
