@@ -1,6 +1,6 @@
 use super::objtype;
 use super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 
@@ -37,9 +37,17 @@ pub fn init(context: &PyContext) {
 }
 
 fn bool_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() == 1 {
-        return Ok(vm.context().new_bool(false));
-    }
-    let ref value = boolval(vm, args.args[1].clone())?;
-    Ok(vm.new_bool(value.clone()))
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, Some(vm.ctx.type_type.clone()))],
+        optional = [(val, None)]
+    );
+    Ok(match val {
+        Some(val) => {
+            let bv = boolval(vm, val.clone())?;
+            vm.new_bool(bv.clone())
+        }
+        None => vm.context().new_bool(false),
+    })
 }

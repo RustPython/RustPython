@@ -6,7 +6,10 @@ macro_rules! arg_check {
                 "Expected no arguments (got: {})", $args.args.len())));
         }
     };
-    ( $vm: ident, $args:ident, $( ($arg_name:ident, $arg_type:expr) ),* ) => {
+    ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*] ) => {
+        arg_check!($vm, $args, required=[$( ($arg_name, $arg_type) ),*], optional=[]);
+    };
+    ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*], optional=[$( ($optional_arg_name:ident, $optional_arg_type:expr) ),*] ) => {
         let mut expected_args: Vec<(usize, &str, Option<PyObjectRef>)> = vec![];
         let mut arg_count = 0;
 
@@ -26,10 +29,31 @@ macro_rules! arg_check {
             }
         )*
 
-        if $args.args.len() != expected_args.len() {
+        let minimum_arg_count = arg_count;
+
+        $(
+            let $optional_arg_name = if arg_count < $args.args.len() {
+                expected_args.push((arg_count, stringify!($optional_arg_name), $optional_arg_type));
+                let ret = Some(&$args.args[arg_count]);
+                #[allow(unused_assignments)]
+                {
+                    arg_count += 1;
+                }
+                ret
+            } else {
+                None
+            };
+        )*
+
+        if $args.args.len() < minimum_arg_count || $args.args.len() > expected_args.len() {
+            let expected_str = if minimum_arg_count == arg_count {
+                format!("{}", arg_count)
+            } else {
+                format!("{}-{}", minimum_arg_count, arg_count)
+            };
             return Err($vm.new_type_error(format!(
                 "Expected {} arguments (got: {})",
-                expected_args.len(),
+                expected_str,
                 $args.args.len()
             )));
         };

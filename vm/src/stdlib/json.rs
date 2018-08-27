@@ -170,7 +170,7 @@ impl<'de> serde::Deserialize<'de> for PyObjectKind {
 
 fn dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial serialisation case
-    arg_check!(vm, args, (obj, None));
+    arg_check!(vm, args, required = [(obj, None)]);
     // TODO: Raise an exception for serialisation errors
     let string = serde_json::to_string(&obj.borrow().kind).unwrap();
     Ok(vm.context().new_str(string))
@@ -178,7 +178,11 @@ fn dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial deserialisation case
-    arg_check!(vm, args, (string, Some(vm.ctx.str_type.clone())));
+    arg_check!(
+        vm,
+        args,
+        required = [(string, Some(vm.ctx.str_type.clone()))]
+    );
     // TODO: Raise an exception for deserialisation errors
     let kind: PyObjectKind = match string.borrow().kind {
         PyObjectKind::String { ref value } => serde_json::from_str(&value).unwrap(),

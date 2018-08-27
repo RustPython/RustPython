@@ -27,7 +27,11 @@ pub fn set_item(
 
 pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.append called with: {:?}", args);
-    arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())), (x, None));
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type.clone())), (x, None)]
+    );
     let mut list_obj = list.borrow_mut();
     if let PyObjectKind::List { ref mut elements } = list_obj.kind {
         elements.push(x.clone());
@@ -39,7 +43,11 @@ pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.clear called with: {:?}", args);
-    arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())));
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type.clone()))]
+    );
     let mut list_obj = list.borrow_mut();
     if let PyObjectKind::List { ref mut elements } = list_obj.kind {
         elements.clear();
@@ -51,7 +59,11 @@ fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
-    arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())));
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type.clone()))]
+    );
     let list_obj = list.borrow();
     if let PyObjectKind::List { ref elements } = list_obj.kind {
         Ok(vm.context().new_int(elements.len() as i32))
@@ -62,7 +74,11 @@ fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.reverse called with: {:?}", args);
-    arg_check!(vm, args, (list, Some(vm.ctx.list_type.clone())));
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type.clone()))]
+    );
     let mut list_obj = list.borrow_mut();
     if let PyObjectKind::List { ref mut elements } = list_obj.kind {
         elements.reverse();
