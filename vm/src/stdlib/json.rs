@@ -6,8 +6,10 @@ use serde::de::Visitor;
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
+use super::super::objtype;
 use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::VirtualMachine;
 
@@ -167,24 +169,18 @@ impl<'de> serde::Deserialize<'de> for PyObjectKind {
 }
 
 fn dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 1 {
-        // TODO: Raise an exception for wrong number of args
-        // TODO: Implement non-trivial serialisation case
-        unimplemented!("json.dumps only supports the trivial 1-arg case");
-    };
+    // TODO: Implement non-trivial serialisation case
+    arg_check!(vm, args, (obj, None));
     // TODO: Raise an exception for serialisation errors
-    let string = serde_json::to_string(&args.args[0].borrow().kind).unwrap();
+    let string = serde_json::to_string(&obj.borrow().kind).unwrap();
     Ok(vm.context().new_str(string))
 }
 
 fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 1 {
-        // TODO: Raise an exception for wrong number of args
-        // TODO: Implement non-trivial serialisation case
-        unimplemented!("json.loads only supports the trivial 1-arg case");
-    };
+    // TODO: Implement non-trivial deserialisation case
+    arg_check!(vm, args, (string, Some(vm.ctx.str_type.clone())));
     // TODO: Raise an exception for deserialisation errors
-    let kind: PyObjectKind = match args.args[0].borrow().kind {
+    let kind: PyObjectKind = match string.borrow().kind {
         PyObjectKind::String { ref value } => serde_json::from_str(&value).unwrap(),
         _ => unimplemented!("json.loads only handles strings"),
     };
