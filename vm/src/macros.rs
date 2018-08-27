@@ -6,7 +6,7 @@ macro_rules! arg_check {
                 "Expected no arguments (got: {})", $args.args.len())));
         }
     };
-    ( $vm: ident, $args:ident, $( ($arg_name:ident, $arg_type:expr) ),* ) => {
+    ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*] ) => {
         let mut expected_args: Vec<(usize, &str, Option<PyObjectRef>)> = vec![];
         let mut arg_count = 0;
 

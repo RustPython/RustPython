@@ -72,7 +72,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_callable
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (i, Some(vm.ctx.int_type.clone())));
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type.clone()))]);
 
     let code_point_obj = i.borrow();
 
@@ -95,7 +95,7 @@ fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_classmethod
 
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (source, None));
+    arg_check!(vm, args, required = [(source, None)]);
     // TODO:
     let mode = compile::Mode::Eval;
     let source = source.borrow().str();
@@ -125,9 +125,11 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        (source, None), // TODO: Use more specific type
-        (_globals, Some(vm.ctx.dict_type.clone())),
-        (locals, Some(vm.ctx.dict_type.clone()))
+        required = [
+            (source, None), // TODO: Use more specific type
+            (_globals, Some(vm.ctx.dict_type.clone())),
+            (locals, Some(vm.ctx.dict_type.clone()))
+        ]
     );
     // TODO: handle optional global and locals
 
@@ -154,7 +156,11 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_frozenset
 
 fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, None), (attr, Some(vm.ctx.str_type.clone())));
+    arg_check!(
+        vm,
+        args,
+        required = [(obj, None), (attr, Some(vm.ctx.str_type.clone()))]
+    );
     if let PyObjectKind::String { ref value } = attr.borrow().kind {
         vm.get_attribute(obj.clone(), value)
     } else {
@@ -165,7 +171,11 @@ fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_globals
 
 fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, None), (attr, Some(vm.ctx.str_type.clone())));
+    arg_check!(
+        vm,
+        args,
+        required = [(obj, None), (attr, Some(vm.ctx.str_type.clone()))]
+    );
     if let PyObjectKind::String { ref value } = attr.borrow().kind {
         let has_attr = match vm.get_attribute(obj.clone(), value) {
             Ok(..) => true,
@@ -182,7 +192,7 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_hex
 
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, None));
+    arg_check!(vm, args, required = [(obj, None)]);
 
     Ok(vm.context().new_int(obj.get_id() as i32))
 }
@@ -191,7 +201,7 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_int
 
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, None), (typ, None));
+    arg_check!(vm, args, required = [(obj, None), (typ, None)]);
 
     let isinstance = objtype::isinstance(obj.clone(), typ.clone());
     Ok(vm.context().new_bool(isinstance))
@@ -201,7 +211,7 @@ fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_iter
 
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (obj, None));
+    arg_check!(vm, args, required = [(obj, None)]);
     match obj.borrow().kind {
         PyObjectKind::Dict { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
         PyObjectKind::Tuple { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
@@ -252,7 +262,11 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_property
 
 fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, (range, Some(vm.ctx.int_type.clone())));
+    arg_check!(
+        vm,
+        args,
+        required = [(range, Some(vm.ctx.int_type.clone()))]
+    );
     match range.borrow().kind {
         PyObjectKind::Integer { ref value } => {
             let range_elements: Vec<PyObjectRef> =
@@ -272,9 +286,11 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        (obj, None),
-        (attr, Some(vm.ctx.str_type.clone())),
-        (value, None)
+        required = [
+            (obj, None),
+            (attr, Some(vm.ctx.str_type.clone())),
+            (value, None)
+        ]
     );
     if let PyObjectKind::String { value: ref name } = attr.borrow().kind {
         obj.clone().set_attr(name, value.clone());
