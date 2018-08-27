@@ -74,6 +74,12 @@ pub enum Mode {
     Single,
 }
 
+#[derive(Clone, Copy)]
+enum EvalContext {
+    Statement,
+    Expression,
+}
+
 type Label = usize;
 
 impl Compiler {
@@ -150,15 +156,14 @@ impl Compiler {
                 match orelse {
                     None => {
                         // Only if:
-                        self.compile_expression(test);
-                        self.emit(Instruction::JumpIfFalse { target: end_label });
+                        self.compile_test(test, None, Some(end_label), EvalContext::Statement);
                         self.compile_statements(body);
+                        self.set_label(end_label);
                     }
                     Some(statements) => {
                         // if - else:
                         let else_label = self.new_label();
-                        self.compile_expression(test);
-                        self.emit(Instruction::JumpIfFalse { target: else_label });
+                        self.compile_test(test, None, Some(else_label), EvalContext::Statement);
                         self.compile_statements(body);
                         self.emit(Instruction::Jump { target: end_label });
 
@@ -184,8 +189,7 @@ impl Compiler {
 
                 self.set_label(start_label);
 
-                self.compile_expression(test);
-                self.emit(Instruction::JumpIfFalse { target: end_label });
+                self.compile_test(test, None, Some(end_label), EvalContext::Statement);
                 self.compile_statements(body);
                 self.emit(Instruction::Jump {
                     target: start_label,
@@ -418,12 +422,8 @@ impl Compiler {
             ast::Statement::Assert { test, msg } => {
                 // TODO: if some flag, ignore all assert statements!
 
-                self.compile_expression(test);
-
-                // if true, jump over raise:
                 let end_label = self.new_label();
-                self.emit(Instruction::JumpIf { target: end_label });
-
+                self.compile_test(test, Some(end_label), None, EvalContext::Statement);
                 self.emit(Instruction::LoadName {
                     name: String::from("AssertionError"),
                 });
@@ -533,6 +533,65 @@ impl Compiler {
         self.emit(Instruction::BinaryOperation { op: i });
     }
 
+    fn compile_test(
+        &mut self,
+        expression: &ast::Expression,
+        true_label: Option<Label>,
+        false_label: Option<Label>,
+        context: EvalContext,
+    ) {
+        // Compile expression for test, and jump to label if false
+        match expression {
+            ast::Expression::BoolOp { a, op, b } => match op {
+                ast::BooleanOperator::And => {
+                    let f = false_label.unwrap_or_else(|| self.new_label());
+                    self.compile_test(a, None, Some(f), context);
+                    self.compile_test(b, true_label, false_label, context);
+                    if let None = false_label {
+                        self.set_label(f);
+                    }
+                }
+                ast::BooleanOperator::Or => {
+                    let t = true_label.unwrap_or_else(|| self.new_label());
+                    self.compile_test(a, Some(t), None, context);
+                    self.compile_test(b, true_label, false_label, context);
+                    if let None = true_label {
+                        self.set_label(t);
+                    }
+                }
+            },
+            _ => {
+                self.compile_expression(expression);
+                match context {
+                    EvalContext::Statement => {
+                        if let Some(true_label) = true_label {
+                            self.emit(Instruction::JumpIf { target: true_label });
+                        }
+                        if let Some(false_label) = false_label {
+                            self.emit(Instruction::JumpIfFalse {
+                                target: false_label,
+                            });
+                        }
+                    }
+                    EvalContext::Expression => {
+                        if let Some(true_label) = true_label {
+                            self.emit(Instruction::Duplicate);
+                            self.emit(Instruction::JumpIf { target: true_label });
+                            self.emit(Instruction::Pop);
+                        }
+                        if let Some(false_label) = false_label {
+                            self.emit(Instruction::Duplicate);
+                            self.emit(Instruction::JumpIfFalse {
+                                target: false_label,
+                            });
+                            self.emit(Instruction::Pop);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn compile_expression(&mut self, expression: &ast::Expression) {
         trace!("Compiling {:?}", expression);
         match expression {
@@ -544,28 +603,9 @@ impl Compiler {
                 }
                 self.emit(Instruction::CallFunction { count: count });
             }
-            ast::Expression::BoolOp { a, op, b } => match op {
-                ast::BooleanOperator::And => {
-                    let false_label = self.new_label();
-                    self.compile_expression(a);
-                    self.emit(Instruction::Duplicate);
-                    self.emit(Instruction::JumpIfFalse {
-                        target: false_label,
-                    });
-                    self.emit(Instruction::Pop);
-                    self.compile_expression(b);
-                    self.set_label(false_label);
-                }
-                ast::BooleanOperator::Or => {
-                    let true_label = self.new_label();
-                    self.compile_expression(a);
-                    self.emit(Instruction::Duplicate);
-                    self.emit(Instruction::JumpIf { target: true_label });
-                    self.emit(Instruction::Pop);
-                    self.compile_expression(b);
-                    self.set_label(true_label);
-                }
-            },
+            ast::Expression::BoolOp { .. } => {
+                self.compile_test(expression, None, None, EvalContext::Expression)
+            }
             ast::Expression::Binop { a, op, b } => {
                 self.compile_expression(&*a);
                 self.compile_expression(&*b);
@@ -727,5 +767,100 @@ impl Compiler {
 
     fn set_source_location(&mut self, location: &ast::Location) {
         self.current_source_location = location.clone();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bytecode::CodeObject;
+    use super::bytecode::Constant::*;
+    use super::bytecode::Instruction::*;
+    use super::rustpython_parser::parser;
+    use super::Compiler;
+    fn compile_exec(source: &str) -> CodeObject {
+        let mut compiler = Compiler::new();
+        compiler.push_new_code_object(Option::None);
+        let ast = parser::parse_program(&source.to_string()).unwrap();
+        compiler.compile_program(&ast);
+        compiler.pop_code_object()
+    }
+
+    #[test]
+    fn test_if_ors() {
+        let code = compile_exec("if True or False or False:\n pass\n");
+        assert_eq!(
+            vec![
+                LoadConst {
+                    value: Boolean { value: true }
+                },
+                JumpIf { target: 1 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIf { target: 1 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIfFalse { target: 0 },
+                Pass,
+                LoadConst { value: None },
+                ReturnValue
+            ],
+            code.instructions
+        );
+    }
+
+    #[test]
+    fn test_if_ands() {
+        let code = compile_exec("if True and False and False:\n pass\n");
+        assert_eq!(
+            vec![
+                LoadConst {
+                    value: Boolean { value: true }
+                },
+                JumpIfFalse { target: 0 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIfFalse { target: 0 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIfFalse { target: 0 },
+                Pass,
+                LoadConst { value: None },
+                ReturnValue
+            ],
+            code.instructions
+        );
+    }
+
+    #[test]
+    fn test_if_mixed() {
+        let code = compile_exec("if (True and False) or (False and True):\n pass\n");
+        assert_eq!(
+            vec![
+                LoadConst {
+                    value: Boolean { value: true }
+                },
+                JumpIfFalse { target: 2 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIf { target: 1 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIfFalse { target: 0 },
+                LoadConst {
+                    value: Boolean { value: true }
+                },
+                JumpIfFalse { target: 0 },
+                Pass,
+                LoadConst { value: None },
+                ReturnValue
+            ],
+            code.instructions
+        );
     }
 }
