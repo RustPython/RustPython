@@ -20,6 +20,7 @@ mod frame;
 mod import;
 mod objbool;
 mod objdict;
+mod objfloat;
 mod objfunction;
 mod objint;
 mod objlist;

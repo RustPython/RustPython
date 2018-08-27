@@ -2,6 +2,7 @@ use super::bytecode;
 use super::exceptions;
 use super::objbool;
 use super::objdict;
+use super::objfloat;
 use super::objfunction;
 use super::objint;
 use super::objlist;
@@ -145,6 +146,7 @@ impl PyContext {
         objdict::init(&context);
         objfunction::init(&context);
         objint::init(&context);
+        objfloat::init(&context);
         objstr::init(&context);
         objbool::init(&context);
         exceptions::init(&context);
