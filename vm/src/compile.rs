@@ -769,3 +769,98 @@ impl Compiler {
         self.current_source_location = location.clone();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::bytecode::CodeObject;
+    use super::bytecode::Constant::*;
+    use super::bytecode::Instruction::*;
+    use super::rustpython_parser::parser;
+    use super::Compiler;
+    fn compile_exec(source: &str) -> CodeObject {
+        let mut compiler = Compiler::new();
+        compiler.push_new_code_object(Option::None);
+        let ast = parser::parse_program(&source.to_string()).unwrap();
+        compiler.compile_program(&ast);
+        compiler.pop_code_object()
+    }
+
+    #[test]
+    fn test_if_ors() {
+        let code = compile_exec("if True or False or False:\n pass\n");
+        assert_eq!(
+            vec![
+                LoadConst {
+                    value: Boolean { value: true }
+                },
+                JumpIf { target: 1 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIf { target: 1 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIfFalse { target: 0 },
+                Pass,
+                LoadConst { value: None },
+                ReturnValue
+            ],
+            code.instructions
+        );
+    }
+
+    #[test]
+    fn test_if_ands() {
+        let code = compile_exec("if True and False and False:\n pass\n");
+        assert_eq!(
+            vec![
+                LoadConst {
+                    value: Boolean { value: true }
+                },
+                JumpIfFalse { target: 0 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIfFalse { target: 0 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIfFalse { target: 0 },
+                Pass,
+                LoadConst { value: None },
+                ReturnValue
+            ],
+            code.instructions
+        );
+    }
+
+    #[test]
+    fn test_if_mixed() {
+        let code = compile_exec("if (True and False) or (False and True):\n pass\n");
+        assert_eq!(
+            vec![
+                LoadConst {
+                    value: Boolean { value: true }
+                },
+                JumpIfFalse { target: 2 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIf { target: 1 },
+                LoadConst {
+                    value: Boolean { value: false }
+                },
+                JumpIfFalse { target: 0 },
+                LoadConst {
+                    value: Boolean { value: true }
+                },
+                JumpIfFalse { target: 0 },
+                Pass,
+                LoadConst { value: None },
+                ReturnValue
+            ],
+            code.instructions
+        );
+    }
+}

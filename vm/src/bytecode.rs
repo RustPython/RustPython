@@ -16,7 +16,7 @@ use self::rustpython_parser::ast;
 use std::collections::HashMap;
 use std::fmt;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
@@ -39,7 +39,7 @@ impl CodeObject {
 
 pub type Label = usize;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     Import {
         name: String,
@@ -122,7 +122,7 @@ pub enum Instruction {
     StoreLocals,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Constant {
     Integer { value: i32 }, // TODO: replace by arbitrary big int math.
     Float { value: f64 },
@@ -132,7 +132,7 @@ pub enum Constant {
     None,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ComparisonOperator {
     Greater,
     GreaterOrEqual,
@@ -146,7 +146,7 @@ pub enum ComparisonOperator {
     IsNot,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOperator {
     Power,
     Multiply,
@@ -164,7 +164,7 @@ pub enum BinaryOperator {
     Or,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOperator {
     Not,
     Invert,

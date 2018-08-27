@@ -1,8 +1,8 @@
 # Python carefully avoids evaluating bools more than once in a variety of situations.
 # Eg:
 # In the statement
-#  if a and b:
-# it doesn't simply compute (a and b) and then evaluate the result to decide whether to
+#  if a or b:
+# it doesn't simply compute (a or b) and then evaluate the result to decide whether to
 # jump. If a is true it jumps directly to the body of the if statement.
 # We can confirm that this behaviour is correct in python code.
 
