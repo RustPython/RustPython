@@ -119,7 +119,7 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
 fn read_until_empty_line(input: &mut String) -> Result<i32, std::io::Error> {
     loop {
         print!("..... ");
-        io::stdout().flush().ok().expect("Could not flush stdout");
+        io::stdout().flush().expect("Could not flush stdout");
         let mut line = String::new();
         match io::stdin().read_line(&mut line) {
             Ok(0) => {
@@ -151,7 +151,7 @@ fn run_shell() {
     let mut input = String::new();
     loop {
         print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
-        io::stdout().flush().ok().expect("Could not flush stdout");
+        io::stdout().flush().expect("Could not flush stdout");
         match io::stdin().read_line(&mut input) {
             Ok(0) => {
                 break;
