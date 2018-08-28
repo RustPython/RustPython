@@ -178,11 +178,7 @@ fn dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial deserialisation case
-    arg_check!(
-        vm,
-        args,
-        required = [(string, Some(vm.ctx.str_type.clone()))]
-    );
+    arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
     // TODO: Raise an exception for deserialisation errors
     let kind: PyObjectKind = match string.borrow().kind {
         PyObjectKind::String { ref value } => serde_json::from_str(&value).unwrap(),

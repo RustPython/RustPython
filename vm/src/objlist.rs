@@ -30,7 +30,7 @@ pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(list, Some(vm.ctx.list_type.clone())), (x, None)]
+        required = [(list, Some(vm.ctx.list_type())), (x, None)]
     );
     let mut list_obj = list.borrow_mut();
     if let PyObjectKind::List { ref mut elements } = list_obj.kind {
@@ -43,11 +43,7 @@ pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.clear called with: {:?}", args);
-    arg_check!(
-        vm,
-        args,
-        required = [(list, Some(vm.ctx.list_type.clone()))]
-    );
+    arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let mut list_obj = list.borrow_mut();
     if let PyObjectKind::List { ref mut elements } = list_obj.kind {
         elements.clear();
@@ -59,11 +55,7 @@ fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
-    arg_check!(
-        vm,
-        args,
-        required = [(list, Some(vm.ctx.list_type.clone()))]
-    );
+    arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let list_obj = list.borrow();
     if let PyObjectKind::List { ref elements } = list_obj.kind {
         Ok(vm.context().new_int(elements.len() as i32))
@@ -74,11 +66,7 @@ fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.reverse called with: {:?}", args);
-    arg_check!(
-        vm,
-        args,
-        required = [(list, Some(vm.ctx.list_type.clone()))]
-    );
+    arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let mut list_obj = list.borrow_mut();
     if let PyObjectKind::List { ref mut elements } = list_obj.kind {
         elements.reverse();

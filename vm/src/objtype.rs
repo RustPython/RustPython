@@ -62,7 +62,7 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let typ = args.args[0].clone();
         let name = args.args[1].to_str().unwrap();
         let mut bases = args.args[2].to_vec().unwrap();
-        bases.push(vm.context().object.clone());
+        bases.push(vm.context().object());
         let dict = args.args[3].clone();
         new(typ, &name, bases, dict)
     } else {

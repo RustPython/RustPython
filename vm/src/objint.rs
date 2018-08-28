@@ -5,7 +5,7 @@ use super::pyobject::{
 use super::vm::VirtualMachine;
 
 fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
-    arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type.clone()))]);
+    arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
     let v = get_value(int.clone());
     Ok(vm.new_str(v.to_string()))
 }
