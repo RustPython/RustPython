@@ -341,9 +341,12 @@ impl VirtualMachine {
     }
 
     fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 / b2, self.get_type()))
+        let func = match self.get_attribute(a.clone(), &"__truediv__".to_string()) {
+            Ok(v) => v,
+            Err(err) => return Err(err),
+        };
+        let args = PyFuncArgs { args: vec![b] };
+        self.invoke(func, args)
     }
 
     fn _pow(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

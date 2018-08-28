@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::ops::{Add, Mul, Rem, Sub};
 use std::rc::Rc;
 
 /* Python objects and references.
@@ -836,23 +836,6 @@ impl<'a> Mul<&'a PyObject> for &'a PyObject {
                     panic!("NOT IMPL");
                 }
             },
-            _ => {
-                panic!("NOT IMPL");
-            }
-        }
-    }
-}
-
-impl<'a> Div<&'a PyObject> for &'a PyObject {
-    type Output = PyObjectKind;
-
-    fn div(self, rhs: &'a PyObject) -> Self::Output {
-        match (&self.kind, &rhs.kind) {
-            (PyObjectKind::Integer { value: value1 }, PyObjectKind::Integer { value: value2 }) => {
-                PyObjectKind::Float {
-                    value: *value1 as f64 / *value2 as f64,
-                }
-            }
             _ => {
                 panic!("NOT IMPL");
             }

@@ -11,7 +11,7 @@ fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjec
 }
 
 // Retrieve inner float value:
-fn get_value(obj: PyObjectRef) -> f64 {
+pub fn get_value(obj: PyObjectRef) -> f64 {
     if let PyObjectKind::Float { value } = &obj.borrow().kind {
         *value
     } else {

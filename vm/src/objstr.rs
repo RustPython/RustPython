@@ -1,12 +1,43 @@
 use super::objsequence::PySliceableSequence;
+use super::objtype;
 use super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
+    str_type.set_attr("__str__", context.new_rustfunc(str_str));
+    str_type.set_attr("__add__", context.new_rustfunc(str_add));
+}
+
+fn get_value(obj: PyObjectRef) -> String {
+    if let PyObjectKind::String { value } = &obj.borrow().kind {
+        value.to_string()
+    } else {
+        panic!("Inner error getting str");
+    }
+}
+
+fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    Ok(s.clone())
+}
+
+fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (s2, None)]
+    );
+    if objtype::isinstance(s2.clone(), vm.ctx.str_type()) {
+        Ok(vm
+            .ctx
+            .new_str(format!("{}{}", get_value(s.clone()), get_value(s2.clone()))))
+    } else {
+        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", s, s2)))
+    }
 }
 
 // TODO: should with following format
