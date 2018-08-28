@@ -350,8 +350,22 @@ impl Compiler {
             }
             ast::Statement::FunctionDef { name, args, body } => {
                 // Create bytecode for this function:
-                self.code_object_stack
-                    .push(CodeObject::new(args.to_vec(), None));
+                let mut names = vec![];
+                let mut default_elements = vec![];
+
+                for (name, default) in args {
+                    names.push(name.clone());
+                    if let Some(default) = default {
+                        default_elements.push(default.clone());
+                    }
+                }
+
+                let have_kwargs = default_elements.len() > 0;
+                self.compile_expression(&ast::Expression::Tuple {
+                    elements: default_elements,
+                });
+
+                self.code_object_stack.push(CodeObject::new(names, None));
                 self.compile_statements(body);
 
                 // Emit None at end:
@@ -371,7 +385,11 @@ impl Compiler {
                 });
 
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction);
+                let mut flags = bytecode::FunctionOpArg::empty();
+                if have_kwargs {
+                    flags = flags | bytecode::FunctionOpArg::HAS_DEFAULTS;
+                }
+                self.emit(Instruction::MakeFunction { flags: flags });
                 self.emit(Instruction::StoreName {
                     name: name.to_string(),
                 });
@@ -400,7 +418,9 @@ impl Compiler {
                     },
                 });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction);
+                self.emit(Instruction::MakeFunction {
+                    flags: bytecode::FunctionOpArg::empty(),
+                });
 
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -409,7 +429,9 @@ impl Compiler {
                 });
 
                 for base in args {
-                    self.emit(Instruction::LoadName { name: base.clone() });
+                    self.emit(Instruction::LoadName {
+                        name: base.0.clone(),
+                    });
                 }
                 self.emit(Instruction::CallFunction {
                     count: 2 + args.len(),
@@ -720,8 +742,10 @@ impl Compiler {
                 });
             }
             ast::Expression::Lambda { args, body } => {
-                self.code_object_stack
-                    .push(CodeObject::new(args.to_vec(), None));
+                self.code_object_stack.push(CodeObject::new(
+                    args.iter().map(|(name, _default)| name.clone()).collect(),
+                    None,
+                ));
                 self.compile_expression(body);
                 self.emit(Instruction::ReturnValue);
                 let code = self.code_object_stack.pop().unwrap();
@@ -734,7 +758,9 @@ impl Compiler {
                     },
                 });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction);
+                self.emit(Instruction::MakeFunction {
+                    flags: bytecode::FunctionOpArg::empty(),
+                });
             }
         }
     }

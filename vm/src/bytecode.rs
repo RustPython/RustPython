@@ -37,6 +37,12 @@ impl CodeObject {
     }
 }
 
+bitflags! {
+    pub struct FunctionOpArg: u8 {
+        const HAS_DEFAULTS = 0x01;
+    }
+}
+
 pub type Label = usize;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,7 +94,9 @@ pub enum Instruction {
     JumpIfFalse {
         target: Label,
     },
-    MakeFunction,
+    MakeFunction {
+        flags: FunctionOpArg,
+    },
     CallFunction {
         count: usize,
     },

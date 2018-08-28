@@ -95,12 +95,12 @@ pub enum Statement {
     ClassDef {
         name: String,
         body: Vec<LocatedStatement>,
-        args: Vec<String>,
+        args: Vec<(String, Option<Expression>)>,
         // TODO: docstring: String,
     },
     FunctionDef {
         name: String,
-        args: Vec<String>,
+        args: Vec<(String, Option<Expression>)>,
         // docstring: String,
         body: Vec<LocatedStatement>,
     },
@@ -161,7 +161,7 @@ pub enum Expression {
         name: String,
     },
     Lambda {
-        args: Vec<String>,
+        args: Vec<(String, Option<Expression>)>,
         body: Box<Expression>,
     },
     True,
