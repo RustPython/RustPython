@@ -357,6 +357,12 @@ impl Compiler {
                     names.push(name.clone());
                     if let Some(default) = default {
                         default_elements.push(default.clone());
+                    } else {
+                        if default_elements.len() > 0 {
+                            // Once we have started with defaults, all remaining arguments must
+                            // have defaults
+                            panic!("non-default argument follows default argument: {}", name);
+                        }
                     }
                 }
 

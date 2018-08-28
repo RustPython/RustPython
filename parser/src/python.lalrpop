@@ -315,9 +315,12 @@ Parameters: Vec<(String, Option<ast::Expression>)> = {
 // parameters are (String, None), kwargs are (String, Some(Test)) where Test is
 // the default
 TypedArgsList: Vec<(String, Option<ast::Expression>)> = {
-  <a: Comma<Identifier>> => {
-      a.iter().map(|param| (param.clone(), None)).collect()
-  },
+  <a: Comma<Parameter>> => a
+};
+
+Parameter: (String, Option<ast::Expression>) = {
+    <i:Identifier> => (i.clone(), None),
+    <i:Identifier> "=" <e:Expression> => (i.clone(), Some(e.clone())),
 };
 
 ClassDef: ast::LocatedStatement = {
