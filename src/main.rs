@@ -50,9 +50,14 @@ fn main() {
     }
 }
 
-fn _run_string(source: &String, source_path: Option<String>) {
+fn _run_string(source: &str, source_path: Option<String>) {
     let mut vm = VirtualMachine::new();
-    let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec, source_path).unwrap();
+    let code_obj = compile::compile(
+        &mut vm,
+        &source.to_string(),
+        compile::Mode::Exec,
+        source_path,
+    ).unwrap();
     debug!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
@@ -74,7 +79,7 @@ fn run_command(source: &mut String) {
     _run_string(source, None)
 }
 
-fn run_script(script_file: &String) {
+fn run_script(script_file: &str) {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let filepath = Path::new(script_file);
@@ -87,8 +92,8 @@ fn run_script(script_file: &String) {
     }
 }
 
-fn shell_exec(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> bool {
-    match compile::compile(vm, source, compile::Mode::Single, None) {
+fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
+    match compile::compile(vm, &source.to_string(), compile::Mode::Single, None) {
         Ok(code) => {
             match vm.run_code_obj(code, scope.clone()) {
                 Ok(_value) => {
