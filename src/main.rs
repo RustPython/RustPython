@@ -95,7 +95,7 @@ fn run_script(script_file: &str) {
 fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
     match compile::compile(vm, &source.to_string(), compile::Mode::Single, None) {
         Ok(code) => {
-            match vm.run_code_obj(code, scope.clone()) {
+            match vm.run_code_obj(code, scope) {
                 Ok(_value) => {
                     // Printed already.
                 }
