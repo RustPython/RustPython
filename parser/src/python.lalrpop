@@ -1,4 +1,6 @@
 // See also: file:///usr/share/doc/python/html/reference/grammar.html?highlight=grammar
+#![allow(unknown_lints,clippy)]
+
 use super::ast;
 use super::lexer;
 use std::iter::FromIterator;
