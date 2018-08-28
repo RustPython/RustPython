@@ -193,7 +193,7 @@ mod tests {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::Expression {
                     expression: ast::Expression::Lambda {
-                        args: vec![String::from("x"), String::from("y")],
+                        args: vec![(String::from("x"), None), (String::from("y"), None)],
                         body: Box::new(ast::Expression::Binop {
                             a: Box::new(ast::Expression::Identifier {
                                 name: String::from("x"),
@@ -211,25 +211,46 @@ mod tests {
 
     #[test]
     fn test_parse_class() {
-        let source = String::from("class Foo(A, B):\n def __init__(self):\n  pass\n");
+        let source = String::from("class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass\n");
         assert_eq!(
             parse_statement(&source),
             Ok(ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::ClassDef {
                     name: String::from("Foo"),
-                    args: vec![String::from("A"), String::from("B")],
-                    body: vec![ast::LocatedStatement {
-                        location: ast::Location::new(2, 2),
-                        node: ast::Statement::FunctionDef {
-                            name: String::from("__init__"),
-                            args: vec![String::from("self")],
-                            body: vec![ast::LocatedStatement {
-                                location: ast::Location::new(3, 3),
-                                node: ast::Statement::Pass,
-                            }],
+                    args: vec![(String::from("A"), None), (String::from("B"), None)],
+                    body: vec![
+                        ast::LocatedStatement {
+                            location: ast::Location::new(2, 2),
+                            node: ast::Statement::FunctionDef {
+                                name: String::from("__init__"),
+                                args: vec![(String::from("self"), None)],
+                                body: vec![ast::LocatedStatement {
+                                    location: ast::Location::new(3, 3),
+                                    node: ast::Statement::Pass,
+                                }],
+                            }
+                        },
+                        ast::LocatedStatement {
+                            location: ast::Location::new(4, 2),
+                            node: ast::Statement::FunctionDef {
+                                name: String::from("method_with_default"),
+                                args: vec![
+                                    (String::from("self"), None),
+                                    (
+                                        String::from("arg"),
+                                        Some(ast::Expression::String {
+                                            value: "default".to_string()
+                                        })
+                                    )
+                                ],
+                                body: vec![ast::LocatedStatement {
+                                    location: ast::Location::new(5, 3),
+                                    node: ast::Statement::Pass,
+                                }],
+                            }
                         }
-                    }],
+                    ],
                 }
             })
         )
