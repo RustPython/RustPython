@@ -1,6 +1,7 @@
+use super::objint;
 use super::objtype;
 use super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 
@@ -11,7 +12,7 @@ fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjec
 }
 
 // Retrieve inner float value:
-fn get_value(obj: PyObjectRef) -> f64 {
+pub fn get_value(obj: PyObjectRef) -> f64 {
     if let PyObjectKind::Float { value } = &obj.borrow().kind {
         *value
     } else {
@@ -19,8 +20,64 @@ fn get_value(obj: PyObjectRef) -> f64 {
     }
 }
 
+fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i.clone());
+    if objtype::isinstance(i2.clone(), vm.ctx.float_type()) {
+        Ok(vm.ctx.new_float(v1 + get_value(i2.clone())))
+    } else if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        Ok(vm.ctx.new_float(v1 + objint::get_value(i2.clone()) as f64))
+    } else {
+        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+    }
+}
+
+fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i.clone());
+    if objtype::isinstance(i2.clone(), vm.ctx.float_type()) {
+        Ok(vm.ctx.new_float(v1 - get_value(i2.clone())))
+    } else if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        Ok(vm.ctx.new_float(v1 - objint::get_value(i2.clone()) as f64))
+    } else {
+        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+    }
+}
+
+fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i.clone());
+    if objtype::isinstance(i2.clone(), vm.ctx.float_type()) {
+        let result = v1.powf(get_value(i2.clone()));
+        Ok(vm.ctx.new_float(result))
+    } else if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        let result = v1.powf(objint::get_value(i2.clone()) as f64);
+        Ok(vm.ctx.new_float(result))
+    } else {
+        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+    }
+}
+
 pub fn init(context: &PyContext) {
     let ref float_type = context.float_type;
+    float_type.set_attr("__add__", context.new_rustfunc(float_add));
+    float_type.set_attr("__pow__", context.new_rustfunc(float_pow));
     float_type.set_attr("__str__", context.new_rustfunc(str));
+    float_type.set_attr("__sub__", context.new_rustfunc(float_sub));
     float_type.set_attr("__repr__", context.new_rustfunc(str));
 }

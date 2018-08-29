@@ -14,7 +14,6 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::rc::Rc;
 
 /* Python objects and references.
@@ -562,10 +561,6 @@ pub enum PyObjectKind {
         stop: Option<i32>,
         step: Option<i32>,
     },
-    NameError {
-        // TODO: improve python object and type system
-        name: String,
-    },
     Code {
         code: bytecode::CodeObject,
     },
@@ -618,7 +613,6 @@ impl fmt::Debug for PyObjectKind {
                 stop: _,
                 step: _,
             } => write!(f, "slice"),
-            &PyObjectKind::NameError { name: _ } => write!(f, "NameError"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectKind::Function { .. } => write!(f, "function"),
             &PyObjectKind::BoundMethod {
@@ -695,7 +689,6 @@ impl PyObject {
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
             PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),
-            PyObjectKind::NameError { ref name } => format!("NameError: {:?}", name),
             PyObjectKind::Slice {
                 ref start,
                 ref stop,
@@ -744,143 +737,6 @@ impl PyObject {
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(RefCell::new(self))
-    }
-}
-
-impl<'a> Add<&'a PyObject> for &'a PyObject {
-    type Output = PyObjectKind;
-
-    fn add(self, rhs: &'a PyObject) -> Self::Output {
-        match self.kind {
-            PyObjectKind::Integer { value: ref value1 } => match &rhs.kind {
-                PyObjectKind::Integer { value: ref value2 } => PyObjectKind::Integer {
-                    value: value1 + value2,
-                },
-                PyObjectKind::Float { value: ref value2 } => PyObjectKind::Float {
-                    value: (*value1 as f64) + value2,
-                },
-                _ => {
-                    panic!("NOT IMPL");
-                }
-            },
-            PyObjectKind::Float { value: ref value1 } => match &rhs.kind {
-                PyObjectKind::Float { value: ref value2 } => PyObjectKind::Float {
-                    value: value1 + value2,
-                },
-                PyObjectKind::Integer { value: ref value2 } => PyObjectKind::Float {
-                    value: value1 + (*value2 as f64),
-                },
-                _ => {
-                    panic!("NOT IMPL");
-                }
-            },
-            PyObjectKind::String { value: ref value1 } => match rhs.kind {
-                PyObjectKind::String { value: ref value2 } => PyObjectKind::String {
-                    value: format!("{}{}", value1, value2),
-                },
-                _ => {
-                    panic!("NOT IMPL");
-                }
-            },
-            PyObjectKind::List { elements: ref e1 } => match rhs.kind {
-                PyObjectKind::List { elements: ref e2 } => PyObjectKind::List {
-                    elements: e1.iter().chain(e2.iter()).map(|e| e.clone()).collect(),
-                },
-                _ => {
-                    panic!("NOT IMPL");
-                }
-            },
-            _ => {
-                // TODO: Lookup __add__ method in dictionary?
-                panic!("NOT IMPL");
-            }
-        }
-    }
-}
-
-impl<'a> Sub<&'a PyObject> for &'a PyObject {
-    type Output = PyObjectKind;
-
-    fn sub(self, rhs: &'a PyObject) -> Self::Output {
-        match self.kind {
-            PyObjectKind::Integer { value: value1 } => match rhs.kind {
-                PyObjectKind::Integer { value: value2 } => PyObjectKind::Integer {
-                    value: value1 - value2,
-                },
-                _ => {
-                    panic!("NOT IMPL");
-                }
-            },
-            _ => {
-                panic!("NOT IMPL");
-            }
-        }
-    }
-}
-
-impl<'a> Mul<&'a PyObject> for &'a PyObject {
-    type Output = PyObjectKind;
-
-    fn mul(self, rhs: &'a PyObject) -> Self::Output {
-        match self.kind {
-            PyObjectKind::Integer { value: value1 } => match rhs.kind {
-                PyObjectKind::Integer { value: value2 } => PyObjectKind::Integer {
-                    value: value1 * value2,
-                },
-                _ => {
-                    panic!("NOT IMPL");
-                }
-            },
-            PyObjectKind::String { value: ref value1 } => match rhs.kind {
-                PyObjectKind::Integer { value: value2 } => {
-                    let mut result = String::new();
-                    for _x in 0..value2 {
-                        result.push_str(value1.as_str());
-                    }
-                    PyObjectKind::String { value: result }
-                }
-                _ => {
-                    panic!("NOT IMPL");
-                }
-            },
-            _ => {
-                panic!("NOT IMPL");
-            }
-        }
-    }
-}
-
-impl<'a> Div<&'a PyObject> for &'a PyObject {
-    type Output = PyObjectKind;
-
-    fn div(self, rhs: &'a PyObject) -> Self::Output {
-        match (&self.kind, &rhs.kind) {
-            (PyObjectKind::Integer { value: value1 }, PyObjectKind::Integer { value: value2 }) => {
-                PyObjectKind::Float {
-                    value: *value1 as f64 / *value2 as f64,
-                }
-            }
-            _ => {
-                panic!("NOT IMPL");
-            }
-        }
-    }
-}
-
-impl<'a> Rem<&'a PyObject> for &'a PyObject {
-    type Output = PyObjectKind;
-
-    fn rem(self, rhs: &'a PyObject) -> Self::Output {
-        match (&self.kind, &rhs.kind) {
-            (PyObjectKind::Integer { value: value1 }, PyObjectKind::Integer { value: value2 }) => {
-                PyObjectKind::Integer {
-                    value: value1 % value2,
-                }
-            }
-            (kind1, kind2) => {
-                unimplemented!("% not implemented for kinds: {:?} {:?}", kind1, kind2);
-            }
-        }
     }
 }
 
@@ -948,33 +804,7 @@ impl Ord for PyObject {
 
 #[cfg(test)]
 mod tests {
-    use super::{PyContext, PyObjectKind};
-
-    #[test]
-    fn test_add_py_integers() {
-        let ctx = PyContext::new();
-        let a = ctx.new_int(33);
-        let b = ctx.new_int(12);
-        let c = &*a.borrow() + &*b.borrow();
-        match c {
-            PyObjectKind::Integer { value } => assert_eq!(value, 45),
-            _ => assert!(false),
-        }
-    }
-
-    #[test]
-    fn test_multiply_str() {
-        let ctx = PyContext::new();
-        let a = ctx.new_str(String::from("Hello "));
-        let b = ctx.new_int(4);
-        let c = &*a.borrow() * &*b.borrow();
-        match c {
-            PyObjectKind::String { value } => {
-                assert_eq!(value, String::from("Hello Hello Hello Hello "))
-            }
-            _ => assert!(false),
-        }
-    }
+    use super::PyContext;
 
     #[test]
     fn test_type_type() {

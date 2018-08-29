@@ -130,8 +130,8 @@ impl VirtualMachine {
     }
 
     // Container of the virtual machine state:
-    pub fn to_str(&mut self, obj: PyObjectRef) -> String {
-        obj.borrow().str()
+    pub fn to_str(&mut self, obj: PyObjectRef) -> PyResult {
+        self.call_method(obj, "__str__".to_string(), vec![])
     }
 
     pub fn current_frame(&self) -> &Frame {
@@ -319,58 +319,41 @@ impl VirtualMachine {
     }
 
     fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        // TODO: Fix this correctly, and for all arithmetic operations
-        Ok(PyObject::new(
-            a2 - b2,
-            a2.typ.clone().unwrap_or(self.get_type()),
-        ))
+        self.call_method(a, "__sub__".to_string(), vec![b])
     }
 
     fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 + b2, self.get_type()))
+        self.call_method(a, "__add__".to_string(), vec![b])
     }
 
     fn _mul(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 * b2, self.get_type()))
+        self.call_method(a, "__mul__".to_string(), vec![b])
     }
 
     fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 / b2, self.get_type()))
+        self.call_method(a, "__truediv__".to_string(), vec![b])
+    }
+
+    fn call_method(
+        &mut self,
+        obj: PyObjectRef,
+        method_name: String,
+        args: Vec<PyObjectRef>,
+    ) -> PyResult {
+        let func = match self.get_attribute(obj, &method_name) {
+            Ok(v) => v,
+            Err(err) => return Err(err),
+        };
+        let args = PyFuncArgs { args: args };
+        self.invoke(func, args)
     }
 
     fn _pow(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        match (&a2.kind, &b2.kind) {
-            (
-                &PyObjectKind::Integer { value: ref v1 },
-                &PyObjectKind::Integer { value: ref v2 },
-            ) => Ok(self.ctx.new_int(v1.pow(*v2 as u32))),
-            (&PyObjectKind::Float { value: ref v1 }, &PyObjectKind::Integer { value: ref v2 }) => {
-                Ok(self.ctx.new_float(v1.powf(*v2 as f64)))
-            }
-            (&PyObjectKind::Integer { value: ref v1 }, &PyObjectKind::Float { value: ref v2 }) => {
-                Ok(self.ctx.new_float((*v1 as f64).powf(*v2)))
-            }
-            (&PyObjectKind::Float { value: ref v1 }, &PyObjectKind::Float { value: ref v2 }) => {
-                Ok(self.ctx.new_float(v1.powf(*v2)))
-            }
-            _ => panic!("Not impl"),
-        }
+        self.call_method(a, "__pow__".to_string(), vec![b])
     }
 
     fn _modulo(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 % b2, self.get_type()))
+        self.call_method(a, "__mod__".to_string(), vec![b])
     }
 
     fn execute_binop(&mut self, op: &bytecode::BinaryOperator) -> Option<PyResult> {
@@ -965,5 +948,32 @@ impl VirtualMachine {
 
     fn get_lineno(&self) -> ast::Location {
         self.current_frame().get_lineno()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::objint;
+    use super::objstr;
+    use super::VirtualMachine;
+
+    #[test]
+    fn test_add_py_integers() {
+        let mut vm = VirtualMachine::new();
+        let a = vm.ctx.new_int(33);
+        let b = vm.ctx.new_int(12);
+        let res = vm._add(a, b).unwrap();
+        let value = objint::get_value(res);
+        assert_eq!(value, 45);
+    }
+
+    #[test]
+    fn test_multiply_str() {
+        let mut vm = VirtualMachine::new();
+        let a = vm.ctx.new_str(String::from("Hello "));
+        let b = vm.ctx.new_int(4);
+        let res = vm._mul(a, b).unwrap();
+        let value = objstr::get_value(res);
+        assert_eq!(value, String::from("Hello Hello Hello Hello "))
     }
 }
