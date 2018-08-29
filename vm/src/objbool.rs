@@ -34,6 +34,27 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
 pub fn init(context: &PyContext) {
     let ref bool_type = context.bool_type;
     bool_type.set_attr("__new__", context.new_rustfunc(bool_new));
+    bool_type.set_attr("__str__", context.new_rustfunc(bool_str));
+}
+
+// Retrieve inner int value:
+pub fn get_value(obj: &PyObjectRef) -> bool {
+    if let PyObjectKind::Boolean { value } = &obj.borrow().kind {
+        *value
+    } else {
+        panic!("Inner error getting inner boolean");
+    }
+}
+
+fn bool_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bool_type()))]);
+    let v = get_value(obj);
+    let s = if v {
+        "True".to_string()
+    } else {
+        "True".to_string()
+    };
+    Ok(vm.new_str(s))
 }
 
 fn bool_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

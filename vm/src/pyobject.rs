@@ -555,10 +555,6 @@ pub enum PyObjectKind {
         stop: Option<i32>,
         step: Option<i32>,
     },
-    NameError {
-        // TODO: improve python object and type system
-        name: String,
-    },
     Code {
         code: bytecode::CodeObject,
     },
@@ -610,7 +606,6 @@ impl fmt::Debug for PyObjectKind {
                 stop: _,
                 step: _,
             } => write!(f, "slice"),
-            &PyObjectKind::NameError { name: _ } => write!(f, "NameError"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectKind::Function { code: _, scope: _ } => write!(f, "function"),
             &PyObjectKind::BoundMethod {
@@ -687,7 +682,6 @@ impl PyObject {
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
             PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),
-            PyObjectKind::NameError { ref name } => format!("NameError: {:?}", name),
             PyObjectKind::Slice {
                 ref start,
                 ref stop,

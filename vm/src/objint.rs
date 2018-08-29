@@ -95,11 +95,30 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let v1 = get_value(i.clone());
+    if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        let v2 = get_value(i2.clone());
+        Ok(vm.ctx.new_int(v1.pow(v2 as u32)))
+    } else if objtype::isinstance(i2.clone(), vm.ctx.float_type()) {
+        let v2 = objfloat::get_value(i2.clone());
+        Ok(vm.ctx.new_float((v1 as f64).powf(v2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot modulo {:?} and {:?}", i, i2)))
+    }
+}
+
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
     int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
+    int_type.set_attr("__pow__", context.new_rustfunc(int_pow));
     int_type.set_attr("__repr__", context.new_rustfunc(str));
     int_type.set_attr("__str__", context.new_rustfunc(str));
     int_type.set_attr("__sub__", context.new_rustfunc(int_sub));

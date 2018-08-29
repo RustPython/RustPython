@@ -72,8 +72,8 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() > 2 {
         panic!("str expects exactly one parameter");
     };
-    let s = args.args[1].borrow().str();
-    Ok(vm.new_str(s))
+
+    vm.to_str(args.args[1].clone())
 }
 
 impl PySliceableSequence for String {

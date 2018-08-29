@@ -50,6 +50,28 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+/*
+ * TODO:
+fn list_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(o, Some(vm.ctx.list_type()))]
+    );
+
+    let 
+    PyObjectKind::List { ref elements } => format!(
+        "[{}]",
+        elements
+            .iter()
+            .map(|elem| elem.borrow().str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ),
+    }
+}
+*/
+
 pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.append called with: {:?}", args);
     arg_check!(
@@ -105,6 +127,7 @@ pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
     list_type.set_attr("__add__", context.new_rustfunc(list_add));
     list_type.set_attr("__len__", context.new_rustfunc(len));
+    // list_type.set_attr("__str__", context.new_rustfunc(list_str));
     list_type.set_attr("append", context.new_rustfunc(append));
     list_type.set_attr("clear", context.new_rustfunc(clear));
     list_type.set_attr("reverse", context.new_rustfunc(reverse));
