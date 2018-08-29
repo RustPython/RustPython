@@ -516,10 +516,44 @@ impl VirtualMachine {
             PyObjectKind::Function {
                 ref code,
                 ref scope,
+                ref defaults,
             } => {
                 let mut scope = self.ctx.new_scope(Some(scope.clone()));
                 let code_object = copy_code(code.clone());
-                for (name, value) in code_object.arg_names.iter().zip(args.args) {
+                let nargs = args.args.len();
+                let nexpected_args = code_object.arg_names.len();
+                let args = if nargs > nexpected_args {
+                    return Err(self.new_type_error(format!(
+                        "Expected {} arguments (got: {})",
+                        nexpected_args, nargs
+                    )));
+                } else if nargs < nexpected_args {
+                    // Use defaults if available
+                    let nrequired_defaults = nexpected_args - nargs;
+                    let available_defaults = match defaults.borrow().kind {
+                        PyObjectKind::Tuple { ref elements } => elements.clone(),
+                        PyObjectKind::None => vec![],
+                        _ => panic!("function defaults not tuple or None"),
+                    };
+                    if nrequired_defaults > available_defaults.len() {
+                        return Err(self.new_type_error(format!(
+                            "Expected {}-{} arguments (got: {})",
+                            nexpected_args - available_defaults.len(),
+                            nexpected_args,
+                            nargs
+                        )));
+                    }
+                    let default_args = available_defaults
+                        .clone()
+                        .split_off(available_defaults.len() - nrequired_defaults);
+                    let mut new_args = args.args.clone();
+                    new_args.extend(default_args);
+                    new_args
+                } else {
+                    // nargs == nexpected_args
+                    args.args
+                };
+                for (name, value) in code_object.arg_names.iter().zip(args) {
                     scope.set_item(name, value);
                 }
                 let frame = Frame::new(code.clone(), scope);
@@ -771,13 +805,18 @@ impl VirtualMachine {
                 };
                 None
             }
-            bytecode::Instruction::MakeFunction => {
+            bytecode::Instruction::MakeFunction { flags } => {
                 let _qualified_name = self.pop_value();
                 let code_obj = self.pop_value();
+                let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
+                    self.pop_value()
+                } else {
+                    self.get_none()
+                };
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.current_frame().locals.clone();
-                let obj = self.ctx.new_function(code_obj, scope);
+                let obj = self.ctx.new_function(code_obj, scope, defaults);
                 self.push_value(obj);
                 None
             }

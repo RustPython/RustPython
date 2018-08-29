@@ -308,12 +308,19 @@ FuncDef: ast::LocatedStatement = {
   },
 };
 
-Parameters: Vec<String> = {
+Parameters: Vec<(String, Option<ast::Expression>)> = {
   "(" <a: TypedArgsList> ")" => a,
 };
 
-TypedArgsList: Vec<String> = {
-  <a: Comma<Identifier>> => a,
+// parameters are (String, None), kwargs are (String, Some(Test)) where Test is
+// the default
+TypedArgsList: Vec<(String, Option<ast::Expression>)> = {
+  <a: Comma<Parameter>> => a
+};
+
+Parameter: (String, Option<ast::Expression>) = {
+    <i:Identifier> => (i.clone(), None),
+    <i:Identifier> "=" <e:Expression> => (i.clone(), Some(e.clone())),
 };
 
 ClassDef: ast::LocatedStatement = {

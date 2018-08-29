@@ -267,11 +267,17 @@ impl PyContext {
         )
     }
 
-    pub fn new_function(&self, code_obj: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
+    pub fn new_function(
+        &self,
+        code_obj: PyObjectRef,
+        scope: PyObjectRef,
+        defaults: PyObjectRef,
+    ) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::Function {
                 code: code_obj,
                 scope: scope,
+                defaults: defaults,
             },
             self.function_type(),
         )
@@ -566,6 +572,7 @@ pub enum PyObjectKind {
     Function {
         code: PyObjectRef,
         scope: PyObjectRef,
+        defaults: PyObjectRef,
     },
     BoundMethod {
         function: PyObjectRef,
@@ -613,7 +620,7 @@ impl fmt::Debug for PyObjectKind {
             } => write!(f, "slice"),
             &PyObjectKind::NameError { name: _ } => write!(f, "NameError"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
-            &PyObjectKind::Function { code: _, scope: _ } => write!(f, "function"),
+            &PyObjectKind::Function { .. } => write!(f, "function"),
             &PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
@@ -683,7 +690,7 @@ impl PyObject {
             } => format!("<class '{}'>", name),
             PyObjectKind::Instance { dict: _ } => format!("<instance>"),
             PyObjectKind::Code { code: _ } => format!("<code>"),
-            PyObjectKind::Function { code: _, scope: _ } => format!("<func>"),
+            PyObjectKind::Function { .. } => format!("<func>"),
             PyObjectKind::BoundMethod { .. } => format!("<bound-method>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
