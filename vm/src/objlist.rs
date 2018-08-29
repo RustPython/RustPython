@@ -25,6 +25,31 @@ pub fn set_item(
     }
 }
 
+fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
+    if let PyObjectKind::List { elements } = &obj.borrow().kind {
+        elements.to_vec()
+    } else {
+        panic!("Cannot extract list elements from non-list");
+    }
+}
+
+fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(o, Some(vm.ctx.list_type())), (o2, None)]
+    );
+
+    if objtype::isinstance(o2.clone(), vm.ctx.list_type()) {
+        let e1 = get_elements(o.clone());
+        let e2 = get_elements(o2.clone());
+        let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();
+        Ok(vm.ctx.new_list(elements))
+    } else {
+        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", o, o2)))
+    }
+}
+
 pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.append called with: {:?}", args);
     arg_check!(
@@ -78,6 +103,7 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
+    list_type.set_attr("__add__", context.new_rustfunc(list_add));
     list_type.set_attr("__len__", context.new_rustfunc(len));
     list_type.set_attr("append", context.new_rustfunc(append));
     list_type.set_attr("clear", context.new_rustfunc(clear));

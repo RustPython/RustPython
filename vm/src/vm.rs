@@ -319,33 +319,32 @@ impl VirtualMachine {
     }
 
     fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        // TODO: Fix this correctly, and for all arithmetic operations
-        Ok(PyObject::new(
-            a2 - b2,
-            a2.typ.clone().unwrap_or(self.get_type()),
-        ))
+        self.call_method(a, "__sub__".to_string(), vec![b])
     }
 
     fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 + b2, self.get_type()))
+        self.call_method(a, "__add__".to_string(), vec![b])
     }
 
     fn _mul(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 * b2, self.get_type()))
+        self.call_method(a, "__mul__".to_string(), vec![b])
     }
 
     fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let func = match self.get_attribute(a.clone(), &"__truediv__".to_string()) {
+        self.call_method(a, "__truediv__".to_string(), vec![b])
+    }
+
+    fn call_method(
+        &mut self,
+        obj: PyObjectRef,
+        method_name: String,
+        args: Vec<PyObjectRef>,
+    ) -> PyResult {
+        let func = match self.get_attribute(obj, &method_name) {
             Ok(v) => v,
             Err(err) => return Err(err),
         };
-        let args = PyFuncArgs { args: vec![b] };
+        let args = PyFuncArgs { args: args };
         self.invoke(func, args)
     }
 
@@ -371,9 +370,7 @@ impl VirtualMachine {
     }
 
     fn _modulo(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        Ok(PyObject::new(a2 % b2, self.get_type()))
+        self.call_method(a, "__mod__".to_string(), vec![b])
     }
 
     fn execute_binop(&mut self, op: &bytecode::BinaryOperator) -> Option<PyResult> {
@@ -929,5 +926,32 @@ impl VirtualMachine {
 
     fn get_lineno(&self) -> ast::Location {
         self.current_frame().get_lineno()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::objint;
+    use super::objstr;
+    use super::VirtualMachine;
+
+    #[test]
+    fn test_add_py_integers() {
+        let mut vm = VirtualMachine::new();
+        let a = vm.ctx.new_int(33);
+        let b = vm.ctx.new_int(12);
+        let res = vm._add(a, b).unwrap();
+        let value = objint::get_value(res);
+        assert_eq!(value, 45);
+    }
+
+    #[test]
+    fn test_multiply_str() {
+        let mut vm = VirtualMachine::new();
+        let a = vm.ctx.new_str(String::from("Hello "));
+        let b = vm.ctx.new_int(4);
+        let res = vm._mul(a, b).unwrap();
+        let value = objstr::get_value(res);
+        assert_eq!(value, String::from("Hello Hello Hello Hello "))
     }
 }

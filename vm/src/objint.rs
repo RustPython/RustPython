@@ -12,7 +12,7 @@ fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjec
 }
 
 // Retrieve inner int value:
-fn get_value(obj: PyObjectRef) -> i32 {
+pub fn get_value(obj: PyObjectRef) -> i32 {
     if let PyObjectKind::Integer { value } = &obj.borrow().kind {
         *value
     } else {
@@ -28,6 +28,10 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(i.clone()) + get_value(i2.clone())))
+    } else if objtype::isinstance(i2.clone(), vm.ctx.float_type()) {
+        Ok(vm
+            .ctx
+            .new_float(get_value(i.clone()) as f64 + objfloat::get_value(i2.clone())))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
@@ -78,9 +82,23 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        Ok(vm.ctx.new_int(get_value(i.clone()) % get_value(i2.clone())))
+    } else {
+        Err(vm.new_type_error(format!("Cannot modulo {:?} and {:?}", i, i2)))
+    }
+}
+
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
+    int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
     int_type.set_attr("__repr__", context.new_rustfunc(str));
     int_type.set_attr("__str__", context.new_rustfunc(str));
