@@ -4,10 +4,15 @@ language: rust
 rust:
   - stable
   - beta
+  - nightly
 
 script:
     - cargo build --verbose --all
     - cargo test --verbose --all
+
+env:
+    # This is used to only capture the regular nightly test in allow_failures
+    - REGULAR_TEST=true
 
 cache: cargo
 
@@ -26,6 +31,7 @@ matrix:
                   - target
           env:
               - TRAVIS_RUST_VERSION=stable
+              - REGULAR_TEST=false
           script: tests/.travis-runner.sh
         - language: python
           python: 3.6
@@ -38,6 +44,7 @@ matrix:
                   - target
           env:
               - TRAVIS_RUST_VERSION=beta
+              - REGULAR_TEST=false
           script: tests/.travis-runner.sh
         - name: rustfmt
           language: rust
@@ -52,3 +59,8 @@ matrix:
               # creates.)
               - echo > parser/src/python.rs
               - cargo fmt --all -- --check
+          env:
+              - REGULAR_TEST=false
+    allow_failures:
+        - rust: nightly
+          env: REGULAR_TEST=true
