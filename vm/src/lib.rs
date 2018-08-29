@@ -37,5 +37,5 @@ mod traceback;
 mod vm;
 
 // pub use self::pyobject::Executor;
-pub use self::vm::VirtualMachine;
 pub use self::exceptions::print_exception;
+pub use self::vm::VirtualMachine;

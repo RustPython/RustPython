@@ -1,7 +1,7 @@
+use super::objstr;
 use super::pyobject::{
     create_type, AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
 };
-use super::objstr;
 use super::vm::VirtualMachine;
 
 fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -19,7 +19,7 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
     match vm.to_str(exc.clone()) {
-        Ok(txt) => println!("Error: {}", objstr::get_value(txt)),
+        Ok(txt) => println!("Error: {}", objstr::get_value(&txt)),
         Err(err) => println!("Error during error {:?}", err),
     }
 }

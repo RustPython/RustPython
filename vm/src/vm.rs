@@ -693,8 +693,10 @@ impl VirtualMachine {
                     };
                     elements.insert(key, obj);
                 }
-                let map_obj =
-                    PyObject::new(PyObjectKind::Dict { elements: elements }, self.get_type());
+                let map_obj = PyObject::new(
+                    PyObjectKind::Dict { elements: elements },
+                    self.ctx.dict_type(),
+                );
                 self.push_value(map_obj);
                 None
             }

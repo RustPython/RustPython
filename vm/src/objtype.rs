@@ -56,7 +56,12 @@ pub fn issubclass(typ: PyObjectRef, cls: PyObjectRef) -> bool {
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let PyObjectKind::Class { name, dict: _, mro: _ } = &typ.borrow().kind {
+    if let PyObjectKind::Class {
+        name,
+        dict: _,
+        mro: _,
+    } = &typ.borrow().kind
+    {
         name.clone()
     } else {
         panic!("Cannot get type_name of non-type type");

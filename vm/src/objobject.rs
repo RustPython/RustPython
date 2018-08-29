@@ -1,7 +1,8 @@
 use super::objdict;
 use super::objtype;
 use super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 

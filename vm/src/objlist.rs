@@ -52,22 +52,18 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn list_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(o, Some(vm.ctx.list_type()))]
-    );
+    arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
     let elements = get_elements(o.clone());
-    let mut str_parts = vec!();
+    let mut str_parts = vec![];
     for elem in elements {
         match vm.to_str(elem) {
-            Ok(s) => str_parts.push(objstr::get_value(s)),
+            Ok(s) => str_parts.push(objstr::get_value(&s)),
             Err(err) => return Err(err),
         }
     }
 
-    let s = format!( "[{}]", str_parts.join(", "));
+    let s = format!("[{}]", str_parts.join(", "));
     Ok(vm.new_str(s))
 }
 
