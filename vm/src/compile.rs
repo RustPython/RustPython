@@ -628,7 +628,7 @@ impl Compiler {
             ast::Expression::Call { function, args } => {
                 self.compile_expression(&*function);
                 let count = args.len();
-                for arg in args {
+                for (_, arg) in args {
                     self.compile_expression(arg)
                 }
                 self.emit(Instruction::CallFunction { count: count });

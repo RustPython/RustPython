@@ -510,8 +510,13 @@ TestList: Vec<ast::Expression> = {
   }
 };
 
-FunctionArguments: Vec<ast::Expression> = {
-  <e: Comma<Test>> => e,
+FunctionArguments: Vec<(Option<String>, ast::Expression)> = {
+  <e: Comma<FunctionArgument>> => e,
+};
+
+FunctionArgument: (Option<String>, ast::Expression) = {
+    <e:Expression> => (None, e.clone()),
+    <i:Identifier> "=" <e:Expression> => (Some(i.clone()), e.clone()),
 };
 
 Comma<T>: Vec<T> = {
