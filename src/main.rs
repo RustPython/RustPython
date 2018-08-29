@@ -10,6 +10,7 @@ extern crate rustpython_vm;
 use clap::{App, Arg};
 use rustpython_parser::parser;
 use rustpython_vm::compile;
+use rustpython_vm::print_exception;
 use rustpython_vm::VirtualMachine;
 use std::io;
 use std::io::prelude::*;
@@ -59,6 +60,7 @@ fn _run_string(source: &String, source_path: Option<String>) {
         Ok(_value) => {}
         Err(exc) => {
             // println!("X: {:?}", exc.get_attr("__traceback__"));
+            print_exception(&mut vm, &exc);
             panic!("Exception: {:?}", exc);
         }
     }
@@ -93,7 +95,7 @@ fn shell_exec(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> b
                     // Printed already.
                 }
                 Err(msg) => {
-                    println!("Error: {:?}", msg);
+                    print_exception(vm, &msg);
                 }
             }
         }

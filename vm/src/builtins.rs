@@ -5,6 +5,7 @@ use std::io::{self, Write};
 
 use super::compile;
 use super::objbool;
+use super::objstr;
 use super::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind,
@@ -225,7 +226,6 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match obj.borrow().kind {
         PyObjectKind::Dict { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
         PyObjectKind::Tuple { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
-        PyObjectKind::String { ref value } => Ok(vm.context().new_int(value.len() as i32)),
         _ => {
             let len_method_name = "__len__".to_string();
             match vm.get_attribute(obj.clone(), &len_method_name) {
@@ -262,7 +262,11 @@ fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
     for a in args.args {
-        print!("{} ", a.borrow().str());
+        let s = match vm.to_str(a) {
+            Ok(v) => objstr::get_value(&v),
+            Err(err) => return Err(err),
+        };
+        print!("{} ", s);
     }
     println!();
     io::stdout().flush().unwrap();

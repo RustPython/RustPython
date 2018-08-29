@@ -9,12 +9,13 @@ use super::vm::VirtualMachine;
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
     str_type.set_attr("__add__", context.new_rustfunc(str_add));
+    str_type.set_attr("__len__", context.new_rustfunc(str_len));
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
     str_type.set_attr("__str__", context.new_rustfunc(str_str));
 }
 
-pub fn get_value(obj: PyObjectRef) -> String {
+pub fn get_value(obj: &PyObjectRef) -> String {
     if let PyObjectKind::String { value } = &obj.borrow().kind {
         value.to_string()
     } else {
@@ -36,10 +37,16 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(s2.clone(), vm.ctx.str_type()) {
         Ok(vm
             .ctx
-            .new_str(format!("{}{}", get_value(s.clone()), get_value(s2.clone()))))
+            .new_str(format!("{}{}", get_value(&s), get_value(&s2))))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", s, s2)))
     }
+}
+
+fn str_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let sv = get_value(s);
+    Ok(vm.ctx.new_int(sv.len() as i32))
 }
 
 fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -49,7 +56,7 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(s, Some(vm.ctx.str_type())), (s2, None)]
     );
     if objtype::isinstance(s2.clone(), vm.ctx.int_type()) {
-        let value1 = get_value(s.clone());
+        let value1 = get_value(&s);
         let value2 = objint::get_value(s2.clone());
         let mut result = String::new();
         for _x in 0..value2 {

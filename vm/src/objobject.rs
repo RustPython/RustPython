@@ -1,7 +1,8 @@
 use super::objdict;
 use super::objtype;
 use super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 
@@ -28,10 +29,18 @@ pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, dict_type
     (*object_type.borrow_mut()).typ = Some(type_type.clone());
 }
 
+fn obj_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.object()))]);
+    let type_name = objtype::get_type_name(&obj.typ());
+    let address = obj.get_id();
+    Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
+}
+
 pub fn init(context: &PyContext) {
     let ref object = context.object;
     object.set_attr("__new__", context.new_rustfunc(new_instance));
     object.set_attr("__dict__", context.new_member_descriptor(object_dict));
+    object.set_attr("__str__", context.new_rustfunc(obj_str));
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
