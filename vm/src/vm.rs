@@ -839,6 +839,9 @@ impl VirtualMachine {
                     }
                 }
             }
+            bytecode::Instruction::CallFunctionKw { count: _ } => {
+                unimplemented!("keyword arg calls not yet implemented");
+            }
             bytecode::Instruction::Jump { target } => {
                 self.jump(target);
                 None
