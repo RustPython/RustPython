@@ -24,6 +24,7 @@ pub fn init(context: &PyContext) {
     type_type.set_attr("__new__", context.new_rustfunc(type_new));
     type_type.set_attr("__mro__", context.new_member_descriptor(type_mro));
     type_type.set_attr("__class__", context.new_member_descriptor(type_new));
+    type_type.set_attr("__str__", context.new_rustfunc(type_str));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -52,6 +53,14 @@ pub fn isinstance(obj: PyObjectRef, cls: PyObjectRef) -> bool {
 pub fn issubclass(typ: PyObjectRef, cls: PyObjectRef) -> bool {
     let mro = _mro(typ).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
+}
+
+pub fn get_type_name(typ: &PyObjectRef) -> String {
+    if let PyObjectKind::Class { name, dict: _, mro: _ } = &typ.borrow().kind {
+        name.clone()
+    } else {
+        panic!("Cannot get type_name of non-type type");
+    }
 }
 
 pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -168,6 +177,14 @@ pub fn new(typ: PyObjectRef, name: &str, bases: Vec<PyObjectRef>, dict: PyObject
         },
         typ,
     ))
+}
+
+fn type_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    // TODO: fix macro:
+    // arg_check!(vm, args, required = [(obj, Some(vm.ctx.type_type()))]);
+    let obj = args.args[0].clone();
+    let type_name = get_type_name(&obj);
+    Ok(vm.new_str(format!("<class '{}'>", type_name)))
 }
 
 pub fn call(vm: &mut VirtualMachine, typ: PyObjectRef, args: PyFuncArgs) -> PyResult {
