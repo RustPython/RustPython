@@ -634,6 +634,8 @@ impl Compiler {
                         kwarg_names.push(bytecode::Constant::String {
                             value: kwarg.to_string(),
                         });
+                    } else if kwarg_names.len() > 0 {
+                        panic!("positional argument follows keyword argument");
                     };
                     self.compile_expression(value);
                 }
