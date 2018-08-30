@@ -131,6 +131,7 @@ pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &String) -
                 descriptor,
                 PyFuncArgs {
                     args: vec![attr, obj, cls],
+                    kwargs: None,
                 },
             );
         }

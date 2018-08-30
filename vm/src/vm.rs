@@ -22,7 +22,7 @@ use super::objbool;
 use super::objobject;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult,
+    PyObjectKind, PyObjectRef, PyResult, ToRust,
 };
 use super::stdlib;
 use super::sysmodule;
@@ -61,7 +61,10 @@ impl VirtualMachine {
         // TODO: maybe there is a clearer way to create an instance:
         info!("New exception created: {}", msg);
         let args: Vec<PyObjectRef> = Vec::new();
-        let args = PyFuncArgs { args: args };
+        let args = PyFuncArgs {
+            args: args,
+            kwargs: None,
+        };
 
         // Call function:
         let exception = self.invoke(exc_type, args).unwrap();
@@ -267,6 +270,7 @@ impl VirtualMachine {
                         self,
                         PyFuncArgs {
                             args: vec![traceback, pos],
+                            kwargs: None,
                         },
                     ).unwrap();
                     // exception.__trace
@@ -348,7 +352,10 @@ impl VirtualMachine {
             Ok(v) => v,
             Err(err) => return Err(err),
         };
-        let args = PyFuncArgs { args: args };
+        let args = PyFuncArgs {
+            args: args,
+            kwargs: None,
+        };
         self.invoke(func, args)
     }
 
@@ -496,7 +503,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
+    pub fn invoke(&mut self, func_ref: PyObjectRef, mut args: PyFuncArgs) -> PyResult {
         trace!("Invoke: {:?} {:?}", func_ref, args);
         match func_ref.borrow().kind {
             PyObjectKind::RustFunction { function } => function(self, args),
@@ -505,44 +512,84 @@ impl VirtualMachine {
                 ref scope,
                 ref defaults,
             } => {
-                let mut scope = self.ctx.new_scope(Some(scope.clone()));
                 let code_object = copy_code(code.clone());
                 let nargs = args.args.len();
+
+                // Check the number of positional arguments
                 let nexpected_args = code_object.arg_names.len();
-                let args = if nargs > nexpected_args {
+                if nargs > nexpected_args {
                     return Err(self.new_type_error(format!(
                         "Expected {} arguments (got: {})",
                         nexpected_args, nargs
                     )));
-                } else if nargs < nexpected_args {
-                    // Use defaults if available
-                    let nrequired_defaults = nexpected_args - nargs;
+                }
+
+                let mut scope = self.ctx.new_scope(Some(scope.clone()));
+
+                // Copy positional arguments into local variables
+                for (n, arg) in args.args.iter().enumerate() {
+                    scope.set_item(&code_object.arg_names[n], arg.clone())
+                }
+
+                // TODO: Pack other positional arguments in to *args
+
+                // Handle keyword arguments
+                if let Some(ref mut kwargs) = args.kwargs {
+                    for (name, value) in kwargs {
+                        if !code_object.arg_names.contains(&name) {
+                            return Err(self.new_type_error(format!(
+                                "Got an unexpected keyword argument '{}'",
+                                name
+                            )));
+                        }
+                        if scope.contains_key(&name) {
+                            return Err(self.new_type_error(format!(
+                                "Got multiple values for argument '{}'",
+                                name
+                            )));
+                        }
+                        scope.set_item(&name, value.clone());
+                    }
+                }
+
+                // Add missing positional arguments, if we have fewer positional arguments than the
+                // function definition calls for
+                if nargs < nexpected_args {
                     let available_defaults = match defaults.borrow().kind {
                         PyObjectKind::Tuple { ref elements } => elements.clone(),
                         PyObjectKind::None => vec![],
                         _ => panic!("function defaults not tuple or None"),
                     };
-                    if nrequired_defaults > available_defaults.len() {
+
+                    // Given the number of defaults available, check all the arguments for which we
+                    // _don't_ have defaults; if any are missing, raise an exception
+                    let required_args = nexpected_args - available_defaults.len();
+                    let mut missing = vec![];
+                    for i in 0..required_args {
+                        let variable_name = &code_object.arg_names[i];
+                        if !scope.contains_key(variable_name) {
+                            missing.push(variable_name)
+                        }
+                    }
+                    if !missing.is_empty() {
                         return Err(self.new_type_error(format!(
-                            "Expected {}-{} arguments (got: {})",
-                            nexpected_args - available_defaults.len(),
-                            nexpected_args,
-                            nargs
+                            "Missing {} required positional arguments: {:?}",
+                            missing.len(),
+                            missing
                         )));
                     }
-                    let default_args = available_defaults
-                        .clone()
-                        .split_off(available_defaults.len() - nrequired_defaults);
-                    let mut new_args = args.args.clone();
-                    new_args.extend(default_args);
-                    new_args
-                } else {
-                    // nargs == nexpected_args
-                    args.args
+
+                    // We have sufficient defaults, so iterate over the corresponding names and use
+                    // the default if we don't already have a value
+                    let mut default_index = 0;
+                    for i in required_args..nexpected_args {
+                        let arg_name = &code_object.arg_names[i];
+                        if !scope.contains_key(arg_name) {
+                            scope.set_item(arg_name, available_defaults[default_index].clone());
+                        }
+                        default_index += 1;
+                    }
                 };
-                for (name, value) in code_object.arg_names.iter().zip(args) {
-                    scope.set_item(name, value);
-                }
                 let frame = Frame::new(code.clone(), scope);
                 self.run_frame(frame)
             }
@@ -821,8 +868,10 @@ impl VirtualMachine {
             }
             bytecode::Instruction::CallFunction { count } => {
                 let args: Vec<PyObjectRef> = self.pop_multiple(*count);
-                // TODO: kwargs
-                let args = PyFuncArgs { args: args };
+                let args = PyFuncArgs {
+                    args: args,
+                    kwargs: None,
+                };
                 let func_ref = self.pop_value();
 
                 // Call function:
@@ -839,8 +888,32 @@ impl VirtualMachine {
                     }
                 }
             }
-            bytecode::Instruction::CallFunctionKw { count: _ } => {
-                unimplemented!("keyword arg calls not yet implemented");
+            bytecode::Instruction::CallFunctionKw { count } => {
+                let kwarg_names = self.pop_value();
+                let args: Vec<PyObjectRef> = self.pop_multiple(*count);
+
+                let kwarg_names = kwarg_names
+                    .to_vec()
+                    .unwrap()
+                    .iter()
+                    .map(|pyobj| pyobj.to_str().unwrap())
+                    .collect();
+                let args = PyFuncArgs::new(args, kwarg_names);
+                let func_ref = self.pop_value();
+
+                // Call function:
+                let func_result = self.invoke(func_ref, args);
+
+                match func_result {
+                    Ok(value) => {
+                        self.push_value(value);
+                        None
+                    }
+                    Err(value) => {
+                        // Ripple exception upwards:
+                        Some(Err(value))
+                    }
+                }
             }
             bytecode::Instruction::Jump { target } => {
                 self.jump(target);
@@ -924,6 +997,7 @@ impl VirtualMachine {
                             self,
                             PyFuncArgs {
                                 args: vec![expr.clone()],
+                                kwargs: None,
                             },
                         ).unwrap();
                     }

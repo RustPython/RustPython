@@ -419,6 +419,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         function,
         PyFuncArgs {
             args: vec![namespace.clone()],
+            kwargs: None,
         },
     );
     objtype::new(metaclass, name, bases, namespace)
