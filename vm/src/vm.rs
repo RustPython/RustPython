@@ -35,7 +35,7 @@ pub struct VirtualMachine {
     frames: Vec<Frame>,
     builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
-    pub stdlib_modules: HashMap<String, PyObjectRef>,
+    pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub ctx: PyContext,
 }
 
@@ -113,12 +113,12 @@ impl VirtualMachine {
         let ctx = PyContext::new();
         let builtins = builtins::make_module(&ctx);
         let sysmod = sysmodule::mk_module(&ctx);
-        let stdlib_modules = stdlib::get_modules(&ctx);
+        let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
             frames: vec![],
             builtins: builtins,
             sys_module: sysmod,
-            stdlib_modules,
+            stdlib_inits,
             ctx: ctx,
         }
     }

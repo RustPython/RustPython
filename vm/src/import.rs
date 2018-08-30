@@ -21,8 +21,8 @@ fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
     }
 
     // Check for Rust-native modules
-    if let Some(module) = vm.stdlib_modules.get(module) {
-        return Ok(module.clone());
+    if let Some(module) = vm.stdlib_inits.get(module) {
+        return Ok(module(&vm.ctx).clone());
     }
 
     // TODO: introduce import error:
