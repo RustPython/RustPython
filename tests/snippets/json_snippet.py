@@ -11,6 +11,7 @@ assert "1" == json.dumps(1)
 assert "1.0" == json.dumps(1.0)
 assert "true" == json.dumps(True)
 assert "false" == json.dumps(False)
+assert 'null' == json.dumps(None)
 
 assert '[]' == json.dumps([])
 assert '[1]' == json.dumps([1])
