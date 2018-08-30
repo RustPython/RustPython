@@ -42,3 +42,17 @@ assert False == json.loads('false')
 assert [] == json.loads('[]')
 assert ['a'] == json.loads('["a"]')
 assert [['a'], 'b'] == json.loads('[["a"], "b"]')
+
+class String(str): pass
+
+assert '"string"' == json.dumps(String("string"))
+
+# TODO: Uncomment and test once int/float construction is supported
+# class Int(int): pass
+# class Float(float): pass
+
+# TODO: Uncomment and test once sequence/dict subclasses are supported by
+# json.dumps
+# class List(list): pass
+# class Tuple(tuple): pass
+# class Dict(dict): pass

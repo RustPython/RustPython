@@ -6,41 +6,70 @@ use serde::de::Visitor;
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
-use super::super::objtype;
 use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use super::super::VirtualMachine;
+use super::super::{objbool, objdict, objfloat, objint, objlist, objsequence, objstr, objtype};
 
-impl serde::Serialize for PyObjectKind {
+// We need to have a VM available to serialise a PyObject based on its subclass, so we implement
+// PyObject serialisation via a proxy object which holds a reference to a VM
+struct PyObjectSerializer<'s> {
+    pyobject: &'s PyObjectRef,
+    vm: &'s VirtualMachine,
+}
+
+impl<'s> serde::Serialize for PyObjectSerializer<'s> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        match self {
-            PyObjectKind::String { value } => serializer.serialize_str(value),
-            PyObjectKind::Integer { value } => serializer.serialize_i32(*value),
-            PyObjectKind::Float { value } => serializer.serialize_f64(*value),
-            PyObjectKind::Boolean { value } => serializer.serialize_bool(*value),
-            PyObjectKind::List { elements } | PyObjectKind::Tuple { elements } => {
+        let serialize_seq_elements =
+            |serializer: S, elements: Vec<PyObjectRef>| -> Result<S::Ok, S::Error> {
                 let mut seq = serializer.serialize_seq(Some(elements.len()))?;
                 for e in elements {
-                    match e.borrow().kind {
-                        ref kind => seq.serialize_element(kind)?,
-                    }
+                    seq.serialize_element(&PyObjectSerializer {
+                        pyobject: &e,
+                        vm: self.vm,
+                    })?;
                 }
                 seq.end()
+            };
+        if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.str_type()) {
+            serializer.serialize_str(&objstr::get_value(&self.pyobject))
+        } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.int_type()) {
+            serializer.serialize_i32(objint::get_value(self.pyobject.clone()))
+        } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.float_type()) {
+            serializer.serialize_f64(objfloat::get_value(self.pyobject.clone()))
+        } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.bool_type()) {
+            serializer.serialize_bool(objbool::get_value(self.pyobject))
+        } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.list_type()) {
+            let elements = objlist::get_elements(self.pyobject.clone());
+            serialize_seq_elements(serializer, elements)
+        } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.tuple_type()) {
+            let elements = objsequence::get_elements(self.pyobject.clone());
+            serialize_seq_elements(serializer, elements)
+        } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.dict_type()) {
+            let elements = objdict::get_elements(self.pyobject);
+            let mut map = serializer.serialize_map(Some(elements.len()))?;
+            for (key, e) in elements {
+                map.serialize_entry(
+                    &key,
+                    &PyObjectSerializer {
+                        pyobject: &e,
+                        vm: self.vm,
+                    },
+                )?;
             }
-            PyObjectKind::Dict { elements } => {
-                let mut map = serializer.serialize_map(Some(elements.len()))?;
-                for (key, e) in elements {
-                    map.serialize_entry(key, &e.borrow().kind)?;
-                }
-                map.end()
-            }
-            PyObjectKind::None => serializer.serialize_none(),
-            kind => unimplemented!("Object of type '{:?}' is not serializable", kind),
+            map.end()
+        } else if let PyObjectKind::None = self.pyobject.borrow().kind {
+            serializer.serialize_none()
+        } else {
+            unimplemented!(
+                "Object of type '{:?}' is not serializable",
+                self.pyobject.typ()
+            );
         }
     }
 }
@@ -172,7 +201,8 @@ fn dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial serialisation case
     arg_check!(vm, args, required = [(obj, None)]);
     // TODO: Raise an exception for serialisation errors
-    let string = serde_json::to_string(&obj.borrow().kind).unwrap();
+    let serializer = PyObjectSerializer { pyobject: obj, vm };
+    let string = serde_json::to_string(&serializer).unwrap();
     Ok(vm.context().new_str(string))
 }
 
