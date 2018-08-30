@@ -26,7 +26,7 @@ pub fn set_item(
     }
 }
 
-fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
+pub fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
     if let PyObjectKind::List { elements } = &obj.borrow().kind {
         elements.to_vec()
     } else {

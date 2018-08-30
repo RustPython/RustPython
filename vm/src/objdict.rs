@@ -26,7 +26,7 @@ pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     )
 }
 
-fn get_elements(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
+pub fn get_elements(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     if let PyObjectKind::Dict { elements } = &obj.borrow().kind {
         elements.clone()
     } else {
