@@ -20,6 +20,15 @@ struct PyObjectSerializer<'s> {
     vm: &'s VirtualMachine,
 }
 
+impl<'s> PyObjectSerializer<'s> {
+    fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer {
+        PyObjectSerializer {
+            pyobject,
+            vm: self.vm,
+        }
+    }
+}
+
 impl<'s> serde::Serialize for PyObjectSerializer<'s> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -29,10 +38,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             |serializer: S, elements: Vec<PyObjectRef>| -> Result<S::Ok, S::Error> {
                 let mut seq = serializer.serialize_seq(Some(elements.len()))?;
                 for e in elements {
-                    seq.serialize_element(&PyObjectSerializer {
-                        pyobject: &e,
-                        vm: self.vm,
-                    })?;
+                    seq.serialize_element(&self.clone_with_object(&e))?;
                 }
                 seq.end()
             };
@@ -54,13 +60,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             let elements = objdict::get_elements(self.pyobject);
             let mut map = serializer.serialize_map(Some(elements.len()))?;
             for (key, e) in elements {
-                map.serialize_entry(
-                    &key,
-                    &PyObjectSerializer {
-                        pyobject: &e,
-                        vm: self.vm,
-                    },
-                )?;
+                map.serialize_entry(&key, &self.clone_with_object(&e))?;
             }
             map.end()
         } else if let PyObjectKind::None = self.pyobject.borrow().kind {
