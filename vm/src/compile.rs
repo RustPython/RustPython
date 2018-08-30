@@ -367,9 +367,11 @@ impl Compiler {
                 }
 
                 let have_kwargs = default_elements.len() > 0;
-                self.compile_expression(&ast::Expression::Tuple {
-                    elements: default_elements,
-                });
+                if have_kwargs {
+                    self.compile_expression(&ast::Expression::Tuple {
+                        elements: default_elements,
+                    });
+                }
 
                 self.code_object_stack.push(CodeObject::new(names, None));
                 self.compile_statements(body);
