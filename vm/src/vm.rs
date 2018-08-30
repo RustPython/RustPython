@@ -24,6 +24,7 @@ use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
     PyObjectKind, PyObjectRef, PyResult,
 };
+use super::stdlib;
 use super::sysmodule;
 
 // use objects::objects;
@@ -34,6 +35,7 @@ pub struct VirtualMachine {
     frames: Vec<Frame>,
     builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
+    pub stdlib_modules: HashMap<String, PyObjectRef>,
     pub ctx: PyContext,
 }
 
@@ -111,10 +113,12 @@ impl VirtualMachine {
         let ctx = PyContext::new();
         let builtins = builtins::make_module(&ctx);
         let sysmod = sysmodule::mk_module(&ctx);
+        let stdlib_modules = stdlib::get_modules(&ctx);
         VirtualMachine {
             frames: vec![],
             builtins: builtins,
             sys_module: sysmod,
+            stdlib_modules,
             ctx: ctx,
         }
     }
