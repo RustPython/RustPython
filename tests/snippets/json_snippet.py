@@ -17,6 +17,12 @@ assert '[1]' == json.dumps([1])
 assert '[[1]]' == json.dumps([[1]])
 round_trip_test([1, "string", 1.0, True])
 
+assert '[]' == json.dumps(())
+assert '[1]' == json.dumps((1,))
+assert '[[1]]' == json.dumps(((1,),))
+# tuples don't round-trip through json
+assert [1, "string", 1.0, True] == json.loads(json.dumps((1, "string", 1.0, True)))
+
 assert '{}' == json.dumps({})
 # TODO: uncomment once dict comparison is implemented
 # round_trip_test({'a': 'b'})
