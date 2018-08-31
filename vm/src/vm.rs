@@ -63,7 +63,7 @@ impl VirtualMachine {
         let args: Vec<PyObjectRef> = Vec::new();
         let args = PyFuncArgs {
             args: args,
-            kwargs: None,
+            kwargs: vec![],
         };
 
         // Call function:
@@ -270,7 +270,7 @@ impl VirtualMachine {
                         self,
                         PyFuncArgs {
                             args: vec![traceback, pos],
-                            kwargs: None,
+                            kwargs: vec![],
                         },
                     ).unwrap();
                     // exception.__trace
@@ -354,7 +354,7 @@ impl VirtualMachine {
         };
         let args = PyFuncArgs {
             args: args,
-            kwargs: None,
+            kwargs: vec![],
         };
         self.invoke(func, args)
     }
@@ -503,7 +503,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn invoke(&mut self, func_ref: PyObjectRef, mut args: PyFuncArgs) -> PyResult {
+    pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         trace!("Invoke: {:?} {:?}", func_ref, args);
         match func_ref.borrow().kind {
             PyObjectKind::RustFunction { function } => function(self, args),
@@ -534,22 +534,20 @@ impl VirtualMachine {
                 // TODO: Pack other positional arguments in to *args
 
                 // Handle keyword arguments
-                if let Some(ref mut kwargs) = args.kwargs {
-                    for (name, value) in kwargs {
-                        if !code_object.arg_names.contains(&name) {
-                            return Err(self.new_type_error(format!(
-                                "Got an unexpected keyword argument '{}'",
-                                name
-                            )));
-                        }
-                        if scope.contains_key(&name) {
-                            return Err(self.new_type_error(format!(
-                                "Got multiple values for argument '{}'",
-                                name
-                            )));
-                        }
-                        scope.set_item(&name, value.clone());
+                for (name, value) in args.kwargs {
+                    if !code_object.arg_names.contains(&name) {
+                        return Err(self.new_type_error(format!(
+                            "Got an unexpected keyword argument '{}'",
+                            name
+                        )));
                     }
+                    if scope.contains_key(&name) {
+                        return Err(self.new_type_error(format!(
+                            "Got multiple values for argument '{}'",
+                            name
+                        )));
+                    }
+                    scope.set_item(&name, value.clone());
                 }
 
                 // Add missing positional arguments, if we have fewer positional arguments than the
@@ -870,7 +868,7 @@ impl VirtualMachine {
                 let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                 let args = PyFuncArgs {
                     args: args,
-                    kwargs: None,
+                    kwargs: vec![],
                 };
                 let func_ref = self.pop_value();
 
@@ -997,7 +995,7 @@ impl VirtualMachine {
                             self,
                             PyFuncArgs {
                                 args: vec![expr.clone()],
-                                kwargs: None,
+                                kwargs: vec![],
                             },
                         ).unwrap();
                     }

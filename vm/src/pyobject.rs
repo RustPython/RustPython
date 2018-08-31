@@ -512,7 +512,7 @@ impl fmt::Debug for PyObject {
 #[derive(Debug, Default, Clone)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
-    pub kwargs: Option<Vec<(String, PyObjectRef)>>,
+    pub kwargs: Vec<(String, PyObjectRef)>,
 }
 
 impl PyFuncArgs {
@@ -523,7 +523,7 @@ impl PyFuncArgs {
         }
         PyFuncArgs {
             args: args,
-            kwargs: Some(kwargs),
+            kwargs: kwargs,
         }
     }
 
