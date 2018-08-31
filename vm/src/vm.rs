@@ -894,7 +894,7 @@ impl VirtualMachine {
                     .to_vec()
                     .unwrap()
                     .iter()
-                    .map(|pyobj| pyobj.to_str().unwrap())
+                    .map(|pyobj| objstr::get_value(pyobj))
                     .collect();
                 let args = PyFuncArgs::new(args, kwarg_names);
                 let func_ref = self.pop_value();
