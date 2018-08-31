@@ -98,3 +98,11 @@ pub fn get_item(
         ))),
     }
 }
+
+pub fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
+    if let PyObjectKind::Tuple { elements } = &obj.borrow().kind {
+        elements.to_vec()
+    } else {
+        panic!("Cannot extract list elements from non-list");
+    }
+}
