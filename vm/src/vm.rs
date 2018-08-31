@@ -591,6 +591,25 @@ impl VirtualMachine {
         None
     }
 
+    fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
+        match *value {
+            bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
+            bytecode::Constant::Float { ref value } => self.ctx.new_float(*value),
+            bytecode::Constant::String { ref value } => self.new_str(value.clone()),
+            bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
+            bytecode::Constant::Code { ref code } => {
+                PyObject::new(PyObjectKind::Code { code: code.clone() }, self.get_type())
+            }
+            bytecode::Constant::Tuple { ref elements } => self.ctx.new_tuple(
+                elements
+                    .iter()
+                    .map(|value| self.unwrap_constant(value))
+                    .collect(),
+            ),
+            bytecode::Constant::None => self.ctx.none(),
+        }
+    }
+
     // Execute a single instruction:
     fn execute_instruction(&mut self) -> Option<PyResult> {
         let instruction = self.current_frame_mut().fetch_instruction();
@@ -607,16 +626,7 @@ impl VirtualMachine {
         }
         match &instruction {
             bytecode::Instruction::LoadConst { ref value } => {
-                let obj = match value {
-                    &bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
-                    &bytecode::Constant::Float { ref value } => self.ctx.new_float(*value),
-                    &bytecode::Constant::String { ref value } => self.new_str(value.clone()),
-                    &bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
-                    &bytecode::Constant::Code { ref code } => {
-                        PyObject::new(PyObjectKind::Code { code: code.clone() }, self.get_type())
-                    }
-                    &bytecode::Constant::None => self.ctx.none(),
-                };
+                let obj = self.unwrap_constant(value);
                 self.push_value(obj);
                 None
             }

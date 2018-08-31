@@ -137,6 +137,7 @@ pub enum Constant {
     Boolean { value: bool },
     String { value: String },
     Code { code: CodeObject },
+    Tuple { elements: Vec<Constant> },
     None,
 }
 
