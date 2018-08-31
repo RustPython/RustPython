@@ -142,15 +142,63 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let v1 = get_value(i);
+    if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        let v2 = get_value(i2);
+        Ok(vm.ctx.new_int(v1 ^ v2))
+    } else {
+        Err(vm.new_type_error(format!("Cannot xor {:?} and {:?}", i, i2)))
+    }
+}
+
+fn int_or(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let v1 = get_value(i);
+    if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        let v2 = get_value(i2);
+        Ok(vm.ctx.new_int(v1 | v2))
+    } else {
+        Err(vm.new_type_error(format!("Cannot or {:?} and {:?}", i, i2)))
+    }
+}
+
+fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let v1 = get_value(i);
+    if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        let v2 = get_value(i2);
+        Ok(vm.ctx.new_int(v1 & v2))
+    } else {
+        Err(vm.new_type_error(format!("Cannot and {:?} and {:?}", i, i2)))
+    }
+}
+
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
+    int_type.set_attr("__and__", context.new_rustfunc(int_and));
     int_type.set_attr("__init__", context.new_rustfunc(int_init));
     int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
+    int_type.set_attr("__or__", context.new_rustfunc(int_or));
     int_type.set_attr("__pow__", context.new_rustfunc(int_pow));
     int_type.set_attr("__repr__", context.new_rustfunc(str));
     int_type.set_attr("__str__", context.new_rustfunc(str));
     int_type.set_attr("__sub__", context.new_rustfunc(int_sub));
     int_type.set_attr("__truediv__", context.new_rustfunc(int_truediv));
+    int_type.set_attr("__xor__", context.new_rustfunc(int_xor));
 }

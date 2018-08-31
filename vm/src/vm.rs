@@ -360,6 +360,18 @@ impl VirtualMachine {
         self.call_method(a, "__mod__".to_string(), vec![b])
     }
 
+    fn _xor(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__xor__".to_string(), vec![b])
+    }
+
+    fn _or(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__or__".to_string(), vec![b])
+    }
+
+    fn _and(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__and__".to_string(), vec![b])
+    }
+
     fn execute_binop(&mut self, op: &bytecode::BinaryOperator) -> Option<PyResult> {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
@@ -373,6 +385,9 @@ impl VirtualMachine {
             &bytecode::BinaryOperator::Divide => self._div(a_ref, b_ref),
             &bytecode::BinaryOperator::Subscript => self.subscript(a_ref, b_ref),
             &bytecode::BinaryOperator::Modulo => self._modulo(a_ref, b_ref),
+            &bytecode::BinaryOperator::Xor => self._xor(a_ref, b_ref),
+            &bytecode::BinaryOperator::Or => self._or(a_ref, b_ref),
+            &bytecode::BinaryOperator::And => self._and(a_ref, b_ref),
             _ => panic!("NOT IMPL {:?}", op),
         };
         match result {
