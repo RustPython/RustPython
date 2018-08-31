@@ -56,11 +56,11 @@ try:
 except TypeError:
     pass
 else:
-    assert False, 'no TypeError raised: two args to one_default_arg'
+    assert False, 'no TypeError raised: no args to one_normal_one_default_arg'
 
 try:
     one_normal_one_default_arg('one', 'two', 'three')
 except TypeError:
     pass
 else:
-    assert False, 'no TypeError raised: two args to one_default_arg'
+    assert False, 'no TypeError raised: three args to one_normal_one_default_arg'
