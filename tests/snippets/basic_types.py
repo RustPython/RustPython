@@ -15,6 +15,10 @@ print(x[0]) # Tuple can be any length, but fixed after declared
 print([1, 2, 3])
 # print({"first":1,"second":2})
 
+print(int(1))
+print(int(1.2))
+print(float(1))
+print(float(1.2))
 
 assert type(1 - 2) is int
 assert type(2 / 3) is float

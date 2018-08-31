@@ -11,6 +11,24 @@ fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjec
     Ok(vm.new_str(v.to_string()))
 }
 
+// __init__()
+fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.float_type())), (arg, None)]
+    );
+    let val = if objtype::isinstance(arg.clone(), vm.ctx.float_type()) {
+        get_value(arg)
+    } else if objtype::isinstance(arg.clone(), vm.ctx.int_type()) {
+        objint::get_value(arg) as f64
+    } else {
+        return Err(vm.new_type_error("Cannot construct int".to_string()));
+    };
+    set_value(zelf, val);
+    Ok(vm.get_none())
+}
+
 // Retrieve inner float value:
 pub fn get_value(obj: &PyObjectRef) -> f64 {
     if let PyObjectKind::Float { value } = &obj.borrow().kind {
@@ -18,6 +36,10 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
     } else {
         panic!("Inner error getting float");
     }
+}
+
+fn set_value(obj: &PyObjectRef, value: f64) {
+    obj.borrow_mut().kind = PyObjectKind::Float { value };
 }
 
 fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -76,6 +98,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref float_type = context.float_type;
     float_type.set_attr("__add__", context.new_rustfunc(float_add));
+    float_type.set_attr("__init__", context.new_rustfunc(float_init));
     float_type.set_attr("__pow__", context.new_rustfunc(float_pow));
     float_type.set_attr("__str__", context.new_rustfunc(str));
     float_type.set_attr("__sub__", context.new_rustfunc(float_sub));
