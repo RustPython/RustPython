@@ -1,10 +1,10 @@
-use super::objint;
-use super::objsequence::PySliceableSequence;
-use super::objtype;
-use super::pyobject::{
+use super::super::objsequence::PySliceableSequence;
+use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::vm::VirtualMachine;
+use super::super::vm::VirtualMachine;
+use super::objint;
+use super::objtype;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
@@ -57,7 +57,7 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     if objtype::isinstance(s2.clone(), vm.ctx.int_type()) {
         let value1 = get_value(&s);
-        let value2 = objint::get_value(s2.clone());
+        let value2 = objint::get_value(s2);
         let mut result = String::new();
         for _x in 0..value2 {
             result.push_str(value1.as_str());

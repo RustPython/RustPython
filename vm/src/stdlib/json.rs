@@ -6,12 +6,13 @@ use serde::de::Visitor;
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
+use super::super::obj::{objdict, objfloat, objint, objlist, objstr, objtype};
 use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use super::super::VirtualMachine;
-use super::super::{objbool, objdict, objfloat, objint, objlist, objsequence, objstr, objtype};
+use super::super::{objbool, objsequence};
 
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
 // PyObject serialisation via a proxy object which holds a reference to a VM
@@ -45,9 +46,9 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.str_type()) {
             serializer.serialize_str(&objstr::get_value(&self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.int_type()) {
-            serializer.serialize_i32(objint::get_value(self.pyobject.clone()))
+            serializer.serialize_i32(objint::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.float_type()) {
-            serializer.serialize_f64(objfloat::get_value(self.pyobject.clone()))
+            serializer.serialize_f64(objfloat::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.list_type()) {

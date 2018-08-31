@@ -1,10 +1,10 @@
-use super::objstr;
-use super::objtype;
-use super::pyobject::{
+use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
     TypeProtocol,
 };
-use super::vm::VirtualMachine;
+use super::super::vm::VirtualMachine;
+use super::objstr;
+use super::objtype;
 use std::collections::HashMap;
 
 pub fn _set_item(

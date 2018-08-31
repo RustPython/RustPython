@@ -1,4 +1,4 @@
-use super::objstr;
+use super::obj::objstr;
 use super::pyobject::{
     create_type, AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
 };

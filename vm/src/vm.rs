@@ -15,11 +15,11 @@ use super::builtins;
 use super::bytecode;
 use super::frame::{copy_code, Block, Frame};
 use super::import::import;
+use super::obj::objlist;
+use super::obj::objstr;
+use super::obj::objtype;
 use super::objbool;
-use super::objlist;
 use super::objobject;
-use super::objstr;
-use super::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
     PyObjectKind, PyObjectRef, PyResult,
@@ -969,7 +969,7 @@ impl VirtualMachine {
 
 #[cfg(test)]
 mod tests {
-    use super::super::objint;
+    use super::super::obj::objint;
     use super::objstr;
     use super::VirtualMachine;
 
@@ -979,7 +979,7 @@ mod tests {
         let a = vm.ctx.new_int(33);
         let b = vm.ctx.new_int(12);
         let res = vm._add(a, b).unwrap();
-        let value = objint::get_value(res);
+        let value = objint::get_value(&res);
         assert_eq!(value, 45);
     }
 
