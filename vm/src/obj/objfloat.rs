@@ -7,12 +7,12 @@ use super::objtype;
 
 fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);
-    let v = get_value(float.clone());
+    let v = get_value(float);
     Ok(vm.new_str(v.to_string()))
 }
 
 // Retrieve inner float value:
-pub fn get_value(obj: PyObjectRef) -> f64 {
+pub fn get_value(obj: &PyObjectRef) -> f64 {
     if let PyObjectKind::Float { value } = &obj.borrow().kind {
         *value
     } else {
@@ -27,11 +27,11 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
 
-    let v1 = get_value(i.clone());
+    let v1 = get_value(i);
     if objtype::isinstance(i2.clone(), vm.ctx.float_type()) {
-        Ok(vm.ctx.new_float(v1 + get_value(i2.clone())))
+        Ok(vm.ctx.new_float(v1 + get_value(i2)))
     } else if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
-        Ok(vm.ctx.new_float(v1 + objint::get_value(i2.clone()) as f64))
+        Ok(vm.ctx.new_float(v1 + objint::get_value(i2) as f64))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
@@ -44,11 +44,11 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
 
-    let v1 = get_value(i.clone());
+    let v1 = get_value(i);
     if objtype::isinstance(i2.clone(), vm.ctx.float_type()) {
-        Ok(vm.ctx.new_float(v1 - get_value(i2.clone())))
+        Ok(vm.ctx.new_float(v1 - get_value(i2)))
     } else if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
-        Ok(vm.ctx.new_float(v1 - objint::get_value(i2.clone()) as f64))
+        Ok(vm.ctx.new_float(v1 - objint::get_value(i2) as f64))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
@@ -61,12 +61,12 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
 
-    let v1 = get_value(i.clone());
+    let v1 = get_value(i);
     if objtype::isinstance(i2.clone(), vm.ctx.float_type()) {
-        let result = v1.powf(get_value(i2.clone()));
+        let result = v1.powf(get_value(i2));
         Ok(vm.ctx.new_float(result))
     } else if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
-        let result = v1.powf(objint::get_value(i2.clone()) as f64);
+        let result = v1.powf(objint::get_value(i2) as f64);
         Ok(vm.ctx.new_float(result))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))

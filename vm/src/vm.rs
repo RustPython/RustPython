@@ -979,7 +979,7 @@ mod tests {
         let a = vm.ctx.new_int(33);
         let b = vm.ctx.new_int(12);
         let res = vm._add(a, b).unwrap();
-        let value = objint::get_value(res);
+        let value = objint::get_value(&res);
         assert_eq!(value, 45);
     }
 

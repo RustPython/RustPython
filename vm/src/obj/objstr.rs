@@ -57,7 +57,7 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     if objtype::isinstance(s2.clone(), vm.ctx.int_type()) {
         let value1 = get_value(&s);
-        let value2 = objint::get_value(s2.clone());
+        let value2 = objint::get_value(s2);
         let mut result = String::new();
         for _x in 0..value2 {
             result.push_str(value1.as_str());

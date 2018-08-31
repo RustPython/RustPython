@@ -324,6 +324,10 @@ impl IdProtocol for PyObjectRef {
     }
 }
 
+pub trait FromPyObjectRef {
+    fn from_pyobj(obj: &PyObjectRef) -> Self;
+}
+
 pub trait TypeProtocol {
     fn typ(&self) -> PyObjectRef;
 }
