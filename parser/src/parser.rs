@@ -95,9 +95,12 @@ mod tests {
                             function: Box::new(ast::Expression::Identifier {
                                 name: String::from("print"),
                             }),
-                            args: vec![ast::Expression::String {
-                                value: String::from("Hello world"),
-                            },],
+                            args: vec![(
+                                None,
+                                ast::Expression::String {
+                                    value: String::from("Hello world"),
+                                }
+                            ),],
                         },
                     },
                 },],
@@ -120,12 +123,53 @@ mod tests {
                                 name: String::from("print"),
                             }),
                             args: vec![
-                                ast::Expression::String {
-                                    value: String::from("Hello world"),
-                                },
-                                ast::Expression::Number {
-                                    value: ast::Number::Integer { value: 2 },
-                                },
+                                (
+                                    None,
+                                    ast::Expression::String {
+                                        value: String::from("Hello world"),
+                                    }
+                                ),
+                                (
+                                    None,
+                                    ast::Expression::Number {
+                                        value: ast::Number::Integer { value: 2 },
+                                    }
+                                ),
+                            ],
+                        },
+                    },
+                },],
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_kwargs() {
+        let source = String::from("my_func('positional', keyword=2)\n");
+        let parse_ast = parse_program(&source).unwrap();
+        assert_eq!(
+            parse_ast,
+            ast::Program {
+                statements: vec![ast::LocatedStatement {
+                    location: ast::Location::new(1, 1),
+                    node: ast::Statement::Expression {
+                        expression: ast::Expression::Call {
+                            function: Box::new(ast::Expression::Identifier {
+                                name: String::from("my_func"),
+                            }),
+                            args: vec![
+                                (
+                                    None,
+                                    ast::Expression::String {
+                                        value: String::from("positional"),
+                                    }
+                                ),
+                                (
+                                    Some("keyword".to_string()),
+                                    ast::Expression::Number {
+                                        value: ast::Number::Integer { value: 2 },
+                                    }
+                                ),
                             ],
                         },
                     },
