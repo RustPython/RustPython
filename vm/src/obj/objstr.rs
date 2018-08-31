@@ -1,10 +1,10 @@
-use super::objint;
-use super::objsequence::PySliceableSequence;
-use super::objtype;
-use super::pyobject::{
+use super::super::objsequence::PySliceableSequence;
+use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::vm::VirtualMachine;
+use super::super::vm::VirtualMachine;
+use super::objint;
+use super::objtype;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;

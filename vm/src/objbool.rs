@@ -1,4 +1,4 @@
-use super::objtype;
+use super::obj::objtype;
 use super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };

@@ -1,9 +1,9 @@
-use super::objint;
-use super::objtype;
-use super::pyobject::{
+use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::vm::VirtualMachine;
+use super::super::vm::VirtualMachine;
+use super::objint;
+use super::objtype;
 
 fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);

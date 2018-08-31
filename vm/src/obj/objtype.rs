@@ -1,10 +1,10 @@
-use super::objdict;
-use super::objtype; // Required for arg_check! to use isinstance
-use super::pyobject::{
+use super::super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
     PyResult, ToRust, TypeProtocol,
 };
-use super::vm::VirtualMachine;
+use super::super::vm::VirtualMachine;
+use super::objdict;
+use super::objtype; // Required for arg_check! to use isinstance
 
 /*
  * The magical type type

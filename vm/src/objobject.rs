@@ -1,5 +1,5 @@
-use super::objdict;
-use super::objtype;
+use super::obj::objdict;
+use super::obj::objtype;
 use super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
     PyResult, TypeProtocol,

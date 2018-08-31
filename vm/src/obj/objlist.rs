@@ -1,10 +1,10 @@
-use super::objsequence::PySliceableSequence;
-use super::objstr;
-use super::objtype;
-use super::pyobject::{
+use super::super::objsequence::PySliceableSequence;
+use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::vm::VirtualMachine;
+use super::super::vm::VirtualMachine;
+use super::objstr;
+use super::objtype;
 
 // set_item:
 pub fn set_item(
