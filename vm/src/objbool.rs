@@ -45,12 +45,21 @@ fn bool_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.bool_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(zelf.clone(), vm.ctx.bool_type()) {
+    let result = if objtype::isinstance(other.clone(), vm.ctx.bool_type()) {
         get_value(zelf) == get_value(other)
     } else {
         false
     };
     Ok(vm.ctx.new_bool(result))
+}
+
+pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
+    if objtype::isinstance(obj.clone(), vm.ctx.bool_type()) {
+        let value = get_value(obj);
+        Ok(vm.ctx.new_bool(!value))
+    } else {
+        Err(vm.new_type_error(format!("Can only invert a bool, on {:?}", obj)))
+    }
 }
 
 // Retrieve inner int value:

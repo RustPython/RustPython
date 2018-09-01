@@ -1,3 +1,4 @@
+use super::super::objbool;
 use super::super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
     PyResult, TypeProtocol,
@@ -38,6 +39,16 @@ fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(zelf.is(other)))
 }
 
+fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.object())), (other, None)]
+    );
+    let eq = vm.call_method(zelf.clone(), "__eq__", vec![other.clone()])?;
+    objbool::not(vm, &eq)
+}
+
 fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.object()))]);
     let type_name = objtype::get_type_name(&obj.typ());
@@ -49,6 +60,7 @@ pub fn init(context: &PyContext) {
     let ref object = context.object;
     object.set_attr("__new__", context.new_rustfunc(new_instance));
     object.set_attr("__eq__", context.new_rustfunc(object_eq));
+    object.set_attr("__ne__", context.new_rustfunc(object_ne));
     object.set_attr("__dict__", context.new_member_descriptor(object_dict));
     object.set_attr("__str__", context.new_rustfunc(object_str));
 }
