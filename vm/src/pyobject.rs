@@ -779,6 +779,7 @@ impl PartialEq for PyObject {
                 }
             }
             (PyObjectKind::Boolean { value: a }, PyObjectKind::Boolean { value: b }) => a == b,
+            (PyObjectKind::None, PyObjectKind::None) => true,
             _ => panic!(
                 "TypeError in COMPARE_OP: can't compare {:?} with {:?}",
                 self, other
