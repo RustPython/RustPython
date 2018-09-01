@@ -68,7 +68,7 @@ fn bool_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, Py
     let s = if v {
         "True".to_string()
     } else {
-        "True".to_string()
+        "False".to_string()
     };
     Ok(vm.new_str(s))
 }
