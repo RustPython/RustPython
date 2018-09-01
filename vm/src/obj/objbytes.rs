@@ -1,6 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, FromPyObjectRef, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -24,7 +23,7 @@ fn bytes_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let val = if objtype::isinstance(arg.clone(), vm.ctx.list_type()) {
         let mut data_bytes = vec![];
-        for elem in objlist::get_elements(arg.clone()) {
+        for elem in objlist::get_elements(arg) {
             let v = match objint::to_int(vm, &elem) {
                 Ok(int_ref) => int_ref,
                 Err(err) => return Err(err),

@@ -7,4 +7,5 @@ pub mod objlist;
 pub mod objobject;
 pub mod objsequence;
 pub mod objstr;
+pub mod objtuple;
 pub mod objtype;

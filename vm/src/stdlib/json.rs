@@ -52,7 +52,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.list_type()) {
-            let elements = objlist::get_elements(self.pyobject.clone());
+            let elements = objlist::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.tuple_type()) {
             let elements = objsequence::get_elements(self.pyobject.clone());

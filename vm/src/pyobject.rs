@@ -8,6 +8,7 @@ use super::obj::objint;
 use super::obj::objlist;
 use super::obj::objobject;
 use super::obj::objstr;
+use super::obj::objtuple;
 use super::obj::objtype;
 use super::objbool;
 use super::vm::VirtualMachine;
@@ -152,10 +153,9 @@ impl PyContext {
         objfloat::init(&context);
         objbytes::init(&context);
         objstr::init(&context);
+        objtuple::init(&context);
         objbool::init(&context);
         exceptions::init(&context);
-        // TODO: create exception hierarchy here?
-        // exceptions::create_zoo(&context);
         context
     }
 
