@@ -26,7 +26,7 @@ fn tuple_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn get_elements(obj: &PyObjectRef) -> Vec<PyObjectRef> {
-    if let PyObjectKind::List { elements } = &obj.borrow().kind {
+    if let PyObjectKind::Tuple { elements } = &obj.borrow().kind {
         elements.to_vec()
     } else {
         panic!("Cannot extract elements from non-tuple");

@@ -785,11 +785,6 @@ impl PartialEq for PyObject {
             (PyObjectKind::String { value: ref v1i }, PyObjectKind::String { value: ref v2i }) => {
                 *v2i == *v1i
             }
-            /*
-            (&NativeType::Float(ref v1f), &NativeType::Float(ref v2f)) => {
-                curr_frame.stack.push(Rc::new(NativeType::Boolean(v2f == v1f)));
-            },
-            */
             (PyObjectKind::List { elements: ref l1 }, PyObjectKind::List { elements: ref l2 })
             | (
                 PyObjectKind::Tuple { elements: ref l1 },
