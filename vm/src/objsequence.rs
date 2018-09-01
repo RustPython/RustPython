@@ -1,5 +1,5 @@
 use super::objbool;
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
 use super::vm::VirtualMachine;
 use std::marker::Sized;
 
@@ -91,7 +91,7 @@ pub fn get_item(
                 },
                 ref kind => panic!("sequence get_item called for non-sequence: {:?}", kind),
             },
-            vm.get_type(),
+            sequence.typ(),
         )),
         _ => Err(vm.new_type_error(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
