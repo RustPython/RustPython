@@ -121,7 +121,7 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(obj)
 }
 
-pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &String) -> PyResult {
+pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &str) -> PyResult {
     let cls = obj.typ();
     trace!("get_attribute: {:?}, {:?}, {:?}", cls, obj, name);
     if let Some(attr) = cls.get_attr(name) {
