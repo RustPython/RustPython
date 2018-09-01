@@ -342,7 +342,7 @@ impl VirtualMachine {
         self.call_method(a, "__truediv__", vec![b])
     }
 
-    fn call_method(
+    pub fn call_method(
         &mut self,
         obj: PyObjectRef,
         method_name: &str,
@@ -418,11 +418,7 @@ impl VirtualMachine {
     }
 
     fn _eq(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        let result_bool = a2 == b2;
-        let result = self.ctx.new_bool(result_bool);
-        Ok(result)
+        self.call_method(a, "__eq__", vec![b])
     }
 
     fn _ne(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
