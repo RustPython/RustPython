@@ -35,6 +35,22 @@ pub fn init(context: &PyContext) {
     let ref bool_type = context.bool_type;
     bool_type.set_attr("__new__", context.new_rustfunc(bool_new));
     bool_type.set_attr("__str__", context.new_rustfunc(bool_str));
+    bool_type.set_attr("__eq__", context.new_rustfunc(bool_eq));
+}
+
+fn bool_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.bool_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(zelf.clone(), vm.ctx.bool_type()) {
+        get_value(zelf) == get_value(other)
+    } else {
+        false
+    };
+    Ok(vm.ctx.new_bool(result))
 }
 
 // Retrieve inner int value:

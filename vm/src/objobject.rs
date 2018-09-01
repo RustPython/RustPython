@@ -29,7 +29,16 @@ pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, dict_type
     (*object_type.borrow_mut()).typ = Some(type_type.clone());
 }
 
-fn obj_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.object())), (other, None)]
+    );
+    Ok(vm.ctx.new_bool(zelf.is(other)))
+}
+
+fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.object()))]);
     let type_name = objtype::get_type_name(&obj.typ());
     let address = obj.get_id();
@@ -39,8 +48,9 @@ fn obj_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref object = context.object;
     object.set_attr("__new__", context.new_rustfunc(new_instance));
+    object.set_attr("__eq__", context.new_rustfunc(object_eq));
     object.set_attr("__dict__", context.new_member_descriptor(object_dict));
-    object.set_attr("__str__", context.new_rustfunc(obj_str));
+    object.set_attr("__str__", context.new_rustfunc(object_str));
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

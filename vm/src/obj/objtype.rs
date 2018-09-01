@@ -29,7 +29,6 @@ pub fn init(context: &PyContext) {
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    println!("{:?}", args);
     arg_check!(
         vm,
         args,
