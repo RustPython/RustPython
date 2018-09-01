@@ -25,3 +25,11 @@ assert type(2 / 3) is float
 x = 1
 assert type(x) is int
 assert type(x - 1) is int
+
+a = bytes([1, 2, 3])
+print(a)
+try:
+    bytes([object()])
+except TypeError:
+    pass
+

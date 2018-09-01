@@ -1,5 +1,5 @@
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
-use super::vm::VirtualMachine;
+use super::super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::super::vm::VirtualMachine;
 use std::marker::Sized;
 
 pub trait PySliceableSequence {

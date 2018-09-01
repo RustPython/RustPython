@@ -1,8 +1,8 @@
-use super::super::objsequence::PySliceableSequence;
 use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objsequence::PySliceableSequence;
 use super::objstr;
 use super::objtype;
 
@@ -26,7 +26,7 @@ pub fn set_item(
     }
 }
 
-pub fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
+pub fn get_elements(obj: &PyObjectRef) -> Vec<PyObjectRef> {
     if let PyObjectKind::List { elements } = &obj.borrow().kind {
         elements.to_vec()
     } else {
@@ -42,8 +42,8 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     if objtype::isinstance(o2.clone(), vm.ctx.list_type()) {
-        let e1 = get_elements(o.clone());
-        let e2 = get_elements(o2.clone());
+        let e1 = get_elements(o);
+        let e2 = get_elements(o2);
         let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();
         Ok(vm.ctx.new_list(elements))
     } else {
@@ -54,7 +54,7 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn list_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
-    let elements = get_elements(o.clone());
+    let elements = get_elements(o);
     let mut str_parts = vec![];
     for elem in elements {
         match vm.to_str(elem) {
@@ -95,15 +95,10 @@ fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("list.len called with: {:?}", args);
+fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
-    let list_obj = list.borrow();
-    if let PyObjectKind::List { ref elements } = list_obj.kind {
-        Ok(vm.context().new_int(elements.len() as i32))
-    } else {
-        Err(vm.new_type_error("list.len is called with no list".to_string()))
-    }
+    let elements = get_elements(list);
+    Ok(vm.context().new_int(elements.len() as i32))
 }
 
 fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -121,7 +116,7 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
     list_type.set_attr("__add__", context.new_rustfunc(list_add));
-    list_type.set_attr("__len__", context.new_rustfunc(len));
+    list_type.set_attr("__len__", context.new_rustfunc(list_len));
     list_type.set_attr("__str__", context.new_rustfunc(list_str));
     list_type.set_attr("append", context.new_rustfunc(append));
     list_type.set_attr("clear", context.new_rustfunc(clear));

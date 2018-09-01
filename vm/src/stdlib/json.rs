@@ -6,13 +6,13 @@ use serde::de::Visitor;
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
-use super::super::obj::{objdict, objfloat, objint, objlist, objstr, objtype};
+use super::super::obj::{objdict, objfloat, objint, objlist, objsequence, objstr, objtype};
+use super::super::objbool;
 use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use super::super::VirtualMachine;
-use super::super::{objbool, objsequence};
 
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
 // PyObject serialisation via a proxy object which holds a reference to a VM
@@ -52,7 +52,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.list_type()) {
-            let elements = objlist::get_elements(self.pyobject.clone());
+            let elements = objlist::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.tuple_type()) {
             let elements = objsequence::get_elements(self.pyobject.clone());

@@ -1,5 +1,5 @@
-use super::pyobject::{AttributeProtocol, PyContext, PyFuncArgs, PyResult};
-use super::vm::VirtualMachine;
+use super::super::pyobject::{AttributeProtocol, PyContext, PyFuncArgs, PyResult};
+use super::super::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     let ref function_type = context.function_type;

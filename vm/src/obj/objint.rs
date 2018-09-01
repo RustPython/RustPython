@@ -19,15 +19,27 @@ fn int_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (arg, None)]
     );
-    let val = if objtype::isinstance(arg.clone(), vm.ctx.int_type()) {
-        get_value(arg)
-    } else if objtype::isinstance(arg.clone(), vm.ctx.float_type()) {
-        objfloat::get_value(arg) as i32
+
+    // Try to cast to int:
+    let val = match to_int(vm, arg) {
+        Ok(val) => val,
+        Err(err) => return Err(err),
+    };
+
+    set_value(zelf, val);
+    Ok(vm.get_none())
+}
+
+// Casting function:
+pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<i32, PyObjectRef> {
+    let val = if objtype::isinstance(obj.clone(), vm.ctx.int_type()) {
+        get_value(obj)
+    } else if objtype::isinstance(obj.clone(), vm.ctx.float_type()) {
+        objfloat::get_value(obj) as i32
     } else {
         return Err(vm.new_type_error("Cannot construct int".to_string()));
     };
-    set_value(zelf, val);
-    Ok(vm.get_none())
+    Ok(val)
 }
 
 // Retrieve inner int value:
@@ -142,15 +154,63 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let v1 = get_value(i);
+    if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        let v2 = get_value(i2);
+        Ok(vm.ctx.new_int(v1 ^ v2))
+    } else {
+        Err(vm.new_type_error(format!("Cannot xor {:?} and {:?}", i, i2)))
+    }
+}
+
+fn int_or(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let v1 = get_value(i);
+    if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        let v2 = get_value(i2);
+        Ok(vm.ctx.new_int(v1 | v2))
+    } else {
+        Err(vm.new_type_error(format!("Cannot or {:?} and {:?}", i, i2)))
+    }
+}
+
+fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let v1 = get_value(i);
+    if objtype::isinstance(i2.clone(), vm.ctx.int_type()) {
+        let v2 = get_value(i2);
+        Ok(vm.ctx.new_int(v1 & v2))
+    } else {
+        Err(vm.new_type_error(format!("Cannot and {:?} and {:?}", i, i2)))
+    }
+}
+
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
+    int_type.set_attr("__and__", context.new_rustfunc(int_and));
     int_type.set_attr("__init__", context.new_rustfunc(int_init));
     int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
+    int_type.set_attr("__or__", context.new_rustfunc(int_or));
     int_type.set_attr("__pow__", context.new_rustfunc(int_pow));
     int_type.set_attr("__repr__", context.new_rustfunc(str));
     int_type.set_attr("__str__", context.new_rustfunc(str));
     int_type.set_attr("__sub__", context.new_rustfunc(int_sub));
     int_type.set_attr("__truediv__", context.new_rustfunc(int_truediv));
+    int_type.set_attr("__xor__", context.new_rustfunc(int_xor));
 }
