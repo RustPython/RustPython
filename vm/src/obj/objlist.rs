@@ -1,8 +1,8 @@
-use super::super::objsequence::PySliceableSequence;
 use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objsequence::PySliceableSequence;
 use super::objstr;
 use super::objtype;
 

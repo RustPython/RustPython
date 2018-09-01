@@ -16,10 +16,10 @@ use super::bytecode;
 use super::frame::{copy_code, Block, Frame};
 use super::import::import;
 use super::obj::objlist;
+use super::obj::objobject;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::objbool;
-use super::objobject;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
     PyObjectKind, PyObjectRef, PyResult, ToRust,
@@ -296,7 +296,7 @@ impl VirtualMachine {
         match &a2.kind {
             PyObjectKind::String { ref value } => objstr::subscript(self, value, b),
             PyObjectKind::List { ref elements } | PyObjectKind::Tuple { ref elements } => {
-                super::objsequence::get_item(self, &a, elements, b)
+                super::obj::objsequence::get_item(self, &a, elements, b)
             }
             _ => Err(self.new_type_error(format!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
