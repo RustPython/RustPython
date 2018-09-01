@@ -28,4 +28,8 @@ assert type(x - 1) is int
 
 a = bytes([1, 2, 3])
 print(a)
+try:
+    bytes([object()])
+except TypeError:
+    pass
 

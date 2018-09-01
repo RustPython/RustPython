@@ -19,15 +19,27 @@ fn int_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (arg, None)]
     );
-    let val = if objtype::isinstance(arg.clone(), vm.ctx.int_type()) {
-        get_value(arg)
-    } else if objtype::isinstance(arg.clone(), vm.ctx.float_type()) {
-        objfloat::get_value(arg) as i32
+
+    // Try to cast to int:
+    let val = match to_int(vm, arg) {
+        Ok(val) => val,
+        Err(err) => return Err(err),
+    };
+
+    set_value(zelf, val);
+    Ok(vm.get_none())
+}
+
+// Casting function:
+pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<i32, PyObjectRef> {
+    let val = if objtype::isinstance(obj.clone(), vm.ctx.int_type()) {
+        get_value(obj)
+    } else if objtype::isinstance(obj.clone(), vm.ctx.float_type()) {
+        objfloat::get_value(obj) as i32
     } else {
         return Err(vm.new_type_error("Cannot construct int".to_string()));
     };
-    set_value(zelf, val);
-    Ok(vm.get_none())
+    Ok(val)
 }
 
 // Retrieve inner int value:

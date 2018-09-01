@@ -113,10 +113,22 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     debug!("type_call: {:?}", args);
     let typ = args.shift();
     let new = typ.get_attr("__new__").unwrap();
-    let obj = vm.invoke(new, args.insert(typ.clone()))?;
+    let obj = match vm.invoke(new, args.insert(typ.clone())) {
+        Ok(res) => res,
+        Err(err) => return Err(err),
+    };
 
     if let Some(init) = obj.typ().get_attr("__init__") {
-        let _ = vm.invoke(init, args.insert(obj.clone())).unwrap();
+        match vm.invoke(init, args.insert(obj.clone())) {
+            Ok(res) => {
+                // TODO: assert that return is none?
+                if !isinstance(res, vm.get_none()) {
+                    // panic!("__init__ must return none");
+                    // return Err(vm.new_type_error("__init__ must return None".to_string()));
+                }
+            }
+            Err(err) => return Err(err),
+        }
     }
     Ok(obj)
 }

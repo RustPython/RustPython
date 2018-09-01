@@ -23,12 +23,17 @@ fn bytes_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.bytes_type())), (arg, None)]
     );
     let val = if objtype::isinstance(arg.clone(), vm.ctx.list_type()) {
-        objlist::get_elements(arg.clone())
-            .into_iter()
-            .map(|e| objint::get_value(&e) as u8)
-            .collect()
+        let mut data_bytes = vec![];
+        for elem in objlist::get_elements(arg.clone()) {
+            let v = match objint::to_int(vm, &elem) {
+                Ok(int_ref) => int_ref,
+                Err(err) => return Err(err),
+            };
+            data_bytes.push(v as u8);
+        }
+        data_bytes
     } else {
-        return Err(vm.new_type_error("Cannot construct int".to_string()));
+        return Err(vm.new_type_error("Cannot construct bytes".to_string()));
     };
     set_value(zelf, val);
     Ok(vm.get_none())
