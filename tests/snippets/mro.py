@@ -7,14 +7,14 @@ class Y():
 class A(X, Y):
     pass
 
-print(A.__mro__)
+assert (A, X, Y, object) == A.__mro__
 
 class B(X, Y):
     pass
 
-print(B.__mro__)
+assert (B, X, Y, object) == B.__mro__
 
 class C(A, B):
     pass
 
-print(C.__mro__)
+assert (C, A, B, X, Y, object) == C.__mro__

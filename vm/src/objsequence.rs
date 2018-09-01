@@ -1,3 +1,4 @@
+use super::objbool;
 use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
 use std::marker::Sized;
@@ -104,5 +105,24 @@ pub fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
         elements.to_vec()
     } else {
         panic!("Cannot extract list elements from non-list");
+    }
+}
+
+pub fn seq_equal(
+    vm: &mut VirtualMachine,
+    zelf: Vec<PyObjectRef>,
+    other: Vec<PyObjectRef>,
+) -> Result<bool, PyObjectRef> {
+    if zelf.len() == other.len() {
+        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+            let eq = vm.call_method(a.clone(), "__eq__", vec![b.clone()])?;
+            let value = objbool::boolval(vm, eq)?;
+            if !value {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    } else {
+        Ok(false)
     }
 }

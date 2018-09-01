@@ -5,6 +5,7 @@ use super::obj::objfloat;
 use super::obj::objint;
 use super::obj::objlist;
 use super::obj::objstr;
+use super::obj::objtuple;
 use super::obj::objtype;
 use super::objbool;
 use super::objfunction;
@@ -141,6 +142,7 @@ impl PyContext {
         };
         objtype::init(&context);
         objlist::init(&context);
+        objtuple::init(&context);
         objobject::init(&context);
         objdict::init(&context);
         objfunction::init(&context);

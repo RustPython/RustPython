@@ -1,4 +1,4 @@
-use super::super::objsequence::PySliceableSequence;
+use super::super::objsequence::{seq_equal, PySliceableSequence};
 use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
@@ -32,6 +32,23 @@ pub fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
     } else {
         panic!("Cannot extract list elements from non-list");
     }
+}
+
+fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other.clone(), vm.ctx.list_type()) {
+        let zelf = get_elements(zelf.clone());
+        let other = get_elements(other.clone());
+        seq_equal(vm, zelf, other)?
+    } else {
+        false
+    };
+    Ok(vm.ctx.new_bool(result))
 }
 
 fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -95,7 +112,7 @@ fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let list_obj = list.borrow();
@@ -120,8 +137,9 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
+    list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
     list_type.set_attr("__add__", context.new_rustfunc(list_add));
-    list_type.set_attr("__len__", context.new_rustfunc(len));
+    list_type.set_attr("__len__", context.new_rustfunc(list_len));
     list_type.set_attr("__str__", context.new_rustfunc(list_str));
     list_type.set_attr("append", context.new_rustfunc(append));
     list_type.set_attr("clear", context.new_rustfunc(clear));
