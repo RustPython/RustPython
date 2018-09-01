@@ -38,7 +38,7 @@ assert "str" == json.loads('"str"')
 assert True == json.loads('true')
 assert False == json.loads('false')
 # TODO: uncomment once None comparison is implemented
-# assert None == json.loads('null')
+assert None == json.loads('null')
 assert [] == json.loads('[]')
 assert ['a'] == json.loads('["a"]')
 assert [['a'], 'b'] == json.loads('[["a"], "b"]')
