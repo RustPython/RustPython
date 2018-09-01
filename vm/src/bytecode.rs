@@ -100,6 +100,9 @@ pub enum Instruction {
     CallFunction {
         count: usize,
     },
+    CallFunctionKw {
+        count: usize,
+    },
     ForIter,
     ReturnValue,
     SetupLoop {

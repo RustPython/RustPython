@@ -512,21 +512,30 @@ impl fmt::Debug for PyObject {
 #[derive(Debug, Default, Clone)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
-    // TODO: add kwargs here
+    pub kwargs: Vec<(String, PyObjectRef)>,
 }
 
 impl PyFuncArgs {
-    pub fn new() -> PyFuncArgs {
-        PyFuncArgs { args: vec![] }
+    pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
+        let mut kwargs = vec![];
+        for name in kwarg_names.iter().rev() {
+            kwargs.push((name.clone(), args.pop().unwrap()));
+        }
+        PyFuncArgs {
+            args: args,
+            kwargs: kwargs,
+        }
     }
 
     pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
         let mut args = PyFuncArgs {
             args: self.args.clone(),
+            kwargs: self.kwargs.clone(),
         };
         args.args.insert(0, item);
         return args;
     }
+
     pub fn shift(&mut self) -> PyObjectRef {
         self.args.remove(0)
     }

@@ -628,10 +628,27 @@ impl Compiler {
             ast::Expression::Call { function, args } => {
                 self.compile_expression(&*function);
                 let count = args.len();
-                for arg in args {
-                    self.compile_expression(arg)
+                let mut kwarg_names = vec![];
+                for (kwarg, value) in args {
+                    if let Some(kwarg) = kwarg {
+                        kwarg_names.push(bytecode::Constant::String {
+                            value: kwarg.to_string(),
+                        });
+                    } else if kwarg_names.len() > 0 {
+                        panic!("positional argument follows keyword argument");
+                    };
+                    self.compile_expression(value);
                 }
-                self.emit(Instruction::CallFunction { count: count });
+                if kwarg_names.len() > 0 {
+                    self.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::Tuple {
+                            elements: kwarg_names,
+                        },
+                    });
+                    self.emit(Instruction::CallFunctionKw { count });
+                } else {
+                    self.emit(Instruction::CallFunction { count });
+                }
             }
             ast::Expression::BoolOp { .. } => {
                 self.compile_test(expression, None, None, EvalContext::Expression)
