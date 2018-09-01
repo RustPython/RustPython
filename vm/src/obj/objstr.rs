@@ -1,9 +1,9 @@
-use super::super::objsequence::PySliceableSequence;
 use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
+use super::objsequence::PySliceableSequence;
 use super::objtype;
 
 pub fn init(context: &PyContext) {

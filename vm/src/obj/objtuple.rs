@@ -1,8 +1,8 @@
-use super::super::objsequence::{get_elements, seq_equal};
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objsequence::seq_equal;
 use super::objstr;
 use super::objtype;
 
@@ -14,8 +14,8 @@ fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let result = if objtype::isinstance(other.clone(), vm.ctx.tuple_type()) {
-        let zelf = get_elements(zelf.clone());
-        let other = get_elements(other.clone());
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
         seq_equal(vm, zelf, other)?
     } else {
         false
@@ -24,21 +24,16 @@ fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("tuple.len called with: {:?}", args);
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
-    let elements = get_elements(zelf.clone());
+    let elements = get_elements(zelf);
     Ok(vm.context().new_int(elements.len() as i32))
 }
 
 fn tuple_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
 
-    let elements = get_elements(zelf.clone());
-    if elements.len() == 1 {
-        let ref part = vm.to_str(elements[0].clone())?;
-        let s = format!("({},)", objstr::get_value(part));
-        return Ok(vm.new_str(s));
-    }
+    let elements = get_elements(zelf);
+
     let mut str_parts = vec![];
     for elem in elements {
         match vm.to_str(elem) {
@@ -47,8 +42,20 @@ fn tuple_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     }
 
-    let s = format!("({})", str_parts.join(", "));
+    let s = if str_parts.len() == 1 {
+        format!("({},)", str_parts[0])
+    } else {
+        format!("({})", str_parts.join(", "))
+    };
     Ok(vm.new_str(s))
+}
+
+pub fn get_elements(obj: &PyObjectRef) -> Vec<PyObjectRef> {
+    if let PyObjectKind::Tuple { elements } = &obj.borrow().kind {
+        elements.to_vec()
+    } else {
+        panic!("Cannot extract elements from non-tuple");
+    }
 }
 
 pub fn init(context: &PyContext) {

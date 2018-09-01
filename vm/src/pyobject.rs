@@ -1,15 +1,16 @@
 use super::bytecode;
 use super::exceptions;
+use super::obj::objbytes;
 use super::obj::objdict;
 use super::obj::objfloat;
+use super::obj::objfunction;
 use super::obj::objint;
 use super::obj::objlist;
+use super::obj::objobject;
 use super::obj::objstr;
 use super::obj::objtuple;
 use super::obj::objtype;
 use super::objbool;
-use super::objfunction;
-use super::objobject;
 use super::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::cmp::Ordering;
@@ -53,6 +54,7 @@ pub struct PyContext {
     pub dict_type: PyObjectRef,
     pub int_type: PyObjectRef,
     pub float_type: PyObjectRef,
+    pub bytes_type: PyObjectRef,
     pub bool_type: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
@@ -115,6 +117,7 @@ impl PyContext {
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
         let int_type = create_type("int", &type_type, &object_type, &dict_type);
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
+        let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &object_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
@@ -127,6 +130,7 @@ impl PyContext {
         let context = PyContext {
             int_type: int_type,
             float_type: float_type,
+            bytes_type: bytes_type,
             list_type: list_type,
             bool_type: bool_type,
             tuple_type: tuple_type,
@@ -148,11 +152,11 @@ impl PyContext {
         objfunction::init(&context);
         objint::init(&context);
         objfloat::init(&context);
+        objbytes::init(&context);
         objstr::init(&context);
+        objtuple::init(&context);
         objbool::init(&context);
         exceptions::init(&context);
-        // TODO: create exception hierarchy here?
-        // exceptions::create_zoo(&context);
         context
     }
 
@@ -162,6 +166,10 @@ impl PyContext {
 
     pub fn float_type(&self) -> PyObjectRef {
         self.float_type.clone()
+    }
+
+    pub fn bytes_type(&self) -> PyObjectRef {
+        self.bytes_type.clone()
     }
 
     pub fn list_type(&self) -> PyObjectRef {
@@ -558,6 +566,9 @@ pub enum PyObjectKind {
     Boolean {
         value: bool,
     },
+    Bytes {
+        value: Vec<u8>,
+    },
     List {
         elements: Vec<PyObjectRef>,
     },
@@ -615,6 +626,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::String { ref value } => write!(f, "str \"{}\"", value),
             &PyObjectKind::Integer { ref value } => write!(f, "int {}", value),
             &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
+            &PyObjectKind::Bytes { ref value } => write!(f, "bytes {:?}", value),
             &PyObjectKind::Boolean { ref value } => write!(f, "boolean {}", value),
             &PyObjectKind::List { elements: _ } => write!(f, "list"),
             &PyObjectKind::Tuple { elements: _ } => write!(f, "tuple"),
@@ -662,6 +674,7 @@ impl PyObject {
             PyObjectKind::String { ref value } => value.clone(),
             PyObjectKind::Integer { ref value } => format!("{:?}", value),
             PyObjectKind::Float { ref value } => format!("{:?}", value),
+            PyObjectKind::Bytes { ref value } => format!("b'{:?}'", value),
             PyObjectKind::Boolean { ref value } => format!("{:?}", value),
             PyObjectKind::List { ref elements } => format!(
                 "[{}]",
@@ -773,11 +786,6 @@ impl PartialEq for PyObject {
             (PyObjectKind::String { value: ref v1i }, PyObjectKind::String { value: ref v2i }) => {
                 *v2i == *v1i
             }
-            /*
-            (&NativeType::Float(ref v1f), &NativeType::Float(ref v2f)) => {
-                curr_frame.stack.push(Rc::new(NativeType::Boolean(v2f == v1f)));
-            },
-            */
             (PyObjectKind::List { elements: ref l1 }, PyObjectKind::List { elements: ref l2 })
             | (
                 PyObjectKind::Tuple { elements: ref l1 },

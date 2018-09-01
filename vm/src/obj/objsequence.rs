@@ -1,6 +1,6 @@
-use super::objbool;
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
-use super::vm::VirtualMachine;
+use super::super::objbool;
+use super::super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
+use super::super::vm::VirtualMachine;
 use std::marker::Sized;
 
 pub trait PySliceableSequence {
@@ -97,14 +97,6 @@ pub fn get_item(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
             sequence, subscript
         ))),
-    }
-}
-
-pub fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
-    if let PyObjectKind::Tuple { elements } = &obj.borrow().kind {
-        elements.to_vec()
-    } else {
-        panic!("Cannot extract list elements from non-list");
     }
 }
 
