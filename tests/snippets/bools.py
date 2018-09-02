@@ -39,3 +39,10 @@ assert ("thing" or 0) == "thing"
 assert (True and True)
 assert not (False and fake)
 assert (True and 5) == 5
+
+# Bools are also ints.
+assert isinstance(True, int)
+assert True + True == 2
+assert False * 7 == 0
+assert True > 0
+assert int(True) == 1

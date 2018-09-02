@@ -6,7 +6,6 @@ use super::vm::VirtualMachine;
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
     let result = match obj.borrow().kind {
-        PyObjectKind::Boolean { value } => value,
         PyObjectKind::Integer { value } => value != 0,
         PyObjectKind::Float { value } => value != 0.0,
         PyObjectKind::List { ref elements } => !elements.is_empty(),
@@ -18,7 +17,7 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
             if let Ok(f) = objtype::get_attribute(vm, obj.clone(), &String::from("__bool__")) {
                 match vm.invoke(f, PyFuncArgs::default()) {
                     Ok(result) => match result.borrow().kind {
-                        PyObjectKind::Boolean { value } => value,
+                        PyObjectKind::Integer { value } => value != 0,
                         _ => return Err(vm.new_type_error(String::from("TypeError"))),
                     },
                     Err(err) => return Err(err),
@@ -35,22 +34,6 @@ pub fn init(context: &PyContext) {
     let ref bool_type = context.bool_type;
     bool_type.set_attr("__new__", context.new_rustfunc(bool_new));
     bool_type.set_attr("__repr__", context.new_rustfunc(bool_repr));
-    bool_type.set_attr("__eq__", context.new_rustfunc(bool_eq));
-}
-
-fn bool_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.bool_type())), (other, None)]
-    );
-
-    let result = if objtype::isinstance(other.clone(), vm.ctx.bool_type()) {
-        get_value(zelf) == get_value(other)
-    } else {
-        false
-    };
-    Ok(vm.ctx.new_bool(result))
 }
 
 pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
@@ -64,8 +47,8 @@ pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
-    if let PyObjectKind::Boolean { value } = &obj.borrow().kind {
-        *value
+    if let PyObjectKind::Integer { value } = &obj.borrow().kind {
+        *value != 0
     } else {
         panic!("Inner error getting inner boolean");
     }

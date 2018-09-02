@@ -86,7 +86,7 @@ fn _nothing() -> PyObjectRef {
 pub fn create_type(
     name: &str,
     type_type: &PyObjectRef,
-    object: &PyObjectRef,
+    base: &PyObjectRef,
     dict_type: &PyObjectRef,
 ) -> PyObjectRef {
     let dict = PyObject::new(
@@ -95,7 +95,7 @@ pub fn create_type(
         },
         dict_type.clone(),
     );
-    objtype::new(type_type.clone(), name, vec![object.clone()], dict).unwrap()
+    objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
 }
 
 // Basic objects:
@@ -119,7 +119,7 @@ impl PyContext {
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
         let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
-        let bool_type = create_type("bool", &type_type, &object_type, &dict_type);
+        let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
@@ -220,7 +220,12 @@ impl PyContext {
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Boolean { value: b }, self.bool_type())
+        PyObject::new(
+            PyObjectKind::Integer {
+                value: if b { 1 } else { 0 },
+            },
+            self.bool_type(),
+        )
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
@@ -563,9 +568,6 @@ pub enum PyObjectKind {
     Float {
         value: f64,
     },
-    Boolean {
-        value: bool,
-    },
     Bytes {
         value: Vec<u8>,
     },
@@ -627,7 +629,6 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Integer { ref value } => write!(f, "int {}", value),
             &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
             &PyObjectKind::Bytes { ref value } => write!(f, "bytes {:?}", value),
-            &PyObjectKind::Boolean { ref value } => write!(f, "boolean {}", value),
             &PyObjectKind::List { elements: _ } => write!(f, "list"),
             &PyObjectKind::Tuple { elements: _ } => write!(f, "tuple"),
             &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
@@ -675,7 +676,6 @@ impl PyObject {
             PyObjectKind::Integer { ref value } => format!("{:?}", value),
             PyObjectKind::Float { ref value } => format!("{:?}", value),
             PyObjectKind::Bytes { ref value } => format!("b'{:?}'", value),
-            PyObjectKind::Boolean { ref value } => format!("{:?}", value),
             PyObjectKind::List { ref elements } => format!(
                 "[{}]",
                 elements
@@ -797,7 +797,6 @@ impl PartialEq for PyObject {
                     false
                 }
             }
-            (PyObjectKind::Boolean { value: a }, PyObjectKind::Boolean { value: b }) => a == b,
             (PyObjectKind::None, PyObjectKind::None) => true,
             _ => panic!(
                 "TypeError in COMPARE_OP: can't compare {:?} with {:?}",
