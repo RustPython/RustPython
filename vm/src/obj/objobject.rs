@@ -59,10 +59,15 @@ fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref object = context.object;
     object.set_attr("__new__", context.new_rustfunc(new_instance));
+    object.set_attr("__init__", context.new_rustfunc(object_init));
     object.set_attr("__eq__", context.new_rustfunc(object_eq));
     object.set_attr("__ne__", context.new_rustfunc(object_ne));
     object.set_attr("__dict__", context.new_member_descriptor(object_dict));
     object.set_attr("__str__", context.new_rustfunc(object_str));
+}
+
+fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.ctx.none())
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
