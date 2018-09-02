@@ -211,12 +211,10 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Raise an exception for deserialisation errors
     let de = PyObjectDeserializer { ctx: &vm.ctx };
     // TODO: Support deserializing string sub-classes
-    Ok(match string.borrow().kind {
-        PyObjectKind::String { ref value } => de
-            .deserialize(&mut serde_json::Deserializer::from_str(&value))
-            .unwrap(),
-        _ => unimplemented!("json.loads only handles strings"),
-    })
+    Ok(de
+        .deserialize(&mut serde_json::Deserializer::from_str(&objstr::get_value(
+            &string,
+        ))).unwrap())
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {

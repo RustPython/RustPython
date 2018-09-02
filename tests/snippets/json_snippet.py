@@ -44,6 +44,7 @@ assert [['a'], 'b'] == json.loads('[["a"], "b"]')
 
 class String(str): pass
 
+assert "string" == json.loads(String('"string"'))
 assert '"string"' == json.dumps(String("string"))
 
 # TODO: Uncomment and test once int/float construction is supported
