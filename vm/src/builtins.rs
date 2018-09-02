@@ -204,7 +204,7 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None), (typ, None)]);
 
-    let isinstance = objtype::isinstance(obj.clone(), typ.clone());
+    let isinstance = objtype::isinstance(obj, typ.clone());
     Ok(vm.context().new_bool(isinstance))
 }
 
@@ -213,7 +213,7 @@ fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         panic!("issubclass expects exactly two parameters");
     }
 
-    let cls1 = args.args[0].clone();
+    let cls1 = &args.args[0];
     let cls2 = args.args[1].clone();
 
     Ok(vm.context().new_bool(objtype::issubclass(cls1, cls2)))

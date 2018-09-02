@@ -63,7 +63,7 @@ macro_rules! arg_check {
         {
             match expected_type {
                 Some(expected_type) => {
-                    if !objtype::isinstance(arg.clone(), expected_type.clone()) {
+                    if !objtype::isinstance(arg, expected_type.clone()) {
                         let arg_typ = arg.typ().clone();
                         let actual_type = arg_typ.borrow().str().clone();
                         return Err($vm.new_type_error(format!(

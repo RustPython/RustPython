@@ -41,7 +41,7 @@ fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other.clone(), vm.ctx.list_type()) {
+    let result = if objtype::isinstance(other, vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_equal(vm, zelf, other)?
@@ -58,7 +58,7 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(o, Some(vm.ctx.list_type())), (o2, None)]
     );
 
-    if objtype::isinstance(o2.clone(), vm.ctx.list_type()) {
+    if objtype::isinstance(o2, vm.ctx.list_type()) {
         let e1 = get_elements(o);
         let e2 = get_elements(o2);
         let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();

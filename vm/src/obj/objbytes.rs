@@ -21,7 +21,7 @@ fn bytes_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.bytes_type())), (arg, None)]
     );
-    let val = if objtype::isinstance(arg.clone(), vm.ctx.list_type()) {
+    let val = if objtype::isinstance(arg, vm.ctx.list_type()) {
         let mut data_bytes = vec![];
         for elem in objlist::get_elements(arg) {
             let v = match objint::to_int(vm, &elem) {
