@@ -73,8 +73,13 @@ impl VirtualMachine {
     }
 
     pub fn new_type_error(&mut self, msg: String) -> PyObjectRef {
-        let type_error = self.context().exceptions.type_error.clone();
+        let type_error = self.ctx.exceptions.type_error.clone();
         self.new_exception(type_error, msg)
+    }
+
+    pub fn new_value_error(&mut self, msg: String) -> PyObjectRef {
+        let value_error = self.ctx.exceptions.value_error.clone();
+        self.new_exception(value_error, msg)
     }
 
     pub fn new_scope(&mut self) -> PyObjectRef {

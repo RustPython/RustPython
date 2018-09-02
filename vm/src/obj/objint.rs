@@ -4,6 +4,7 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objfloat;
+use super::objstr;
 use super::objtype;
 
 fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -17,7 +18,10 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if !objtype::issubclass(cls, vm.ctx.int_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of int", cls)));
     }
-    let val = to_int(vm, &args.args[1].clone())?;
+
+    // TODO: extract kwargs:
+    let base = 10;
+    let val = to_int(vm, &args.args[1].clone(), base)?;
     Ok(PyObject::new(
         PyObjectKind::Integer { value: val },
         cls.clone(),
@@ -25,13 +29,29 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // Casting function:
-pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<i32, PyObjectRef> {
+pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> Result<i32, PyObjectRef> {
     let val = if objtype::isinstance(obj, vm.ctx.int_type()) {
         get_value(obj)
     } else if objtype::isinstance(obj, vm.ctx.float_type()) {
         objfloat::get_value(obj) as i32
+    } else if objtype::isinstance(obj, vm.ctx.str_type()) {
+        let s = objstr::get_value(obj);
+        match i32::from_str_radix(&s, base) {
+            Ok(v) => v,
+            Err(err) => {
+                trace!("Error occured during int conversion {:?}", err);
+                return Err(vm.new_value_error(format!(
+                    "invalid literal for int() with base {}: '{}'",
+                    base, s
+                )));
+            }
+        }
     } else {
-        return Err(vm.new_type_error("Cannot construct int".to_string()));
+        let type_name = objtype::get_type_name(&obj.typ());
+        return Err(vm.new_type_error(format!(
+            "int() argument must be a string or a number, not '{}'",
+            type_name
+        )));
     };
     Ok(val)
 }
