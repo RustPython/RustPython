@@ -204,7 +204,7 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None), (typ, None)]);
 
-    let isinstance = objtype::isinstance(obj.clone(), typ.clone());
+    let isinstance = objtype::isinstance(obj, typ.clone());
     Ok(vm.context().new_bool(isinstance))
 }
 

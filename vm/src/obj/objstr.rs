@@ -32,7 +32,7 @@ fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(a, Some(vm.ctx.str_type())), (b, None)]
     );
 
-    let result = if objtype::isinstance(b.clone(), vm.ctx.str_type()) {
+    let result = if objtype::isinstance(b, vm.ctx.str_type()) {
         get_value(a) == get_value(b)
     } else {
         false
@@ -86,7 +86,7 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(s, Some(vm.ctx.str_type())), (s2, None)]
     );
-    if objtype::isinstance(s2.clone(), vm.ctx.str_type()) {
+    if objtype::isinstance(s2, vm.ctx.str_type()) {
         Ok(vm
             .ctx
             .new_str(format!("{}{}", get_value(&s), get_value(&s2))))
@@ -107,7 +107,7 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(s, Some(vm.ctx.str_type())), (s2, None)]
     );
-    if objtype::isinstance(s2.clone(), vm.ctx.int_type()) {
+    if objtype::isinstance(s2, vm.ctx.int_type()) {
         let value1 = get_value(&s);
         let value2 = objint::get_value(s2);
         let mut result = String::new();
