@@ -1,16 +1,14 @@
-use std::collections::HashMap;
 use std::fmt;
 
 use serde;
-use serde::de::Visitor;
+use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
 use super::super::obj::{objdict, objfloat, objint, objlist, objstr, objtuple, objtype};
 use super::super::objbool;
 use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
 
@@ -75,128 +73,123 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
     }
 }
 
-struct PyObjectKindVisitor;
-
-impl<'de> Visitor<'de> for PyObjectKindVisitor {
-    type Value = PyObjectKind;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str("a type that can deserialise in Python")
-    }
-
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(PyObjectKind::String {
-            value: value.to_string(),
-        })
-    }
-
-    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(PyObjectKind::String { value })
-    }
-
-    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
-        // implement those for now
-        use std::i32;
-        if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
-            Ok(PyObjectKind::Integer {
-                value: value as i32,
-            })
-        } else {
-            Err(E::custom(format!("i64 out of range: {}", value)))
-        }
-    }
-
-    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
-        // implement those for now
-        use std::i32;
-        if value <= i32::MAX as u64 {
-            Ok(PyObjectKind::Integer {
-                value: value as i32,
-            })
-        } else {
-            Err(E::custom(format!("u64 out of range: {}", value)))
-        }
-    }
-
-    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(PyObjectKind::Float { value })
-    }
-
-    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(PyObjectKind::Integer {
-            value: if value { 1 } else { 0 },
-        })
-    }
-
-    fn visit_seq<A>(self, mut access: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::SeqAccess<'de>,
-    {
-        let mut seq = Vec::with_capacity(access.size_hint().unwrap_or(0));
-        while let Some(value) = access.next_element()? {
-            seq.push(
-                PyObject {
-                    kind: value,
-                    typ: None, // TODO: Determine the effect this None will have
-                }.into_ref(),
-            );
-        }
-        Ok(PyObjectKind::List { elements: seq })
-    }
-
-    fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
-    where
-        M: serde::de::MapAccess<'de>,
-    {
-        let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
-
-        while let Some((key, value)) = access.next_entry()? {
-            map.insert(
-                key,
-                PyObject {
-                    kind: value,
-                    typ: None, // TODO: Determine the effect this None will have
-                }.into_ref(),
-            );
-        }
-
-        Ok(PyObjectKind::Dict { elements: map })
-    }
-
-    fn visit_unit<E>(self) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(PyObjectKind::None)
-    }
+// This object is used as the seed for deserialization so we have access to the PyContext for type
+// creation
+#[derive(Clone)]
+struct PyObjectDeserializer<'c> {
+    ctx: &'c PyContext,
 }
 
-impl<'de> serde::Deserialize<'de> for PyObjectKind {
-    fn deserialize<D>(deserializer: D) -> Result<PyObjectKind, D::Error>
+impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
+    type Value = PyObjectRef;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        deserializer.deserialize_any(PyObjectKindVisitor)
+        impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
+            type Value = PyObjectRef;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a type that can deserialise in Python")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(self.ctx.new_str(value.to_string()))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(self.ctx.new_str(value))
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
+                // implement those for now
+                use std::i32;
+                if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
+                    Ok(self.ctx.new_int(value as i32))
+                } else {
+                    Err(E::custom(format!("i64 out of range: {}", value)))
+                }
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
+                // implement those for now
+                use std::i32;
+                if value <= i32::MAX as u64 {
+                    Ok(self.ctx.new_int(value as i32))
+                } else {
+                    Err(E::custom(format!("u64 out of range: {}", value)))
+                }
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(self.ctx.new_float(value))
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(self.ctx.new_bool(value))
+            }
+
+            fn visit_seq<A>(self, mut access: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut seq = Vec::with_capacity(access.size_hint().unwrap_or(0));
+                while let Some(value) = access.next_element_seed(self.clone())? {
+                    seq.push(value);
+                }
+                Ok(self.ctx.new_list(seq))
+            }
+
+            fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                let dict = self.ctx.new_dict();
+                // TODO: Given keys must be strings, we can probably do something more efficient
+                // than wrapping the given object up and then unwrapping it to determine whether or
+                // not it is a string
+                while let Some((key_obj, value)) =
+                    access.next_entry_seed(self.clone(), self.clone())?
+                {
+                    let key = match key_obj.borrow().kind {
+                        PyObjectKind::String { ref value } => value.clone(),
+                        _ => unimplemented!("map keys must be strings"),
+                    };
+                    dict.set_item(&key, value);
+                }
+                Ok(dict)
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(self.ctx.none.clone())
+            }
+        }
+
+        deserializer.deserialize_any(self.clone())
     }
 }
 
@@ -216,11 +209,14 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial deserialisation case
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
     // TODO: Raise an exception for deserialisation errors
-    let kind: PyObjectKind = match string.borrow().kind {
-        PyObjectKind::String { ref value } => serde_json::from_str(&value).unwrap(),
+    let de = PyObjectDeserializer { ctx: &vm.ctx };
+    // TODO: Support deserializing string sub-classes
+    Ok(match string.borrow().kind {
+        PyObjectKind::String { ref value } => de
+            .deserialize(&mut serde_json::Deserializer::from_str(&value))
+            .unwrap(),
         _ => unimplemented!("json.loads only handles strings"),
-    };
-    Ok(PyObject::new(kind, vm.get_type()))
+    })
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
