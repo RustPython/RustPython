@@ -34,7 +34,7 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
 pub fn init(context: &PyContext) {
     let ref bool_type = context.bool_type;
     bool_type.set_attr("__new__", context.new_rustfunc(bool_new));
-    bool_type.set_attr("__str__", context.new_rustfunc(bool_str));
+    bool_type.set_attr("__repr__", context.new_rustfunc(bool_repr));
     bool_type.set_attr("__eq__", context.new_rustfunc(bool_eq));
 }
 
@@ -71,7 +71,7 @@ pub fn get_value(obj: &PyObjectRef) -> bool {
     }
 }
 
-fn bool_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+fn bool_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bool_type()))]);
     let v = get_value(obj);
     let s = if v {

@@ -68,7 +68,7 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn list_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
     let elements = get_elements(o);
@@ -136,7 +136,7 @@ pub fn init(context: &PyContext) {
     list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
     list_type.set_attr("__add__", context.new_rustfunc(list_add));
     list_type.set_attr("__len__", context.new_rustfunc(list_len));
-    list_type.set_attr("__str__", context.new_rustfunc(list_str));
+    list_type.set_attr("__repr__", context.new_rustfunc(list_repr));
     list_type.set_attr("append", context.new_rustfunc(append));
     list_type.set_attr("clear", context.new_rustfunc(clear));
     list_type.set_attr("reverse", context.new_rustfunc(reverse));
