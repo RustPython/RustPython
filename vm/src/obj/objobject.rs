@@ -50,6 +50,11 @@ fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.object()))]);
+    vm.call_method(zelf.clone(), "__repr__", vec![])
+}
+
+fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.object()))]);
     let type_name = objtype::get_type_name(&obj.typ());
     let address = obj.get_id();
@@ -64,6 +69,7 @@ pub fn init(context: &PyContext) {
     object.set_attr("__ne__", context.new_rustfunc(object_ne));
     object.set_attr("__dict__", context.new_member_descriptor(object_dict));
     object.set_attr("__str__", context.new_rustfunc(object_str));
+    object.set_attr("__repr__", context.new_rustfunc(object_repr));
 }
 
 fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {

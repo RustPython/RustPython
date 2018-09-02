@@ -6,7 +6,7 @@ use super::super::vm::VirtualMachine;
 use super::objfloat;
 use super::objtype;
 
-fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
     let v = get_value(int);
     Ok(vm.new_str(v.to_string()))
@@ -219,8 +219,7 @@ pub fn init(context: &PyContext) {
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
     int_type.set_attr("__or__", context.new_rustfunc(int_or));
     int_type.set_attr("__pow__", context.new_rustfunc(int_pow));
-    int_type.set_attr("__repr__", context.new_rustfunc(str));
-    int_type.set_attr("__str__", context.new_rustfunc(str));
+    int_type.set_attr("__repr__", context.new_rustfunc(int_repr));
     int_type.set_attr("__sub__", context.new_rustfunc(int_sub));
     int_type.set_attr("__truediv__", context.new_rustfunc(int_truediv));
     int_type.set_attr("__xor__", context.new_rustfunc(int_xor));

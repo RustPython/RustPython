@@ -11,7 +11,7 @@ use super::objtype;
 pub fn init(context: &PyContext) {
     let ref bytes_type = context.bytes_type;
     bytes_type.set_attr("__init__", context.new_rustfunc(bytes_init));
-    bytes_type.set_attr("__str__", context.new_rustfunc(bytes_str));
+    bytes_type.set_attr("__repr__", context.new_rustfunc(bytes_repr));
 }
 
 // __init__ (store value into objectkind)
@@ -50,7 +50,7 @@ fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
     obj.borrow_mut().kind = PyObjectKind::Bytes { value };
 }
 
-fn bytes_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
     let data = get_value(obj);
     let data: Vec<String> = data.into_iter().map(|b| format!("\\x{:02x}", b)).collect();

@@ -44,13 +44,13 @@ fn dict_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(elements.len() as i32))
 }
 
-fn dict_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.dict_type()))]);
 
     let elements = get_elements(o);
     let mut str_parts = vec![];
     for elem in elements {
-        match vm.to_str(elem.1) {
+        match vm.to_repr(elem.1) {
             Ok(s) => {
                 let value_str = objstr::get_value(&s);
                 str_parts.push(format!("{}: {}", elem.0, value_str));
@@ -76,5 +76,5 @@ pub fn init(context: &PyContext) {
     let ref dict_type = context.dict_type;
     dict_type.set_attr("__len__", context.new_rustfunc(dict_len));
     dict_type.set_attr("__new__", context.new_rustfunc(dict_new));
-    dict_type.set_attr("__str__", context.new_rustfunc(dict_str));
+    dict_type.set_attr("__repr__", context.new_rustfunc(dict_repr));
 }

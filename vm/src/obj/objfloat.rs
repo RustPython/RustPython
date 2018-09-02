@@ -5,7 +5,7 @@ use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
 
-fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);
     let v = get_value(float);
     Ok(vm.new_str(v.to_string()))
@@ -120,7 +120,6 @@ pub fn init(context: &PyContext) {
     float_type.set_attr("__add__", context.new_rustfunc(float_add));
     float_type.set_attr("__init__", context.new_rustfunc(float_init));
     float_type.set_attr("__pow__", context.new_rustfunc(float_pow));
-    float_type.set_attr("__str__", context.new_rustfunc(str));
     float_type.set_attr("__sub__", context.new_rustfunc(float_sub));
-    float_type.set_attr("__repr__", context.new_rustfunc(str));
+    float_type.set_attr("__repr__", context.new_rustfunc(float_repr));
 }

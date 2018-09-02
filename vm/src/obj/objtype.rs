@@ -25,7 +25,7 @@ pub fn init(context: &PyContext) {
     type_type.set_attr("__new__", context.new_rustfunc(type_new));
     type_type.set_attr("__mro__", context.new_member_descriptor(type_mro));
     type_type.set_attr("__class__", context.new_member_descriptor(type_new));
-    type_type.set_attr("__str__", context.new_rustfunc(type_str));
+    type_type.set_attr("__repr__", context.new_rustfunc(type_repr));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -221,7 +221,7 @@ pub fn new(typ: PyObjectRef, name: &str, bases: Vec<PyObjectRef>, dict: PyObject
     ))
 }
 
-fn type_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn type_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.type_type()))]);
     let type_name = get_type_name(&obj);
     Ok(vm.new_str(format!("<class '{}'>", type_name)))
