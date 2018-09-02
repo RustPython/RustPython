@@ -1007,10 +1007,11 @@ impl VirtualMachine {
                 match expr.borrow().kind {
                     PyObjectKind::None => (),
                     _ => {
+                        let repr = self.to_repr(expr.clone()).unwrap();
                         builtins::builtin_print(
                             self,
                             PyFuncArgs {
-                                args: vec![expr.clone()],
+                                args: vec![repr],
                                 kwargs: vec![],
                             },
                         ).unwrap();
