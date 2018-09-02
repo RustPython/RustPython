@@ -18,14 +18,14 @@ use super::super::VirtualMachine;
 // PyObject serialisation via a proxy object which holds a reference to a VM
 struct PyObjectSerializer<'s> {
     pyobject: &'s PyObjectRef,
-    vm: &'s VirtualMachine,
+    ctx: &'s PyContext,
 }
 
 impl<'s> PyObjectSerializer<'s> {
     fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer {
         PyObjectSerializer {
             pyobject,
-            vm: self.vm,
+            ctx: self.ctx,
         }
     }
 }
@@ -43,21 +43,21 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 }
                 seq.end()
             };
-        if objtype::isinstance(self.pyobject, self.vm.ctx.str_type()) {
+        if objtype::isinstance(self.pyobject, self.ctx.str_type()) {
             serializer.serialize_str(&objstr::get_value(&self.pyobject))
-        } else if objtype::isinstance(self.pyobject, self.vm.ctx.float_type()) {
+        } else if objtype::isinstance(self.pyobject, self.ctx.float_type()) {
             serializer.serialize_f64(objfloat::get_value(self.pyobject))
-        } else if objtype::isinstance(self.pyobject, self.vm.ctx.bool_type()) {
+        } else if objtype::isinstance(self.pyobject, self.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
-        } else if objtype::isinstance(self.pyobject, self.vm.ctx.int_type()) {
+        } else if objtype::isinstance(self.pyobject, self.ctx.int_type()) {
             serializer.serialize_i32(objint::get_value(self.pyobject))
-        } else if objtype::isinstance(self.pyobject, self.vm.ctx.list_type()) {
+        } else if objtype::isinstance(self.pyobject, self.ctx.list_type()) {
             let elements = objlist::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
-        } else if objtype::isinstance(self.pyobject, self.vm.ctx.tuple_type()) {
+        } else if objtype::isinstance(self.pyobject, self.ctx.tuple_type()) {
             let elements = objtuple::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
-        } else if objtype::isinstance(self.pyobject, self.vm.ctx.dict_type()) {
+        } else if objtype::isinstance(self.pyobject, self.ctx.dict_type()) {
             let elements = objdict::get_elements(self.pyobject);
             let mut map = serializer.serialize_map(Some(elements.len()))?;
             for (key, e) in elements {
@@ -204,7 +204,10 @@ fn dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial serialisation case
     arg_check!(vm, args, required = [(obj, None)]);
     // TODO: Raise an exception for serialisation errors
-    let serializer = PyObjectSerializer { pyobject: obj, vm };
+    let serializer = PyObjectSerializer {
+        pyobject: obj,
+        ctx: &vm.ctx,
+    };
     let string = serde_json::to_string(&serializer).unwrap();
     Ok(vm.context().new_str(string))
 }
