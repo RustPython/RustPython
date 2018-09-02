@@ -13,11 +13,19 @@ fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let ref cls = args.args[0];
+    arg_check!(
+        vm,
+        args,
+        required = [(cls, None)],
+        optional = [(val_option, None)]
+    );
     if !objtype::issubclass(cls, vm.ctx.int_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of int", cls)));
     }
-    let val = to_int(vm, &args.args[1].clone())?;
+    let val = match val_option {
+        Some(val) => to_int(vm, val)?,
+        None => 0,
+    };
     Ok(PyObject::new(
         PyObjectKind::Integer { value: val },
         cls.clone(),
