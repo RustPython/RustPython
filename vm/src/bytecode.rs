@@ -23,16 +23,22 @@ pub struct CodeObject {
     pub locations: Vec<ast::Location>,
     pub arg_names: Vec<String>,
     pub source_path: Option<String>,
+    pub obj_name: String, // Name of the object that created this code object
 }
 
 impl CodeObject {
-    pub fn new(arg_names: Vec<String>, source_path: Option<String>) -> CodeObject {
+    pub fn new(
+        arg_names: Vec<String>,
+        source_path: Option<String>,
+        obj_name: String,
+    ) -> CodeObject {
         CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
             locations: Vec::new(),
             arg_names: arg_names,
             source_path: source_path,
+            obj_name: obj_name,
         }
     }
 }
