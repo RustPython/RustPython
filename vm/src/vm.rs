@@ -142,6 +142,10 @@ impl VirtualMachine {
         self.call_method(obj, "__str__", vec![])
     }
 
+    pub fn to_repr(&mut self, obj: PyObjectRef) -> PyResult {
+        self.call_method(obj, "__repr__", vec![])
+    }
+
     pub fn current_frame(&self) -> &Frame {
         self.frames.last().unwrap()
     }
