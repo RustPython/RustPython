@@ -45,12 +45,12 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             };
         if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.str_type()) {
             serializer.serialize_str(&objstr::get_value(&self.pyobject))
-        } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.int_type()) {
-            serializer.serialize_i32(objint::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.float_type()) {
             serializer.serialize_f64(objfloat::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
+        } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.int_type()) {
+            serializer.serialize_i32(objint::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.list_type()) {
             let elements = objlist::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
@@ -143,7 +143,9 @@ impl<'de> Visitor<'de> for PyObjectKindVisitor {
     where
         E: serde::de::Error,
     {
-        Ok(PyObjectKind::Boolean { value })
+        Ok(PyObjectKind::Integer {
+            value: if value { 1 } else { 0 },
+        })
     }
 
     fn visit_seq<A>(self, mut access: A) -> Result<Self::Value, A::Error>
