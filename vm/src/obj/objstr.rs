@@ -45,22 +45,38 @@ fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(s.clone())
 }
 
+fn count_char(s: &str, c: char) -> usize {
+    s.chars().filter(|x| *x == c).count()
+}
+
 fn str_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(s);
-    let mut formatted = String::from("'");
+    let quote_char = if count_char(&value, '\'') > count_char(&value, '"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut formatted = String::new();
+    formatted.push(quote_char);
     for c in value.chars() {
-        match c {
-            '\'' | '\\' => {
-                formatted.push('\\');
-                formatted.push(c);
-            }
-            _ => {
-                formatted.push(c);
-            }
+        if c == quote_char || c == '\\' {
+            formatted.push('\\');
+            formatted.push(c);
+        } else if c == '\n' {
+            formatted.push('\\');
+            formatted.push('n');
+        } else if c == '\t' {
+            formatted.push('\\');
+            formatted.push('t');
+        } else if c == '\r' {
+            formatted.push('\\');
+            formatted.push('r');
+        } else {
+            formatted.push(c);
         }
     }
-    formatted.push('\'');
+    formatted.push(quote_char);
     Ok(vm.ctx.new_str(formatted))
 }
 

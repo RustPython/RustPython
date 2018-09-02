@@ -16,4 +16,9 @@ assert str(2.1) == "2.1"
 assert str() == ""
 assert str("abc") == "abc"
 
-assert str(["a", "b", "can't"]) == "['a', 'b', 'can\\'t']"
+assert repr("a") == "'a'"
+assert repr("can't") == '"can\'t"'
+assert repr('"won\'t"') == "'\"won\\'t\"'"
+assert repr('\n\t') == "'\\n\\t'"
+
+assert str(["a", "b", "can't"]) == "['a', 'b', \"can't\"]"
