@@ -29,14 +29,14 @@ fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.context().new_int(elements.len() as i32))
 }
 
-fn tuple_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
 
     let elements = get_elements(zelf);
 
     let mut str_parts = vec![];
     for elem in elements {
-        match vm.to_str(elem) {
+        match vm.to_repr(elem) {
             Ok(s) => str_parts.push(objstr::get_value(&s)),
             Err(err) => return Err(err),
         }
@@ -62,5 +62,5 @@ pub fn init(context: &PyContext) {
     let ref tuple_type = context.tuple_type;
     tuple_type.set_attr("__eq__", context.new_rustfunc(tuple_eq));
     tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
-    tuple_type.set_attr("__str__", context.new_rustfunc(tuple_str));
+    tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
 }

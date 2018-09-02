@@ -142,6 +142,10 @@ impl VirtualMachine {
         self.call_method(obj, "__str__", vec![])
     }
 
+    pub fn to_repr(&mut self, obj: PyObjectRef) -> PyResult {
+        self.call_method(obj, "__repr__", vec![])
+    }
+
     pub fn current_frame(&self) -> &Frame {
         self.frames.last().unwrap()
     }
@@ -1003,10 +1007,11 @@ impl VirtualMachine {
                 match expr.borrow().kind {
                     PyObjectKind::None => (),
                     _ => {
+                        let repr = self.to_repr(expr.clone()).unwrap();
                         builtins::builtin_print(
                             self,
                             PyFuncArgs {
-                                args: vec![expr.clone()],
+                                args: vec![repr],
                                 kwargs: vec![],
                             },
                         ).unwrap();

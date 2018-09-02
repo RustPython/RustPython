@@ -14,6 +14,7 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
     str_type.set_attr("__str__", context.new_rustfunc(str_str));
+    str_type.set_attr("__repr__", context.new_rustfunc(str_repr));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -42,6 +43,41 @@ fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     Ok(s.clone())
+}
+
+fn count_char(s: &str, c: char) -> usize {
+    s.chars().filter(|x| *x == c).count()
+}
+
+fn str_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(s);
+    let quote_char = if count_char(&value, '\'') > count_char(&value, '"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut formatted = String::new();
+    formatted.push(quote_char);
+    for c in value.chars() {
+        if c == quote_char || c == '\\' {
+            formatted.push('\\');
+            formatted.push(c);
+        } else if c == '\n' {
+            formatted.push('\\');
+            formatted.push('n');
+        } else if c == '\t' {
+            formatted.push('\\');
+            formatted.push('t');
+        } else if c == '\r' {
+            formatted.push('\\');
+            formatted.push('r');
+        } else {
+            formatted.push(c);
+        }
+    }
+    formatted.push(quote_char);
+    Ok(vm.ctx.new_str(formatted))
 }
 
 fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
