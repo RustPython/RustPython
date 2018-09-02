@@ -42,6 +42,25 @@ fn set_value(obj: &PyObjectRef, value: f64) {
     obj.borrow_mut().kind = PyObjectKind::Float { value };
 }
 
+fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
+    );
+    let zelf = get_value(zelf);
+    let result = if objtype::isinstance(other.clone(), vm.ctx.float_type()) {
+        let other = get_value(other);
+        zelf == other
+    } else if objtype::isinstance(other.clone(), vm.ctx.int_type()) {
+        let other = objint::get_value(other) as f64;
+        zelf == other
+    } else {
+        false
+    };
+    Ok(vm.ctx.new_bool(result))
+}
+
 fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -97,6 +116,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref float_type = context.float_type;
+    float_type.set_attr("__eq__", context.new_rustfunc(float_eq));
     float_type.set_attr("__add__", context.new_rustfunc(float_add));
     float_type.set_attr("__init__", context.new_rustfunc(float_init));
     float_type.set_attr("__pow__", context.new_rustfunc(float_pow));

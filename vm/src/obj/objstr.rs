@@ -8,6 +8,7 @@ use super::objtype;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
+    str_type.set_attr("__eq__", context.new_rustfunc(str_eq));
     str_type.set_attr("__add__", context.new_rustfunc(str_add));
     str_type.set_attr("__len__", context.new_rustfunc(str_len));
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
@@ -21,6 +22,21 @@ pub fn get_value(obj: &PyObjectRef) -> String {
     } else {
         panic!("Inner error getting str");
     }
+}
+
+fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(a, Some(vm.ctx.str_type())), (b, None)]
+    );
+
+    let result = if objtype::isinstance(b.clone(), vm.ctx.str_type()) {
+        get_value(a) == get_value(b)
+    } else {
+        false
+    };
+    Ok(vm.ctx.new_bool(result))
 }
 
 fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

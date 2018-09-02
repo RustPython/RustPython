@@ -138,7 +138,7 @@ impl VirtualMachine {
 
     // Container of the virtual machine state:
     pub fn to_str(&mut self, obj: PyObjectRef) -> PyResult {
-        self.call_method(obj, "__str__".to_string(), vec![])
+        self.call_method(obj, "__str__", vec![])
     }
 
     pub fn current_frame(&self) -> &Frame {
@@ -327,28 +327,28 @@ impl VirtualMachine {
     }
 
     fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__sub__".to_string(), vec![b])
+        self.call_method(a, "__sub__", vec![b])
     }
 
     fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__add__".to_string(), vec![b])
+        self.call_method(a, "__add__", vec![b])
     }
 
     fn _mul(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__mul__".to_string(), vec![b])
+        self.call_method(a, "__mul__", vec![b])
     }
 
     fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__truediv__".to_string(), vec![b])
+        self.call_method(a, "__truediv__", vec![b])
     }
 
-    fn call_method(
+    pub fn call_method(
         &mut self,
         obj: PyObjectRef,
-        method_name: String,
+        method_name: &str,
         args: Vec<PyObjectRef>,
     ) -> PyResult {
-        let func = match self.get_attribute(obj, &method_name) {
+        let func = match self.get_attribute(obj, method_name) {
             Ok(v) => v,
             Err(err) => return Err(err),
         };
@@ -360,23 +360,23 @@ impl VirtualMachine {
     }
 
     fn _pow(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__pow__".to_string(), vec![b])
+        self.call_method(a, "__pow__", vec![b])
     }
 
     fn _modulo(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__mod__".to_string(), vec![b])
+        self.call_method(a, "__mod__", vec![b])
     }
 
     fn _xor(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__xor__".to_string(), vec![b])
+        self.call_method(a, "__xor__", vec![b])
     }
 
     fn _or(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__or__".to_string(), vec![b])
+        self.call_method(a, "__or__", vec![b])
     }
 
     fn _and(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__and__".to_string(), vec![b])
+        self.call_method(a, "__and__", vec![b])
     }
 
     fn execute_binop(&mut self, op: &bytecode::BinaryOperator) -> Option<PyResult> {
@@ -433,19 +433,11 @@ impl VirtualMachine {
     }
 
     fn _eq(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        let result_bool = a2 == b2;
-        let result = self.ctx.new_bool(result_bool);
-        Ok(result)
+        self.call_method(a, "__eq__", vec![b])
     }
 
     fn _ne(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        let result_bool = a2 != b2;
-        let result = self.ctx.new_bool(result_bool);
-        Ok(result)
+        self.call_method(a, "__ne__", vec![b])
     }
 
     fn _lt(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
@@ -633,7 +625,7 @@ impl VirtualMachine {
         None
     }
 
-    pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &String) -> PyResult {
+    pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &str) -> PyResult {
         objtype::get_attribute(self, obj.clone(), attr_name)
     }
 

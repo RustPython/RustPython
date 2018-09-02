@@ -6,7 +6,7 @@ use serde::de::Visitor;
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
-use super::super::obj::{objdict, objfloat, objint, objlist, objsequence, objstr, objtype};
+use super::super::obj::{objdict, objfloat, objint, objlist, objstr, objtuple, objtype};
 use super::super::objbool;
 use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
@@ -55,7 +55,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             let elements = objlist::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.tuple_type()) {
-            let elements = objsequence::get_elements(self.pyobject.clone());
+            let elements = objtuple::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
         } else if objtype::isinstance(self.pyobject.clone(), self.vm.ctx.dict_type()) {
             let elements = objdict::get_elements(self.pyobject);

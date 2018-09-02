@@ -35,6 +35,31 @@ pub fn init(context: &PyContext) {
     let ref bool_type = context.bool_type;
     bool_type.set_attr("__new__", context.new_rustfunc(bool_new));
     bool_type.set_attr("__str__", context.new_rustfunc(bool_str));
+    bool_type.set_attr("__eq__", context.new_rustfunc(bool_eq));
+}
+
+fn bool_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.bool_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other.clone(), vm.ctx.bool_type()) {
+        get_value(zelf) == get_value(other)
+    } else {
+        false
+    };
+    Ok(vm.ctx.new_bool(result))
+}
+
+pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
+    if objtype::isinstance(obj.clone(), vm.ctx.bool_type()) {
+        let value = get_value(obj);
+        Ok(vm.ctx.new_bool(!value))
+    } else {
+        Err(vm.new_type_error(format!("Can only invert a bool, on {:?}", obj)))
+    }
 }
 
 // Retrieve inner int value:
@@ -52,7 +77,7 @@ fn bool_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, Py
     let s = if v {
         "True".to_string()
     } else {
-        "True".to_string()
+        "False".to_string()
     };
     Ok(vm.new_str(s))
 }

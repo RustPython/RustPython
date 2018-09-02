@@ -1,4 +1,5 @@
-use super::super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult};
+use super::super::objbool;
+use super::super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
 use std::marker::Sized;
 
@@ -90,7 +91,7 @@ pub fn get_item(
                 },
                 ref kind => panic!("sequence get_item called for non-sequence: {:?}", kind),
             },
-            vm.get_type(),
+            sequence.typ(),
         )),
         _ => Err(vm.new_type_error(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
@@ -99,10 +100,21 @@ pub fn get_item(
     }
 }
 
-pub fn get_elements(obj: PyObjectRef) -> Vec<PyObjectRef> {
-    if let PyObjectKind::Tuple { elements } = &obj.borrow().kind {
-        elements.to_vec()
+pub fn seq_equal(
+    vm: &mut VirtualMachine,
+    zelf: Vec<PyObjectRef>,
+    other: Vec<PyObjectRef>,
+) -> Result<bool, PyObjectRef> {
+    if zelf.len() == other.len() {
+        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+            let eq = vm.call_method(a.clone(), "__eq__", vec![b.clone()])?;
+            let value = objbool::boolval(vm, eq)?;
+            if !value {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     } else {
-        panic!("Cannot extract list elements from non-list");
+        Ok(false)
     }
 }

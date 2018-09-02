@@ -61,6 +61,26 @@ impl FromPyObjectRef for i32 {
     }
 }
 
+fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
+    );
+    let result = if objtype::isinstance(other.clone(), vm.ctx.int_type()) {
+        let zelf = i32::from_pyobj(zelf);
+        let other = i32::from_pyobj(other);
+        zelf == other
+    } else if objtype::isinstance(other.clone(), vm.ctx.float_type()) {
+        let zelf = i32::from_pyobj(zelf) as f64;
+        let other = objfloat::get_value(other);
+        zelf == other
+    } else {
+        false
+    };
+    Ok(vm.ctx.new_bool(result))
+}
+
 fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -201,6 +221,7 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
+    int_type.set_attr("__eq__", context.new_rustfunc(int_eq));
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
     int_type.set_attr("__and__", context.new_rustfunc(int_and));
     int_type.set_attr("__init__", context.new_rustfunc(int_init));
