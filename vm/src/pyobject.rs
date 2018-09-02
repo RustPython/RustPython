@@ -417,7 +417,7 @@ impl AttributeProtocol for PyObjectRef {
                 None
             }
             PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
-            ref kind => unimplemented!("load_attr unimplemented for: {:?}", kind),
+            _ => None,
         }
     }
 
