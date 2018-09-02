@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::compile;
+use super::obj::objdict;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::objbool;
@@ -32,14 +33,40 @@ fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     get_locals(vm)
 }
 
-fn dir_object(vm: &mut VirtualMachine, _obj: PyObjectRef) -> PyObjectRef {
-    let d = vm.new_dict();
-    // TODO: loop over dict of instance, next of class?
-    // TODO: Implement dir for objects
-    // for i in obj.iter_items() {
-    //    d.set_item(k, v);
-    // }
-    d
+fn dir_object(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyObjectRef {
+    // Gather all members here:
+    let mut members: Vec<String> = vec![];
+
+    // Get class attributes:
+    let mut base_classes = objtype::base_classes(obj);
+    base_classes.reverse();
+    for bc in base_classes {
+        if let PyObjectKind::Class {
+            name: _,
+            dict,
+            mro: _,
+        } = &bc.borrow().kind
+        {
+            let elements = objdict::get_elements(dict);
+            for (name, _value) in elements {
+                members.push(name.to_string());
+            }
+        }
+    }
+
+    // Get instance attributes:
+    if let PyObjectKind::Instance { dict } = &obj.borrow().kind {
+        let elements = objdict::get_elements(dict);
+        for (name, _value) in elements {
+            members.push(name.to_string());
+        }
+    }
+
+    // Sort members:
+    members.sort();
+
+    let members_pystr = members.into_iter().map(|m| vm.ctx.new_str(m)).collect();
+    vm.ctx.new_list(members_pystr)
 }
 
 // builtin_abs
@@ -115,7 +142,7 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(dir_locals(vm))
     } else {
         let obj = args.args.into_iter().next().unwrap();
-        Ok(dir_object(vm, obj))
+        Ok(dir_object(vm, &obj))
     }
 }
 

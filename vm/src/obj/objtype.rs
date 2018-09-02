@@ -54,6 +54,10 @@ fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
     }
 }
 
+pub fn base_classes(obj: &PyObjectRef) -> Vec<PyObjectRef> {
+    _mro(obj.typ()).unwrap()
+}
+
 pub fn isinstance(obj: &PyObjectRef, cls: PyObjectRef) -> bool {
     let mro = _mro(obj.typ()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
