@@ -60,7 +60,8 @@ impl VirtualMachine {
     pub fn new_exception(&mut self, exc_type: PyObjectRef, msg: String) -> PyObjectRef {
         // TODO: maybe there is a clearer way to create an instance:
         info!("New exception created: {}", msg);
-        let args: Vec<PyObjectRef> = Vec::new();
+        let pymsg = self.new_str(msg);
+        let args: Vec<PyObjectRef> = vec![pymsg];
         let args = PyFuncArgs {
             args: args,
             kwargs: vec![],

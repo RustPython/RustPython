@@ -1,6 +1,9 @@
+use super::obj::objlist;
 use super::obj::objstr;
+use super::obj::objtuple;
+use super::obj::objtype;
 use super::pyobject::{
-    create_type, AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
+    create_type, AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 
@@ -17,11 +20,57 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+// Print exception including traceback:
 pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
+    if let Some(tb) = exc.get_attr("__traceback__") {
+        println!("Traceback (most recent call last):");
+        if objtype::isinstance(tb.clone(), vm.ctx.list_type()) {
+            let elements = objlist::get_elements(&tb);
+            for element in elements {
+                if objtype::isinstance(element.clone(), vm.ctx.tuple_type()) {
+                    let element = objtuple::get_elements(&element);
+                    let filename = if let Ok(x) = vm.to_str(element[0].clone()) {
+                        objstr::get_value(&x)
+                    } else {
+                        "<error>".to_string()
+                    };
+
+                    let lineno = if let Ok(x) = vm.to_str(element[1].clone()) {
+                        objstr::get_value(&x)
+                    } else {
+                        "<error>".to_string()
+                    };
+
+                    println!("  File {}, line {}, in ..", filename, lineno);
+                } else {
+                    println!("  File ??");
+                }
+            }
+        }
+    } else {
+        println!("No traceback set on exception");
+    }
+
     match vm.to_str(exc.clone()) {
-        Ok(txt) => println!("Error: {}", objstr::get_value(&txt)),
+        Ok(txt) => println!("{}", objstr::get_value(&txt)),
         Err(err) => println!("Error during error {:?}", err),
     }
+}
+
+fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
+    );
+    let type_name = objtype::get_type_name(&exc.typ());
+    let msg = if let Some(m) = exc.get_attr("__msg__") {
+        objstr::get_value(&m)
+    } else {
+        panic!("Error message must be set");
+    };
+    let s = format!("{}: {}", type_name, msg);
+    Ok(vm.new_str(s))
 }
 
 #[derive(Debug)]
@@ -112,6 +161,6 @@ impl ExceptionZoo {
 pub fn init(context: &PyContext) {
     let ref base_exception_type = context.exceptions.base_exception_type;
     base_exception_type.set_attr("__init__", context.new_rustfunc(exception_init));
-
-    // TODO: create a whole exception hierarchy somehow?
+    let ref exception_type = context.exceptions.exception_type;
+    exception_type.set_attr("__str__", context.new_rustfunc(exception_str));
 }
