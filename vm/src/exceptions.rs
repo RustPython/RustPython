@@ -25,7 +25,8 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
     if let Some(tb) = exc.get_attr("__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(tb.clone(), vm.ctx.list_type()) {
-            let elements = objlist::get_elements(&tb);
+            let mut elements = objlist::get_elements(&tb);
+            elements.reverse();
             for element in elements {
                 if objtype::isinstance(element.clone(), vm.ctx.tuple_type()) {
                     let element = objtuple::get_elements(&element);
@@ -41,7 +42,13 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
                         "<error>".to_string()
                     };
 
-                    println!("  File {}, line {}, in ..", filename, lineno);
+                    let obj_name = if let Ok(x) = vm.to_str(element[2].clone()) {
+                        objstr::get_value(&x)
+                    } else {
+                        "<error>".to_string()
+                    };
+
+                    println!("  File {}, line {}, in {}", filename, lineno, obj_name);
                 } else {
                     println!("  File ??");
                 }

@@ -243,6 +243,9 @@ impl VirtualMachine {
             "<unknown>".to_string()
         };
 
+        // This is the name of the object being run:
+        let run_obj_name = &self.current_frame().code.obj_name.to_string();
+
         // Execute until return or exception:
         let value = loop {
             let lineno = self.get_lineno();
@@ -266,6 +269,7 @@ impl VirtualMachine {
                     let pos = self.ctx.new_tuple(vec![
                         self.ctx.new_str(filename.clone()),
                         self.ctx.new_int(lineno.get_row() as i32),
+                        self.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::append(
                         self,

@@ -12,6 +12,7 @@ use super::vm::VirtualMachine;
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
     nxt_label: usize,
+    source_path: Option<String>,
     current_source_location: ast::Location,
 }
 
@@ -22,7 +23,8 @@ pub fn compile(
     source_path: Option<String>,
 ) -> Result<PyObjectRef, String> {
     let mut compiler = Compiler::new();
-    compiler.push_new_code_object(source_path);
+    compiler.source_path = source_path.clone();
+    compiler.push_new_code_object(source_path, "<module>".to_string());
     match mode {
         Mode::Exec => match parser::parse_program(source) {
             Ok(ast) => {
@@ -87,13 +89,14 @@ impl Compiler {
         Compiler {
             code_object_stack: Vec::new(),
             nxt_label: 0,
+            source_path: None,
             current_source_location: ast::Location::default(),
         }
     }
 
-    fn push_new_code_object(&mut self, source_path: Option<String>) {
+    fn push_new_code_object(&mut self, source_path: Option<String>, obj_name: String) {
         self.code_object_stack
-            .push(CodeObject::new(Vec::new(), source_path.clone()));
+            .push(CodeObject::new(Vec::new(), source_path.clone(), obj_name));
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
@@ -373,7 +376,11 @@ impl Compiler {
                     });
                 }
 
-                self.code_object_stack.push(CodeObject::new(names, None));
+                self.code_object_stack.push(CodeObject::new(
+                    names,
+                    self.source_path.clone(),
+                    name.clone(),
+                ));
                 self.compile_statements(body);
 
                 // Emit None at end:
@@ -404,8 +411,11 @@ impl Compiler {
             }
             ast::Statement::ClassDef { name, body, args } => {
                 self.emit(Instruction::LoadBuildClass);
-                self.code_object_stack
-                    .push(CodeObject::new(vec![String::from("__locals__")], None));
+                self.code_object_stack.push(CodeObject::new(
+                    vec![String::from("__locals__")],
+                    self.source_path.clone(),
+                    name.clone(),
+                ));
                 self.emit(Instruction::LoadName {
                     name: String::from("__locals__"),
                 });
@@ -769,7 +779,8 @@ impl Compiler {
             ast::Expression::Lambda { args, body } => {
                 self.code_object_stack.push(CodeObject::new(
                     args.iter().map(|(name, _default)| name.clone()).collect(),
-                    None,
+                    self.source_path.clone(),
+                    "<lambda>".to_string(),
                 ));
                 self.compile_expression(body);
                 self.emit(Instruction::ReturnValue);
