@@ -14,7 +14,7 @@ fn str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let ref cls = args.args[0];
-    if !objtype::issubclass(cls.clone(), vm.ctx.int_type()) {
+    if !objtype::issubclass(cls, vm.ctx.int_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of int", cls)));
     }
     let val = to_int(vm, &args.args[1].clone())?;

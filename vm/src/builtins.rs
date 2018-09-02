@@ -213,7 +213,7 @@ fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         panic!("issubclass expects exactly two parameters");
     }
 
-    let cls1 = args.args[0].clone();
+    let cls1 = &args.args[0];
     let cls2 = args.args[1].clone();
 
     Ok(vm.context().new_bool(objtype::issubclass(cls1, cls2)))

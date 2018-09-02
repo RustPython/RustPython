@@ -54,13 +54,13 @@ fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
     }
 }
 
-pub fn isinstance(obj: PyObjectRef, cls: PyObjectRef) -> bool {
+pub fn isinstance(obj: &PyObjectRef, cls: PyObjectRef) -> bool {
     let mro = _mro(obj.typ()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
 
-pub fn issubclass(typ: PyObjectRef, cls: PyObjectRef) -> bool {
-    let mro = _mro(typ).unwrap();
+pub fn issubclass(typ: &PyObjectRef, cls: PyObjectRef) -> bool {
+    let mro = _mro(typ.clone()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
 

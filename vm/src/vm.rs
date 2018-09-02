@@ -259,7 +259,7 @@ impl VirtualMachine {
                     // unwind block stack on exception and find any handlers.
                     // Add an entry in the traceback:
                     assert!(objtype::isinstance(
-                        exception.clone(),
+                        &exception,
                         self.ctx.exceptions.base_exception_type.clone()
                     ));
                     let traceback = self
@@ -962,7 +962,7 @@ impl VirtualMachine {
                     _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
                 };
                 if objtype::isinstance(
-                    exception.clone(),
+                    &exception,
                     self.context().exceptions.base_exception_type.clone(),
                 ) {
                     info!("Exception raised: {:?}", exception);
