@@ -841,7 +841,7 @@ mod tests {
     use super::Compiler;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
-        compiler.push_new_code_object(Option::None);
+        compiler.push_new_code_object(Option::None, "<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
         compiler.compile_program(&ast);
         compiler.pop_code_object()
