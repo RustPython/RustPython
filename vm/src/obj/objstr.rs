@@ -14,6 +14,7 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
     str_type.set_attr("__str__", context.new_rustfunc(str_str));
+    str_type.set_attr("__repr__", context.new_rustfunc(str_repr));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -42,6 +43,25 @@ fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     Ok(s.clone())
+}
+
+fn str_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(s);
+    let mut formatted = String::from("'");
+    for c in value.chars() {
+        match c {
+            '\'' | '\\' => {
+                formatted.push('\\');
+                formatted.push(c);
+            }
+            _ => {
+                formatted.push(c);
+            }
+        }
+    }
+    formatted.push('\'');
+    Ok(vm.ctx.new_str(formatted))
 }
 
 fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
