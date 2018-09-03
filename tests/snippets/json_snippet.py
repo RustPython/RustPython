@@ -34,10 +34,9 @@ assert 1.0 == json.loads("1.0")
 # TODO: uncomment once negative floats are implemented
 # assert -1.0 == json.loads("-1.0")
 assert "str" == json.loads('"str"')
-# TODO: Use "is" once implemented
-assert True == json.loads('true')
-assert False == json.loads('false')
-assert None == json.loads('null')
+assert True is json.loads('true')
+assert False is json.loads('false')
+assert None is json.loads('null')
 assert [] == json.loads('[]')
 assert ['a'] == json.loads('["a"]')
 assert [['a'], 'b'] == json.loads('[["a"], "b"]')
