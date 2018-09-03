@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::compile;
-use super::obj::objdict;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::objbool;
@@ -35,32 +34,8 @@ fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
 
 fn dir_object(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyObjectRef {
     // Gather all members here:
-    let mut members: Vec<String> = vec![];
-
-    // Get class attributes:
-    let mut base_classes = objtype::base_classes(obj);
-    base_classes.reverse();
-    for bc in base_classes {
-        if let PyObjectKind::Class {
-            name: _,
-            dict,
-            mro: _,
-        } = &bc.borrow().kind
-        {
-            let elements = objdict::get_elements(dict);
-            for (name, _value) in elements {
-                members.push(name.to_string());
-            }
-        }
-    }
-
-    // Get instance attributes:
-    if let PyObjectKind::Instance { dict } = &obj.borrow().kind {
-        let elements = objdict::get_elements(dict);
-        for (name, _value) in elements {
-            members.push(name.to_string());
-        }
-    }
+    let attributes = objtype::get_attributes(obj);
+    let mut members: Vec<String> = attributes.into_iter().map(|(n, _o)| n).collect();
 
     // Sort members:
     members.sort();

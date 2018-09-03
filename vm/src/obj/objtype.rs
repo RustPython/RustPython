@@ -5,6 +5,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objdict;
 use super::objtype; // Required for arg_check! to use isinstance
+use std::collections::HashMap;
 
 /*
  * The magical type type
@@ -163,6 +164,37 @@ pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &str) -> P
             format!("{:?} object has no attribute {}", cls, name),
         ))
     }
+}
+
+pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
+    // Gather all members here:
+    let mut attributes: HashMap<String, PyObjectRef> = HashMap::new();
+
+    // Get class attributes:
+    let mut base_classes = objtype::base_classes(obj);
+    base_classes.reverse();
+    for bc in base_classes {
+        if let PyObjectKind::Class {
+            name: _,
+            dict,
+            mro: _,
+        } = &bc.borrow().kind
+        {
+            let elements = objdict::get_elements(dict);
+            for (name, value) in elements {
+                attributes.insert(name.to_string(), value.clone());
+            }
+        }
+    }
+
+    // Get instance attributes:
+    if let PyObjectKind::Instance { dict } = &obj.borrow().kind {
+        let elements = objdict::get_elements(dict);
+        for (name, value) in elements {
+            attributes.insert(name.to_string(), value.clone());
+        }
+    }
+    attributes
 }
 
 fn take_next_base(
