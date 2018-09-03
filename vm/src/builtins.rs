@@ -32,14 +32,16 @@ fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     get_locals(vm)
 }
 
-fn dir_object(vm: &mut VirtualMachine, _obj: PyObjectRef) -> PyObjectRef {
-    let d = vm.new_dict();
-    // TODO: loop over dict of instance, next of class?
-    // TODO: Implement dir for objects
-    // for i in obj.iter_items() {
-    //    d.set_item(k, v);
-    // }
-    d
+fn dir_object(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyObjectRef {
+    // Gather all members here:
+    let attributes = objtype::get_attributes(obj);
+    let mut members: Vec<String> = attributes.into_iter().map(|(n, _o)| n).collect();
+
+    // Sort members:
+    members.sort();
+
+    let members_pystr = members.into_iter().map(|m| vm.ctx.new_str(m)).collect();
+    vm.ctx.new_list(members_pystr)
 }
 
 // builtin_abs
@@ -115,7 +117,7 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(dir_locals(vm))
     } else {
         let obj = args.args.into_iter().next().unwrap();
-        Ok(dir_object(vm, obj))
+        Ok(dir_object(vm, &obj))
     }
 }
 
