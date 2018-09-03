@@ -33,3 +33,4 @@ try:
 except TypeError:
     pass
 
+assert int() == 0

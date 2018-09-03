@@ -56,6 +56,8 @@ pub struct PyContext {
     pub float_type: PyObjectRef,
     pub bytes_type: PyObjectRef,
     pub bool_type: PyObjectRef,
+    pub true_value: PyObjectRef,
+    pub false_value: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub str_type: PyObjectRef,
@@ -127,12 +129,16 @@ impl PyContext {
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
+        let true_value = PyObject::new(PyObjectKind::Integer { value: 1 }, bool_type.clone());
+        let false_value = PyObject::new(PyObjectKind::Integer { value: 0 }, bool_type.clone());
         let context = PyContext {
             int_type: int_type,
             float_type: float_type,
             bytes_type: bytes_type,
             list_type: list_type,
             bool_type: bool_type,
+            true_value: true_value,
+            false_value: false_value,
             tuple_type: tuple_type,
             dict_type: dict_type,
             none: none,
@@ -220,12 +226,11 @@ impl PyContext {
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
-        PyObject::new(
-            PyObjectKind::Integer {
-                value: if b { 1 } else { 0 },
-            },
-            self.bool_type(),
-        )
+        if b {
+            self.true_value.clone()
+        } else {
+            self.false_value.clone()
+        }
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
