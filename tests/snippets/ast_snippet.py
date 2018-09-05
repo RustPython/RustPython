@@ -1,5 +1,6 @@
 
 import ast
+print(ast)
 
 source = """
 def foo():

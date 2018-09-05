@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use self::rustpython_parser::parser;
 use super::compile;
-use super::pyobject::{DictProtocol, PyObject, PyObjectKind, PyResult};
+use super::pyobject::{DictProtocol, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
 fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
@@ -50,28 +50,23 @@ fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
     };
 
     let builtins = vm.get_builtin_scope();
-    let scope = vm.context().new_scope(Some(builtins));
+    let scope = vm.ctx.new_scope(Some(builtins));
 
     match vm.run_code_obj(code_obj, scope.clone()) {
         Ok(_) => {}
         Err(value) => return Err(value),
     }
-    Ok(scope)
+    let py_module = vm.ctx.new_module(module, scope);
+    Ok(py_module)
 }
 
-pub fn import(vm: &mut VirtualMachine, module: &String, symbol: &Option<String>) -> PyResult {
-    let scope = import_module(vm, module)?;
+pub fn import(vm: &mut VirtualMachine, module_name: &String, symbol: &Option<String>) -> PyResult {
+    let module = import_module(vm, module_name)?;
     // If we're importing a symbol, look it up and use it, otherwise construct a module and return
     // that
     let obj = match symbol {
-        Some(symbol) => scope.get_item(symbol).unwrap(),
-        None => PyObject::new(
-            PyObjectKind::Module {
-                name: module.clone(),
-                dict: scope.clone(),
-            },
-            vm.get_type(),
-        ),
+        Some(symbol) => module.get_item(symbol).unwrap(),
+        None => module,
     };
     Ok(obj)
 }

@@ -44,7 +44,7 @@ fn program_to_ast(ctx: &PyContext, program: &ast::Program) -> PyObjectRef {
 }
 
 // Create a node class instance
-fn create_node(ctx: &PyContext, name: &str) -> PyObjectRef {
+fn create_node(ctx: &PyContext, _name: &str) -> PyObjectRef {
     // TODO: instantiate a class of type given by name
     // TODO: lookup in the current module?
     let node = ctx.new_object();
@@ -152,8 +152,8 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             node
         }
         ast::Statement::For {
-            target,
-            iter,
+            target: _,
+            iter: _,
             body,
             orelse,
         } => {
