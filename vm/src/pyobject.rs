@@ -213,6 +213,15 @@ impl PyContext {
         self.object.clone()
     }
 
+    pub fn new_object(&self) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::Instance {
+                dict: self.new_dict(),
+            },
+            self.object(),
+        )
+    }
+
     pub fn new_int(&self, i: i32) -> PyObjectRef {
         PyObject::new(PyObjectKind::Integer { value: i }, self.int_type())
     }
