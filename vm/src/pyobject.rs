@@ -62,6 +62,7 @@ pub struct PyContext {
     pub tuple_type: PyObjectRef,
     pub str_type: PyObjectRef,
     pub function_type: PyObjectRef,
+    pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
     pub object: PyObjectRef,
@@ -111,6 +112,7 @@ impl PyContext {
         objobject::create_object(type_type.clone(), object_type.clone(), dict_type.clone());
         objdict::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
 
+        let module_type = create_type("module", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
@@ -145,6 +147,7 @@ impl PyContext {
             str_type: str_type,
             object: object_type,
             function_type: function_type,
+            module_type: module_type,
             bound_method_type: bound_method_type,
             member_descriptor_type: member_descriptor_type,
             type_type: type_type,
@@ -284,7 +287,7 @@ impl PyContext {
                 name: name.clone(),
                 dict: scope.clone(),
             },
-            self.type_type(),
+            self.module_type.clone(),
         )
     }
 
