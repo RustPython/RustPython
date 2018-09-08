@@ -262,15 +262,15 @@ fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
-        vm, 
-        args, 
-        required = [(x, None), (y, None)], 
-        optional=[(mod_value, Some(vm.ctx.int_type()))]
+        vm,
+        args,
+        required = [(x, None), (y, None)],
+        optional = [(mod_value, Some(vm.ctx.int_type()))]
     );
     let pow_method_name = "__pow__".to_string();
     let result = match vm.get_attribute(x.clone(), &pow_method_name) {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
-        Err(..) => Err(vm.new_type_error("unsupported operand type(s) for pow".to_string()))
+        Err(..) => Err(vm.new_type_error("unsupported operand type(s) for pow".to_string())),
     };
     //Check if the 3rd argument is defined and perform modulus on the result
     //this should be optimized in the future to perform a "power-mod" algorithm in
@@ -279,22 +279,18 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(mod_value) => {
             let mod_method_name = "__mod__".to_string();
             match vm.get_attribute(
-                    result.expect("result not defined").clone(), 
-                    &mod_method_name
-                ) {
-                Ok(value) => vm.invoke(
-                    value, 
-                    PyFuncArgs::new(vec![mod_value.clone()], vec![])
-                ),
-                Err(..) => Err(
-                    vm.new_type_error("unsupported operand type(s) for mod".to_string())
-                )
+                result.expect("result not defined").clone(),
+                &mod_method_name,
+            ) {
+                Ok(value) => vm.invoke(value, PyFuncArgs::new(vec![mod_value.clone()], vec![])),
+                Err(..) => {
+                    Err(vm.new_type_error("unsupported operand type(s) for mod".to_string()))
+                }
             }
         }
-        None => result
+        None => result,
     }
 }
-
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
