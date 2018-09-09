@@ -5,6 +5,7 @@ use super::obj::objdict;
 use super::obj::objfloat;
 use super::obj::objfunction;
 use super::obj::objint;
+use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objobject;
 use super::obj::objstr;
@@ -60,6 +61,7 @@ pub struct PyContext {
     pub false_value: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
+    pub iter_type: PyObjectRef,
     pub str_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub module_type: PyObjectRef,
@@ -123,6 +125,7 @@ impl PyContext {
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
         let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
+        let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
@@ -142,6 +145,7 @@ impl PyContext {
             true_value: true_value,
             false_value: false_value,
             tuple_type: tuple_type,
+            iter_type: iter_type,
             dict_type: dict_type,
             none: none,
             str_type: str_type,
@@ -164,6 +168,7 @@ impl PyContext {
         objbytes::init(&context);
         objstr::init(&context);
         objtuple::init(&context);
+        objiter::init(&context);
         objbool::init(&context);
         exceptions::init(&context);
         context
@@ -189,6 +194,9 @@ impl PyContext {
     }
     pub fn tuple_type(&self) -> PyObjectRef {
         self.tuple_type.clone()
+    }
+    pub fn iter_type(&self) -> PyObjectRef {
+        self.iter_type.clone()
     }
     pub fn dict_type(&self) -> PyObjectRef {
         self.dict_type.clone()

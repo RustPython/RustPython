@@ -89,6 +89,7 @@ pub struct ExceptionZoo {
     pub name_error: PyObjectRef,
     pub runtime_error: PyObjectRef,
     pub not_implemented_error: PyObjectRef,
+    pub stop_iteration: PyObjectRef,
     pub type_error: PyObjectRef,
     pub value_error: PyObjectRef,
 }
@@ -138,6 +139,12 @@ impl ExceptionZoo {
             &runtime_error,
             &dict_type,
         );
+        let stop_iteration = create_type(
+            &String::from("StopIteration"),
+            &type_type,
+            &exception_type,
+            &dict_type,
+        );
         let type_error = create_type(
             &String::from("TypeError"),
             &type_type,
@@ -159,6 +166,7 @@ impl ExceptionZoo {
             name_error: name_error,
             runtime_error: runtime_error,
             not_implemented_error: not_implemented_error,
+            stop_iteration: stop_iteration,
             type_error: type_error,
             value_error: value_error,
         }
