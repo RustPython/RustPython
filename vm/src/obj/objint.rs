@@ -156,7 +156,7 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(i2, vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(v1 as f64 / objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot multiply {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot divide {:?} and {:?}", i, i2)))
     }
 }
 
@@ -188,7 +188,7 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1 as f64).powf(v2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot modulo {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot raise power {:?} and {:?}", i, i2)))
     }
 }
 
