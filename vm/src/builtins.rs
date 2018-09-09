@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::compile;
+use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::objbool;
@@ -221,7 +222,10 @@ fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.context().new_bool(objtype::issubclass(cls1, cls2)))
 }
 
-// builtin_iter
+fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(iter_target, None)]);
+    objiter::get_iter(vm, iter_target)
+}
 
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
@@ -254,7 +258,30 @@ fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_max
 // builtin_memoryview
 // builtin_min
-// builtin_next
+
+fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(iterator, None)],
+        optional = [(default_value, None)]
+    );
+
+    match vm.call_method(iterator.clone(), "__next__", vec![]) {
+        Ok(value) => Ok(value),
+        Err(value) => {
+            if objtype::isinstance(&value, vm.ctx.exceptions.stop_iteration.clone()) {
+                match default_value {
+                    None => Err(value),
+                    Some(value) => Ok(value.clone()),
+                }
+            } else {
+                Err(value)
+            }
+        }
+    }
+}
+
 // builtin_object
 // builtin_oct
 // builtin_open
@@ -378,9 +405,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         String::from("issubclass"),
         ctx.new_rustfunc(builtin_issubclass),
     );
+    dict.insert(String::from("iter"), ctx.new_rustfunc(builtin_iter));
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
     dict.insert(String::from("list"), ctx.list_type());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
+    dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
     dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));

@@ -7,14 +7,13 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::ast;
-use std::cell::RefMut;
 use std::collections::hash_map::HashMap;
-use std::ops::Deref;
 
 use super::builtins;
 use super::bytecode;
 use super::frame::{copy_code, Block, Frame};
 use super::import::import;
+use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objobject;
 use super::obj::objstr;
@@ -829,46 +828,50 @@ impl VirtualMachine {
             }
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                let iter_obj = PyObject::new(
-                    PyObjectKind::Iterator {
-                        position: 0,
-                        iterated_obj: iterated_obj,
-                    },
-                    self.ctx.type_type(),
-                );
-                self.push_value(iter_obj);
-                None
+                match objiter::get_iter(self, &iterated_obj) {
+                    Ok(iter_obj) => {
+                        self.push_value(iter_obj);
+                        None
+                    }
+                    Err(err) => Some(Err(err)),
+                }
             }
             bytecode::Instruction::ForIter => {
                 // The top of stack contains the iterator, lets push it forward:
-                let next_obj: Option<PyObjectRef> = {
+                let next_obj: PyResult = {
                     let top_of_stack = self.last_value();
-                    let mut ref_mut: RefMut<PyObject> = top_of_stack.deref().borrow_mut();
-                    // We require a mutable pyobject here to update the iterator:
-                    let mut iterator = ref_mut; // &mut PyObject = ref_mut.;
-                                                // let () = iterator;
-                    iterator.nxt()
+                    self.call_method(top_of_stack, "__next__", vec![])
                 };
 
                 // Check the next object:
                 match next_obj {
-                    Some(value) => {
+                    Ok(value) => {
                         self.push_value(value);
+                        None
                     }
-                    None => {
-                        // Pop iterator from stack:
-                        self.pop_value();
+                    Err(next_error) => {
+                        // Check if we have stopiteration, or something else:
+                        if objtype::isinstance(
+                            &next_error,
+                            self.ctx.exceptions.stop_iteration.clone(),
+                        ) {
+                            // Pop iterator from stack:
+                            self.pop_value();
 
-                        // End of for loop
-                        let end_label = if let Block::Loop { start: _, end } = self.last_block() {
-                            *end
+                            // End of for loop
+                            let end_label = if let Block::Loop { start: _, end } = self.last_block()
+                            {
+                                *end
+                            } else {
+                                panic!("Wrong block type")
+                            };
+                            self.jump(&end_label);
+                            None
                         } else {
-                            panic!("Wrong block type")
-                        };
-                        self.jump(&end_label);
+                            Some(Err(next_error))
+                        }
                     }
-                };
-                None
+                }
             }
             bytecode::Instruction::MakeFunction { flags } => {
                 let _qualified_name = self.pop_value();
