@@ -290,7 +290,38 @@ fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_oct
 // builtin_open
 // builtin_ord
-// builtin_pow
+
+fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(x, None), (y, None)],
+        optional = [(mod_value, Some(vm.ctx.int_type()))]
+    );
+    let pow_method_name = "__pow__".to_string();
+    let result = match vm.get_attribute(x.clone(), &pow_method_name) {
+        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
+        Err(..) => Err(vm.new_type_error("unsupported operand type(s) for pow".to_string())),
+    };
+    //Check if the 3rd argument is defined and perform modulus on the result
+    //this should be optimized in the future to perform a "power-mod" algorithm in
+    //order to improve performance
+    match mod_value {
+        Some(mod_value) => {
+            let mod_method_name = "__mod__".to_string();
+            match vm.get_attribute(
+                result.expect("result not defined").clone(),
+                &mod_method_name,
+            ) {
+                Ok(value) => vm.invoke(value, PyFuncArgs::new(vec![mod_value.clone()], vec![])),
+                Err(..) => {
+                    Err(vm.new_type_error("unsupported operand type(s) for mod".to_string()))
+                }
+            }
+        }
+        None => result,
+    }
+}
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
@@ -386,6 +417,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("list"), ctx.list_type());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
+    dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
     dict.insert(String::from("repr"), ctx.new_rustfunc(builtin_repr));
