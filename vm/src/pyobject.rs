@@ -758,35 +758,6 @@ impl PyObject {
         }
     }
 
-    // Implement iterator protocol:
-    pub fn nxt(&mut self) -> Option<PyObjectRef> {
-        match self.kind {
-            PyObjectKind::Iterator {
-                ref mut position,
-                iterated_obj: ref iterated_obj_ref,
-            } => {
-                let iterated_obj = &*iterated_obj_ref.borrow_mut();
-                match iterated_obj.kind {
-                    PyObjectKind::List { ref elements } => {
-                        if *position < elements.len() {
-                            let obj_ref = elements[*position].clone();
-                            *position += 1;
-                            Some(obj_ref)
-                        } else {
-                            None
-                        }
-                    }
-                    _ => {
-                        panic!("NOT IMPL");
-                    }
-                }
-            }
-            _ => {
-                panic!("NOT IMPL");
-            }
-        }
-    }
-
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(RefCell::new(self))

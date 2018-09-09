@@ -4,9 +4,9 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::compile;
+use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
-use super::obj::objiter;
 use super::objbool;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind,
@@ -223,11 +223,7 @@ fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iter_target, None)]
-    );
+    arg_check!(vm, args, required = [(iter_target, None)]);
     objiter::get_iter(vm, iter_target)
 }
 
@@ -409,10 +405,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         String::from("issubclass"),
         ctx.new_rustfunc(builtin_issubclass),
     );
-    dict.insert(
-        String::from("iter"),
-        ctx.new_rustfunc(builtin_iter),
-    );
+    dict.insert(String::from("iter"), ctx.new_rustfunc(builtin_iter));
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
     dict.insert(String::from("list"), ctx.list_type());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));

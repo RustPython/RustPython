@@ -3,18 +3,23 @@
  */
 
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
-    PyResult, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
 
+/*
+ * This helper function is called at multiple places. First, it is called
+ * in the vm when a for loop is entered. Next, it is used when the builtin
+ * function 'iter' is called.
+ */
 pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     // Check what we are going to iterate over:
     let iterated_obj = if objtype::isinstance(iter_target, vm.ctx.iter_type()) {
         // If object is already an iterator, return that one.
-        return Ok(iter_target.clone())
+        return Ok(iter_target.clone());
     } else if objtype::isinstance(iter_target, vm.ctx.list_type()) {
         iter_target.clone()
     } else {
@@ -37,46 +42,45 @@ pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult 
 
 // Sequence iterator:
 fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iter_target, None)]
-    );
+    arg_check!(vm, args, required = [(iter_target, None)]);
 
     get_iter(vm, iter_target)
 }
 
 fn iter_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iter, Some(vm.ctx.iter_type()))]
-    );
+    arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
     // Return self:
     Ok(iter.clone())
 }
 
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iter, Some(vm.ctx.iter_type()))]
-    );
+    arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
-    let next_obj: Option<PyObjectRef> = {
-        // We require a mutable pyobject here to update the iterator:
-        let mut iterator: &mut PyObject = &mut iter.borrow_mut();
-        iterator.nxt()
-    };
-
-    // Return next item, or StopIteration
-    match next_obj {
-        Some(value) => Ok(value),
-        None => {
-            let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-            let stop_iteration = vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-            Err(stop_iteration)
+    if let PyObjectKind::Iterator {
+        ref mut position,
+        iterated_obj: ref iterated_obj_ref,
+    } = iter.borrow_mut().kind
+    {
+        let iterated_obj = &*iterated_obj_ref.borrow_mut();
+        match iterated_obj.kind {
+            PyObjectKind::List { ref elements } => {
+                if *position < elements.len() {
+                    let obj_ref = elements[*position].clone();
+                    *position += 1;
+                    Ok(obj_ref)
+                } else {
+                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+                    let stop_iteration =
+                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
+                    Err(stop_iteration)
+                }
+            }
+            _ => {
+                panic!("NOT IMPL");
+            }
         }
+    } else {
+        panic!("NOT IMPL");
     }
 }
 
@@ -86,4 +90,3 @@ pub fn init(context: &PyContext) {
     iter_type.set_attr("__iter__", context.new_rustfunc(iter_iter));
     iter_type.set_attr("__next__", context.new_rustfunc(iter_next));
 }
-

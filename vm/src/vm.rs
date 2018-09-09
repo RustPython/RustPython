@@ -832,7 +832,7 @@ impl VirtualMachine {
                     Ok(iter_obj) => {
                         self.push_value(iter_obj);
                         None
-                    },
+                    }
                     Err(err) => Some(Err(err)),
                 }
             }
@@ -851,12 +851,16 @@ impl VirtualMachine {
                     }
                     Err(next_error) => {
                         // Check if we have stopiteration, or something else:
-                        if objtype::isinstance(&next_error, self.ctx.exceptions.stop_iteration.clone()) {
+                        if objtype::isinstance(
+                            &next_error,
+                            self.ctx.exceptions.stop_iteration.clone(),
+                        ) {
                             // Pop iterator from stack:
                             self.pop_value();
 
                             // End of for loop
-                            let end_label = if let Block::Loop { start: _, end } = self.last_block() {
+                            let end_label = if let Block::Loop { start: _, end } = self.last_block()
+                            {
                                 *end
                             } else {
                                 panic!("Wrong block type")
