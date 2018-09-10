@@ -46,31 +46,37 @@ SmallStatement: ast::LocatedStatement = {
 };
 
 ExpressionStatement: ast::LocatedStatement = {
-  <loc:@L> <e:TestList> <e2:AssignSuffix*> => {
-    //match e2 {
-    //  None => ast::Statement::Expression { expression: e },
-    //  Some(e3) => ast::Statement::Expression { expression: e },
-    //}
-    if e2.len() > 0 {
-      // Dealing with assignment here
-      // TODO: for rhs in e2 {
-       let rhs = e2.into_iter().next().unwrap();
-       // ast::Expression::Tuple { elements: e2.into_iter().next().unwrap()
-       let v = rhs.into_iter().next().unwrap();
-       let lhs = ast::LocatedStatement {
-         location: loc.clone(),
-         node: ast::Statement::Assign { targets: e, value: v },
-       };
-      lhs
-    } else {
-      if e.len() > 1 {
-        panic!("Not good?");
-        // ast::Statement::Expression { expression: e[0] }
+  <loc:@L> <expr:TestList> <suffix:AssignSuffix*> => {
+    // Just an expression, no assignment:
+    if suffix.is_empty() {
+      if expr.len() > 1 {
+        ast::LocatedStatement {
+          location: loc.clone(),
+          node: ast::Statement::Expression { expression: ast::Expression::Tuple { elements: expr } }
+        }
       } else {
         ast::LocatedStatement {
           location: loc.clone(),
-          node: ast::Statement::Expression { expression: e.into_iter().next().unwrap() },
+          node: ast::Statement::Expression { expression: expr[0].clone() },
         }
+      }
+    } else {
+      let mut targets = vec![if expr.len() > 1 {
+        ast::Expression::Tuple { elements: expr }
+      } else {
+        expr[0].clone()
+      }];
+      let mut values : Vec<ast::Expression> = suffix.into_iter().map(|test_list| if test_list.len() > 1 { ast::Expression::Tuple { elements: test_list }} else { test_list[0].clone() }).collect();
+
+      while values.len() > 1 {
+        targets.push(values.remove(0));
+      }
+
+      let value = values[0].clone();
+
+      ast::LocatedStatement {
+        location: loc.clone(),
+        node: ast::Statement::Assign { targets, value },
       }
     }
   },
@@ -120,7 +126,7 @@ FlowStatement: ast::LocatedStatement = {
   <loc:@L> "return" <t:TestList?> => {
     ast::LocatedStatement {
       location: loc,
-      node: ast::Statement::Return { value: t},
+      node: ast::Statement::Return { value: t },
     }
   },
   <loc:@L> "raise" <t:Test?> => {

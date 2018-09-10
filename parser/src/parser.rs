@@ -254,6 +254,40 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_tuples() {
+        let source = String::from("a, b = 4, 5\n");
+
+        assert_eq!(
+            parse_statement(&source),
+            Ok(ast::LocatedStatement {
+                location: ast::Location::new(1, 1),
+                node: ast::Statement::Assign {
+                    targets: vec![ast::Expression::Tuple {
+                        elements: vec![
+                            ast::Expression::Identifier {
+                                name: "a".to_string()
+                            },
+                            ast::Expression::Identifier {
+                                name: "b".to_string()
+                            }
+                        ]
+                    }],
+                    value: ast::Expression::Tuple {
+                        elements: vec![
+                            ast::Expression::Number {
+                                value: ast::Number::Integer { value: 4 }
+                            },
+                            ast::Expression::Number {
+                                value: ast::Number::Integer { value: 5 }
+                            }
+                        ]
+                    }
+                }
+            })
+        )
+    }
+
+    #[test]
     fn test_parse_class() {
         let source = String::from("class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass\n");
         assert_eq!(

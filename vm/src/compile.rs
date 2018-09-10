@@ -521,7 +521,10 @@ impl Compiler {
             ast::Statement::Assign { targets, value } => {
                 self.compile_expression(value);
 
-                for target in targets {
+                for (i, target) in targets.into_iter().enumerate() {
+                    if i + 1 != targets.len() {
+                        self.emit(Instruction::Duplicate);
+                    }
                     self.compile_store(target);
                 }
             }
@@ -560,6 +563,14 @@ impl Compiler {
                 self.emit(Instruction::StoreAttr {
                     name: name.to_string(),
                 });
+            }
+            ast::Expression::Tuple { elements } => {
+                self.emit(Instruction::UnpackSequence {
+                    size: elements.len(),
+                });
+                for element in elements {
+                    self.compile_store(element);
+                }
             }
             _ => {
                 panic!("WTF: {:?}", target);
