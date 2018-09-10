@@ -177,6 +177,7 @@ impl VirtualMachine {
 
     fn with_exit(&mut self) {
         // Assume top of stack is __exit__ method:
+        // TODO: do we want to put the exit call on the stack?
         let exit_method = self.pop_value();
         let args = PyFuncArgs {
             args: vec![],
@@ -192,7 +193,9 @@ impl VirtualMachine {
             match block {
                 Some(Block::Loop { start: _, end: __ }) => break block.unwrap(),
                 Some(Block::TryExcept { .. }) => {}
-                Some(Block::With { .. }) => { self.with_exit(); }
+                Some(Block::With { .. }) => {
+                    self.with_exit();
+                }
                 None => panic!("No block to break / continue"),
             }
         }
@@ -208,7 +211,9 @@ impl VirtualMachine {
                     self.jump(&handler);
                     return None;
                 }
-                Some(Block::With { .. }) => { self.with_exit(); }
+                Some(Block::With { .. }) => {
+                    self.with_exit();
+                }
                 Some(Block::Loop { .. }) => {}
                 None => break,
             }
@@ -837,8 +842,42 @@ impl VirtualMachine {
                 None
             }
             bytecode::Instruction::SetupWith { end } => {
-                self.push_block(Block::With { end: *end });
-                None
+                let obj = self.pop_value();
+                // Call enter:
+                match self.call_method(obj, "__enter__", vec![]) {
+                    Ok(manager) => {
+                        self.push_block(Block::With {
+                            end: *end,
+                            context_manager: manager.clone(),
+                        });
+                        self.push_value(manager);
+                        None
+                    }
+                    Err(err) => Some(Err(err)),
+                }
+            }
+            bytecode::Instruction::CleanupWith { end: end1 } => {
+                let block = self.pop_block().unwrap();
+                if let Block::With {
+                    end: end2,
+                    context_manager,
+                } = &block
+                {
+                    assert!(end1 == end2);
+
+                    // call exit now:
+                    let exc_type = self.ctx.none();
+                    let exc_val = self.ctx.none();
+                    let exc_tb = self.ctx.none();
+                    self.call_method(
+                        context_manager.clone(),
+                        "__exit__",
+                        vec![exc_type, exc_val, exc_tb],
+                    ).unwrap();
+                    None
+                } else {
+                    panic!("Block stack is incorrect, expected a with block");
+                }
             }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();

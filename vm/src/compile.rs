@@ -200,19 +200,24 @@ impl Compiler {
                 self.set_label(end_label);
             }
             ast::Statement::With { items, body } => {
+                let end_label = self.new_label();
                 for item in items {
                     self.compile_expression(&item.context_expr);
+                    self.emit(Instruction::SetupWith { end: end_label });
                     match &item.optional_vars {
                         Some(var) => {
-                        },
+                            self.compile_store(var);
+                        }
                         None => {
                             self.emit(Instruction::Pop);
                         }
                     }
                 }
-                let end_label = self.new_label();
-                self.emit(Instruction::SetupWith { end: end_label });
+
                 self.compile_statements(body);
+                for _ in 0..items.len() {
+                    self.emit(Instruction::CleanupWith { end: end_label });
+                }
                 self.set_label(end_label);
             }
             ast::Statement::For {

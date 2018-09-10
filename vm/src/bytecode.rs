@@ -121,6 +121,9 @@ pub enum Instruction {
     SetupWith {
         end: Label,
     },
+    CleanupWith {
+        end: Label,
+    },
     PopBlock,
     Raise {
         argc: usize,
