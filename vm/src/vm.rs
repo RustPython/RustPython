@@ -17,6 +17,7 @@ use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objobject;
 use super::obj::objstr;
+use super::obj::objtuple;
 use super::obj::objtype;
 use super::objbool;
 use super::pyobject::{
@@ -1045,6 +1046,19 @@ impl VirtualMachine {
                         scope.locals = locals;
                     }
                     _ => panic!("We really expect our scope to be a scope!"),
+                }
+                None
+            }
+            bytecode::Instruction::UnpackSequence { size } => {
+                let value = self.pop_value();
+
+                let elements = objtuple::get_elements(&value);
+                if elements.len() != *size {
+                    panic!("Wrong number of values to unpack");
+                }
+
+                for element in elements.into_iter().rev() {
+                    self.push_value(element);
                 }
                 None
             }

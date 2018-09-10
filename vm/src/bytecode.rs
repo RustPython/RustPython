@@ -137,6 +137,9 @@ pub enum Instruction {
     PrintExpr,
     LoadBuildClass,
     StoreLocals,
+    UnpackSequence {
+        size: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
