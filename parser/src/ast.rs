@@ -74,7 +74,7 @@ pub enum Statement {
         orelse: Option<Vec<LocatedStatement>>,
     },
     With {
-        items: Expression,
+        items: Vec<WithItem>,
         body: Vec<LocatedStatement>,
     },
     For {
@@ -104,6 +104,12 @@ pub enum Statement {
         // docstring: String,
         body: Vec<LocatedStatement>,
     },
+}
+
+#[derive(Debug, PartialEq)]
+pub struct WithItem {
+    pub context_expr: Expression,
+    pub optional_vars: Option<Expression>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

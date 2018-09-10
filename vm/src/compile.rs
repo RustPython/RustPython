@@ -199,8 +199,21 @@ impl Compiler {
                 });
                 self.set_label(end_label);
             }
-            ast::Statement::With { items: _, body: _ } => {
-                // TODO
+            ast::Statement::With { items, body } => {
+                for item in items {
+                    self.compile_expression(&item.context_expr);
+                    match &item.optional_vars {
+                        Some(var) => {
+                        },
+                        None => {
+                            self.emit(Instruction::Pop);
+                        }
+                    }
+                }
+                let end_label = self.new_label();
+                self.emit(Instruction::SetupWith { end: end_label });
+                self.compile_statements(body);
+                self.set_label(end_label);
             }
             ast::Statement::For {
                 target,
