@@ -99,6 +99,11 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn int_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    Ok(vm.ctx.new_int(get_value(i).abs()))
+}
+
 fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -240,6 +245,7 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     int_type.set_attr("__eq__", context.new_rustfunc(int_eq));
+    int_type.set_attr("__abs__", context.new_rustfunc(int_abs));
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
     int_type.set_attr("__and__", context.new_rustfunc(int_and));
     int_type.set_attr("__new__", context.new_rustfunc(int_new));

@@ -44,7 +44,13 @@ fn dir_object(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyObjectRef {
     vm.ctx.new_list(members_pystr)
 }
 
-// builtin_abs
+fn builtin_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(x, None)]);
+    match vm.get_attribute(x.clone(), &"__abs__") {
+        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![], vec![])),
+        Err(..) => Err(vm.new_type_error("bad operand for abs".to_string())),
+    }
+}
 
 fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     for item in args.args {
@@ -347,7 +353,17 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_sorted
 // builtin_staticmethod
 
-// builtin_sum
+// fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+//     arg_check!(vm, args, required = [(obj, None)]);
+//     match obj.borrow().kind {
+
+//         PyObjectKind::List { ref elements } => {
+//             Ok(vm.context().new_int(elements.len() as i32))
+//         }
+//         _ => Err(vm.new_type_error("unsupported operand type(s) for mod".to_string()))
+//     }
+// }
+
 // builtin_super
 // builtin_vars
 // builtin_zip
@@ -356,6 +372,7 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
     let mut dict = HashMap::new();
+    dict.insert(String::from("abs"), ctx.new_rustfunc(builtin_abs));
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
     dict.insert(String::from("bool"), ctx.bool_type());

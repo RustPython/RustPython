@@ -61,6 +61,11 @@ fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn float_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.float_type()))]);
+    Ok(vm.ctx.new_float(get_value(i).abs()))
+}
+
 fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -117,6 +122,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref float_type = context.float_type;
     float_type.set_attr("__eq__", context.new_rustfunc(float_eq));
+    float_type.set_attr("__abs__", context.new_rustfunc(float_abs));
     float_type.set_attr("__add__", context.new_rustfunc(float_add));
     float_type.set_attr("__init__", context.new_rustfunc(float_init));
     float_type.set_attr("__pow__", context.new_rustfunc(float_pow));
