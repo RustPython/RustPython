@@ -13,13 +13,7 @@ use super::compile;
 use super::pyobject::{DictProtocol, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
-fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
-    // First, see if we already loaded the module:
-    let sys_modules = vm.sys_module.get_item("modules").unwrap();
-    if let Some(module) = sys_modules.get_item(module) {
-        return Ok(module);
-    }
-
+fn import_uncached_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
     // Check for Rust-native modules
     if let Some(module) = vm.stdlib_inits.get(module) {
         return Ok(module(&vm.ctx).clone());
@@ -56,8 +50,18 @@ fn import_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
         Ok(_) => {}
         Err(value) => return Err(value),
     }
-    let py_module = vm.ctx.new_module(module, scope);
-    Ok(py_module)
+    Ok(vm.ctx.new_module(module, scope))
+}
+
+fn import_module(vm: &mut VirtualMachine, module_name: &String) -> PyResult {
+    // First, see if we already loaded the module:
+    let sys_modules = vm.sys_module.get_item("modules").unwrap();
+    if let Some(module) = sys_modules.get_item(module_name) {
+        return Ok(module);
+    }
+    let module = import_uncached_module(vm, module_name)?;
+    sys_modules.set_item(module_name, module.clone());
+    Ok(module)
 }
 
 pub fn import(vm: &mut VirtualMachine, module_name: &String, symbol: &Option<String>) -> PyResult {
