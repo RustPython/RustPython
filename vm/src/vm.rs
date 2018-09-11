@@ -193,7 +193,7 @@ impl VirtualMachine {
             match block {
                 Some(Block::TryExcept { handler }) => {
                     self.push_value(exc);
-                    self.jump(&handler);
+                    self.jump(handler);
                     return None;
                 }
                 Some(_) => {}
@@ -866,7 +866,7 @@ impl VirtualMachine {
                             } else {
                                 panic!("Wrong block type")
                             };
-                            self.jump(&end_label);
+                            self.jump(end_label);
                             None
                         } else {
                             Some(Err(next_error))
@@ -939,7 +939,7 @@ impl VirtualMachine {
                 }
             }
             bytecode::Instruction::Jump { target } => {
-                self.jump(target);
+                self.jump(*target);
                 None
             }
             bytecode::Instruction::JumpIf { target } => {
@@ -947,7 +947,7 @@ impl VirtualMachine {
                 match objbool::boolval(self, obj) {
                     Ok(value) => {
                         if value {
-                            self.jump(target);
+                            self.jump(*target);
                         }
                         None
                     }
@@ -960,7 +960,7 @@ impl VirtualMachine {
                 match objbool::boolval(self, obj) {
                     Ok(value) => {
                         if !value {
-                            self.jump(target);
+                            self.jump(*target);
                         }
                         None
                     }
@@ -994,7 +994,7 @@ impl VirtualMachine {
             bytecode::Instruction::Break => {
                 let block = self.unwind_loop();
                 if let Block::Loop { start: _, end } = block {
-                    self.jump(&end);
+                    self.jump(end);
                 }
                 None
             }
@@ -1005,7 +1005,7 @@ impl VirtualMachine {
             bytecode::Instruction::Continue => {
                 let block = self.unwind_loop();
                 if let Block::Loop { start, end: _ } = block {
-                    self.jump(&start);
+                    self.jump(start);
                 } else {
                     assert!(false);
                 }
@@ -1065,9 +1065,9 @@ impl VirtualMachine {
         }
     }
 
-    fn jump(&mut self, label: &bytecode::Label) {
+    fn jump(&mut self, label: bytecode::Label) {
         let current_frame = self.current_frame_mut();
-        let target_pc = current_frame.code.label_map[label];
+        let target_pc = current_frame.code.label_map[&label];
         trace!(
             "program counter from {:?} to {:?}",
             current_frame.lasti,
