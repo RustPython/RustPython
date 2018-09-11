@@ -83,6 +83,21 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+    );
+    if objtype::isinstance(i2, vm.ctx.float_type()) {
+        Ok(vm.ctx.new_float((get_value(i) / get_value(i2)).floor()))
+    } else if objtype::isinstance(i2, vm.ctx.int_type()) {
+        Ok(vm.ctx.new_float((get_value(i) / objint::get_value(i2) as f64).floor()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
+    }
+}
+
 fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -97,6 +112,22 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(vm.ctx.new_float(v1 - objint::get_value(i2) as f64))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+    }
+}
+
+fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+    );
+
+    if objtype::isinstance(i2, vm.ctx.float_type()) {
+         Ok(vm.ctx.new_float(get_value(i) % get_value(i2)))
+    } else if objtype::isinstance(i2, vm.ctx.int_type()) {
+        Ok(vm.ctx.new_float(get_value(i) % objint::get_value(i2) as f64))
+    } else {
+        Err(vm.new_type_error(format!("Cannot mod {:?} and {:?}", i, i2)))
     }
 }
 
@@ -124,8 +155,11 @@ pub fn init(context: &PyContext) {
     float_type.set_attr("__eq__", context.new_rustfunc(float_eq));
     float_type.set_attr("__abs__", context.new_rustfunc(float_abs));
     float_type.set_attr("__add__", context.new_rustfunc(float_add));
+    float_type.set_attr("__floordiv__", context.new_rustfunc(float_floordiv));
     float_type.set_attr("__init__", context.new_rustfunc(float_init));
+    float_type.set_attr("__mod__", context.new_rustfunc(float_mod));
     float_type.set_attr("__pow__", context.new_rustfunc(float_pow));
     float_type.set_attr("__sub__", context.new_rustfunc(float_sub));
     float_type.set_attr("__repr__", context.new_rustfunc(float_repr));
+
 }
