@@ -40,7 +40,7 @@ pub fn parse(filename: &Path) -> Result<ast::Program, String> {
     }
 }
 
-pub fn parse_program(source: &String) -> Result<ast::Program, String> {
+pub fn parse_program(source: &str) -> Result<ast::Program, String> {
     let lxr = lexer::Lexer::new(&source);
     match python::ProgramParser::new().parse(lxr) {
         Err(lalrpop_util::ParseError::UnrecognizedToken {
@@ -52,7 +52,7 @@ pub fn parse_program(source: &String) -> Result<ast::Program, String> {
     }
 }
 
-pub fn parse_statement(source: &String) -> Result<ast::LocatedStatement, String> {
+pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, String> {
     let lxr = lexer::Lexer::new(&source);
     match python::StatementParser::new().parse(lxr) {
         Err(why) => Err(String::from(format!("{:?}", why))),
@@ -60,7 +60,7 @@ pub fn parse_statement(source: &String) -> Result<ast::LocatedStatement, String>
     }
 }
 
-pub fn parse_expression(source: &String) -> Result<ast::Expression, String> {
+pub fn parse_expression(source: &str) -> Result<ast::Expression, String> {
     let lxr = lexer::Lexer::new(&source);
     match python::ExpressionParser::new().parse(lxr) {
         Err(why) => Err(String::from(format!("{:?}", why))),
