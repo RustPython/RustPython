@@ -50,9 +50,14 @@ fn main() {
     }
 }
 
-fn _run_string(source: &String, source_path: Option<String>) {
+fn _run_string(source: &str, source_path: Option<String>) {
     let mut vm = VirtualMachine::new();
-    let code_obj = compile::compile(&mut vm, &source, compile::Mode::Exec, source_path).unwrap();
+    let code_obj = compile::compile(
+        &mut vm,
+        &source.to_string(),
+        compile::Mode::Exec,
+        source_path,
+    ).unwrap();
     debug!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
@@ -74,7 +79,7 @@ fn run_command(source: &mut String) {
     _run_string(source, None)
 }
 
-fn run_script(script_file: &String) {
+fn run_script(script_file: &str) {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let filepath = Path::new(script_file);
@@ -87,10 +92,10 @@ fn run_script(script_file: &String) {
     }
 }
 
-fn shell_exec(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> bool {
-    match compile::compile(vm, source, compile::Mode::Single, None) {
+fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
+    match compile::compile(vm, &source.to_string(), compile::Mode::Single, None) {
         Ok(code) => {
-            match vm.run_code_obj(code, scope.clone()) {
+            match vm.run_code_obj(code, scope) {
                 Ok(_value) => {
                     // Printed already.
                 }
@@ -114,7 +119,7 @@ fn shell_exec(vm: &mut VirtualMachine, source: &String, scope: PyObjectRef) -> b
 fn read_until_empty_line(input: &mut String) -> Result<i32, std::io::Error> {
     loop {
         print!("..... ");
-        io::stdout().flush().ok().expect("Could not flush stdout");
+        io::stdout().flush().expect("Could not flush stdout");
         let mut line = String::new();
         match io::stdin().read_line(&mut line) {
             Ok(0) => {
@@ -146,7 +151,7 @@ fn run_shell() {
     let mut input = String::new();
     loop {
         print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
-        io::stdout().flush().ok().expect("Could not flush stdout");
+        io::stdout().flush().expect("Could not flush stdout");
         match io::stdin().read_line(&mut input) {
             Ok(0) => {
                 break;
