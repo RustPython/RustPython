@@ -359,18 +359,7 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_slice
 // builtin_sorted
 // builtin_staticmethod
-
-// fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-//     arg_check!(vm, args, required = [(obj, None)]);
-//     match obj.borrow().kind {
-
-//         PyObjectKind::List { ref elements } => {
-//             Ok(vm.context().new_int(elements.len() as i32))
-//         }
-//         _ => Err(vm.new_type_error("unsupported operand type(s) for mod".to_string()))
-//     }
-// }
-
+// builtin_sum
 // builtin_super
 // builtin_vars
 // builtin_zip
