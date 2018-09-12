@@ -175,12 +175,24 @@ impl VirtualMachine {
         self.current_frame().last_block()
     }
 
+    fn with_exit(&mut self) {
+        // Assume top of stack is __exit__ method:
+        // TODO: do we want to put the exit call on the stack?
+        let exit_method = self.pop_value();
+        let args = PyFuncArgs::default();
+        // TODO: what happens when we got an error during handling exception?
+        self.invoke(exit_method, args).unwrap();
+    }
+
     fn unwind_loop(&mut self) -> Block {
         loop {
             let block = self.pop_block();
             match block {
                 Some(Block::Loop { start: _, end: __ }) => break block.unwrap(),
                 Some(Block::TryExcept { .. }) => {}
+                Some(Block::With { .. }) => {
+                    self.with_exit();
+                }
                 None => panic!("No block to break / continue"),
             }
         }
@@ -196,7 +208,10 @@ impl VirtualMachine {
                     self.jump(handler);
                     return None;
                 }
-                Some(_) => {}
+                Some(Block::With { .. }) => {
+                    self.with_exit();
+                }
+                Some(Block::Loop { .. }) => {}
                 None => break,
             }
         }
@@ -822,6 +837,45 @@ impl VirtualMachine {
             bytecode::Instruction::SetupExcept { handler } => {
                 self.push_block(Block::TryExcept { handler: *handler });
                 None
+            }
+            bytecode::Instruction::SetupWith { end } => {
+                let context_manager = self.pop_value();
+                // Call enter:
+                match self.call_method(context_manager.clone(), "__enter__", vec![]) {
+                    Ok(obj) => {
+                        self.push_block(Block::With {
+                            end: *end,
+                            context_manager: context_manager.clone(),
+                        });
+                        self.push_value(obj);
+                        None
+                    }
+                    Err(err) => Some(Err(err)),
+                }
+            }
+            bytecode::Instruction::CleanupWith { end: end1 } => {
+                let block = self.pop_block().unwrap();
+                if let Block::With {
+                    end: end2,
+                    context_manager,
+                } = &block
+                {
+                    assert!(end1 == end2);
+
+                    // call exit now:
+                    // TODO: improve exception handling in context manager.
+                    let exc_type = self.ctx.none();
+                    let exc_val = self.ctx.none();
+                    let exc_tb = self.ctx.none();
+                    self.call_method(
+                        context_manager.clone(),
+                        "__exit__",
+                        vec![exc_type, exc_val, exc_tb],
+                    ).unwrap();
+                    None
+                } else {
+                    panic!("Block stack is incorrect, expected a with block");
+                }
             }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();

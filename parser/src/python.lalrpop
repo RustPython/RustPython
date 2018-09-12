@@ -299,12 +299,26 @@ ExceptClause: ast::ExceptHandler = {
 };
 
 WithStatement: ast::LocatedStatement = {
-  <loc:@L> "with" <t:Test> "as" <_e:Expression> ":" <s:Suite> => {
+  <loc:@L> "with" <i1:WithItem> <i2:("," WithItem)*> ":" <s:Suite> => {
+    let mut items = vec![i1];
+    for item in i2 {
+        items.push(item.1);
+    }
     ast::LocatedStatement {
       location: loc,
-      node: ast::Statement::With { items: t, body: s },
+      node: ast::Statement::With { items: items, body: s },
     }
   },
+};
+
+WithItem: ast::WithItem = {
+    <t:Test> <n:("as" Expression)?> => {
+        let optional_vars = match n {
+            Some(val) => Some(val.1),
+            None => None,
+        };
+        ast::WithItem { context_expr: t, optional_vars }
+    },
 };
 
 FuncDef: ast::LocatedStatement = {

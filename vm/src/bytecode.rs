@@ -118,6 +118,12 @@ pub enum Instruction {
     SetupExcept {
         handler: Label,
     },
+    SetupWith {
+        end: Label,
+    },
+    CleanupWith {
+        end: Label,
+    },
     PopBlock,
     Raise {
         argc: usize,
