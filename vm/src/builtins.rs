@@ -127,7 +127,14 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-// builtin_divmod
+fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(x, None), (y, None)]);
+    match vm.get_attribute(x.clone(), &"__divmod__") {
+        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
+        Err(..) => Err(vm.new_type_error("unsupported operand type(s) for divmod".to_string())),
+    }
+}
+
 // builtin_enumerate
 
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -380,6 +387,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     dict.insert(String::from("dict"), ctx.dict_type());
+    dict.insert(String::from("divmod"), ctx.new_rustfunc(builtin_divmod));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
     dict.insert(String::from("float"), ctx.float_type());

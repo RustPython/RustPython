@@ -90,7 +90,7 @@ fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
     let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
-    if objtype::isinstance(i2, vm.ctx.float_type()) || objtype::isinstance(i2, vm.ctx.int_type()){
+    if objtype::isinstance(i2, vm.ctx.float_type()) || objtype::isinstance(i2, vm.ctx.int_type()) {
         let r1 = float_floordiv(vm, args.clone());
         let r2 = float_mod(vm, args.clone());
         Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
@@ -108,7 +108,9 @@ fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, vm.ctx.float_type()) {
         Ok(vm.ctx.new_float((get_value(i) / get_value(i2)).floor()))
     } else if objtype::isinstance(i2, vm.ctx.int_type()) {
-        Ok(vm.ctx.new_float((get_value(i) / objint::get_value(i2) as f64).floor()))
+        Ok(vm
+            .ctx
+            .new_float((get_value(i) / objint::get_value(i2) as f64).floor()))
     } else {
         Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
     }
@@ -137,9 +139,11 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
     if objtype::isinstance(i2, vm.ctx.float_type()) {
-         Ok(vm.ctx.new_float(get_value(i) % get_value(i2)))
+        Ok(vm.ctx.new_float(get_value(i) % get_value(i2)))
     } else if objtype::isinstance(i2, vm.ctx.int_type()) {
-        Ok(vm.ctx.new_float(get_value(i) % objint::get_value(i2) as f64))
+        Ok(vm
+            .ctx
+            .new_float(get_value(i) % objint::get_value(i2) as f64))
     } else {
         Err(vm.new_type_error(format!("Cannot mod {:?} and {:?}", i, i2)))
     }

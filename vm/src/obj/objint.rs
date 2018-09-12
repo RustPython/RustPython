@@ -158,7 +158,9 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(i) * get_value(i2)))
     } else if objtype::isinstance(i2, vm.ctx.float_type()) {
-        Ok(vm.ctx.new_float(get_value(i) as f64 * objfloat::get_value(i2)))
+        Ok(vm
+            .ctx
+            .new_float(get_value(i) as f64 * objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot multiply {:?} and {:?}", i, i2)))
     }
@@ -211,7 +213,6 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Err(vm.new_type_error(format!("Cannot raise power {:?} and {:?}", i, i2)))
     }
 }
-
 
 fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
