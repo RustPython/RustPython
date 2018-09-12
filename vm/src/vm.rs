@@ -179,10 +179,7 @@ impl VirtualMachine {
         // Assume top of stack is __exit__ method:
         // TODO: do we want to put the exit call on the stack?
         let exit_method = self.pop_value();
-        let args = PyFuncArgs {
-            args: vec![],
-            kwargs: vec![],
-        };
+        let args = PyFuncArgs::default();
         // TODO: what happens when we got an error during handling exception?
         self.invoke(exit_method, args).unwrap();
     }
@@ -842,15 +839,15 @@ impl VirtualMachine {
                 None
             }
             bytecode::Instruction::SetupWith { end } => {
-                let obj = self.pop_value();
+                let context_manager = self.pop_value();
                 // Call enter:
-                match self.call_method(obj, "__enter__", vec![]) {
-                    Ok(manager) => {
+                match self.call_method(context_manager.clone(), "__enter__", vec![]) {
+                    Ok(obj) => {
                         self.push_block(Block::With {
                             end: *end,
-                            context_manager: manager.clone(),
+                            context_manager: context_manager.clone(),
                         });
-                        self.push_value(manager);
+                        self.push_value(obj);
                         None
                     }
                     Err(err) => Some(Err(err)),
@@ -866,6 +863,7 @@ impl VirtualMachine {
                     assert!(end1 == end2);
 
                     // call exit now:
+                    // TODO: improve exception handling in context manager.
                     let exc_type = self.ctx.none();
                     let exc_val = self.ctx.none();
                     let exc_tb = self.ctx.none();
