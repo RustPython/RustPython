@@ -22,7 +22,7 @@ use super::obj::objtype;
 use super::objbool;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyContext, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult, ToRust,
+    PyObjectKind, PyObjectRef, PyResult, ToRust, TypeProtocol,
 };
 use super::stdlib;
 use super::sysmodule;
@@ -175,13 +175,50 @@ impl VirtualMachine {
         self.current_frame().last_block()
     }
 
-    fn with_exit(&mut self) {
+    fn with_exit(&mut self, context_manager: &PyObjectRef, exc: Option<PyObjectRef>) -> PyResult {
         // Assume top of stack is __exit__ method:
         // TODO: do we want to put the exit call on the stack?
-        let exit_method = self.pop_value();
-        let args = PyFuncArgs::default();
+        // let exit_method = self.pop_value();
+        // let args = PyFuncArgs::default();
         // TODO: what happens when we got an error during handling exception?
-        self.invoke(exit_method, args).unwrap();
+        let args = if let Some(exc) = exc {
+            let exc_type = exc.typ();
+            let exc_val = exc.clone();
+            let exc_tb = self.ctx.none(); // TODO: retrieve traceback?
+            vec![exc_type, exc_val, exc_tb]
+        } else {
+            let exc_type = self.ctx.none();
+            let exc_val = self.ctx.none();
+            let exc_tb = self.ctx.none();
+            vec![exc_type, exc_val, exc_tb]
+        };
+        self.call_method(context_manager.clone(), "__exit__", args)
+    }
+
+    // Unwind all blocks:
+    fn unwind_blocks(&mut self) -> Option<PyObjectRef> {
+        loop {
+            let block = self.pop_block();
+            match block {
+                Some(Block::Loop { .. }) => {}
+                Some(Block::TryExcept { .. }) => {
+                    // TODO: execute finally handler
+                }
+                Some(Block::With {
+                    end: _,
+                    context_manager,
+                }) => {
+                    match self.with_exit(&context_manager, None) {
+                        Ok(..) => {}
+                        Err(exc) => {
+                            // __exit__ went wrong,
+                            return Some(exc);
+                        }
+                    }
+                }
+                None => break None,
+            }
+        }
     }
 
     fn unwind_loop(&mut self) -> Block {
@@ -189,10 +226,18 @@ impl VirtualMachine {
             let block = self.pop_block();
             match block {
                 Some(Block::Loop { start: _, end: __ }) => break block.unwrap(),
-                Some(Block::TryExcept { .. }) => {}
-                Some(Block::With { .. }) => {
-                    self.with_exit();
+                Some(Block::TryExcept { .. }) => {
+                    // TODO: execute finally handler
                 }
+                Some(Block::With {
+                    end: _,
+                    context_manager,
+                }) => match self.with_exit(&context_manager, None) {
+                    Ok(..) => {}
+                    Err(exc) => {
+                        panic!("Exception in with __exit__ {:?}", exc);
+                    }
+                },
                 None => panic!("No block to break / continue"),
             }
         }
@@ -208,8 +253,33 @@ impl VirtualMachine {
                     self.jump(handler);
                     return None;
                 }
-                Some(Block::With { .. }) => {
-                    self.with_exit();
+                Some(Block::With {
+                    end,
+                    context_manager,
+                }) => {
+                    match self.with_exit(&context_manager, Some(exc.clone())) {
+                        Ok(exit_action) => {
+                            match objbool::boolval(self, exit_action) {
+                                Ok(handle_exception) => {
+                                    if handle_exception {
+                                        // We handle the exception, so return!
+                                        self.jump(end);
+                                        return None;
+                                    } else {
+                                        // go on with the stack unwinding.
+                                    }
+                                }
+                                Err(exit_exc) => {
+                                    return Some(exit_exc);
+                                }
+                            }
+                            // if objtype::isinstance
+                        }
+                        Err(exit_exc) => {
+                            // TODO: what about original exception?
+                            return Some(exit_exc);
+                        }
+                    }
                 }
                 Some(Block::Loop { .. }) => {}
                 None => break,
@@ -826,7 +896,11 @@ impl VirtualMachine {
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(op),
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
-                Some(Ok(value))
+                if let Some(exc) = self.unwind_blocks() {
+                    Some(Err(exc))
+                } else {
+                    Some(Ok(value))
+                }
             }
             bytecode::Instruction::SetupLoop { start, end } => {
                 self.push_block(Block::Loop {
@@ -863,17 +937,11 @@ impl VirtualMachine {
                 {
                     assert!(end1 == end2);
 
-                    // call exit now:
-                    // TODO: improve exception handling in context manager.
-                    let exc_type = self.ctx.none();
-                    let exc_val = self.ctx.none();
-                    let exc_tb = self.ctx.none();
-                    self.call_method(
-                        context_manager.clone(),
-                        "__exit__",
-                        vec![exc_type, exc_val, exc_tb],
-                    ).unwrap();
-                    None
+                    // call exit now with no exception:
+                    match self.with_exit(context_manager, None) {
+                        Ok(..) => None,
+                        Err(exc) => Some(Err(exc)),
+                    }
                 } else {
                     panic!("Block stack is incorrect, expected a with block");
                 }
