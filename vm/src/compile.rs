@@ -18,7 +18,7 @@ struct Compiler {
 
 pub fn compile(
     vm: &mut VirtualMachine,
-    source: &String,
+    source: &str,
     mode: Mode,
     source_path: Option<String>,
 ) -> Result<PyObjectRef, String> {
@@ -115,7 +115,7 @@ impl Compiler {
         self.emit(Instruction::ReturnValue);
     }
 
-    fn compile_statements(&mut self, statements: &Vec<ast::LocatedStatement>) {
+    fn compile_statements(&mut self, statements: &[ast::LocatedStatement]) {
         for statement in statements {
             self.compile_statement(statement)
         }

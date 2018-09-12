@@ -13,7 +13,7 @@ use super::compile;
 use super::pyobject::{DictProtocol, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
-fn import_uncached_module(vm: &mut VirtualMachine, module: &String) -> PyResult {
+fn import_uncached_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
     // Check for Rust-native modules
     if let Some(module) = vm.stdlib_inits.get(module) {
         return Ok(module(&vm.ctx).clone());
@@ -53,7 +53,7 @@ fn import_uncached_module(vm: &mut VirtualMachine, module: &String) -> PyResult 
     Ok(vm.ctx.new_module(module, scope))
 }
 
-fn import_module(vm: &mut VirtualMachine, module_name: &String) -> PyResult {
+fn import_module(vm: &mut VirtualMachine, module_name: &str) -> PyResult {
     // First, see if we already loaded the module:
     let sys_modules = vm.sys_module.get_item("modules").unwrap();
     if let Some(module) = sys_modules.get_item(module_name) {
@@ -64,7 +64,7 @@ fn import_module(vm: &mut VirtualMachine, module_name: &String) -> PyResult {
     Ok(module)
 }
 
-pub fn import(vm: &mut VirtualMachine, module_name: &String, symbol: &Option<String>) -> PyResult {
+pub fn import(vm: &mut VirtualMachine, module_name: &str, symbol: &Option<String>) -> PyResult {
     let module = import_module(vm, module_name)?;
     // If we're importing a symbol, look it up and use it, otherwise construct a module and return
     // that
@@ -75,7 +75,7 @@ pub fn import(vm: &mut VirtualMachine, module_name: &String, symbol: &Option<Str
     Ok(obj)
 }
 
-fn find_source(vm: &VirtualMachine, name: &String) -> io::Result<PathBuf> {
+fn find_source(vm: &VirtualMachine, name: &str) -> io::Result<PathBuf> {
     let sys_path = vm.sys_module.get_item("path").unwrap();
     let mut paths: Vec<PathBuf> = match sys_path.borrow().kind {
         PyObjectKind::List { ref elements } => elements

@@ -219,13 +219,13 @@ impl VirtualMachine {
         self.current_frame().last_value()
     }
 
-    fn store_name(&mut self, name: &String) -> Option<PyResult> {
+    fn store_name(&mut self, name: &str) -> Option<PyResult> {
         let obj = self.pop_value();
         self.current_frame_mut().locals.set_item(name, obj);
         None
     }
 
-    fn load_name(&mut self, name: &String) -> Option<PyResult> {
+    fn load_name(&mut self, name: &str) -> Option<PyResult> {
         // Lookup name in scope and put it onto the stack!
         let mut scope = self.current_frame().locals.clone();
         loop {
@@ -628,8 +628,8 @@ impl VirtualMachine {
         }
     }
 
-    fn import(&mut self, module: &String, symbol: &Option<String>) -> Option<PyResult> {
-        let obj = match import(self, module, symbol) {
+    fn import(&mut self, module: &str, symbol: &Option<String>) -> Option<PyResult> {
+        let obj = match import(self, &module.to_string(), symbol) {
             Ok(value) => value,
             Err(value) => return Some(Err(value)),
         };
@@ -643,7 +643,7 @@ impl VirtualMachine {
         objtype::get_attribute(self, obj.clone(), attr_name)
     }
 
-    fn load_attr(&mut self, attr_name: &String) -> Option<PyResult> {
+    fn load_attr(&mut self, attr_name: &str) -> Option<PyResult> {
         let parent = self.pop_value();
         match self.get_attribute(parent, attr_name) {
             Ok(obj) => {
@@ -654,7 +654,7 @@ impl VirtualMachine {
         }
     }
 
-    fn store_attr(&mut self, attr_name: &String) -> Option<PyResult> {
+    fn store_attr(&mut self, attr_name: &str) -> Option<PyResult> {
         let parent = self.pop_value();
         let value = self.pop_value();
         parent.set_attr(attr_name, value);
