@@ -51,7 +51,7 @@ fn create_node(ctx: &PyContext, _name: &str) -> PyObjectRef {
     node
 }
 
-fn statements_to_ast(ctx: &PyContext, statements: &Vec<ast::LocatedStatement>) -> PyObjectRef {
+fn statements_to_ast(ctx: &PyContext, statements: &[ast::LocatedStatement]) -> PyObjectRef {
     let mut py_statements = vec![];
     for statement in statements {
         py_statements.push(statement_to_ast(ctx, statement));

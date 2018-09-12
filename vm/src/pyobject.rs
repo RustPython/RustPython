@@ -273,7 +273,7 @@ impl PyContext {
         )
     }
 
-    pub fn new_class(&self, name: &String, base: PyObjectRef) -> PyObjectRef {
+    pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
         objtype::new(self.type_type(), name, vec![base], self.new_dict()).unwrap()
     }
 
@@ -289,10 +289,10 @@ impl PyContext {
         }.into_ref()
     }
 
-    pub fn new_module(&self, name: &String, scope: PyObjectRef) -> PyObjectRef {
+    pub fn new_module(&self, name: &str, scope: PyObjectRef) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::Module {
-                name: name.clone(),
+                name: name.to_string(),
                 dict: scope.clone(),
             },
             self.module_type.clone(),

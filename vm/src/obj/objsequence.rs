@@ -63,12 +63,12 @@ impl PySliceableSequence for Vec<PyObjectRef> {
 pub fn get_item(
     vm: &mut VirtualMachine,
     sequence: &PyObjectRef,
-    elements: &Vec<PyObjectRef>,
+    elements: &[PyObjectRef],
     subscript: PyObjectRef,
 ) -> PyResult {
     match &(subscript.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = elements.get_pos(*value);
+            let pos_index = elements.to_vec().get_pos(*value);
             if pos_index < elements.len() {
                 let obj = elements[pos_index].clone();
                 Ok(obj)
@@ -84,10 +84,10 @@ pub fn get_item(
         } => Ok(PyObject::new(
             match &(sequence.borrow()).kind {
                 PyObjectKind::Tuple { elements: _ } => PyObjectKind::Tuple {
-                    elements: elements.get_slice_items(&subscript),
+                    elements: elements.to_vec().get_slice_items(&subscript),
                 },
                 PyObjectKind::List { elements: _ } => PyObjectKind::List {
-                    elements: elements.get_slice_items(&subscript),
+                    elements: elements.to_vec().get_slice_items(&subscript),
                 },
                 ref kind => panic!("sequence get_item called for non-sequence: {:?}", kind),
             },
