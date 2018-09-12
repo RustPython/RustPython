@@ -517,7 +517,9 @@ impl Compiler {
                         }
                     }
                     None => {
-                        // TODO: Put none on stack
+                        self.emit(Instruction::LoadConst {
+                            value: bytecode::Constant::None,
+                        });
                     }
                 }
 
