@@ -212,6 +212,23 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+
+fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
+    if objtype::isinstance(i2, vm.ctx.int_type()) {
+        let r1 = int_floordiv(vm, args.clone());
+        let r2 = int_mod(vm, args.clone());
+        Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
+    } else {
+        Err(vm.new_type_error(format!("Cannot divmod power {:?} and {:?}", i, i2)))
+    }
+}
+
 fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -263,6 +280,7 @@ pub fn init(context: &PyContext) {
     int_type.set_attr("__abs__", context.new_rustfunc(int_abs));
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
     int_type.set_attr("__and__", context.new_rustfunc(int_and));
+    int_type.set_attr("__divmod__", context.new_rustfunc(int_divmod));
     int_type.set_attr("__floordiv__", context.new_rustfunc(int_floordiv));
     int_type.set_attr("__new__", context.new_rustfunc(int_new));
     int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
