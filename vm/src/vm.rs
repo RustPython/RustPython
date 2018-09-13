@@ -443,6 +443,7 @@ impl VirtualMachine {
                 // self.invoke('__neg__'
                 match a.borrow().kind {
                     PyObjectKind::Integer { value: ref value1 } => Ok(self.ctx.new_int(-*value1)),
+                    PyObjectKind::Float { value: ref value1 } => Ok(self.ctx.new_float(-*value1)),
                     _ => panic!("Not impl {:?}", a),
                 }
             }

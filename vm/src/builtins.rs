@@ -45,7 +45,13 @@ fn dir_object(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyObjectRef {
     vm.ctx.new_list(members_pystr)
 }
 
-// builtin_abs
+fn builtin_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(x, None)]);
+    match vm.get_attribute(x.clone(), &"__abs__") {
+        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![], vec![])),
+        Err(..) => Err(vm.new_type_error("bad operand for abs".to_string())),
+    }
+}
 
 fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     for item in args.args {
@@ -122,7 +128,14 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-// builtin_divmod
+fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(x, None), (y, None)]);
+    match vm.get_attribute(x.clone(), &"__divmod__") {
+        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
+        Err(..) => Err(vm.new_type_error("unsupported operand type(s) for divmod".to_string())),
+    }
+}
+
 // builtin_enumerate
 
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -373,7 +386,6 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_slice
 // builtin_sorted
 // builtin_staticmethod
-
 // builtin_sum
 // builtin_super
 // builtin_vars
@@ -383,6 +395,7 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
     let mut dict = HashMap::new();
+    dict.insert(String::from("abs"), ctx.new_rustfunc(builtin_abs));
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
     dict.insert(String::from("bool"), ctx.bool_type());
@@ -390,6 +403,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     dict.insert(String::from("dict"), ctx.dict_type());
+    dict.insert(String::from("divmod"), ctx.new_rustfunc(builtin_divmod));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
     dict.insert(String::from("float"), ctx.float_type());

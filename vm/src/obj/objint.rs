@@ -99,6 +99,11 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn int_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    Ok(vm.ctx.new_int(get_value(i).abs()))
+}
+
 fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -112,6 +117,19 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(vm.ctx.new_float(i as f64 + objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+    }
+}
+
+fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    if objtype::isinstance(i2, vm.ctx.int_type()) {
+        Ok(vm.ctx.new_int(get_value(i) / get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
     }
 }
 
@@ -139,6 +157,10 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     if objtype::isinstance(i2, vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(i) * get_value(i2)))
+    } else if objtype::isinstance(i2, vm.ctx.float_type()) {
+        Ok(vm
+            .ctx
+            .new_float(get_value(i) as f64 * objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot multiply {:?} and {:?}", i, i2)))
     }
@@ -192,6 +214,22 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+    let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
+    if objtype::isinstance(i2, vm.ctx.int_type()) {
+        let r1 = int_floordiv(vm, args.clone());
+        let r2 = int_mod(vm, args.clone());
+        Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
+    } else {
+        Err(vm.new_type_error(format!("Cannot divmod power {:?} and {:?}", i, i2)))
+    }
+}
+
 fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -240,8 +278,11 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     int_type.set_attr("__eq__", context.new_rustfunc(int_eq));
+    int_type.set_attr("__abs__", context.new_rustfunc(int_abs));
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
     int_type.set_attr("__and__", context.new_rustfunc(int_and));
+    int_type.set_attr("__divmod__", context.new_rustfunc(int_divmod));
+    int_type.set_attr("__floordiv__", context.new_rustfunc(int_floordiv));
     int_type.set_attr("__new__", context.new_rustfunc(int_new));
     int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
