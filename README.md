@@ -30,12 +30,12 @@ Or use the interactive shell:
 
 # Code organization
 
-- parser: python lexing, parsing and ast  
-- vm: python virtual machine  
-- src: using the other subcrates to bring rustpython to life.  
-- docs: documentation (work in progress)  
-- py_code_object: CPython bytecode to rustpython bytecode convertor (work in progress)  
-- tests: integration test snippets
+- `parser`: python lexing, parsing and ast  
+- `vm`: python virtual machine  
+- `src`: using the other subcrates to bring rustpython to life.  
+- `docs`: documentation (work in progress)  
+- `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)  
+- `tests`: integration test snippets
 
 # Community
 
