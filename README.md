@@ -3,14 +3,14 @@ A Python Interpreter written in Rust :snake: :scream: :metal:.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
 
-# Usage (Not implemented yet)
+# Usage
 
 To test RustPython, do the following:
 
     $ git clone https://github.com/RustPython/RustPython
     $ cd RustPython
     $ cargo run demo.py
-    42
+    Hello, RustPython!
 
 Or use the interactive shell:
 
@@ -19,9 +19,9 @@ Or use the interactive shell:
     >>>>> 2+2
     4
 
-Or use pip to install extra modules:
+<!-- Or use pip to install extra modules:
 
-    $ cargo run -m pip install requests
+    $ cargo run -m pip install requests -->
 
 # Goals
 
@@ -30,12 +30,12 @@ Or use pip to install extra modules:
 
 # Code organization
 
-    - `parser`: python lexing, parsing and ast
-    - `vm`: python virtual machine
-    - `src`: using the other subcrates to bring rustpython to life.
-    - `docs`: documentation (work in progress)
-    - `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)
-    - `tests`: integration test snippets
+- parser: python lexing, parsing and ast  
+- vm: python virtual machine  
+- src: using the other subcrates to bring rustpython to life.  
+- docs: documentation (work in progress)  
+- py_code_object: CPython bytecode to rustpython bytecode convertor (work in progress)  
+- tests: integration test snippets
 
 # Community
 
