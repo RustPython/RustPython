@@ -2,6 +2,7 @@
 A Python Interpreter written in Rust :snake: :scream: :metal:.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 # Usage
 
