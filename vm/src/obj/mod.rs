@@ -1,3 +1,4 @@
+pub mod objbool;
 pub mod objbytes;
 pub mod objdict;
 pub mod objfloat;

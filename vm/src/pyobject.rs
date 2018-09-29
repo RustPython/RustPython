@@ -1,5 +1,6 @@
 use super::bytecode;
 use super::exceptions;
+use super::obj::objbool;
 use super::obj::objbytes;
 use super::obj::objdict;
 use super::obj::objfloat;
@@ -11,7 +12,6 @@ use super::obj::objobject;
 use super::obj::objstr;
 use super::obj::objtuple;
 use super::obj::objtype;
-use super::objbool;
 use super::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::cmp::Ordering;

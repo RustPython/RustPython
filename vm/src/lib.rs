@@ -21,7 +21,6 @@ mod exceptions;
 mod frame;
 mod import;
 mod obj;
-mod objbool;
 pub mod pyobject;
 pub mod stdlib;
 mod sysmodule;

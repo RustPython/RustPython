@@ -1,6 +1,6 @@
-use super::super::objbool;
 use super::super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
+use super::objbool;
 use std::marker::Sized;
 
 pub trait PySliceableSequence {
