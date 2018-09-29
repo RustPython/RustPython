@@ -15,6 +15,14 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
     str_type.set_attr("__str__", context.new_rustfunc(str_str));
     str_type.set_attr("__repr__", context.new_rustfunc(str_repr));
+    str_type.set_attr("lower", context.new_rustfunc(str_lower));
+    str_type.set_attr("upper", context.new_rustfunc(str_upper));
+    str_type.set_attr("split", context.new_rustfunc(str_split));
+    str_type.set_attr("strip", context.new_rustfunc(str_strip));
+    str_type.set_attr("lstrip", context.new_rustfunc(str_lstrip));
+    str_type.set_attr("rstrip", context.new_rustfunc(str_rstrip));
+    str_type.set_attr("endswith", context.new_rustfunc(str_endswith));
+    str_type.set_attr("startswith", context.new_rustfunc(str_startswith));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -118,6 +126,75 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         Err(vm.new_type_error(format!("Cannot multiply {:?} and {:?}", s, s2)))
     }
+}
+
+fn str_upper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s).to_uppercase();
+    Ok(vm.ctx.new_str(value))
+}
+
+fn str_lower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s).to_lowercase();
+    Ok(vm.ctx.new_str(value))
+}
+
+fn str_split(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (pat, Some(vm.ctx.str_type()))]
+    );
+    let value = get_value(&s);
+    // if some
+    let pat = get_value(&pat);
+    let str_pat = pat.as_str();
+    let elements = value
+        .split(str_pat)
+        .map(|o| vm.ctx.new_str(o.to_string()))
+        .collect();
+    Ok(vm.ctx.new_list(elements))
+}
+
+fn str_strip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s).trim().to_string();
+    Ok(vm.ctx.new_str(value))
+}
+
+fn str_lstrip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s).trim_left().to_string();
+    Ok(vm.ctx.new_str(value))
+}
+
+fn str_rstrip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s).trim_right().to_string();
+    Ok(vm.ctx.new_str(value))
+}
+
+fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (pat, Some(vm.ctx.str_type()))]
+    );
+    let value = get_value(&s);
+    let pat = get_value(&pat);
+    Ok(vm.ctx.new_bool(value.ends_with(pat.as_str())))
+}
+
+fn str_startswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (pat, Some(vm.ctx.str_type()))]
+    );
+    let value = get_value(&s);
+    let pat = get_value(&pat);
+    Ok(vm.ctx.new_bool(value.starts_with(pat.as_str())))
 }
 
 // TODO: should with following format
