@@ -1,9 +1,9 @@
-use super::super::objbool;
 use super::super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
     PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objbool;
 use super::objdict;
 use super::objtype;
 

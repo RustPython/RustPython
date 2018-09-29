@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::compile;
+use super::obj::objbool;
 use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
-use super::objbool;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind,
     PyObjectRef, PyResult, Scope, TypeProtocol,

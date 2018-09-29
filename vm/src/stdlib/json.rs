@@ -5,8 +5,7 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
-use super::super::obj::{objdict, objfloat, objint, objlist, objstr, objtuple, objtype};
-use super::super::objbool;
+use super::super::obj::{objbool, objdict, objfloat, objint, objlist, objstr, objtuple, objtype};
 use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
