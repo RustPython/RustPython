@@ -45,6 +45,7 @@ fn import_uncached_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
 
     let builtins = vm.get_builtin_scope();
     let scope = vm.ctx.new_scope(Some(builtins));
+    scope.set_item(&"__name__".to_string(), vm.new_str(module.to_string()));
 
     match vm.run_code_obj(code_obj, scope.clone()) {
         Ok(_) => {}
