@@ -84,7 +84,8 @@ fn find_source(vm: &VirtualMachine, name: &str) -> io::Result<PathBuf> {
             .filter_map(|item| match item.borrow().kind {
                 PyObjectKind::String { ref value } => Some(PathBuf::from(value)),
                 _ => None,
-            }).collect(),
+            })
+            .collect(),
         _ => panic!("sys.path unexpectedly not a list"),
     };
 
