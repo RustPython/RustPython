@@ -393,8 +393,13 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    // scope[String::from("print")] = print;
+
     let mut dict = HashMap::new();
+    //set __name__
+    //fixes: https://github.com/RustPython/RustPython/issues/146
+    dict.insert(String::from("__name__"), ctx.new_str(String::from("__main__")));
+
+    //add builtin functions
     dict.insert(String::from("abs"), ctx.new_rustfunc(builtin_abs));
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
