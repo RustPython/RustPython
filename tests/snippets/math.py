@@ -17,3 +17,5 @@ assert a - 3 == 1
 assert -a == -4
 assert +a == 4
 
+# import math
+# print(math.cos(1.2))
