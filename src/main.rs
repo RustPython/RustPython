@@ -10,13 +10,13 @@ extern crate rustpython_vm;
 use clap::{App, Arg};
 use rustpython_parser::parser;
 use rustpython_vm::compile;
+use rustpython_vm::obj::objstr;
 use rustpython_vm::print_exception;
+use rustpython_vm::pyobject::PyObjectRef;
 use rustpython_vm::VirtualMachine;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
-
-use rustpython_vm::pyobject::PyObjectRef;
 
 fn main() {
     env_logger::init();
@@ -99,17 +99,21 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
                 Ok(_value) => {
                     // Printed already.
                 }
-                Err(msg) => {
-                    print_exception(vm, &msg);
+                Err(err) => {
+                    print_exception(vm, &err);
                 }
             }
         }
-        Err(msg) => {
+        Err(err) => {
             // Enum rather than special string here.
+            let msg = match vm.get_attribute(err.clone(), "msg") {
+                Ok(value) => objstr::get_value(&value),
+                Err(_) => panic!("Expected msg attribute on exception object!"),
+            };
             if msg == "Unexpected end of input." {
                 return false;
             } else {
-                println!("Error: {:?}", msg)
+                print_exception(vm, &err);
             }
         }
     };

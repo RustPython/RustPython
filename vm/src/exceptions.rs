@@ -15,7 +15,7 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.new_str("No msg".to_string())
     };
     let traceback = vm.ctx.new_list(Vec::new());
-    zelf.set_attr("__msg__", msg);
+    zelf.set_attr("msg", msg);
     zelf.set_attr("__traceback__", traceback);
     Ok(vm.get_none())
 }
@@ -71,7 +71,7 @@ fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
     );
     let type_name = objtype::get_type_name(&exc.typ());
-    let msg = if let Some(m) = exc.get_attr("__msg__") {
+    let msg = if let Some(m) = exc.get_attr("msg") {
         objstr::get_value(&m)
     } else {
         panic!("Error message must be set");
@@ -84,6 +84,7 @@ fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub struct ExceptionZoo {
     pub base_exception_type: PyObjectRef,
     pub exception_type: PyObjectRef,
+    pub syntax_error: PyObjectRef,
     pub assertion_error: PyObjectRef,
     pub attribute_error: PyObjectRef,
     pub name_error: PyObjectRef,
@@ -92,6 +93,8 @@ pub struct ExceptionZoo {
     pub stop_iteration: PyObjectRef,
     pub type_error: PyObjectRef,
     pub value_error: PyObjectRef,
+    pub import_error: PyObjectRef,
+    pub module_not_found_error: PyObjectRef,
 }
 
 impl ExceptionZoo {
@@ -107,6 +110,12 @@ impl ExceptionZoo {
             &String::from("Exception"),
             &type_type,
             &base_exception_type,
+            &dict_type,
+        );
+        let syntax_error = create_type(
+            &String::from("SyntaxError"),
+            &type_type,
+            &exception_type,
             &dict_type,
         );
         let assertion_error = create_type(
@@ -157,10 +166,23 @@ impl ExceptionZoo {
             &exception_type,
             &dict_type,
         );
+        let import_error = create_type(
+            &String::from("ImportError"),
+            &type_type,
+            &exception_type,
+            &dict_type,
+        );
+        let module_not_found_error = create_type(
+            &String::from("ModuleNotFoundError"),
+            &type_type,
+            &import_error,
+            &dict_type,
+        );
 
         ExceptionZoo {
             base_exception_type: base_exception_type,
             exception_type: exception_type,
+            syntax_error: syntax_error,
             assertion_error: assertion_error,
             attribute_error: attribute_error,
             name_error: name_error,
@@ -169,6 +191,8 @@ impl ExceptionZoo {
             stop_iteration: stop_iteration,
             type_error: type_error,
             value_error: value_error,
+            import_error: import_error,
+            module_not_found_error: module_not_found_error,
         }
     }
 }

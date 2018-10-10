@@ -110,10 +110,7 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mode = compile::Mode::Eval;
     let source = source.borrow().str();
 
-    match compile::compile(vm, &source, mode, None) {
-        Ok(value) => Ok(value),
-        Err(msg) => Err(vm.new_type_error(msg)),
-    }
+    compile::compile(vm, &source, mode, None)
 }
 
 // builtin_complex

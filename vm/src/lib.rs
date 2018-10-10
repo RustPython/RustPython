@@ -20,7 +20,7 @@ pub mod eval;
 mod exceptions;
 mod frame;
 mod import;
-mod obj;
+pub mod obj;
 pub mod pyobject;
 pub mod stdlib;
 mod sysmodule;

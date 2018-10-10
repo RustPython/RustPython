@@ -10,9 +10,7 @@ pub fn eval(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> PyResu
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)
         }
-        Err(msg) => {
-            panic!("Parsing went horribly wrong: {}", msg);
-        }
+        Err(err) => Err(err),
     }
 }
 

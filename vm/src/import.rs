@@ -4,8 +4,6 @@
 
 extern crate rustpython_parser;
 
-use std::io;
-use std::io::ErrorKind::NotFound;
 use std::path::PathBuf;
 
 use self::rustpython_parser::parser;
@@ -19,14 +17,14 @@ fn import_uncached_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
         return Ok(module(&vm.ctx).clone());
     }
 
-    // TODO: introduce import error:
-    let import_error = vm.context().exceptions.exception_type.clone();
+    let notfound_error = vm.context().exceptions.module_not_found_error.clone();
+    let import_error = vm.context().exceptions.import_error.clone();
 
     // Time to search for module in any place:
-    let filepath = find_source(vm, module)
-        .map_err(|e| vm.new_exception(import_error.clone(), format!("Error: {:?}", e)))?;
+    let filepath =
+        find_source(vm, module).map_err(|e| vm.new_exception(notfound_error.clone(), e))?;
     let source = parser::read_file(filepath.as_path())
-        .map_err(|e| vm.new_exception(import_error.clone(), format!("Error: {:?}", e)))?;
+        .map_err(|e| vm.new_exception(import_error.clone(), e))?;
 
     let code_obj = match compile::compile(
         vm,
@@ -38,9 +36,7 @@ fn import_uncached_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
             debug!("Code object: {:?}", bytecode);
             bytecode
         }
-        Err(value) => {
-            panic!("Error: {}", value);
-        }
+        Err(value) => return Err(value),
     };
 
     let builtins = vm.get_builtin_scope();
@@ -75,7 +71,7 @@ pub fn import(vm: &mut VirtualMachine, module_name: &str, symbol: &Option<String
     Ok(obj)
 }
 
-fn find_source(vm: &VirtualMachine, name: &str) -> io::Result<PathBuf> {
+fn find_source(vm: &VirtualMachine, name: &str) -> Result<PathBuf, String> {
     let sys_path = vm.sys_module.get_item("path").unwrap();
     let mut paths: Vec<PathBuf> = match sys_path.borrow().kind {
         PyObjectKind::List { ref elements } => elements
@@ -112,9 +108,6 @@ fn find_source(vm: &VirtualMachine, name: &str) -> io::Result<PathBuf> {
 
     match filepaths.iter().filter(|p| p.exists()).next() {
         Some(path) => Ok(path.to_path_buf()),
-        None => Err(io::Error::new(
-            NotFound,
-            format!("Module ({}) could not be found.", name),
-        )),
+        None => Err(format!("No module named '{}'", name)),
     }
 }
