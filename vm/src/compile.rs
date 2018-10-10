@@ -6,7 +6,7 @@ extern crate rustpython_parser;
 
 use self::rustpython_parser::{ast, parser};
 use super::bytecode::{self, CodeObject, Instruction};
-use super::pyobject::{PyObject, PyObjectKind, PyObjectRef};
+use super::pyobject::{PyObject, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
 struct Compiler {
@@ -21,16 +21,17 @@ pub fn compile(
     source: &str,
     mode: Mode,
     source_path: Option<String>,
-) -> Result<PyObjectRef, String> {
+) -> PyResult {
     let mut compiler = Compiler::new();
     compiler.source_path = source_path.clone();
     compiler.push_new_code_object(source_path, "<module>".to_string());
+    let syntax_error = vm.context().exceptions.syntax_error.clone();
     match mode {
         Mode::Exec => match parser::parse_program(source) {
             Ok(ast) => {
                 compiler.compile_program(&ast);
             }
-            Err(msg) => return Err(msg),
+            Err(msg) => return Err(vm.new_exception(syntax_error.clone(), msg)),
         },
         Mode::Eval => match parser::parse_statement(source) {
             Ok(statement) => {
@@ -38,10 +39,13 @@ pub fn compile(
                     compiler.compile_expression(expression);
                     compiler.emit(Instruction::ReturnValue);
                 } else {
-                    return Err("Expecting expression, got statement".to_string());
+                    return Err(vm.new_exception(
+                        syntax_error.clone(),
+                        "Expecting expression, got statement".to_string(),
+                    ));
                 }
             }
-            Err(msg) => return Err(msg),
+            Err(msg) => return Err(vm.new_exception(syntax_error.clone(), msg)),
         },
         Mode::Single => match parser::parse_program(source) {
             Ok(ast) => {
@@ -58,7 +62,7 @@ pub fn compile(
                 });
                 compiler.emit(Instruction::ReturnValue);
             }
-            Err(msg) => return Err(msg),
+            Err(msg) => return Err(vm.new_exception(syntax_error.clone(), msg)),
         },
     };
 

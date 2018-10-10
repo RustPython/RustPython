@@ -10,13 +10,13 @@ extern crate rustpython_vm;
 use clap::{App, Arg};
 use rustpython_parser::parser;
 use rustpython_vm::compile;
+use rustpython_vm::obj::objstr;
 use rustpython_vm::print_exception;
+use rustpython_vm::pyobject::PyObjectRef;
 use rustpython_vm::VirtualMachine;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
-
-use rustpython_vm::pyobject::PyObjectRef;
 
 fn main() {
     env_logger::init();
@@ -99,43 +99,25 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
                 Ok(_value) => {
                     // Printed already.
                 }
-                Err(msg) => {
-                    print_exception(vm, &msg);
+                Err(err) => {
+                    print_exception(vm, &err);
                 }
             }
         }
-        Err(msg) => {
+        Err(err) => {
             // Enum rather than special string here.
+            let msg = match vm.get_attribute(err.clone(), "msg") {
+                Ok(value) => objstr::get_value(&value),
+                Err(_) => panic!("Expected msg attribute on exception object!"),
+            };
             if msg == "Unexpected end of input." {
                 return false;
             } else {
-                println!("Error: {:?}", msg)
+                print_exception(vm, &err);
             }
         }
     };
     true
-}
-
-fn read_until_empty_line(input: &mut String) -> Result<i32, std::io::Error> {
-    loop {
-        print!("..... ");
-        io::stdout().flush().expect("Could not flush stdout");
-        let mut line = String::new();
-        match io::stdin().read_line(&mut line) {
-            Ok(0) => {
-                return Ok(0);
-            }
-            Ok(1) => {
-                return Ok(1);
-            }
-            Ok(_) => {
-                input.push_str(&line);
-            }
-            Err(msg) => {
-                return Err(msg);
-            }
-        }
-    }
 }
 
 fn run_shell() {
@@ -150,7 +132,13 @@ fn run_shell() {
     // Read a single line:
     let mut input = String::new();
     loop {
-        print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
+        // TODO: modules dont support getattr / setattr yet
+        //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps1") {
+        //        Ok(value) => objstr::get_value(&value),
+        //        Err(_) => ">>>>> ".to_string(),
+        //};
+        print!(">>>>> ");
+
         io::stdout().flush().expect("Could not flush stdout");
         match io::stdin().read_line(&mut input) {
             Ok(0) => {
@@ -162,14 +150,32 @@ fn run_shell() {
                     // Line was complete.
                     input = String::new();
                 } else {
-                    match read_until_empty_line(&mut input) {
-                        Ok(0) => {
-                            break;
+                    loop {
+                        // until an empty line is pressed AND the code is complete
+                        //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps2") {
+                        //        Ok(value) => objstr::get_value(&value),
+                        //        Err(_) => "..... ".to_string(),
+                        //};
+                        print!("..... ");
+                        io::stdout().flush().expect("Could not flush stdout");
+                        let mut line = String::new();
+                        match io::stdin().read_line(&mut line) {
+                            Ok(_) => {
+                                line = line
+                                    .trim_right_matches(|c| c == '\r' || c == '\n')
+                                    .to_string();
+                                if line.len() == 0 {
+                                    if shell_exec(&mut vm, &input, vars.clone()) {
+                                        input = String::new();
+                                        break;
+                                    }
+                                } else {
+                                    input.push_str(&line);
+                                    input.push_str("\n");
+                                }
+                            }
+                            Err(msg) => panic!("Error: {:?}", msg),
                         }
-                        Ok(_) => {
-                            shell_exec(&mut vm, &input, vars.clone());
-                        }
-                        Err(msg) => panic!("Error: {:?}", msg),
                     }
                 }
             }
