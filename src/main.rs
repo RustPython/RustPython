@@ -126,14 +126,16 @@ fn read_until_empty_line(input: &mut String) -> Result<i32, std::io::Error> {
         io::stdout().flush().expect("Could not flush stdout");
         let mut line = String::new();
         match io::stdin().read_line(&mut line) {
-            Ok(0) => {
-                return Ok(0);
-            }
-            Ok(1) => {
-                return Ok(1);
-            }
             Ok(_) => {
-                input.push_str(&line);
+                line = line
+                    .trim_right_matches(|c| c == '\r' || c == '\n')
+                    .to_string();
+                if line.len() == 0 {
+                    return Ok(0); // DOne
+                } else {
+                    input.push_str(&line);
+                    input.push_str("\n");
+                }
             }
             Err(msg) => {
                 return Err(msg);
@@ -167,9 +169,6 @@ fn run_shell() {
                     input = String::new();
                 } else {
                     match read_until_empty_line(&mut input) {
-                        Ok(0) => {
-                            break;
-                        }
                         Ok(_) => {
                             shell_exec(&mut vm, &input, vars.clone());
                         }
