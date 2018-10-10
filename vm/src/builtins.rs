@@ -339,7 +339,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             Ok(v) => objstr::get_value(&v),
             Err(err) => return Err(err),
         };
-        print!("{} ", s);
+        print!("{}", s);
     }
     println!();
     io::stdout().flush().unwrap();
@@ -395,6 +395,11 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // scope[String::from("print")] = print;
     let mut dict = HashMap::new();
+    //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
+    dict.insert(
+        String::from("__name__"),
+        ctx.new_str(String::from("__main__")),
+    );
     dict.insert(String::from("abs"), ctx.new_rustfunc(builtin_abs));
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
