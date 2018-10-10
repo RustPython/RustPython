@@ -120,30 +120,6 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
     true
 }
 
-fn read_until_empty_line(input: &mut String) -> Result<i32, std::io::Error> {
-    loop {
-        print!("..... ");
-        io::stdout().flush().expect("Could not flush stdout");
-        let mut line = String::new();
-        match io::stdin().read_line(&mut line) {
-            Ok(_) => {
-                line = line
-                    .trim_right_matches(|c| c == '\r' || c == '\n')
-                    .to_string();
-                if line.len() == 0 {
-                    return Ok(0); // DOne
-                } else {
-                    input.push_str(&line);
-                    input.push_str("\n");
-                }
-            }
-            Err(msg) => {
-                return Err(msg);
-            }
-        }
-    }
-}
-
 fn run_shell() {
     println!(
         "Welcome to the magnificent Rust Python {} interpreter",
@@ -156,7 +132,13 @@ fn run_shell() {
     // Read a single line:
     let mut input = String::new();
     loop {
-        print!(">>>>> "); // Use 5 items. pypy has 4, cpython has 3.
+        // TODO: modules dont support getattr / setattr yet
+        //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps1") {
+        //        Ok(value) => objstr::get_value(&value),
+        //        Err(_) => ">>>>> ".to_string(),
+        //};
+        print!(">>>>> ");
+
         io::stdout().flush().expect("Could not flush stdout");
         match io::stdin().read_line(&mut input) {
             Ok(0) => {
@@ -168,11 +150,32 @@ fn run_shell() {
                     // Line was complete.
                     input = String::new();
                 } else {
-                    match read_until_empty_line(&mut input) {
-                        Ok(_) => {
-                            shell_exec(&mut vm, &input, vars.clone());
+                    loop {
+                        // until an empty line is pressed AND the code is complete
+                        //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps2") {
+                        //        Ok(value) => objstr::get_value(&value),
+                        //        Err(_) => "..... ".to_string(),
+                        //};
+                        print!("..... ");
+                        io::stdout().flush().expect("Could not flush stdout");
+                        let mut line = String::new();
+                        match io::stdin().read_line(&mut line) {
+                            Ok(_) => {
+                                line = line
+                                    .trim_right_matches(|c| c == '\r' || c == '\n')
+                                    .to_string();
+                                if line.len() == 0 {
+                                    if shell_exec(&mut vm, &input, vars.clone()) {
+                                        input = String::new();
+                                        break;
+                                    }
+                                } else {
+                                    input.push_str(&line);
+                                    input.push_str("\n");
+                                }
+                            }
+                            Err(msg) => panic!("Error: {:?}", msg),
                         }
-                        Err(msg) => panic!("Error: {:?}", msg),
                     }
                 }
             }
