@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(
             map_ids(linearise_mro(vec![
                 vec![object.clone()],
-                vec![object.clone()]
+                vec![object.clone()],
             ])),
             map_ids(Some(vec![object.clone()]))
         );
