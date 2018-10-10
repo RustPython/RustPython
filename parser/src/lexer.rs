@@ -41,6 +41,48 @@ impl Location {
     }
 }
 
+pub fn get_keywords() -> HashMap<String, Tok> {
+    let mut keywords: HashMap<String, Tok> = HashMap::new();
+
+    // Alphabetical keywords:
+    keywords.insert(String::from("..."), Tok::Ellipsis);
+    keywords.insert(String::from("False"), Tok::False);
+    keywords.insert(String::from("None"), Tok::None);
+    keywords.insert(String::from("True"), Tok::True);
+
+    keywords.insert(String::from("and"), Tok::And);
+    keywords.insert(String::from("as"), Tok::As);
+    keywords.insert(String::from("assert"), Tok::Assert);
+    keywords.insert(String::from("break"), Tok::Break);
+    keywords.insert(String::from("class"), Tok::Class);
+    keywords.insert(String::from("continue"), Tok::Continue);
+    keywords.insert(String::from("def"), Tok::Def);
+    keywords.insert(String::from("del"), Tok::Del);
+    keywords.insert(String::from("elif"), Tok::Elif);
+    keywords.insert(String::from("else"), Tok::Else);
+    keywords.insert(String::from("except"), Tok::Except);
+    keywords.insert(String::from("finally"), Tok::Finally);
+    keywords.insert(String::from("for"), Tok::For);
+    keywords.insert(String::from("from"), Tok::From);
+    keywords.insert(String::from("global"), Tok::Global);
+    keywords.insert(String::from("if"), Tok::If);
+    keywords.insert(String::from("import"), Tok::Import);
+    keywords.insert(String::from("in"), Tok::In);
+    keywords.insert(String::from("is"), Tok::Is);
+    keywords.insert(String::from("lambda"), Tok::Lambda);
+    keywords.insert(String::from("nonlocal"), Tok::Nonlocal);
+    keywords.insert(String::from("not"), Tok::Not);
+    keywords.insert(String::from("or"), Tok::Or);
+    keywords.insert(String::from("pass"), Tok::Pass);
+    keywords.insert(String::from("raise"), Tok::Raise);
+    keywords.insert(String::from("return"), Tok::Return);
+    keywords.insert(String::from("try"), Tok::Try);
+    keywords.insert(String::from("while"), Tok::While);
+    keywords.insert(String::from("with"), Tok::With);
+    keywords.insert(String::from("yield"), Tok::Yield);
+    keywords
+}
+
 pub type Spanned<Tok> = Result<(Location, Tok, Location), LexicalError>;
 
 impl<'input> Lexer<'input> {
@@ -72,44 +114,7 @@ impl<'input> Lexer<'input> {
         }
         let end_pos = self.get_pos();
 
-        let mut keywords: HashMap<String, Tok> = HashMap::new();
-
-        // Alphabetical keywords:
-        keywords.insert(String::from("..."), Tok::Ellipsis);
-        keywords.insert(String::from("False"), Tok::False);
-        keywords.insert(String::from("None"), Tok::None);
-        keywords.insert(String::from("True"), Tok::True);
-
-        keywords.insert(String::from("and"), Tok::And);
-        keywords.insert(String::from("as"), Tok::As);
-        keywords.insert(String::from("assert"), Tok::Assert);
-        keywords.insert(String::from("break"), Tok::Break);
-        keywords.insert(String::from("class"), Tok::Class);
-        keywords.insert(String::from("continue"), Tok::Continue);
-        keywords.insert(String::from("def"), Tok::Def);
-        keywords.insert(String::from("del"), Tok::Del);
-        keywords.insert(String::from("elif"), Tok::Elif);
-        keywords.insert(String::from("else"), Tok::Else);
-        keywords.insert(String::from("except"), Tok::Except);
-        keywords.insert(String::from("finally"), Tok::Finally);
-        keywords.insert(String::from("for"), Tok::For);
-        keywords.insert(String::from("from"), Tok::From);
-        keywords.insert(String::from("global"), Tok::Global);
-        keywords.insert(String::from("if"), Tok::If);
-        keywords.insert(String::from("import"), Tok::Import);
-        keywords.insert(String::from("in"), Tok::In);
-        keywords.insert(String::from("is"), Tok::Is);
-        keywords.insert(String::from("lambda"), Tok::Lambda);
-        keywords.insert(String::from("nonlocal"), Tok::Nonlocal);
-        keywords.insert(String::from("not"), Tok::Not);
-        keywords.insert(String::from("or"), Tok::Or);
-        keywords.insert(String::from("pass"), Tok::Pass);
-        keywords.insert(String::from("raise"), Tok::Raise);
-        keywords.insert(String::from("return"), Tok::Return);
-        keywords.insert(String::from("try"), Tok::Try);
-        keywords.insert(String::from("while"), Tok::While);
-        keywords.insert(String::from("with"), Tok::With);
-        keywords.insert(String::from("yield"), Tok::Yield);
+        let mut keywords = get_keywords();
 
         if keywords.contains_key(&name) {
             Ok((start_pos, keywords.remove(&name).unwrap(), end_pos))

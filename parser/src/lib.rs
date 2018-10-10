@@ -2,7 +2,7 @@
 extern crate log;
 
 pub mod ast;
-mod lexer;
+pub mod lexer;
 pub mod parser;
 mod python;
 mod token;
