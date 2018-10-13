@@ -24,10 +24,10 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     py_mod.set_item("iskeyword", ctx.new_rustfunc(keyword_iskeyword));
     let keyword_kwlist = ctx.new_list(
         lexer::get_keywords()
-        .keys()
-        .map(|k| ctx.new_str(k.to_string()))
-        .collect());
+            .keys()
+            .map(|k| ctx.new_str(k.to_string()))
+            .collect(),
+    );
     py_mod.set_item("kwlist", keyword_kwlist);
     py_mod
 }
-

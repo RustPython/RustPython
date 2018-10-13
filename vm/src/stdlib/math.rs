@@ -11,15 +11,15 @@ use super::super::VirtualMachine;
 
 // Helper macro:
 macro_rules! make_math_func {
-  ( $fname:ident, $fun:ident ) => {
-    fn $fname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-        let value = objfloat::get_value(value);
-        let value = value.$fun();
-        let value = vm.ctx.new_float(value);
-        Ok(value)
-    }
-  }
+    ( $fname:ident, $fun:ident ) => {
+        fn $fname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+            arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
+            let value = objfloat::get_value(value);
+            let value = value.$fun();
+            let value = vm.ctx.new_float(value);
+            Ok(value)
+        }
+    };
 }
 
 // Trigonometric functions:
@@ -37,7 +37,6 @@ make_math_func!(math_atanh, atanh);
 make_math_func!(math_cosh, cosh);
 make_math_func!(math_sinh, sinh);
 make_math_func!(math_tanh, tanh);
-
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"math".to_string(), ctx.new_scope(None));

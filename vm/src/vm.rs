@@ -371,7 +371,8 @@ impl VirtualMachine {
                             args: vec![traceback, pos],
                             kwargs: vec![],
                         },
-                    ).unwrap();
+                    )
+                    .unwrap();
                     // exception.__trace
                     match self.unwind_exception(exception) {
                         None => {}
@@ -876,7 +877,8 @@ impl VirtualMachine {
                         PyObjectKind::Integer { value } => Some(value),
                         PyObjectKind::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
-                    }).collect();
+                    })
+                    .collect();
 
                 let start = out[0];
                 let stop = out[1];
@@ -1146,7 +1148,8 @@ impl VirtualMachine {
                                 args: vec![repr],
                                 kwargs: vec![],
                             },
-                        ).unwrap();
+                        )
+                        .unwrap();
                     }
                 }
                 None

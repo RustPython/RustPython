@@ -291,13 +291,15 @@ mod tests {
             "A",
             vec![object.clone()],
             type_type.clone(),
-        ).unwrap();
+        )
+        .unwrap();
         let b = new(
             type_type.clone(),
             "B",
             vec![object.clone()],
             type_type.clone(),
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(
             map_ids(linearise_mro(vec![

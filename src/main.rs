@@ -30,12 +30,14 @@ fn main() {
                 .short("v")
                 .multiple(true)
                 .help("Give the verbosity"),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("c")
                 .short("c")
                 .takes_value(true)
                 .help("run the given string as a program"),
-        ).get_matches();
+        )
+        .get_matches();
 
     // Figure out if a -c option was given:
     if let Some(command) = matches.value_of("c") {
@@ -57,7 +59,8 @@ fn _run_string(source: &str, source_path: Option<String>) {
         &source.to_string(),
         compile::Mode::Exec,
         source_path,
-    ).unwrap();
+    )
+    .unwrap();
     debug!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables

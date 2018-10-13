@@ -38,6 +38,35 @@ Or use the interactive shell:
 - `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)  
 - `tests`: integration test snippets
 
+# Contributing
+
+To start contributing, there are a lot of things that need to be done.
+Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustPython/issues).
+Another approach is to checkout the sourcecode, and try out rustpython until
+you hit a limitation, and try to fix that.
+
+# Testing
+
+To test rustpython, there is a collection of python snippets located in the
+`tests/snippets` directory. To run those tests do the following:
+
+```shell
+$ cd tests
+$ pipenv shell
+$ pytest -v
+```
+
+There also are some unittests, you can run those will cargo:
+
+```shell
+$ cargo test --all
+```
+
+# Code style
+
+The code style used is the default rustfmt codestyle. Please format your code
+accordingly.
+
 # Community
 
 Chat with us on [gitter][gitter].

@@ -85,7 +85,8 @@ fn _nothing() -> PyObjectRef {
     PyObject {
         kind: PyObjectKind::None,
         typ: None,
-    }.into_ref()
+    }
+    .into_ref()
 }
 
 pub fn create_type(
@@ -286,7 +287,8 @@ impl PyContext {
         PyObject {
             kind: PyObjectKind::Scope { scope: scope },
             typ: None,
-        }.into_ref()
+        }
+        .into_ref()
     }
 
     pub fn new_module(&self, name: &str, scope: PyObjectRef) -> PyObjectRef {
@@ -692,7 +694,8 @@ impl PyObject {
             kind: kind,
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
-        }.into_ref()
+        }
+        .into_ref()
     }
 
     pub fn str(&self) -> String {
@@ -709,18 +712,20 @@ impl PyObject {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            PyObjectKind::Tuple { ref elements } => if elements.len() == 1 {
-                format!("({},)", elements[0].borrow().str())
-            } else {
-                format!(
-                    "({})",
-                    elements
-                        .iter()
-                        .map(|elem| elem.borrow().str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            },
+            PyObjectKind::Tuple { ref elements } => {
+                if elements.len() == 1 {
+                    format!("({},)", elements[0].borrow().str())
+                } else {
+                    format!(
+                        "({})",
+                        elements
+                            .iter()
+                            .map(|elem| elem.borrow().str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            }
             PyObjectKind::Dict { ref elements } => format!(
                 "{{ {} }}",
                 elements
