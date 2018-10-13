@@ -49,7 +49,7 @@ fn import_uncached_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
     Ok(vm.ctx.new_module(module, scope))
 }
 
-fn import_module(vm: &mut VirtualMachine, module_name: &str) -> PyResult {
+pub fn import_module(vm: &mut VirtualMachine, module_name: &str) -> PyResult {
     // First, see if we already loaded the module:
     let sys_modules = vm.sys_module.get_item("modules").unwrap();
     if let Some(module) = sys_modules.get_item(module_name) {

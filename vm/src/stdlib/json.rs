@@ -213,7 +213,8 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(de
         .deserialize(&mut serde_json::Deserializer::from_str(&objstr::get_value(
             &string,
-        ))).unwrap())
+        )))
+        .unwrap())
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
