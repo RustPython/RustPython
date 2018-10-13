@@ -28,6 +28,9 @@ assert type(x - 1) is int
 
 a = bytes([1, 2, 3])
 print(a)
+b = bytes([1, 2, 3])
+assert a == b
+
 try:
     bytes([object()])
 except TypeError:

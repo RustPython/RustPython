@@ -3,6 +3,7 @@ mod io;
 mod json;
 mod keyword;
 mod math;
+mod pystruct;
 use std::collections::HashMap;
 
 use super::pyobject::{PyContext, PyObjectRef};
@@ -16,5 +17,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("ast".to_string(), ast::mk_module as StdlibInitFunc);
     modules.insert("keyword".to_string(), keyword::mk_module as StdlibInitFunc);
     modules.insert("math".to_string(), math::mk_module as StdlibInitFunc);
+    modules.insert("struct".to_string(), pystruct::mk_module as StdlibInitFunc);
     modules
 }

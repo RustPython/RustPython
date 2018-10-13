@@ -246,6 +246,10 @@ impl PyContext {
         PyObject::new(PyObjectKind::String { value: s }, self.str_type())
     }
 
+    pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Bytes { value: data }, self.bytes_type())
+    }
+
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         if b {
             self.true_value.clone()

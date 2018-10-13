@@ -10,6 +10,7 @@ use super::objtype;
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
     let ref bytes_type = context.bytes_type;
+    bytes_type.set_attr("__eq__", context.new_rustfunc(bytes_eq));
     bytes_type.set_attr("__init__", context.new_rustfunc(bytes_init));
     bytes_type.set_attr("__repr__", context.new_rustfunc(bytes_repr));
 }
@@ -36,6 +37,21 @@ fn bytes_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     set_value(zelf, val);
     Ok(vm.get_none())
+}
+
+fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
+    );
+
+    let result = if objtype::isinstance(b, vm.ctx.bytes_type()) {
+        get_value(a) == get_value(b)
+    } else {
+        false
+    };
+    Ok(vm.ctx.new_bool(result))
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Vec<u8> {
