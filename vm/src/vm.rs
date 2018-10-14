@@ -122,6 +122,8 @@ impl VirtualMachine {
         let ctx = PyContext::new();
         let builtins = builtins::make_module(&ctx);
         let sysmod = sysmodule::mk_module(&ctx);
+        // Add builtins as builtins module:
+        // sysmod.get_attr("modules").unwrap().set_item("builtins", builtins.clone());
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
             frames: vec![],
