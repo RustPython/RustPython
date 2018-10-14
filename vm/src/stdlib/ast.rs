@@ -65,6 +65,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             name,
             body,
             args: _,
+            decorator_list,
         } => {
             let node = create_node(ctx, "ClassDef");
 
@@ -74,12 +75,16 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             // Set body:
             let py_body = statements_to_ast(ctx, body);
             node.set_attr("body", py_body);
+
+            let py_decorator_list = expressions_to_ast(ctx, decorator_list);
+            node.set_attr("decorator_list", py_decorator_list);
             node
         }
         ast::Statement::FunctionDef {
             name,
             args: _,
             body,
+            decorator_list,
         } => {
             let node = create_node(ctx, "FunctionDef");
 
@@ -89,6 +94,9 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             // Set body:
             let py_body = statements_to_ast(ctx, body);
             node.set_attr("body", py_body);
+
+            let py_decorator_list = expressions_to_ast(ctx, decorator_list);
+            node.set_attr("decorator_list", py_decorator_list);
             node
         }
         ast::Statement::Continue => {
@@ -215,6 +223,14 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
     node.set_attr("lineno", lineno);
 
     node
+}
+
+fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> PyObjectRef {
+    let mut py_expression_nodes = vec![];
+    for expression in expressions {
+        py_expression_nodes.push(expression_to_ast(ctx, expression));
+    }
+    ctx.new_list(py_expression_nodes)
 }
 
 fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectRef {

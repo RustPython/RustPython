@@ -11,7 +11,7 @@ use clap::{App, Arg};
 use rustpython_parser::parser;
 use rustpython_vm::obj::objstr;
 use rustpython_vm::print_exception;
-use rustpython_vm::pyobject::PyObjectRef;
+use rustpython_vm::pyobject::{PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{compile, import};
 use std::io;
@@ -45,67 +45,62 @@ fn main() {
         )
         .get_matches();
 
+    // Construct vm:
+    let mut vm = VirtualMachine::new();
+
     // Figure out if a -c option was given:
-    if let Some(command) = matches.value_of("c") {
-        run_command(&mut command.to_string());
+    let result = if let Some(command) = matches.value_of("c") {
+        run_command(&mut vm, command.to_string())
     } else if let Some(module) = matches.value_of("m") {
-        run_module(module);
+        run_module(&mut vm, module)
     } else {
         // Figure out if a script was passed:
         match matches.value_of("script") {
-            None => run_shell(),
-            Some(filename) => run_script(&filename.to_string()),
+            None => run_shell(&mut vm),
+            Some(filename) => run_script(&mut vm, &filename.to_string()),
         }
-    }
+    };
+
+    // See if any exception leaked out:
+    handle_exception(&mut vm, result);
 }
 
-fn _run_string(source: &str, source_path: Option<String>) {
-    let mut vm = VirtualMachine::new();
-    let code_obj = compile::compile(
-        &mut vm,
-        &source.to_string(),
-        compile::Mode::Exec,
-        source_path,
-    )
-    .unwrap();
+fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: Option<String>) -> PyResult {
+    let code_obj = compile::compile(vm, &source.to_string(), compile::Mode::Exec, source_path)?;
     debug!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
-    match vm.run_code_obj(code_obj, vars) {
+    vm.run_code_obj(code_obj, vars)
+}
+
+fn handle_exception(vm: &mut VirtualMachine, result: PyResult) {
+    match result {
         Ok(_value) => {}
-        Err(exc) => {
-            // println!("X: {:?}", exc.get_attr("__traceback__"));
-            print_exception(&mut vm, &exc);
-            panic!("Exception: {:?}", exc);
+        Err(err) => {
+            print_exception(vm, &err);
         }
     }
 }
 
-fn run_command(source: &mut String) {
+fn run_command(vm: &mut VirtualMachine, mut source: String) -> PyResult {
     debug!("Running command {}", source);
 
     // This works around https://github.com/RustPython/RustPython/issues/17
     source.push_str("\n");
-    _run_string(source, None)
+    _run_string(vm, &source, None)
 }
 
-fn run_module(module: &str) {
+fn run_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
     debug!("Running module {}", module);
-    let mut vm = VirtualMachine::new();
-    match import::import_module(&mut vm, module) {
-        Ok(_value) => {}
-        Err(err) => {
-            print_exception(&mut vm, &err);
-        }
-    }
+    import::import_module(vm, module)
 }
 
-fn run_script(script_file: &str) {
+fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let filepath = Path::new(script_file);
     match parser::read_file(filepath) {
-        Ok(source) => _run_string(&source, Some(filepath.to_str().unwrap().to_string())),
+        Ok(source) => _run_string(vm, &source, Some(filepath.to_str().unwrap().to_string())),
         Err(msg) => {
             error!("Parsing went horribly wrong: {}", msg);
             std::process::exit(1);
@@ -141,12 +136,11 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
     true
 }
 
-fn run_shell() {
+fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     println!(
         "Welcome to the magnificent Rust Python {} interpreter",
         crate_version!()
     );
-    let mut vm = VirtualMachine::new();
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
 
@@ -167,7 +161,7 @@ fn run_shell() {
             }
             Ok(_) => {
                 debug!("You entered {:?}", input);
-                if shell_exec(&mut vm, &input, vars.clone()) {
+                if shell_exec(vm, &input, vars.clone()) {
                     // Line was complete.
                     input = String::new();
                 } else {
@@ -186,7 +180,7 @@ fn run_shell() {
                                     .trim_right_matches(|c| c == '\r' || c == '\n')
                                     .to_string();
                                 if line.len() == 0 {
-                                    if shell_exec(&mut vm, &input, vars.clone()) {
+                                    if shell_exec(vm, &input, vars.clone()) {
                                         input = String::new();
                                         break;
                                     }
@@ -203,4 +197,6 @@ fn run_shell() {
             Err(msg) => panic!("Error: {:?}", msg),
         };
     }
+
+    Ok(vm.get_none())
 }

@@ -373,7 +373,12 @@ impl Compiler {
 
                 // unimplemented!();
             }
-            ast::Statement::FunctionDef { name, args, body } => {
+            ast::Statement::FunctionDef {
+                name,
+                args,
+                body,
+                decorator_list,
+            } => {
                 // Create bytecode for this function:
                 let mut names = vec![];
                 let mut default_elements = vec![];
@@ -412,6 +417,8 @@ impl Compiler {
                 self.emit(Instruction::ReturnValue);
 
                 let code = self.code_object_stack.pop().unwrap();
+
+                self.prepare_decorators(decorator_list);
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code { code: code },
                 });
@@ -427,11 +434,19 @@ impl Compiler {
                     flags = flags | bytecode::FunctionOpArg::HAS_DEFAULTS;
                 }
                 self.emit(Instruction::MakeFunction { flags: flags });
+                self.apply_decorators(decorator_list);
+
                 self.emit(Instruction::StoreName {
                     name: name.to_string(),
                 });
             }
-            ast::Statement::ClassDef { name, body, args } => {
+            ast::Statement::ClassDef {
+                name,
+                body,
+                args,
+                decorator_list,
+            } => {
+                self.prepare_decorators(decorator_list);
                 self.emit(Instruction::LoadBuildClass);
                 self.code_object_stack.push(CodeObject::new(
                     vec![String::from("__locals__")],
@@ -476,6 +491,8 @@ impl Compiler {
                 self.emit(Instruction::CallFunction {
                     count: 2 + args.len(),
                 });
+
+                self.apply_decorators(decorator_list);
 
                 self.emit(Instruction::StoreName {
                     name: name.to_string(),
@@ -554,6 +571,19 @@ impl Compiler {
             ast::Statement::Pass => {
                 self.emit(Instruction::Pass);
             }
+        }
+    }
+
+    fn prepare_decorators(&mut self, decorator_list: &Vec<ast::Expression>) {
+        for decorator in decorator_list {
+            self.compile_expression(decorator);
+        }
+    }
+
+    fn apply_decorators(&mut self, decorator_list: &Vec<ast::Expression>) {
+        // Apply decorators:
+        for _ in decorator_list {
+            self.emit(Instruction::CallFunction { count: 1 });
         }
     }
 
@@ -783,6 +813,9 @@ impl Compiler {
                     self.compile_expression(element);
                 }
                 self.emit(Instruction::BuildSlice { size: size });
+            }
+            ast::Expression::Yield { .. } => {
+                unimplemented!("TODO: implement generators");
             }
             ast::Expression::True => {
                 self.emit(Instruction::LoadConst {

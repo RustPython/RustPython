@@ -307,6 +307,7 @@ mod tests {
                                     location: ast::Location::new(3, 3),
                                     node: ast::Statement::Pass,
                                 }],
+                                decorator_list: vec![],
                             }
                         },
                         ast::LocatedStatement {
@@ -326,9 +327,11 @@ mod tests {
                                     location: ast::Location::new(5, 3),
                                     node: ast::Statement::Pass,
                                 }],
+                                decorator_list: vec![],
                             }
                         }
                     ],
+                    decorator_list: vec![],
                 }
             })
         )

@@ -96,6 +96,7 @@ pub enum Statement {
         name: String,
         body: Vec<LocatedStatement>,
         args: Vec<(String, Option<Expression>)>,
+        decorator_list: Vec<Expression>,
         // TODO: docstring: String,
     },
     FunctionDef {
@@ -103,6 +104,7 @@ pub enum Statement {
         args: Vec<(String, Option<Expression>)>,
         // docstring: String,
         body: Vec<LocatedStatement>,
+        decorator_list: Vec<Expression>,
     },
 }
 
@@ -131,6 +133,9 @@ pub enum Expression {
     Unop {
         op: UnaryOperator,
         a: Box<Expression>,
+    },
+    Yield {
+        expression: Option<Box<Expression>>,
     },
     Compare {
         a: Box<Expression>,

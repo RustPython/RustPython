@@ -137,7 +137,12 @@ FlowStatement: ast::LocatedStatement = {
       node: ast::Statement::Raise { expression: t },
     }
   },
-  // yield
+  <loc:@L> <y:YieldExpr> => {
+    ast::LocatedStatement {
+      location: loc,
+      node: ast::Statement::Expression { expression: y },
+    }
+  },
 };
 
 ImportStatement: ast::LocatedStatement = {
@@ -157,7 +162,7 @@ ImportStatement: ast::LocatedStatement = {
       },
     }
   },
-  <loc:@L> "from" <n:DottedName> "import" <i: Comma<ImportPart<Identifier>>> => {
+  <loc:@L> "from" <n:ImportFromLocation> "import" <i: ImportAsNames> => {
     ast::LocatedStatement {
       location: loc,
       node: ast::Statement::Import {
@@ -175,13 +180,50 @@ ImportStatement: ast::LocatedStatement = {
   },
 };
 
+ImportFromLocation: String = {
+    <dots: "."*> <name:DottedName> => {
+       let mut r = "".to_string();
+       for _dot in dots {
+         r.push_str(".");
+       }
+      r.push_str(&name);
+      r
+    },
+    <dots: "."+> => {
+       let mut r = "".to_string();
+       for _dot in dots {
+         r.push_str(".");
+       }
+      r
+    },
+};
+
+ImportAsNames: Vec<(String, Option<String>)> = {
+    <i:Comma<ImportPart<Identifier>>> => i,
+    "(" <i:Comma<ImportPart<Identifier>>> ")" => i,
+    "*" => {
+        // Star import all
+        vec![("*".to_string(), None)]
+    },
+};
+
+
 #[inline]
 ImportPart<I>: (String, Option<String>) = {
     <i:I> <a: ("as" Identifier)?> => (i, a.map(|a| a.1)),
 };
 
+// A name like abc or abc.def.ghi
 DottedName: String = {
   <n:name> => n,
+  <n:name> <n2: ("." Identifier)+>  => {
+    let mut r = n.to_string();
+    for x in n2 {
+      r.push_str(".");
+      r.push_str(&x.1);
+    }
+    r
+  },
 };
 
 AssertStatement: ast::LocatedStatement = {
@@ -322,10 +364,15 @@ WithItem: ast::WithItem = {
 };
 
 FuncDef: ast::LocatedStatement = {
-  <loc:@L> "def" <i:Identifier> <a:Parameters> ":" <s:Suite> => {
+  <d:Decorator*> <loc:@L> "def" <i:Identifier> <a:Parameters> ":" <s:Suite> => {
     ast::LocatedStatement {
       location: loc,
-      node: ast::Statement::FunctionDef { name: i, args: a, body: s }
+      node: ast::Statement::FunctionDef {
+        name: i,
+        args: a,
+        body: s,
+        decorator_list: d,
+      }
     }
   },
 };
@@ -346,16 +393,39 @@ Parameter: (String, Option<ast::Expression>) = {
 };
 
 ClassDef: ast::LocatedStatement = {
-  <loc:@L> "class" <n:Identifier> <a:Parameters?> ":" <s:Suite> => {
+  <d:Decorator*> <loc:@L> "class" <n:Identifier> <a:Parameters?> ":" <s:Suite> => {
     ast::LocatedStatement {
       location: loc,
       node: ast::Statement::ClassDef {
           name: n,
           args: a.unwrap_or(vec![]),
-          body: s
+          body: s,
+          decorator_list: d,
       },
     }
   },
+};
+
+// Decorators:
+Decorator: ast::Expression = {
+    "@" <n:DottedName> <a: ("(" FunctionArguments ")")?> "\n" => {
+        let name = ast::Expression::Identifier { name: n };
+        match a {
+            Some((_, args, _)) => ast::Expression::Call {
+                function: Box::new(name),
+                args: args,
+            },
+            None => name,
+        }
+    },
+};
+
+YieldExpr: ast::Expression = {
+    "yield" => {
+        ast::Expression::Yield {
+            expression: None,
+        }
+    }
 };
 
 Test: ast::Expression = {
@@ -364,10 +434,10 @@ Test: ast::Expression = {
 };
 
 LambdaDef: ast::Expression = {
-  "lambda" <p:TypedArgsList> ":" <b:Expression> =>
-	 ast::Expression::Lambda {
-	  args:p,
-	  body:Box::new(b)
+    "lambda" <p:TypedArgsList> ":" <b:Expression> =>
+        ast::Expression::Lambda {
+            args:p,
+            body:Box::new(b)
        }
 }
 
@@ -631,6 +701,7 @@ extern {
         "is" => lexer::Tok::Is,
         "import" => lexer::Tok::Import,
         "from" => lexer::Tok::From,
+        "lambda" => lexer::Tok::Lambda,
         "not" => lexer::Tok::Not,
         "or" => lexer::Tok::Or,
         "pass" => lexer::Tok::Pass,
@@ -639,7 +710,7 @@ extern {
         "try" => lexer::Tok::Try,
         "while" => lexer::Tok::While,
         "with" => lexer::Tok::With,
-	  "lambda" => lexer::Tok::Lambda,
+        "yield" => lexer::Tok::Yield,
         "True" => lexer::Tok::True,
         "False" => lexer::Tok::False,
         "None" => lexer::Tok::None,
