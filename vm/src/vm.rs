@@ -146,11 +146,11 @@ impl VirtualMachine {
 
     // Container of the virtual machine state:
     pub fn to_str(&mut self, obj: PyObjectRef) -> PyResult {
-        self.call_method(obj, "__str__", vec![])
+        self.call_method(&obj, "__str__", vec![])
     }
 
     pub fn to_repr(&mut self, obj: PyObjectRef) -> PyResult {
-        self.call_method(obj, "__repr__", vec![])
+        self.call_method(&obj, "__repr__", vec![])
     }
 
     pub fn current_frame(&self) -> &Frame {
@@ -194,7 +194,7 @@ impl VirtualMachine {
             let exc_tb = self.ctx.none();
             vec![exc_type, exc_val, exc_tb]
         };
-        self.call_method(context_manager.clone(), "__exit__", args)
+        self.call_method(context_manager, "__exit__", args)
     }
 
     // Unwind all blocks:
@@ -429,31 +429,28 @@ impl VirtualMachine {
     }
 
     fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__sub__", vec![b])
+        self.call_method(&a, "__sub__", vec![b])
     }
 
     fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__add__", vec![b])
+        self.call_method(&a, "__add__", vec![b])
     }
 
     fn _mul(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__mul__", vec![b])
+        self.call_method(&a, "__mul__", vec![b])
     }
 
     fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__truediv__", vec![b])
+        self.call_method(&a, "__truediv__", vec![b])
     }
 
     pub fn call_method(
         &mut self,
-        obj: PyObjectRef,
+        obj: &PyObjectRef,
         method_name: &str,
         args: Vec<PyObjectRef>,
     ) -> PyResult {
-        let func = match self.get_attribute(obj, method_name) {
-            Ok(v) => v,
-            Err(err) => return Err(err),
-        };
+        let func = self.get_attribute(obj.clone(), method_name)?;
         let args = PyFuncArgs {
             args: args,
             kwargs: vec![],
@@ -462,23 +459,23 @@ impl VirtualMachine {
     }
 
     fn _pow(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__pow__", vec![b])
+        self.call_method(&a, "__pow__", vec![b])
     }
 
     fn _modulo(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__mod__", vec![b])
+        self.call_method(&a, "__mod__", vec![b])
     }
 
     fn _xor(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__xor__", vec![b])
+        self.call_method(&a, "__xor__", vec![b])
     }
 
     fn _or(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__or__", vec![b])
+        self.call_method(&a, "__or__", vec![b])
     }
 
     fn _and(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__and__", vec![b])
+        self.call_method(&a, "__and__", vec![b])
     }
 
     fn execute_binop(&mut self, op: &bytecode::BinaryOperator) -> Option<PyResult> {
@@ -536,11 +533,11 @@ impl VirtualMachine {
     }
 
     fn _eq(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__eq__", vec![b])
+        self.call_method(&a, "__eq__", vec![b])
     }
 
     fn _ne(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__ne__", vec![b])
+        self.call_method(&a, "__ne__", vec![b])
     }
 
     fn _lt(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
@@ -920,7 +917,7 @@ impl VirtualMachine {
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
                 // Call enter:
-                match self.call_method(context_manager.clone(), "__enter__", vec![]) {
+                match self.call_method(&context_manager, "__enter__", vec![]) {
                     Ok(obj) => {
                         self.push_block(Block::With {
                             end: *end,
@@ -968,7 +965,7 @@ impl VirtualMachine {
                 // The top of stack contains the iterator, lets push it forward:
                 let next_obj: PyResult = {
                     let top_of_stack = self.last_value();
-                    self.call_method(top_of_stack, "__next__", vec![])
+                    self.call_method(&top_of_stack, "__next__", vec![])
                 };
 
                 // Check the next object:

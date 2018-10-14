@@ -5,6 +5,6 @@ pub mod ast;
 pub mod lexer;
 pub mod parser;
 mod python;
-mod token;
+pub mod token;
 
 pub use self::parser::parse;

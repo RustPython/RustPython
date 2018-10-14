@@ -8,6 +8,7 @@ use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
+use std;
 
 // Helper macro:
 macro_rules! make_math_func {

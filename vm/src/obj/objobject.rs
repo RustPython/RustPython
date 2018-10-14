@@ -45,13 +45,13 @@ fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.object())), (other, None)]
     );
-    let eq = vm.call_method(zelf.clone(), "__eq__", vec![other.clone()])?;
+    let eq = vm.call_method(zelf, "__eq__", vec![other.clone()])?;
     objbool::not(vm, &eq)
 }
 
 fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.object()))]);
-    vm.call_method(zelf.clone(), "__repr__", vec![])
+    vm.call_method(zelf, "__repr__", vec![])
 }
 
 fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

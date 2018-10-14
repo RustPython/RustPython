@@ -2,6 +2,7 @@ use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objiter;
 use super::objsequence::{seq_equal, PySliceableSequence};
 use super::objstr;
 use super::objtype;
@@ -32,6 +33,36 @@ pub fn get_elements(obj: &PyObjectRef) -> Vec<PyObjectRef> {
     } else {
         panic!("Cannot extract list elements from non-list");
     }
+}
+
+fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(cls, None)],
+        optional = [(iterable, None)]
+    );
+
+    if !objtype::issubclass(cls, vm.ctx.list_type()) {
+        return Err(vm.new_type_error(format!("{:?} is not a subtype of list", cls)));
+    }
+
+    let elements = match iterable {
+        None => vec![],
+        Some(iterable) => {
+            let mut elements = vec![];
+            let iterator = objiter::get_iter(vm, iterable)?;
+            loop {
+                match vm.call_method(&iterator, "__next__", vec![]) {
+                    Ok(v) => elements.push(v),
+                    _ => break,
+                }
+            }
+            elements
+        }
+    };
+
+    Ok(vm.ctx.new_list(elements))
 }
 
 fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -136,6 +167,7 @@ pub fn init(context: &PyContext) {
     list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
     list_type.set_attr("__add__", context.new_rustfunc(list_add));
     list_type.set_attr("__len__", context.new_rustfunc(list_len));
+    list_type.set_attr("__new__", context.new_rustfunc(list_new));
     list_type.set_attr("__repr__", context.new_rustfunc(list_repr));
     list_type.set_attr("append", context.new_rustfunc(append));
     list_type.set_attr("clear", context.new_rustfunc(clear));

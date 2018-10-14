@@ -266,7 +266,33 @@ fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_locals())
 }
 
-// builtin_map
+fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(function, None), (iter_target, None)]);
+    let iterator = objiter::get_iter(vm, iter_target)?;
+    let mut elements = vec![];
+    loop {
+        match vm.call_method(&iterator, "__next__", vec![]) {
+            Ok(v) => {
+                // Now apply function:
+                let mapped_value = vm.invoke(
+                    function.clone(),
+                    PyFuncArgs {
+                        args: vec![v],
+                        kwargs: vec![],
+                    },
+                )?;
+                elements.push(mapped_value);
+            }
+            Err(_) => break,
+        }
+    }
+
+    trace!("Mapped elements: {:?}", elements);
+
+    // TODO: when iterators are implemented, we can improve this function.
+    Ok(vm.ctx.new_list(elements))
+}
+
 // builtin_max
 // builtin_memoryview
 // builtin_min
@@ -279,7 +305,7 @@ fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(default_value, None)]
     );
 
-    match vm.call_method(iterator.clone(), "__next__", vec![]) {
+    match vm.call_method(iterator, "__next__", vec![]) {
         Ok(value) => Ok(value),
         Err(value) => {
             if objtype::isinstance(&value, vm.ctx.exceptions.stop_iteration.clone()) {
@@ -427,6 +453,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
     dict.insert(String::from("list"), ctx.list_type());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
+    dict.insert(String::from("map"), ctx.new_rustfunc(builtin_map));
     dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
     dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));

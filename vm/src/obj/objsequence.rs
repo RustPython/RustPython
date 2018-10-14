@@ -107,7 +107,7 @@ pub fn seq_equal(
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let eq = vm.call_method(a.clone(), "__eq__", vec![b.clone()])?;
+            let eq = vm.call_method(&a.clone(), "__eq__", vec![b.clone()])?;
             let value = objbool::boolval(vm, eq)?;
             if !value {
                 return Ok(false);
