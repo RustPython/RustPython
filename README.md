@@ -1,5 +1,5 @@
 # RustPython
-A Python Interpreter written in Rust :snake: :scream: :metal:.
+A Python-3  (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :metal:.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -26,16 +26,16 @@ Or use the interactive shell:
 
 # Goals
 
-- Full python environment entirely in Rust (not CPython bindings)
+- Full Python-3 environment entirely in Rust (not CPython bindings)
 - A clean implementation without compatibility hacks
 
 # Code organization
 
-- `parser`: python lexing, parsing and ast  
-- `vm`: python virtual machine  
-- `src`: using the other subcrates to bring rustpython to life.  
-- `docs`: documentation (work in progress)  
-- `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)  
+- `parser`: python lexing, parsing and ast
+- `vm`: python virtual machine
+- `src`: using the other subcrates to bring rustpython to life.
+- `docs`: documentation (work in progress)
+- `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)
 - `tests`: integration test snippets
 
 # Contributing
