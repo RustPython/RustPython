@@ -294,19 +294,14 @@ fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(x, Some(vm.ctx.int_type())), (y, Some(vm.ctx.int_type()))]
-    );
+    arg_check!(vm, args, required = [(x, None), (y, None)]);
 
-    use std::cmp::Ordering;
+    let order = vm.call_method(x, "__gt__", vec![y.clone()])?;
 
-    let order = x.cmp(y);
-
-    match order {
-        Ordering::Greater | Ordering::Equal => Ok(x.clone()),
-        _ => Ok(y.clone()),
+    if objbool::get_value(&order) {
+        Ok(x.clone())
+    } else {
+        Ok(y.clone())
     }
 }
 
