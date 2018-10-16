@@ -17,7 +17,7 @@ Or use the interactive shell:
 
     $ cargo run
     Welcome to rustpython
-    >>>>> 2+2
+    >>> 2+2
     4
 
 <!-- Or use pip to install extra modules:

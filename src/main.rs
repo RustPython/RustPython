@@ -6,6 +6,7 @@ extern crate env_logger;
 extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
+extern crate rustyline;
 
 use clap::{App, Arg};
 use rustpython_parser::parser;
@@ -14,8 +15,8 @@ use rustpython_vm::print_exception;
 use rustpython_vm::pyobject::{PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{compile, import};
-use std::io;
-use std::io::prelude::*;
+use rustyline::error::ReadlineError;
+use rustyline::Editor;
 use std::path::Path;
 
 fn main() {
@@ -146,23 +147,30 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
 
     // Read a single line:
     let mut input = String::new();
+    let mut rl = Editor::<()>::new();
+
+    // TODO: Store the history in a proper XDG directory
+    let repl_history_path = ".repl_history.txt";
+    if rl.load_history(repl_history_path).is_err() {
+        println!("No previous history.");
+    }
+
     loop {
         // TODO: modules dont support getattr / setattr yet
         //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps1") {
         //        Ok(value) => objstr::get_value(&value),
         //        Err(_) => ">>>>> ".to_string(),
         //};
-        print!(">>>>> ");
 
-        io::stdout().flush().expect("Could not flush stdout");
-        match io::stdin().read_line(&mut input) {
-            Ok(0) => {
-                break;
-            }
-            Ok(_) => {
+        match rl.readline(">>> ") {
+            Ok(line) => {
+                input.push_str(&line);
+                input.push_str("\n");
+
                 debug!("You entered {:?}", input);
                 if shell_exec(vm, &input, vars.clone()) {
                     // Line was complete.
+                    rl.add_history_entry(input.as_ref());
                     input = String::new();
                 } else {
                     loop {
@@ -171,16 +179,11 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
                         //        Ok(value) => objstr::get_value(&value),
                         //        Err(_) => "..... ".to_string(),
                         //};
-                        print!("..... ");
-                        io::stdout().flush().expect("Could not flush stdout");
-                        let mut line = String::new();
-                        match io::stdin().read_line(&mut line) {
-                            Ok(_) => {
-                                line = line
-                                    .trim_right_matches(|c| c == '\r' || c == '\n')
-                                    .to_string();
+                        match rl.readline("... ") {
+                            Ok(line) => {
                                 if line.len() == 0 {
                                     if shell_exec(vm, &input, vars.clone()) {
+                                        rl.add_history_entry(input.as_ref());
                                         input = String::new();
                                         break;
                                     }
@@ -194,9 +197,21 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
                     }
                 }
             }
-            Err(msg) => panic!("Error: {:?}", msg),
+            Err(ReadlineError::Interrupted) => {
+                // TODO: Raise a real KeyboardInterrupt exception
+                println!("^C");
+                break;
+            }
+            Err(ReadlineError::Eof) => {
+                break;
+            }
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
+            }
         };
     }
+    rl.save_history(repl_history_path).unwrap();
 
     Ok(vm.get_none())
 }
