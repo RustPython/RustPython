@@ -350,7 +350,27 @@ fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_object
 // builtin_oct
 // builtin_open
-// builtin_ord
+
+fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
+    let string = objstr::get_value(string);
+    let string_len = string.chars().count();
+    if string_len > 1 {
+        return Err(vm.new_type_error(
+            format!(
+                "ord() expected a character, but string of length {} found",
+                string_len
+            )
+            .to_string(),
+        ));
+    }
+    match string.chars().next() {
+        Some(character) => Ok(vm.context().new_int(character as i32)),
+        None => Err(vm.new_type_error(
+            "ord() could not guess the integer representing this character".to_string(),
+        )),
+    }
+}
 
 fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -481,8 +501,12 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("list"), ctx.list_type());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("map"), ctx.new_rustfunc(builtin_map));
+
     dict.insert(String::from("max"), ctx.new_rustfunc(builtin_max));
     dict.insert(String::from("min"), ctx.new_rustfunc(builtin_min));
+
+    dict.insert(String::from("ord"), ctx.new_rustfunc(builtin_ord));
+
     dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
     dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
