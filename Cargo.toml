@@ -11,3 +11,4 @@ env_logger="0.5.10"
 clap = "2.31.2"
 rustpython_parser = {path = "parser"}
 rustpython_vm = {path = "vm"}
+rustyline = "2.1.0"
