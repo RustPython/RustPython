@@ -162,7 +162,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
         //        Err(_) => ">>>>> ".to_string(),
         //};
 
-        match rl.readline(">>> ") {
+        match rl.readline(">>>>> ") {
             Ok(line) => {
                 input.push_str(&line);
                 input.push_str("\n");
@@ -179,7 +179,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
                         //        Ok(value) => objstr::get_value(&value),
                         //        Err(_) => "..... ".to_string(),
                         //};
-                        match rl.readline("... ") {
+                        match rl.readline("..... ") {
                             Ok(line) => {
                                 if line.len() == 0 {
                                     if shell_exec(vm, &input, vars.clone()) {
