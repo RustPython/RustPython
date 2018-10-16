@@ -235,17 +235,17 @@ fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> Py
 
 fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectRef {
     let node = match &expression {
-        ast::Expression::Call { function, args } => {
+        ast::Expression::Call {
+            function,
+            args,
+            keywords: _,
+        } => {
             let node = create_node(ctx, "Call");
 
             let py_func_ast = expression_to_ast(ctx, function);
             node.set_attr("func", py_func_ast);
 
-            let mut py_args = vec![];
-            for arg in args {
-                py_args.push(expression_to_ast(ctx, &arg.1));
-            }
-            let py_args = ctx.new_list(py_args);
+            let py_args = expressions_to_ast(ctx, args);
             node.set_attr("args", py_args);
 
             node

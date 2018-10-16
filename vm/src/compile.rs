@@ -700,21 +700,33 @@ impl Compiler {
     fn compile_expression(&mut self, expression: &ast::Expression) {
         trace!("Compiling {:?}", expression);
         match expression {
-            ast::Expression::Call { function, args } => {
+            ast::Expression::Call {
+                function,
+                args,
+                keywords,
+            } => {
                 self.compile_expression(&*function);
-                let count = args.len();
-                let mut kwarg_names = vec![];
-                for (kwarg, value) in args {
-                    if let Some(kwarg) = kwarg {
-                        kwarg_names.push(bytecode::Constant::String {
-                            value: kwarg.to_string(),
-                        });
-                    } else if kwarg_names.len() > 0 {
-                        panic!("positional argument follows keyword argument");
-                    };
+                let count = args.len() + keywords.len();
+
+                // Normal arguments:
+                for value in args {
                     self.compile_expression(value);
                 }
-                if kwarg_names.len() > 0 {
+
+                // Keyword arguments:
+                if keywords.len() > 0 {
+                    let mut kwarg_names = vec![];
+                    for keyword in keywords {
+                        if let Some(name) = &keyword.name {
+                            kwarg_names.push(bytecode::Constant::String {
+                                value: name.to_string(),
+                            });
+                        } else {
+                            panic!("name must be set");
+                        }
+                        self.compile_expression(&keyword.value);
+                    }
+
                     self.emit(Instruction::LoadConst {
                         value: bytecode::Constant::Tuple {
                             elements: kwarg_names,

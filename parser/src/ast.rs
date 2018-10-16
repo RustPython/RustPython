@@ -96,6 +96,8 @@ pub enum Statement {
         name: String,
         body: Vec<LocatedStatement>,
         args: Vec<(String, Option<Expression>)>,
+        // TODO: bases: Vec<Expression>,
+        // TODO: keywords: Vec<Keyword>,
         decorator_list: Vec<Expression>,
         // TODO: docstring: String,
     },
@@ -148,8 +150,8 @@ pub enum Expression {
     },
     Call {
         function: Box<Expression>,
-        // parameters are (None, value), kwargs are (keyword name, value)
-        args: Vec<(Option<String>, Expression)>,
+        args: Vec<Expression>,
+        keywords: Vec<Keyword>,
     },
     Number {
         value: Number,
@@ -179,6 +181,12 @@ pub enum Expression {
     True,
     False,
     None,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Keyword {
+    pub name: Option<String>,
+    pub value: Expression,
 }
 
 #[derive(Debug, PartialEq)]

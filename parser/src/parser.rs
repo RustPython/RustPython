@@ -95,12 +95,10 @@ mod tests {
                             function: Box::new(ast::Expression::Identifier {
                                 name: String::from("print"),
                             }),
-                            args: vec![(
-                                None,
-                                ast::Expression::String {
-                                    value: String::from("Hello world"),
-                                }
-                            ),],
+                            args: vec![ast::Expression::String {
+                                value: String::from("Hello world"),
+                            }],
+                            keywords: vec![],
                         },
                     },
                 },],
@@ -123,19 +121,14 @@ mod tests {
                                 name: String::from("print"),
                             }),
                             args: vec![
-                                (
-                                    None,
-                                    ast::Expression::String {
-                                        value: String::from("Hello world"),
-                                    }
-                                ),
-                                (
-                                    None,
-                                    ast::Expression::Number {
-                                        value: ast::Number::Integer { value: 2 },
-                                    }
-                                ),
+                                ast::Expression::String {
+                                    value: String::from("Hello world"),
+                                },
+                                ast::Expression::Number {
+                                    value: ast::Number::Integer { value: 2 },
+                                }
                             ],
+                            keywords: vec![],
                         },
                     },
                 },],
@@ -157,20 +150,15 @@ mod tests {
                             function: Box::new(ast::Expression::Identifier {
                                 name: String::from("my_func"),
                             }),
-                            args: vec![
-                                (
-                                    None,
-                                    ast::Expression::String {
-                                        value: String::from("positional"),
-                                    }
-                                ),
-                                (
-                                    Some("keyword".to_string()),
-                                    ast::Expression::Number {
-                                        value: ast::Number::Integer { value: 2 },
-                                    }
-                                ),
-                            ],
+                            args: vec![ast::Expression::String {
+                                value: String::from("positional"),
+                            }],
+                            keywords: vec![ast::Keyword {
+                                name: Some("keyword".to_string()),
+                                value: ast::Expression::Number {
+                                    value: ast::Number::Integer { value: 2 },
+                                }
+                            }],
                         },
                     },
                 },],
