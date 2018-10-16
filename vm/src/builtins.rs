@@ -293,9 +293,36 @@ fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_list(elements))
 }
 
-// builtin_max
+fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(x, None), (y, None)]);
+
+    let order = vm.call_method(x, "__gt__", vec![y.clone()])?;
+
+    if objbool::get_value(&order) {
+        Ok(x.clone())
+    } else {
+        Ok(y.clone())
+    }
+}
+
 // builtin_memoryview
-// builtin_min
+
+fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(x, Some(vm.ctx.int_type())), (y, Some(vm.ctx.int_type()))]
+    );
+
+    use std::cmp::Ordering;
+
+    let order = x.cmp(y);
+
+    match order {
+        Ordering::Less | Ordering::Equal => Ok(x.clone()),
+        _ => Ok(y.clone()),
+    }
+}
 
 fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -474,7 +501,12 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("list"), ctx.list_type());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("map"), ctx.new_rustfunc(builtin_map));
+
+    dict.insert(String::from("max"), ctx.new_rustfunc(builtin_max));
+    dict.insert(String::from("min"), ctx.new_rustfunc(builtin_min));
+
     dict.insert(String::from("ord"), ctx.new_rustfunc(builtin_ord));
+
     dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
     dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
