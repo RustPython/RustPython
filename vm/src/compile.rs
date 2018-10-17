@@ -873,13 +873,8 @@ impl Compiler {
                 element,
                 generators,
             } => {
-                // Okay, compile a new function which can be called
-
-                // For now only support one generator:
-                if generators.len() != 1 {
-                    unimplemented!("Only 1 level deep list comprehensions are implemented now");
-                }
-                let generator = &generators[0];
+                // We must have at least one generator:
+                assert!(generators.len() > 0);
 
                 // Create magnificent function <listcomp>:
                 self.code_object_stack.push(CodeObject::new(
@@ -891,42 +886,54 @@ impl Compiler {
                 // Create empty list:
                 self.emit(Instruction::BuildList { size: 0 });
 
-                // Load 'append' method:
-                //self.emit(Instruction::LoadAttr {
-                //    name: "append".to_string(),
-                //});
+                let mut loop_labels = vec![];
+                for generator in generators {
+                    let first = loop_labels.len() == 0;
+                    if first {
+                        // Load iterator onto stack (passed as first argument):
+                        self.emit(Instruction::LoadName {
+                            name: String::from(".0"),
+                        });
+                    } else {
+                        // Evaluate iterated item:
+                        self.compile_expression(&generator.iter);
 
-                // Load iterator onto stack:
-                self.emit(Instruction::LoadName {
-                    name: String::from(".0"),
-                });
+                        // Get iterator / turn item into an iterator
+                        self.emit(Instruction::GetIter);
+                    }
 
-                // Setup for loop:
-                let start_label = self.new_label();
-                let end_label = self.new_label();
-                self.emit(Instruction::SetupLoop {
-                    start: start_label,
-                    end: end_label,
-                });
-                self.set_label(start_label);
-                self.emit(Instruction::ForIter);
+                    // Setup for loop:
+                    let start_label = self.new_label();
+                    let end_label = self.new_label();
+                    loop_labels.push((start_label, end_label));
+                    self.emit(Instruction::SetupLoop {
+                        start: start_label,
+                        end: end_label,
+                    });
+                    self.set_label(start_label);
+                    self.emit(Instruction::ForIter);
 
-                self.compile_store(&generator.target);
+                    self.compile_store(&generator.target);
+                }
 
                 // Evaluate element:
                 self.compile_expression(element);
 
                 // List append:
-                self.emit(Instruction::ListAppend { i: 2 });
-
-                // Repeat:
-                self.emit(Instruction::Jump {
-                    target: start_label,
+                self.emit(Instruction::ListAppend {
+                    i: 1 + generators.len(),
                 });
 
-                // End of for loop:
-                self.set_label(end_label);
-                self.emit(Instruction::PopBlock);
+                for (start_label, end_label) in loop_labels.iter().rev() {
+                    // Repeat:
+                    self.emit(Instruction::Jump {
+                        target: *start_label,
+                    });
+
+                    // End of for loop:
+                    self.set_label(*end_label);
+                    self.emit(Instruction::PopBlock);
+                }
 
                 // Return freshly filled list:
                 self.emit(Instruction::ReturnValue);
@@ -952,7 +959,7 @@ impl Compiler {
                 });
 
                 // Evaluate iterated item:
-                self.compile_expression(&generator.iter);
+                self.compile_expression(&generators[0].iter);
 
                 // Get iterator / turn item into an iterator
                 self.emit(Instruction::GetIter);
