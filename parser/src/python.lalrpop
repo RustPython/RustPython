@@ -62,22 +62,31 @@ ExpressionStatement: ast::LocatedStatement = {
       } else {
         ast::LocatedStatement {
           location: loc.clone(),
-          node: ast::Statement::Expression { expression: expr[0].clone() },
+          node: ast::Statement::Expression { expression: expr.into_iter().next().unwrap() },
         }
       }
     } else {
       let mut targets = vec![if expr.len() > 1 {
         ast::Expression::Tuple { elements: expr }
       } else {
-        expr[0].clone()
+        expr.into_iter().next().unwrap()
       }];
-      let mut values : Vec<ast::Expression> = suffix.into_iter().map(|test_list| if test_list.len() > 1 { ast::Expression::Tuple { elements: test_list }} else { test_list[0].clone() }).collect();
+      let mut values : Vec<ast::Expression> = suffix
+        .into_iter()
+        .map(|test_list| if test_list.len() > 1 {
+            ast::Expression::Tuple {
+                elements: test_list
+            }
+        } else {
+            test_list.into_iter().next().unwrap()
+        })
+        .collect();
 
       while values.len() > 1 {
         targets.push(values.remove(0));
       }
 
-      let value = values[0].clone();
+      let value = values.into_iter().next().unwrap();
 
       ast::LocatedStatement {
         location: loc.clone(),
@@ -395,7 +404,7 @@ TypedArgsList: Vec<(String, Option<ast::Expression>)> = {
 
 Parameter: (String, Option<ast::Expression>) = {
     <i:Identifier> => (i.clone(), None),
-    <i:Identifier> "=" <e:Expression> => (i.clone(), Some(e.clone())),
+    <i:Identifier> "=" <e:Expression> => (i.clone(), Some(e)),
 };
 
 ClassDef: ast::LocatedStatement = {
@@ -738,8 +747,8 @@ ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
 };
 
 FunctionArgument: (Option<String>, ast::Expression) = {
-    <e:Expression> => (None, e.clone()),
-    <i:Identifier> "=" <e:Expression> => (Some(i.clone()), e.clone()),
+    <e:Expression> => (None, e),
+    <i:Identifier> "=" <e:Expression> => (Some(i.clone()), e),
 };
 
 Comma<T>: Vec<T> = {

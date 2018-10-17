@@ -116,7 +116,7 @@ pub struct WithItem {
     pub optional_vars: Option<Expression>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Expression {
     BoolOp {
         a: Box<Expression>,
@@ -195,21 +195,21 @@ pub enum Expression {
     None,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum ComprehensionKind {
     List { element: Expression },
     Set { element: Expression },
     Dict { key: Expression, value: Expression },
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub struct Comprehension {
     pub target: Expression,
     pub iter: Expression,
     pub ifs: Vec<Expression>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub struct Keyword {
     pub name: Option<String>,
     pub value: Expression,
@@ -222,7 +222,7 @@ pub struct ExceptHandler {
     pub body: Vec<LocatedStatement>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Operator {
     Add,
     Sub,
@@ -239,19 +239,19 @@ pub enum Operator {
     FloorDiv,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum BooleanOperator {
     And,
     Or,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum UnaryOperator {
     Neg,
     Not,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Comparison {
     Equal,
     NotEqual,
@@ -265,7 +265,7 @@ pub enum Comparison {
     IsNot,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq)]
 pub enum Number {
     Integer { value: i32 },
     Float { value: f64 },

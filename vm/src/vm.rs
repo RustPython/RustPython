@@ -967,6 +967,10 @@ impl VirtualMachine {
                     Some(Ok(value))
                 }
             }
+            bytecode::Instruction::YieldValue => {
+                let value = self.pop_value();
+                unimplemented!("TODO: implement generators: {:?}", value);
+            }
             bytecode::Instruction::SetupLoop { start, end } => {
                 self.push_block(Block::Loop {
                     start: *start,

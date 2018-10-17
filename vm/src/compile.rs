@@ -393,9 +393,12 @@ impl Compiler {
 
                 let have_kwargs = default_elements.len() > 0;
                 if have_kwargs {
-                    self.compile_expression(&ast::Expression::Tuple {
-                        elements: default_elements,
-                    });
+                    // Construct a tuple:
+                    let size = default_elements.len();
+                    for element in default_elements {
+                        self.compile_expression(element);
+                    }
+                    self.emit(Instruction::BuildTuple { size });
                 }
 
                 self.code_object_stack.push(CodeObject::new(
@@ -828,8 +831,14 @@ impl Compiler {
                 }
                 self.emit(Instruction::BuildSlice { size: size });
             }
-            ast::Expression::Yield { .. } => {
-                unimplemented!("TODO: implement generators");
+            ast::Expression::Yield { expression } => {
+                match expression {
+                    Some(expression) => self.compile_expression(expression),
+                    None => self.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::None,
+                    }),
+                };
+                self.emit(Instruction::YieldValue);
             }
             ast::Expression::True => {
                 self.emit(Instruction::LoadConst {

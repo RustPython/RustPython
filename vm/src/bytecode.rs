@@ -111,6 +111,7 @@ pub enum Instruction {
     },
     ForIter,
     ReturnValue,
+    YieldValue,
     SetupLoop {
         start: Label,
         end: Label,
