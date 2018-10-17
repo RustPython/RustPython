@@ -2,6 +2,7 @@ use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objbool;
 use super::objiter;
 use super::objsequence::{seq_equal, PySliceableSequence};
 use super::objstr;
@@ -162,16 +163,21 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("list.len called with: {:?}", args);
+fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.contains called with: {:?}", args);
     arg_check!(
         vm,
         args,
-        required = [(list, Some(vm.ctx.list_type())), (x, None)]
+        required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for element in get_elements(list).iter() {
-        if x == element {
-            return Ok(vm.new_bool(true));
+        match vm.call_method(needle, "__eq__", vec![element.clone()]) {
+            Ok(value) => {
+                if objbool::get_value(&value) {
+                    return Ok(vm.new_bool(true));
+                }
+            }
+            Err(_) => return Err(vm.new_type_error("".to_string())),
         }
     }
 
@@ -181,7 +187,7 @@ pub fn contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
     list_type.set_attr("__add__", context.new_rustfunc(list_add));
-    list_type.set_attr("__contains__", context.new_rustfunc(contains));
+    list_type.set_attr("__contains__", context.new_rustfunc(list_contains));
     list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
     list_type.set_attr("__len__", context.new_rustfunc(list_len));
     list_type.set_attr("__new__", context.new_rustfunc(list_new));
