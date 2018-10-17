@@ -580,6 +580,33 @@ impl VirtualMachine {
         a.get_id()
     }
 
+    // https://docs.python.org/3/reference/expressions.html#membership-test-operations
+    fn _membership(&mut self, needle: PyObjectRef, haystack: &PyObjectRef) -> PyResult {
+        self.call_method(&haystack, "__contains__", vec![needle])
+        // TODO: implement __iter__ and __getitem__ cases when __contains__ is
+        // not implemented.
+    }
+
+    fn _in(&mut self, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+        match self._membership(needle, &haystack) {
+            Ok(found) => Ok(found),
+            Err(_) => Err(self.new_type_error(format!(
+                "{} has no __contains__ method",
+                objtype::get_type_name(&haystack.typ())
+            ))),
+        }
+    }
+
+    fn _not_in(&mut self, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+        match self._membership(needle, &haystack) {
+            Ok(found) => Ok(self.ctx.new_bool(!objbool::get_value(&found))),
+            Err(_) => Err(self.new_type_error(format!(
+                "{} has no __contains__ method",
+                objtype::get_type_name(&haystack.typ())
+            ))),
+        }
+    }
+
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
         // Pointer equal:
         a.is(&b)
@@ -603,7 +630,8 @@ impl VirtualMachine {
             &bytecode::ComparisonOperator::GreaterOrEqual => self._ge(a, b),
             &bytecode::ComparisonOperator::Is => Ok(self.ctx.new_bool(self._is(a, b))),
             &bytecode::ComparisonOperator::IsNot => self._is_not(a, b),
-            _ => panic!("NOT IMPL {:?}", op),
+            &bytecode::ComparisonOperator::In => self._in(a, b),
+            &bytecode::ComparisonOperator::NotIn => self._not_in(a, b),
         };
         match result {
             Ok(value) => {

@@ -50,6 +50,21 @@ fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
+pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(tuple, Some(vm.ctx.tuple_type())), (x, None)]
+    );
+    for element in get_elements(tuple).iter() {
+        if x == element {
+            return Ok(vm.new_bool(true));
+        }
+    }
+
+    Ok(vm.new_bool(false))
+}
+
 pub fn get_elements(obj: &PyObjectRef) -> Vec<PyObjectRef> {
     if let PyObjectKind::Tuple { elements } = &obj.borrow().kind {
         elements.to_vec()
@@ -61,6 +76,7 @@ pub fn get_elements(obj: &PyObjectRef) -> Vec<PyObjectRef> {
 pub fn init(context: &PyContext) {
     let ref tuple_type = context.tuple_type;
     tuple_type.set_attr("__eq__", context.new_rustfunc(tuple_eq));
+    tuple_type.set_attr("__contains__", context.new_rustfunc(tuple_contains));
     tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
     tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
 }

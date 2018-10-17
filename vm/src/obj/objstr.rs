@@ -8,8 +8,9 @@ use super::objtype;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
-    str_type.set_attr("__eq__", context.new_rustfunc(str_eq));
     str_type.set_attr("__add__", context.new_rustfunc(str_add));
+    str_type.set_attr("__eq__", context.new_rustfunc(str_eq));
+    str_type.set_attr("__contains__", context.new_rustfunc(str_contains));
     str_type.set_attr("__len__", context.new_rustfunc(str_len));
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
@@ -195,6 +196,20 @@ fn str_startswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     let pat = get_value(&pat);
     Ok(vm.ctx.new_bool(value.starts_with(pat.as_str())))
+}
+
+fn str_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (s, Some(vm.ctx.str_type())),
+            (needle, Some(vm.ctx.str_type()))
+        ]
+    );
+    let value = get_value(&s);
+    let needle = get_value(&needle);
+    Ok(vm.ctx.new_bool(value.contains(needle.as_str())))
 }
 
 // TODO: should with following format
