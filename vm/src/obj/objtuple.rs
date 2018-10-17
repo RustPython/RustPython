@@ -2,6 +2,7 @@ use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objbool;
 use super::objsequence::seq_equal;
 use super::objstr;
 use super::objtype;
@@ -54,11 +55,16 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(tuple, Some(vm.ctx.tuple_type())), (x, None)]
+        required = [(tuple, Some(vm.ctx.tuple_type())), (needle, None)]
     );
     for element in get_elements(tuple).iter() {
-        if x == element {
-            return Ok(vm.new_bool(true));
+        match vm.call_method(needle, "__eq__", vec![element.clone()]) {
+            Ok(value) => {
+                if objbool::get_value(&value) {
+                    return Ok(vm.new_bool(true));
+                }
+            }
+            Err(_) => return Err(vm.new_type_error("".to_string())),
         }
     }
 

@@ -7,6 +7,7 @@ use super::super::pyobject::{
     PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objbool;
 use super::objiter;
 use super::objstr;
 use super::objtype;
@@ -88,8 +89,29 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
+pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(set, Some(vm.ctx.set_type())), (needle, None)]
+    );
+    for element in get_elements(set).iter() {
+        match vm.call_method(needle, "__eq__", vec![element.1.clone()]) {
+            Ok(value) => {
+                if objbool::get_value(&value) {
+                    return Ok(vm.new_bool(true));
+                }
+            }
+            Err(_) => return Err(vm.new_type_error("".to_string())),
+        }
+    }
+
+    Ok(vm.new_bool(false))
+}
+
 pub fn init(context: &PyContext) {
     let ref set_type = context.set_type;
+    set_type.set_attr("__contains__", context.new_rustfunc(set_contains));
     set_type.set_attr("__len__", context.new_rustfunc(set_len));
     set_type.set_attr("__new__", context.new_rustfunc(set_new));
     set_type.set_attr("__repr__", context.new_rustfunc(set_repr));

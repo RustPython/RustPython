@@ -7,6 +7,7 @@ use super::super::pyobject::{
     TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objbool;
 use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
 
@@ -61,13 +62,16 @@ fn iter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     loop {
         match vm.call_method(&iter, "__next__", vec![]) {
-            Ok(element) => {
-                if &element == needle {
-                    return Ok(vm.new_bool(true));
-                } else {
-                    continue;
+            Ok(element) => match vm.call_method(needle, "__eq__", vec![element.clone()]) {
+                Ok(value) => {
+                    if objbool::get_value(&value) {
+                        return Ok(vm.new_bool(true));
+                    } else {
+                        continue;
+                    }
                 }
-            }
+                Err(_) => return Err(vm.new_type_error("".to_string())),
+            },
             Err(_) => return Ok(vm.new_bool(false)),
         }
     }
