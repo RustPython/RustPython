@@ -250,17 +250,7 @@ impl Compiler {
                 self.emit(Instruction::ForIter);
 
                 // Start of loop iteration, set targets:
-                // TODO: can we use compile_store here?
-                for t in target {
-                    match t {
-                        ast::Expression::Identifier { name } => {
-                            self.emit(Instruction::StoreName {
-                                name: name.to_string(),
-                            });
-                        }
-                        _ => panic!("Not impl"),
-                    }
-                }
+                self.compile_store(target);
 
                 // Body of loop:
                 self.compile_statements(body);
@@ -921,17 +911,7 @@ impl Compiler {
                 self.set_label(start_label);
                 self.emit(Instruction::ForIter);
 
-                // TODO: can we use compile_store here?
-                for t in &generator.target {
-                    match t {
-                        ast::Expression::Identifier { name } => {
-                            self.emit(Instruction::StoreName {
-                                name: name.to_string(),
-                            });
-                        }
-                        _ => panic!("Not impl"),
-                    }
-                }
+                self.compile_store(&generator.target);
 
                 // Evaluate element:
                 self.compile_expression(element);

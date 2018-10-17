@@ -337,14 +337,55 @@ mod tests {
                     name: "x".to_string()
                 }),
                 generators: vec![ast::Comprehension {
-                    target: vec![ast::Expression::Identifier {
+                    target: ast::Expression::Identifier {
                         name: "y".to_string()
-                    },],
+                    },
                     iter: ast::Expression::Identifier {
                         name: "z".to_string()
                     },
                     ifs: vec![],
                 }],
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_double_list_comprehension() {
+        let source = String::from("[x for y, y2 in z for a in b]");
+        let parse_ast = parse_expression(&source).unwrap();
+        assert_eq!(
+            parse_ast,
+            ast::Expression::ListComprehension {
+                element: Box::new(ast::Expression::Identifier {
+                    name: "x".to_string()
+                }),
+                generators: vec![
+                    ast::Comprehension {
+                        target: ast::Expression::Tuple {
+                            elements: vec![
+                                ast::Expression::Identifier {
+                                    name: "y".to_string()
+                                },
+                                ast::Expression::Identifier {
+                                    name: "y2".to_string()
+                                },
+                            ],
+                        },
+                        iter: ast::Expression::Identifier {
+                            name: "z".to_string()
+                        },
+                        ifs: vec![],
+                    },
+                    ast::Comprehension {
+                        target: ast::Expression::Identifier {
+                            name: "a".to_string()
+                        },
+                        iter: ast::Expression::Identifier {
+                            name: "b".to_string()
+                        },
+                        ifs: vec![],
+                    }
+                ],
             }
         );
     }

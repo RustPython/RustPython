@@ -78,7 +78,7 @@ pub enum Statement {
         body: Vec<LocatedStatement>,
     },
     For {
-        target: Vec<Expression>,
+        target: Expression,
         iter: Vec<Expression>,
         body: Vec<LocatedStatement>,
         orelse: Option<Vec<LocatedStatement>>,
@@ -200,7 +200,7 @@ pub enum Expression {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Comprehension {
-    pub target: Vec<Expression>, // TODO: should this be a non-vector?
+    pub target: Expression,
     pub iter: Expression,
     pub ifs: Vec<Expression>,
 }

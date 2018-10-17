@@ -298,8 +298,11 @@ ForStatement: ast::LocatedStatement = {
       None => None,
     };
     ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::For { target: e, iter: t, body: s, orelse: or_else },
+          location: loc,
+          node: ast::Statement::For {
+            target: e,
+            iter: t, body: s, orelse: or_else
+          },
     }
   },
 };
@@ -622,8 +625,14 @@ DictEntry: (ast::Expression, ast::Expression) = {
     <e1: Test> ":" <e2: Test> => (e1, e2),
 };
 
-ExpressionList: Vec<ast::Expression> = {
-  <e: Comma<Expression>> => e,
+ExpressionList: ast::Expression = {
+    <e: Comma<Expression>> => {
+        if e.len() == 1 {
+            e.into_iter().next().unwrap()
+        } else {
+            ast::Expression::Tuple { elements: e }
+        }
+    },
 };
 
 #[inline]
@@ -653,12 +662,12 @@ CompFor: Vec<ast::Comprehension> = {
             },
             Some((Some(mut cphs), None)) => {
                 let mut res = vec![];
-                res.append(&mut cphs);
                 res.push(ast::Comprehension {
                     target: e,
                     iter: i,
                     ifs: vec![],
                 });
+                res.append(&mut cphs);
                 res
             },
             _ => {
