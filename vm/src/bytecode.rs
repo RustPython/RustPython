@@ -134,6 +134,9 @@ pub enum Instruction {
     BuildList {
         size: usize,
     },
+    BuildSet {
+        size: usize,
+    },
     BuildMap {
         size: usize,
     },

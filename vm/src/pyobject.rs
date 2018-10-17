@@ -9,6 +9,7 @@ use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objobject;
+use super::obj::objset;
 use super::obj::objstr;
 use super::obj::objtuple;
 use super::obj::objtype;
@@ -61,6 +62,7 @@ pub struct PyContext {
     pub false_value: PyObjectRef,
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
+    pub set_type: PyObjectRef,
     pub iter_type: PyObjectRef,
     pub str_type: PyObjectRef,
     pub function_type: PyObjectRef,
@@ -122,6 +124,7 @@ impl PyContext {
             create_type("member_descriptor", &type_type, &object_type, &dict_type);
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
+        let set_type = create_type("set", &type_type, &object_type, &dict_type);
         let int_type = create_type("int", &type_type, &object_type, &dict_type);
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
         let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
@@ -142,6 +145,7 @@ impl PyContext {
             float_type: float_type,
             bytes_type: bytes_type,
             list_type: list_type,
+            set_type: set_type,
             bool_type: bool_type,
             true_value: true_value,
             false_value: false_value,
@@ -160,6 +164,7 @@ impl PyContext {
         };
         objtype::init(&context);
         objlist::init(&context);
+        objset::init(&context);
         objtuple::init(&context);
         objobject::init(&context);
         objdict::init(&context);
@@ -190,6 +195,11 @@ impl PyContext {
     pub fn list_type(&self) -> PyObjectRef {
         self.list_type.clone()
     }
+
+    pub fn set_type(&self) -> PyObjectRef {
+        self.set_type.clone()
+    }
+
     pub fn bool_type(&self) -> PyObjectRef {
         self.bool_type.clone()
     }
@@ -267,6 +277,11 @@ impl PyContext {
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(PyObjectKind::List { elements: elements }, self.list_type())
+    }
+
+    pub fn new_set(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
+        let elements = objset::sequence_to_hashmap(&elements);
+        PyObject::new(PyObjectKind::Set { elements: elements }, self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
@@ -611,6 +626,9 @@ pub enum PyObjectKind {
     Dict {
         elements: HashMap<String, PyObjectRef>,
     },
+    Set {
+        elements: HashMap<usize, PyObjectRef>,
+    },
     Iterator {
         position: usize,
         iterated_obj: PyObjectRef,
@@ -663,6 +681,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::List { elements: _ } => write!(f, "list"),
             &PyObjectKind::Tuple { elements: _ } => write!(f, "tuple"),
             &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
+            &PyObjectKind::Set { elements: _ } => write!(f, "set"),
             &PyObjectKind::Iterator {
                 position: _,
                 iterated_obj: _,
@@ -735,6 +754,14 @@ impl PyObject {
                 elements
                     .iter()
                     .map(|elem| format!("{}: {}", elem.0, elem.1.borrow().str()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            PyObjectKind::Set { ref elements } => format!(
+                "{{ {} }}",
+                elements
+                    .iter()
+                    .map(|elem| elem.1.borrow().str())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),

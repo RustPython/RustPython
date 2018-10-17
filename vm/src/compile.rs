@@ -802,6 +802,13 @@ impl Compiler {
                 }
                 self.emit(Instruction::BuildTuple { size: size });
             }
+            ast::Expression::Set { elements } => {
+                let size = elements.len();
+                for element in elements {
+                    self.compile_expression(element);
+                }
+                self.emit(Instruction::BuildSet { size: size });
+            }
             ast::Expression::Dict { elements } => {
                 let size = elements.len();
                 for (key, value) in elements {

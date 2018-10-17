@@ -79,6 +79,7 @@ fn handle_exception(vm: &mut VirtualMachine, result: PyResult) {
         Ok(_value) => {}
         Err(err) => {
             print_exception(vm, &err);
+            std::process::exit(1);
         }
     }
 }

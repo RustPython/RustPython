@@ -512,8 +512,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
     dict.insert(String::from("repr"), ctx.new_rustfunc(builtin_repr));
+    dict.insert(String::from("set"), ctx.set_type());
     dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
-    dict.insert(String::from("str"), ctx.str_type()); // new_rustfunc(builtin_str));
+    dict.insert(String::from("str"), ctx.str_type());
     dict.insert(String::from("tuple"), ctx.tuple_type());
     dict.insert(String::from("type"), ctx.type_type());
     dict.insert(String::from("object"), ctx.object());

@@ -869,6 +869,12 @@ impl VirtualMachine {
                 self.push_value(list_obj);
                 None
             }
+            bytecode::Instruction::BuildSet { size } => {
+                let elements = self.pop_multiple(*size);
+                let py_obj = self.context().new_set(elements);
+                self.push_value(py_obj);
+                None
+            }
             bytecode::Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(*size);
                 let list_obj = self.context().new_tuple(elements);

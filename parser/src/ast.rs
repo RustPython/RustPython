@@ -165,6 +165,9 @@ pub enum Expression {
     Dict {
         elements: Vec<(Expression, Expression)>,
     },
+    Set {
+        elements: Vec<Expression>,
+    },
     ListComprehension {
         element: Box<Expression>,
         generators: Vec<Comprehension>,
