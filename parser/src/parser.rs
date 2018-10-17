@@ -332,9 +332,11 @@ mod tests {
         let parse_ast = parse_expression(&source).unwrap();
         assert_eq!(
             parse_ast,
-            ast::Expression::ListComprehension {
-                element: Box::new(ast::Expression::Identifier {
-                    name: "x".to_string()
+            ast::Expression::Comprehension {
+                kind: Box::new(ast::ComprehensionKind::List {
+                    element: ast::Expression::Identifier {
+                        name: "x".to_string()
+                    }
                 }),
                 generators: vec![ast::Comprehension {
                     target: ast::Expression::Identifier {
@@ -355,9 +357,11 @@ mod tests {
         let parse_ast = parse_expression(&source).unwrap();
         assert_eq!(
             parse_ast,
-            ast::Expression::ListComprehension {
-                element: Box::new(ast::Expression::Identifier {
-                    name: "x".to_string()
+            ast::Expression::Comprehension {
+                kind: Box::new(ast::ComprehensionKind::List {
+                    element: ast::Expression::Identifier {
+                        name: "x".to_string()
+                    }
                 }),
                 generators: vec![
                     ast::Comprehension {

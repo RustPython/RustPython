@@ -592,6 +592,8 @@ Atom: ast::Expression = {
      }
   },
   "{" <e:TestDict?> "}" => ast::Expression::Dict { elements: e.unwrap_or(Vec::new()) },
+  "{" <e:TestSet> "}" => ast::Expression::Set { elements: e },
+  "{" <e:TestSetComp> "}" => e,
   "True" => ast::Expression::True,
   "False" => ast::Expression::False,
   "None" => ast::Expression::None,
@@ -606,8 +608,8 @@ TestListComp: Vec<ast::Expression> = {
 TestListComp2: ast::Expression = {
     <e:Test> <c:CompFor> => {
         // vec![e]
-        ast::Expression::ListComprehension {
-            element: Box::new(e),
+        ast::Expression::Comprehension {
+            kind: Box::new(ast::ComprehensionKind::List { element: e }),
             generators: c,
         }
     },
@@ -623,6 +625,23 @@ TestDict: Vec<(ast::Expression, ast::Expression)> = {
 
 DictEntry: (ast::Expression, ast::Expression) = {
     <e1: Test> ":" <e2: Test> => (e1, e2),
+};
+
+TestSet: Vec<ast::Expression> = {
+    <e1:Test> <e2:("," Test)*> ","? => {
+        let mut e = vec![e1];
+        e.extend(e2.into_iter().map(|x| x.1));
+        e
+    }
+};
+
+TestSetComp: ast::Expression = {
+    <e1:Test> <c:CompFor> => {
+        ast::Expression::Comprehension {
+            kind: Box::new(ast::ComprehensionKind::Set { element: e1 }),
+            generators: c,
+        }
+    }
 };
 
 ExpressionList: ast::Expression = {

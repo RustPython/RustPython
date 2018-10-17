@@ -146,6 +146,12 @@ pub enum Instruction {
     ListAppend {
         i: usize,
     },
+    SetAdd {
+        i: usize,
+    },
+    MapAdd {
+        i: usize,
+    },
     PrintExpr,
     LoadBuildClass,
     StoreLocals,

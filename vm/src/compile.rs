@@ -1,5 +1,9 @@
 /*
  * Take an AST and transform it into bytecode
+ *
+ * Inspirational code:
+ *   https://github.com/python/cpython/blob/master/Python/compile.c
+ *   https://github.com/micropython/micropython/blob/master/py/compile.c
  */
 
 extern crate rustpython_parser;
@@ -876,104 +880,18 @@ impl Compiler {
                     flags: bytecode::FunctionOpArg::empty(),
                 });
             }
-            ast::Expression::ListComprehension {
+            ast::Expression::Comprehension { kind, generators } => {
+                self.compile_comprehension(kind, generators);
+            }
+            /*
+            ast::Expression::SetComprehension {
                 element,
                 generators,
             } => {
-                // We must have at least one generator:
-                assert!(generators.len() > 0);
-
-                // Create magnificent function <listcomp>:
-                self.code_object_stack.push(CodeObject::new(
-                    vec![".0".to_string()],
-                    self.source_path.clone(),
-                    "<listcomp>".to_string(),
-                ));
-
-                // Create empty list:
-                self.emit(Instruction::BuildList { size: 0 });
-
-                let mut loop_labels = vec![];
-                for generator in generators {
-                    let first = loop_labels.len() == 0;
-                    if first {
-                        // Load iterator onto stack (passed as first argument):
-                        self.emit(Instruction::LoadName {
-                            name: String::from(".0"),
-                        });
-                    } else {
-                        // Evaluate iterated item:
-                        self.compile_expression(&generator.iter);
-
-                        // Get iterator / turn item into an iterator
-                        self.emit(Instruction::GetIter);
-                    }
-
-                    // Setup for loop:
-                    let start_label = self.new_label();
-                    let end_label = self.new_label();
-                    loop_labels.push((start_label, end_label));
-                    self.emit(Instruction::SetupLoop {
-                        start: start_label,
-                        end: end_label,
-                    });
-                    self.set_label(start_label);
-                    self.emit(Instruction::ForIter);
-
-                    self.compile_store(&generator.target);
-                }
-
-                // Evaluate element:
-                self.compile_expression(element);
-
-                // List append:
-                self.emit(Instruction::ListAppend {
-                    i: 1 + generators.len(),
-                });
-
-                for (start_label, end_label) in loop_labels.iter().rev() {
-                    // Repeat:
-                    self.emit(Instruction::Jump {
-                        target: *start_label,
-                    });
-
-                    // End of for loop:
-                    self.set_label(*end_label);
-                    self.emit(Instruction::PopBlock);
-                }
-
-                // Return freshly filled list:
-                self.emit(Instruction::ReturnValue);
-
-                // Fetch code for listcomp function:
-                let code = self.code_object_stack.pop().unwrap();
-
-                // List comprehension code:
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
-                });
-
-                // List comprehension function name:
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: String::from("<listcomp>"),
-                    },
-                });
-
-                // Turn code object into function object:
-                self.emit(Instruction::MakeFunction {
-                    flags: bytecode::FunctionOpArg::empty(),
-                });
-
-                // Evaluate iterated item:
-                self.compile_expression(&generators[0].iter);
-
-                // Get iterator / turn item into an iterator
-                self.emit(Instruction::GetIter);
-
-                // Call just created <listcomp> function:
-                self.emit(Instruction::CallFunction { count: 1 });
-            }
+                self.compile_comprehension("<setcomp>".to_string(),
+                    generators, element
+                );
+            }*/
             ast::Expression::IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
                 let end_label = self.new_label();
@@ -985,6 +903,148 @@ impl Compiler {
                 self.set_label(end_label);
             }
         }
+    }
+
+    fn compile_comprehension(
+        &mut self,
+        kind: &ast::ComprehensionKind,
+        generators: &Vec<ast::Comprehension>,
+    ) {
+        // We must have at least one generator:
+        assert!(generators.len() > 0);
+
+        let name = match kind {
+            ast::ComprehensionKind::List { .. } => "<listcomp>",
+            ast::ComprehensionKind::Set { .. } => "<setcomp>",
+            ast::ComprehensionKind::Dict { .. } => "<dictcomp>",
+        }
+        .to_string();
+
+        // Create magnificent function <listcomp>:
+        self.code_object_stack.push(CodeObject::new(
+            vec![".0".to_string()],
+            self.source_path.clone(),
+            name,
+        ));
+
+        match kind {
+            ast::ComprehensionKind::List { .. } => {
+                // Create empty list:
+                self.emit(Instruction::BuildList { size: 0 });
+            }
+            ast::ComprehensionKind::Set { .. } => {
+                // Create empty list:
+                self.emit(Instruction::BuildSet { size: 0 });
+            }
+            ast::ComprehensionKind::Dict { .. } => {
+                // Create empty list:
+                self.emit(Instruction::BuildMap { size: 0 });
+            }
+        }
+
+        let mut loop_labels = vec![];
+        for generator in generators {
+            let first = loop_labels.len() == 0;
+            if first {
+                // Load iterator onto stack (passed as first argument):
+                self.emit(Instruction::LoadName {
+                    name: String::from(".0"),
+                });
+            } else {
+                // Evaluate iterated item:
+                self.compile_expression(&generator.iter);
+
+                // Get iterator / turn item into an iterator
+                self.emit(Instruction::GetIter);
+            }
+
+            // Setup for loop:
+            let start_label = self.new_label();
+            let end_label = self.new_label();
+            loop_labels.push((start_label, end_label));
+            self.emit(Instruction::SetupLoop {
+                start: start_label,
+                end: end_label,
+            });
+            self.set_label(start_label);
+            self.emit(Instruction::ForIter);
+
+            self.compile_store(&generator.target);
+        }
+
+        match kind {
+            ast::ComprehensionKind::List { element } => {
+                // Evaluate element:
+                self.compile_expression(element);
+
+                // List append:
+                self.emit(Instruction::ListAppend {
+                    i: 1 + generators.len(),
+                });
+            }
+            ast::ComprehensionKind::Set { element } => {
+                // Evaluate element:
+                self.compile_expression(element);
+
+                // List append:
+                self.emit(Instruction::SetAdd {
+                    i: 1 + generators.len(),
+                });
+            }
+            ast::ComprehensionKind::Dict { key, value } => {
+                // Evaluate value and element:
+                self.compile_expression(value);
+                self.compile_expression(key);
+
+                // List append:
+                self.emit(Instruction::MapAdd {
+                    i: 1 + generators.len(),
+                });
+            }
+        }
+
+        for (start_label, end_label) in loop_labels.iter().rev() {
+            // Repeat:
+            self.emit(Instruction::Jump {
+                target: *start_label,
+            });
+
+            // End of for loop:
+            self.set_label(*end_label);
+            self.emit(Instruction::PopBlock);
+        }
+
+        // Return freshly filled list:
+        self.emit(Instruction::ReturnValue);
+
+        // Fetch code for listcomp function:
+        let code = self.code_object_stack.pop().unwrap();
+
+        // List comprehension code:
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::Code { code: code },
+        });
+
+        // List comprehension function name:
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String {
+                value: String::from("<listcomp>"),
+            },
+        });
+
+        // Turn code object into function object:
+        self.emit(Instruction::MakeFunction {
+            flags: bytecode::FunctionOpArg::empty(),
+        });
+
+        // Evaluate iterated item:
+        self.compile_expression(&generators[0].iter);
+
+        // Get iterator / turn item into an iterator
+        self.emit(Instruction::GetIter);
+
+        // Call just created <listcomp> function:
+        self.emit(Instruction::CallFunction { count: 1 });
     }
 
     // Low level helper functions:

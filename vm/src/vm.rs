@@ -931,7 +931,25 @@ impl VirtualMachine {
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
+                // TODO: objlist::list_append()
                 match self.call_method(&list_obj, "append", vec![item]) {
+                    Ok(_) => None,
+                    Err(err) => Some(Err(err)),
+                }
+            }
+            bytecode::Instruction::SetAdd { i } => {
+                let set_obj = self.nth_value(*i);
+                let item = self.pop_value();
+                match self.call_method(&set_obj, "add", vec![item]) {
+                    Ok(_) => None,
+                    Err(err) => Some(Err(err)),
+                }
+            }
+            bytecode::Instruction::MapAdd { i } => {
+                let dict_obj = self.nth_value(*i);
+                let key = self.pop_value();
+                let value = self.pop_value();
+                match self.call_method(&dict_obj, "__setitem__", vec![key, value]) {
                     Ok(_) => None,
                     Err(err) => Some(Err(err)),
                 }

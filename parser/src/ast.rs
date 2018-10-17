@@ -168,16 +168,10 @@ pub enum Expression {
     Set {
         elements: Vec<Expression>,
     },
-    ListComprehension {
-        element: Box<Expression>,
+    Comprehension {
+        kind: Box<ComprehensionKind>,
         generators: Vec<Comprehension>,
     },
-    /*
-    DictComprehension {
-        key: Box<Expression>,
-        value: Box<Expression>,
-        generators: Vec<Comprehension>,
-    },*/
     Slice {
         elements: Vec<Expression>,
     },
@@ -199,6 +193,13 @@ pub enum Expression {
     True,
     False,
     None,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum ComprehensionKind {
+    List { element: Expression },
+    Set { element: Expression },
+    Dict { key: Expression, value: Expression },
 }
 
 #[derive(Debug, PartialEq, Clone)]
