@@ -53,6 +53,26 @@ fn iter_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(iter.clone())
 }
 
+fn iter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(iter, Some(vm.ctx.iter_type())), (needle, None)]
+    );
+    loop {
+        match vm.call_method(&iter, "__next__", vec![]) {
+            Ok(element) => {
+                if &element == needle {
+                    return Ok(vm.new_bool(true));
+                } else {
+                    continue;
+                }
+            }
+            Err(_) => return Ok(vm.new_bool(false)),
+        }
+    }
+}
+
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
@@ -86,7 +106,8 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref iter_type = context.iter_type;
-    iter_type.set_attr("__new__", context.new_rustfunc(iter_new));
+    iter_type.set_attr("__contains__", context.new_rustfunc(iter_contains));
     iter_type.set_attr("__iter__", context.new_rustfunc(iter_iter));
+    iter_type.set_attr("__new__", context.new_rustfunc(iter_new));
     iter_type.set_attr("__next__", context.new_rustfunc(iter_next));
 }

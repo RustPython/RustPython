@@ -63,6 +63,26 @@ fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
+pub fn dict_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (dict, Some(vm.ctx.dict_type())),
+            (needle, Some(vm.ctx.str_type()))
+        ]
+    );
+
+    let needle = objstr::get_value(&needle);
+    for element in get_elements(dict).iter() {
+        if &needle == element.0 {
+            return Ok(vm.new_bool(true));
+        }
+    }
+
+    Ok(vm.new_bool(false))
+}
+
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
     (*dict_type.borrow_mut()).kind = PyObjectKind::Class {
         name: String::from("dict"),
@@ -75,6 +95,7 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
 pub fn init(context: &PyContext) {
     let ref dict_type = context.dict_type;
     dict_type.set_attr("__len__", context.new_rustfunc(dict_len));
+    dict_type.set_attr("__contains__", context.new_rustfunc(dict_contains));
     dict_type.set_attr("__new__", context.new_rustfunc(dict_new));
     dict_type.set_attr("__repr__", context.new_rustfunc(dict_repr));
 }

@@ -162,10 +162,27 @@ fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+pub fn contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.len called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type())), (x, None)]
+    );
+    for element in get_elements(list).iter() {
+        if x == element {
+            return Ok(vm.new_bool(true));
+        }
+    }
+
+    Ok(vm.new_bool(false))
+}
+
 pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
-    list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
     list_type.set_attr("__add__", context.new_rustfunc(list_add));
+    list_type.set_attr("__contains__", context.new_rustfunc(contains));
+    list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
     list_type.set_attr("__len__", context.new_rustfunc(list_len));
     list_type.set_attr("__new__", context.new_rustfunc(list_new));
     list_type.set_attr("__repr__", context.new_rustfunc(list_repr));
