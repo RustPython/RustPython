@@ -433,8 +433,19 @@ YieldExpr: ast::Expression = {
 };
 
 Test: ast::Expression = {
-  <e:OrTest> => e,
-  <e:LambdaDef> => e,
+    <e:OrTest> <c: ("if" OrTest "else" Test)?> => {
+        match c {
+            Some(c) => {
+                ast::Expression::IfExpression {
+                    test: Box::new(c.1),
+                    body: Box::new(e),
+                    orelse: Box::new(c.3),
+                }
+            },
+            None => e,
+        }
+    },
+    <e:LambdaDef> => e,
 };
 
 LambdaDef: ast::Expression = {

@@ -178,6 +178,11 @@ pub enum Expression {
         args: Vec<(String, Option<Expression>)>,
         body: Box<Expression>,
     },
+    IfExpression {
+        test: Box<Expression>,
+        body: Box<Expression>,
+        orelse: Box<Expression>,
+    },
     True,
     False,
     None,

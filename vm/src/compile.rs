@@ -878,6 +878,16 @@ impl Compiler {
                     flags: bytecode::FunctionOpArg::empty(),
                 });
             }
+            ast::Expression::IfExpression { test, body, orelse } => {
+                let no_label = self.new_label();
+                let end_label = self.new_label();
+                self.compile_test(test, None, Some(no_label), EvalContext::Expression);
+                self.compile_expression(body);
+                self.emit(Instruction::Jump { target: end_label });
+                self.set_label(no_label);
+                self.compile_expression(orelse);
+                self.set_label(end_label);
+            }
         }
     }
 
