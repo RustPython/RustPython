@@ -110,6 +110,10 @@ impl Frame {
     pub fn last_value(&self) -> PyObjectRef {
         self.stack.last().unwrap().clone()
     }
+
+    pub fn nth_value(&self, depth: usize) -> PyObjectRef {
+        self.stack[self.stack.len() - depth - 1].clone()
+    }
 }
 
 impl fmt::Debug for Frame {

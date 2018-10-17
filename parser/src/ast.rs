@@ -165,6 +165,16 @@ pub enum Expression {
     Dict {
         elements: Vec<(Expression, Expression)>,
     },
+    ListComprehension {
+        element: Box<Expression>,
+        generators: Vec<Comprehension>,
+    },
+    /*
+    DictComprehension {
+        key: Box<Expression>,
+        value: Box<Expression>,
+        generators: Vec<Comprehension>,
+    },*/
     Slice {
         elements: Vec<Expression>,
     },
@@ -186,6 +196,13 @@ pub enum Expression {
     True,
     False,
     None,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Comprehension {
+    pub target: Vec<Expression>, // TODO: should this be a non-vector?
+    pub iter: Expression,
+    pub ifs: Vec<Expression>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

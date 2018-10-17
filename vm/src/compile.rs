@@ -250,6 +250,7 @@ impl Compiler {
                 self.emit(Instruction::ForIter);
 
                 // Start of loop iteration, set targets:
+                // TODO: can we use compile_store here?
                 for t in target {
                     match t {
                         ast::Expression::Identifier { name } => {
@@ -877,6 +878,107 @@ impl Compiler {
                 self.emit(Instruction::MakeFunction {
                     flags: bytecode::FunctionOpArg::empty(),
                 });
+            }
+            ast::Expression::ListComprehension {
+                element,
+                generators,
+            } => {
+                // Okay, compile a new function which can be called
+
+                // For now only support one generator:
+                if generators.len() != 1 {
+                    unimplemented!("Only 1 level deep list comprehensions are implemented now");
+                }
+                let generator = &generators[0];
+
+                // Create magnificent function <listcomp>:
+                self.code_object_stack.push(CodeObject::new(
+                    vec![".0".to_string()],
+                    self.source_path.clone(),
+                    "<listcomp>".to_string(),
+                ));
+
+                // Create empty list:
+                self.emit(Instruction::BuildList { size: 0 });
+
+                // Load 'append' method:
+                //self.emit(Instruction::LoadAttr {
+                //    name: "append".to_string(),
+                //});
+
+                // Load iterator onto stack:
+                self.emit(Instruction::LoadName {
+                    name: String::from(".0"),
+                });
+
+                // Setup for loop:
+                let start_label = self.new_label();
+                let end_label = self.new_label();
+                self.emit(Instruction::SetupLoop {
+                    start: start_label,
+                    end: end_label,
+                });
+                self.set_label(start_label);
+                self.emit(Instruction::ForIter);
+
+                // TODO: can we use compile_store here?
+                for t in &generator.target {
+                    match t {
+                        ast::Expression::Identifier { name } => {
+                            self.emit(Instruction::StoreName {
+                                name: name.to_string(),
+                            });
+                        }
+                        _ => panic!("Not impl"),
+                    }
+                }
+
+                // Evaluate element:
+                self.compile_expression(element);
+
+                // List append:
+                self.emit(Instruction::ListAppend { i: 2 });
+
+                // Repeat:
+                self.emit(Instruction::Jump {
+                    target: start_label,
+                });
+
+                // End of for loop:
+                self.set_label(end_label);
+                self.emit(Instruction::PopBlock);
+
+                // Return freshly filled list:
+                self.emit(Instruction::ReturnValue);
+
+                // Fetch code for listcomp function:
+                let code = self.code_object_stack.pop().unwrap();
+
+                // List comprehension code:
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Code { code: code },
+                });
+
+                // List comprehension function name:
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: String::from("<listcomp>"),
+                    },
+                });
+
+                // Turn code object into function object:
+                self.emit(Instruction::MakeFunction {
+                    flags: bytecode::FunctionOpArg::empty(),
+                });
+
+                // Evaluate iterated item:
+                self.compile_expression(&generator.iter);
+
+                // Get iterator / turn item into an iterator
+                self.emit(Instruction::GetIter);
+
+                // Call just created <listcomp> function:
+                self.emit(Instruction::CallFunction { count: 1 });
             }
             ast::Expression::IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();

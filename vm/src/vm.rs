@@ -306,6 +306,10 @@ impl VirtualMachine {
         self.current_frame().last_value()
     }
 
+    fn nth_value(&self, i: usize) -> PyObjectRef {
+        self.current_frame().nth_value(i)
+    }
+
     fn store_name(&mut self, name: &str) -> Option<PyResult> {
         let obj = self.pop_value();
         self.current_frame_mut().locals.set_item(name, obj);
@@ -889,6 +893,14 @@ impl VirtualMachine {
                 );
                 self.push_value(obj);
                 None
+            }
+            bytecode::Instruction::ListAppend { i } => {
+                let list_obj = self.nth_value(*i);
+                let item = self.pop_value();
+                match self.call_method(&list_obj, "append", vec![item]) {
+                    Ok(_) => None,
+                    Err(err) => Some(Err(err)),
+                }
             }
             bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(op),
             bytecode::Instruction::LoadAttr { ref name } => self.load_attr(name),

@@ -140,6 +140,9 @@ pub enum Instruction {
     BuildSlice {
         size: usize,
     },
+    ListAppend {
+        i: usize,
+    },
     PrintExpr,
     LoadBuildClass,
     StoreLocals,

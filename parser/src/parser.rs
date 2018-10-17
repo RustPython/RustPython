@@ -71,6 +71,7 @@ pub fn parse_expression(source: &str) -> Result<ast::Expression, String> {
 #[cfg(test)]
 mod tests {
     use super::ast;
+    use super::parse_expression;
     use super::parse_program;
     use super::parse_statement;
 
@@ -323,5 +324,28 @@ mod tests {
                 }
             })
         )
+    }
+
+    #[test]
+    fn test_parse_list_comprehension() {
+        let source = String::from("[x for y in z]");
+        let parse_ast = parse_expression(&source).unwrap();
+        assert_eq!(
+            parse_ast,
+            ast::Expression::ListComprehension {
+                element: Box::new(ast::Expression::Identifier {
+                    name: "x".to_string()
+                }),
+                generators: vec![ast::Comprehension {
+                    target: vec![ast::Expression::Identifier {
+                        name: "y".to_string()
+                    },],
+                    iter: ast::Expression::Identifier {
+                        name: "z".to_string()
+                    },
+                    ifs: vec![],
+                }],
+            }
+        );
     }
 }
