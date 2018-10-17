@@ -19,9 +19,8 @@ assert 1 in (1, 2)
 assert 3 not in (1, 2)
 
 # test set
-# TODO: uncomment this when sets are implemented
-# assert 1 in set(1, 2)
-# assert 3 not in set(1, 2)
+assert 1 in set([1, 2])
+assert 3 not in set([1, 2])
 
 # test dicts
 # TODO: test dicts when keys other than strings will be allowed
