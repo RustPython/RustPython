@@ -43,7 +43,9 @@ Or use the interactive shell:
 To start contributing, there are a lot of things that need to be done.
 Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustPython/issues).
 Another approach is to checkout the sourcecode, and try out rustpython until
-you hit a limitation, and try to fix that.
+you hit a limitation, and try to fix that. You can also simply run
+`cargo run tests/snippets/whats_left_to_implement.py` and pickup any
+unimplemented method.
 
 # Testing
 
