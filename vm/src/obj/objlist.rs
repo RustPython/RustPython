@@ -116,7 +116,7 @@ fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-pub fn append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn list_append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.append called with: {:?}", args);
     arg_check!(
         vm,
@@ -151,7 +151,7 @@ fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.context().new_int(elements.len() as i32))
 }
 
-fn reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn list_reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.reverse called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let mut list_obj = list.borrow_mut();
@@ -192,7 +192,7 @@ pub fn init(context: &PyContext) {
     list_type.set_attr("__len__", context.new_rustfunc(list_len));
     list_type.set_attr("__new__", context.new_rustfunc(list_new));
     list_type.set_attr("__repr__", context.new_rustfunc(list_repr));
-    list_type.set_attr("append", context.new_rustfunc(append));
+    list_type.set_attr("append", context.new_rustfunc(list_append));
     list_type.set_attr("clear", context.new_rustfunc(clear));
-    list_type.set_attr("reverse", context.new_rustfunc(reverse));
+    list_type.set_attr("reverse", context.new_rustfunc(list_reverse));
 }

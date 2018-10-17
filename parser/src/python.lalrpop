@@ -592,6 +592,7 @@ Atom: ast::Expression = {
      }
   },
   "{" <e:TestDict?> "}" => ast::Expression::Dict { elements: e.unwrap_or(Vec::new()) },
+  "{" <e:TestDictComp> "}" => e,
   "{" <e:TestSet> "}" => ast::Expression::Set { elements: e },
   "{" <e:TestSetComp> "}" => e,
   "True" => ast::Expression::True,
@@ -620,6 +621,15 @@ TestDict: Vec<(ast::Expression, ast::Expression)> = {
         let mut d = vec![e1];
         d.extend(e2.into_iter().map(|x| x.1));
         d
+    }
+};
+
+TestDictComp: ast::Expression = {
+    <e1:DictEntry> <c:CompFor> => {
+        ast::Expression::Comprehension {
+            kind: Box::new(ast::ComprehensionKind::Dict { key: e1.0, value: e1.1 }),
+            generators: c,
+        }
     }
 };
 

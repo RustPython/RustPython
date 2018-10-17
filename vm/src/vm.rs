@@ -371,7 +371,7 @@ impl VirtualMachine {
                         self.ctx.new_int(lineno.get_row() as i32),
                         self.ctx.new_str(run_obj_name.clone()),
                     ]);
-                    objlist::append(
+                    objlist::list_append(
                         self,
                         PyFuncArgs {
                             args: vec![traceback, pos],
@@ -946,7 +946,7 @@ impl VirtualMachine {
                 }
             }
             bytecode::Instruction::MapAdd { i } => {
-                let dict_obj = self.nth_value(*i);
+                let dict_obj = self.nth_value(*i + 1);
                 let key = self.pop_value();
                 let value = self.pop_value();
                 match self.call_method(&dict_obj, "__setitem__", vec![key, value]) {

@@ -30,6 +30,24 @@ pub fn sequence_to_hashmap(iterable: &Vec<PyObjectRef>) -> HashMap<usize, PyObje
     elements
 }
 
+fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("set.add called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.set_type())), (item, None)]
+    );
+    let mut mut_obj = s.borrow_mut();
+
+    if let PyObjectKind::Set { ref mut elements } = mut_obj.kind {
+        let key = item.get_id();
+        elements.insert(key, item.clone());
+        Ok(vm.get_none())
+    } else {
+        Err(vm.new_type_error("set.add is called with no list".to_string()))
+    }
+}
+
 /* Create a new object of sub-type of set */
 fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -115,4 +133,5 @@ pub fn init(context: &PyContext) {
     set_type.set_attr("__len__", context.new_rustfunc(set_len));
     set_type.set_attr("__new__", context.new_rustfunc(set_new));
     set_type.set_attr("__repr__", context.new_rustfunc(set_repr));
+    set_type.set_attr("add", context.new_rustfunc(set_add));
 }
