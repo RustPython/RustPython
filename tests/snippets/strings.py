@@ -36,3 +36,6 @@ b = '  hallo  '
 assert b.strip() == 'hallo'
 assert b.lstrip() == 'hallo  '
 assert b.rstrip() == '  hallo'
+
+c = 'hallo'
+assert b.capitalize() == 'Hallo'
