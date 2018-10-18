@@ -38,4 +38,4 @@ assert b.lstrip() == 'hallo  '
 assert b.rstrip() == '  hallo'
 
 c = 'hallo'
-assert b.capitalize() == 'Hallo'
+assert c.capitalize() == 'Hallo'
