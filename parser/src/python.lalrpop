@@ -769,8 +769,8 @@ ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
 };
 
 FunctionArgument: (Option<String>, ast::Expression) = {
-    <e:Expression> => (None, e),
-    <i:Identifier> "=" <e:Expression> => (Some(i.clone()), e),
+    <e:Test> => (None, e),
+    <i:Identifier> "=" <e:Test> => (Some(i.clone()), e),
 };
 
 Comma<T>: Vec<T> = {
