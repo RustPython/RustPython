@@ -406,33 +406,63 @@ FuncDef: ast::LocatedStatement = {
   },
 };
 
-Parameters: Vec<(String, Option<ast::Expression>)> = {
+Parameters: ast::Parameters = {
   "(" <a: TypedArgsList> ")" => a,
 };
 
 // parameters are (String, None), kwargs are (String, Some(Test)) where Test is
 // the default
-TypedArgsList: Vec<(String, Option<ast::Expression>)> = {
-  <a: Comma<Parameter>> => a
+TypedArgsList: ast::Parameters = {
+    <args: Comma<Parameter>> => {
+        let mut names = vec![];
+        let mut default_elements = vec![];
+
+        for (name, default) in args.into_iter() {
+            names.push(name.clone());
+            if let Some(default) = default {
+                default_elements.push(default);
+            } else {
+                if default_elements.len() > 0 {
+                    // Once we have started with defaults, all remaining arguments must
+                    // have defaults
+                    panic!(
+                        "non-default argument follows default argument: {}",
+                        name
+                    );
+                }
+            }
+        }
+
+        ast::Parameters {
+            args: names,
+            vararg: None,
+            defaults: default_elements,
+        }
+    }
 };
 
 Parameter: (String, Option<ast::Expression>) = {
     <i:Identifier> => (i.clone(), None),
-    <i:Identifier> "=" <e:Expression> => (i.clone(), Some(e)),
+    <i:Identifier> "=" <e:Test> => (i.clone(), Some(e)),
 };
 
 ClassDef: ast::LocatedStatement = {
-  <d:Decorator*> <loc:@L> "class" <n:Identifier> <a:Parameters?> ":" <s:Suite> => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::ClassDef {
-          name: n,
-          args: a.unwrap_or(vec![]),
-          body: s,
-          decorator_list: d,
-      },
-    }
-  },
+    <d:Decorator*> <loc:@L> "class" <n:Identifier> <a:("(" ArgumentList ")")?> ":" <s:Suite> => {
+        let (bases, keywords) = match a {
+            Some((_, args, _)) => args,
+            None => (vec![], vec![]),
+        };
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::ClassDef {
+              name: n,
+              bases: bases,
+              keywords: keywords,
+              body: s,
+              decorator_list: d,
+            },
+        }
+    },
 };
 
 // Decorators:

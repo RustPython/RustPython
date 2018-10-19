@@ -226,7 +226,11 @@ mod tests {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::Expression {
                     expression: ast::Expression::Lambda {
-                        args: vec![(String::from("x"), None), (String::from("y"), None)],
+                        args: ast::Parameters {
+                            args: vec![String::from("x"), String::from("y")],
+                            vararg: None,
+                            defaults: vec![],
+                        },
                         body: Box::new(ast::Expression::Binop {
                             a: Box::new(ast::Expression::Identifier {
                                 name: String::from("x"),
@@ -285,13 +289,25 @@ mod tests {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::ClassDef {
                     name: String::from("Foo"),
-                    args: vec![(String::from("A"), None), (String::from("B"), None)],
+                    bases: vec![
+                        ast::Expression::Identifier {
+                            name: String::from("A")
+                        },
+                        ast::Expression::Identifier {
+                            name: String::from("B")
+                        }
+                    ],
+                    keywords: vec![],
                     body: vec![
                         ast::LocatedStatement {
                             location: ast::Location::new(2, 2),
                             node: ast::Statement::FunctionDef {
                                 name: String::from("__init__"),
-                                args: vec![(String::from("self"), None)],
+                                args: ast::Parameters {
+                                    args: vec![String::from("self")],
+                                    vararg: None,
+                                    defaults: vec![],
+                                },
                                 body: vec![ast::LocatedStatement {
                                     location: ast::Location::new(3, 3),
                                     node: ast::Statement::Pass,
@@ -303,15 +319,13 @@ mod tests {
                             location: ast::Location::new(4, 2),
                             node: ast::Statement::FunctionDef {
                                 name: String::from("method_with_default"),
-                                args: vec![
-                                    (String::from("self"), None),
-                                    (
-                                        String::from("arg"),
-                                        Some(ast::Expression::String {
-                                            value: "default".to_string()
-                                        })
-                                    )
-                                ],
+                                args: ast::Parameters {
+                                    args: vec![String::from("self"), String::from("arg"),],
+                                    vararg: None,
+                                    defaults: vec![ast::Expression::String {
+                                        value: "default".to_string()
+                                    }]
+                                },
                                 body: vec![ast::LocatedStatement {
                                     location: ast::Location::new(5, 3),
                                     node: ast::Statement::Pass,

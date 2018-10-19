@@ -95,15 +95,14 @@ pub enum Statement {
     ClassDef {
         name: String,
         body: Vec<LocatedStatement>,
-        args: Vec<(String, Option<Expression>)>,
-        // TODO: bases: Vec<Expression>,
-        // TODO: keywords: Vec<Keyword>,
+        bases: Vec<Expression>,
+        keywords: Vec<Keyword>,
         decorator_list: Vec<Expression>,
         // TODO: docstring: String,
     },
     FunctionDef {
         name: String,
-        args: Vec<(String, Option<Expression>)>,
+        args: Parameters,
         // docstring: String,
         body: Vec<LocatedStatement>,
         decorator_list: Vec<Expression>,
@@ -182,7 +181,7 @@ pub enum Expression {
         name: String,
     },
     Lambda {
-        args: Vec<(String, Option<Expression>)>,
+        args: Parameters,
         body: Box<Expression>,
     },
     IfExpression {
@@ -193,6 +192,17 @@ pub enum Expression {
     True,
     False,
     None,
+}
+
+/*
+ * In cpython this is called arguments, but we choose parameters to
+ * distuingish between function parameters and actual call arguments.
+ */
+#[derive(Debug, PartialEq)]
+pub struct Parameters {
+    pub args: Vec<String>,
+    pub vararg: Option<String>,
+    pub defaults: Vec<Expression>,
 }
 
 #[derive(Debug, PartialEq)]

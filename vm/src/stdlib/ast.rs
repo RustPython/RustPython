@@ -64,7 +64,8 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
         ast::Statement::ClassDef {
             name,
             body,
-            args: _,
+            bases: _,
+            keywords: _,
             decorator_list,
         } => {
             let node = create_node(ctx, "ClassDef");

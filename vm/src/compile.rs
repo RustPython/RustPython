@@ -384,37 +384,18 @@ impl Compiler {
                 decorator_list,
             } => {
                 // Create bytecode for this function:
-                let mut names = vec![];
-                let mut default_elements = vec![];
-
-                for (name, default) in args {
-                    names.push(name.clone());
-                    if let Some(default) = default {
-                        default_elements.push(default.clone());
-                    } else {
-                        if default_elements.len() > 0 {
-                            // Once we have started with defaults, all remaining arguments must
-                            // have defaults
-                            return Err(format!(
-                                "non-default argument follows default argument: {}",
-                                name
-                            ));
-                        }
-                    }
-                }
-
-                let have_kwargs = default_elements.len() > 0;
+                let have_kwargs = args.defaults.len() > 0;
                 if have_kwargs {
                     // Construct a tuple:
-                    let size = default_elements.len();
-                    for element in default_elements {
+                    let size = args.defaults.len();
+                    for element in &args.defaults {
                         self.compile_expression(element)?;
                     }
                     self.emit(Instruction::BuildTuple { size });
                 }
 
                 self.code_object_stack.push(CodeObject::new(
-                    names,
+                    args.args.clone(),
                     self.source_path.clone(),
                     name.clone(),
                 ));
@@ -453,7 +434,8 @@ impl Compiler {
             ast::Statement::ClassDef {
                 name,
                 body,
-                args,
+                bases,
+                keywords: _,
                 decorator_list,
             } => {
                 self.prepare_decorators(decorator_list)?;
@@ -482,6 +464,7 @@ impl Compiler {
                         value: name.clone(),
                     },
                 });
+
                 // Turn code object into function object:
                 self.emit(Instruction::MakeFunction {
                     flags: bytecode::FunctionOpArg::empty(),
@@ -493,13 +476,11 @@ impl Compiler {
                     },
                 });
 
-                for base in args {
-                    self.emit(Instruction::LoadName {
-                        name: base.0.clone(),
-                    });
+                for base in bases {
+                    self.compile_expression(base)?;
                 }
                 self.emit(Instruction::CallFunction {
-                    count: 2 + args.len(),
+                    count: 2 + bases.len(),
                 });
 
                 self.apply_decorators(decorator_list);
@@ -906,7 +887,7 @@ impl Compiler {
             }
             ast::Expression::Lambda { args, body } => {
                 self.code_object_stack.push(CodeObject::new(
-                    args.iter().map(|(name, _default)| name.clone()).collect(),
+                    args.args.clone(),
                     self.source_path.clone(),
                     "<lambda>".to_string(),
                 ));
