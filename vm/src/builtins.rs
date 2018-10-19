@@ -164,7 +164,42 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.run_code_obj(code_obj.clone(), scope)
 }
 
-// builtin_exec
+fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (source, None),
+            (_globals, Some(vm.ctx.dict_type())),
+            (locals, Some(vm.ctx.dict_type()))
+        ]
+    );
+    // TODO: handle optional global and locals
+
+    // Determine code object:
+    let code_obj = if objtype::isinstance(source, vm.ctx.str_type()) {
+        let mode = compile::Mode::Exec;
+        let source = objstr::get_value(source);
+        compile::compile(vm, &source, mode, None)?
+    } else {
+        source.clone()
+    };
+
+    // Construct new scope:
+    let scope_inner = Scope {
+        locals: locals.clone(),
+        parent: None,
+    };
+    let scope = PyObject {
+        kind: PyObjectKind::Scope { scope: scope_inner },
+        typ: None,
+    }
+    .into_ref();
+
+    // Run the code:
+    vm.run_code_obj(code_obj, scope)
+}
+
 // builtin_filter
 // builtin_float
 // builtin_format
@@ -483,6 +518,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("divmod"), ctx.new_rustfunc(builtin_divmod));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
+    dict.insert(String::from("exec"), ctx.new_rustfunc(builtin_exec));
     dict.insert(String::from("float"), ctx.float_type());
     dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
     dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));

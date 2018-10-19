@@ -647,7 +647,7 @@ impl Compiler {
                 }
             }
             _ => {
-                panic!("WTF: {:?}", target);
+                return Err(format!("Cannot store value into: {:?}", target));
             }
         }
         Ok(())
@@ -929,15 +929,6 @@ impl Compiler {
             ast::Expression::Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
             }
-            /*
-            ast::Expression::SetComprehension {
-                element,
-                generators,
-            } => {
-                self.compile_comprehension("<setcomp>".to_string(),
-                    generators, element
-                );
-            }*/
             ast::Expression::IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
                 let end_label = self.new_label();
@@ -974,17 +965,15 @@ impl Compiler {
             name,
         ));
 
+        // Create empty object of proper type:
         match kind {
             ast::ComprehensionKind::List { .. } => {
-                // Create empty list:
                 self.emit(Instruction::BuildList { size: 0 });
             }
             ast::ComprehensionKind::Set { .. } => {
-                // Create empty list:
                 self.emit(Instruction::BuildSet { size: 0 });
             }
             ast::ComprehensionKind::Dict { .. } => {
-                // Create empty list:
                 self.emit(Instruction::BuildMap { size: 0 });
             }
         }
