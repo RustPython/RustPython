@@ -7,7 +7,8 @@ use super::vm::VirtualMachine;
  */
 
 fn argv(ctx: &PyContext) -> PyObjectRef {
-    let argv: Vec<PyObjectRef> = env::args().map(|x| ctx.new_str(x)).collect();
+    let mut argv: Vec<PyObjectRef> = env::args().map(|x| ctx.new_str(x)).collect();
+    argv.remove(0);
     ctx.new_list(argv)
 }
 
