@@ -39,15 +39,29 @@ SimpleStatement: ast::LocatedStatement = {
 SmallStatement: ast::LocatedStatement = {
   // <e:Expression> => ast::Statement::Expression { expression: e },
   ExpressionStatement,
-  <loc:@L> "pass" => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Pass,
-    }
-  },
+  PassStatement,
+  DelStatement,
   FlowStatement,
   ImportStatement,
   AssertStatement,
+};
+
+PassStatement: ast::LocatedStatement = {
+    <loc:@L> "pass" => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Pass,
+        }
+    },
+};
+
+DelStatement: ast::LocatedStatement = {
+    <loc:@L> "del" <e:ExpressionList2> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Delete { targets: e },
+        }
+    },
 };
 
 ExpressionStatement: ast::LocatedStatement = {
@@ -664,12 +678,20 @@ TestSetComp: ast::Expression = {
 };
 
 ExpressionList: ast::Expression = {
-    <e: Comma<Expression>> => {
+    <e: ExpressionList2> => {
         if e.len() == 1 {
             e.into_iter().next().unwrap()
         } else {
             ast::Expression::Tuple { elements: e }
         }
+    },
+};
+
+ExpressionList2: Vec<ast::Expression> = {
+    <e1:Expression> <e2:("," Expression)*> ","? => {
+        let mut l = vec![e1];
+        l.extend(e2.into_iter().map(|x| x.1));
+        l
     },
 };
 
@@ -831,6 +853,7 @@ extern {
         "class" => lexer::Tok::Class,
         "continue" => lexer::Tok::Break,
         "def" => lexer::Tok::Def,
+        "del" => lexer::Tok::Del,
         "elif" => lexer::Tok::Elif,
         "else" => lexer::Tok::Else,
         "except" => lexer::Tok::Except,

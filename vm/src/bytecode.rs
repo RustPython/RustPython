@@ -63,8 +63,15 @@ pub enum Instruction {
     StoreName {
         name: String,
     },
+    DeleteName {
+        name: String,
+    },
     StoreSubscript,
+    DeleteSubscript,
     StoreAttr {
+        name: String,
+    },
+    DeleteAttr {
         name: String,
     },
     LoadConst {

@@ -123,9 +123,9 @@ impl Compiler {
         self.emit(Instruction::ReturnValue);
     }
 
-    fn compile_statements(&mut self, statements: &[ast::LocatedStatement]) {
+    fn compile_statements(&mut self, statements: &[ast::LocatedStatement]) -> Result<(),String> {
         for statement in statements {
-            self.compile_statement(statement)
+            self.compile_statement(statement)?
         }
     }
 
@@ -562,9 +562,30 @@ impl Compiler {
                 self.compile_op(op);
                 self.compile_store(target);
             }
-            ast::Statement::Delete { targets: _ } => {
-                // TODO: Remove the given names from the scope
-                // self.emit(Instruction::DeleteName);
+            ast::Statement::Delete { targets } => {
+                for target in targets {
+                    match target {
+                        ast::Expression::Identifier { name } => {
+                            self.emit(Instruction::DeleteName {
+                                name: name.to_string(),
+                            });
+                        }
+                        ast::Expression::Attribute { value, name } => {
+                            self.compile_expression(value);
+                            self.emit(Instruction::DeleteAttr {
+                                name: name.to_string(),
+                            });
+                        }
+                        ast::Expression::Subscript { a, b } => {
+                            self.compile_expression(a);
+                            self.compile_expression(b);
+                            self.emit(Instruction::DeleteSubscript);
+                        }
+                        _ => {
+                            panic!("Invalid delete statement");
+                        }
+                    }
+                }
             }
             ast::Statement::Pass => {
                 self.emit(Instruction::Pass);

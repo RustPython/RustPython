@@ -397,7 +397,7 @@ impl TypeProtocol for PyObjectRef {
     fn typ(&self) -> PyObjectRef {
         match self.borrow().typ {
             Some(ref typ) => typ.clone(),
-            None => panic!("Object doesn't have a type!"),
+            None => panic!("Object {:?} doesn't have a type!", self),
         }
     }
 }

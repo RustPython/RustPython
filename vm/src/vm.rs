@@ -316,6 +316,20 @@ impl VirtualMachine {
         None
     }
 
+    fn delete_name(&mut self, name: &str) -> Option<PyResult> {
+        let locals = match self.current_frame().locals.borrow().kind {
+            PyObjectKind::Scope { ref scope } => scope.locals.clone(),
+            _ => panic!("We really expect our scope to be a scope!"),
+        };
+
+        // Assume here that locals is a dict
+        let name = self.ctx.new_str(name.to_string());
+        match self.call_method(&locals, "__delitem__", vec![name]) {
+            Ok(_) => None,
+            err => Some(err),
+        }
+    }
+
     fn load_name(&mut self, name: &str) -> Option<PyResult> {
         // Lookup name in scope and put it onto the stack!
         let mut scope = self.current_frame().locals.clone();
@@ -429,6 +443,15 @@ impl VirtualMachine {
         match result {
             Ok(_) => None,
             Err(value) => Some(Err(value)),
+        }
+    }
+
+    fn execute_delete_subscript(&mut self) -> Option<PyResult> {
+        let idx = self.pop_value();
+        let obj = self.pop_value();
+        match self.call_method(&obj, "__delitem__", vec![idx]) {
+            Ok(_) => None,
+            err => Some(err),
         }
     }
 
@@ -779,6 +802,15 @@ impl VirtualMachine {
         None
     }
 
+    fn delete_attr(&mut self, attr_name: &str) -> Option<PyResult> {
+        let parent = self.pop_value();
+        let name = self.ctx.new_str(attr_name.to_string());
+        match self.call_method(&parent, "__delattr__", vec![name]) {
+            Ok(_) => None,
+            err => Some(err),
+        }
+    }
+
     fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
             bytecode::Constant::Integer { ref value } => self.ctx.new_int(*value),
@@ -823,11 +855,10 @@ impl VirtualMachine {
                 ref symbol,
             } => self.import(name, symbol),
             bytecode::Instruction::LoadName { ref name } => self.load_name(name),
-            bytecode::Instruction::StoreName { ref name } => {
-                // take top of stack and assign in scope:
-                self.store_name(name)
-            }
+            bytecode::Instruction::StoreName { ref name } => self.store_name(name),
+            bytecode::Instruction::DeleteName { ref name } => self.delete_name(name),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(),
+            bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(),
             bytecode::Instruction::Pop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
@@ -957,6 +988,7 @@ impl VirtualMachine {
             bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(op),
             bytecode::Instruction::LoadAttr { ref name } => self.load_attr(name),
             bytecode::Instruction::StoreAttr { ref name } => self.store_attr(name),
+            bytecode::Instruction::DeleteAttr { ref name } => self.delete_attr(name),
             bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(op),
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(op),
             bytecode::Instruction::ReturnValue => {
