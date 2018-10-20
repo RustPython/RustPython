@@ -1,6 +1,6 @@
-use std::env;
-use super::pyobject::{DictProtocol, PyContext, PyObjectRef, PyFuncArgs, PyResult};
+use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
+use std::env;
 
 /*
  * The magic sys module.
@@ -11,7 +11,6 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
     argv.remove(0);
     ctx.new_list(argv)
 }
-
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let path_list = match env::var_os("PYTHONPATH") {

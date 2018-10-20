@@ -43,9 +43,7 @@ fn main() {
                 .takes_value(true)
                 .help("run library module as script"),
         )
-        .arg(Arg::from_usage("[pyargs] 'args for python'")
-            .multiple(true)
-        )
+        .arg(Arg::from_usage("[pyargs] 'args for python'").multiple(true))
         .get_matches();
 
     // Construct vm:
