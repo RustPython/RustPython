@@ -1,5 +1,4 @@
-use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult};
-use super::vm::VirtualMachine;
+use super::pyobject::{DictProtocol, PyContext, PyObjectRef};
 use std::env;
 
 /*
