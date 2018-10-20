@@ -407,13 +407,22 @@ FuncDef: ast::LocatedStatement = {
 };
 
 Parameters: ast::Parameters = {
-  "(" <a: TypedArgsList> ")" => a,
+    "(" <a: (TypedArgsList)?> ")" => {
+        match a {
+            Some(a) => a,
+            None => Default::default(),
+        }
+    },
 };
 
 // parameters are (String, None), kwargs are (String, Some(Test)) where Test is
 // the default
 TypedArgsList: ast::Parameters = {
-    <args: Comma<Parameter>> => {
+    <param1:TypedParameterDef> <param2:("," TypedParameterDef)*> <args2:("," ParameterListStarArgs)?> => {
+        // Combine first parameters:
+        let mut args = vec![param1];
+        args.extend(param2.into_iter().map(|x| x.1));
+
         let mut names = vec![];
         let mut default_elements = vec![];
 
@@ -433,17 +442,71 @@ TypedArgsList: ast::Parameters = {
             }
         }
 
+        // Now gather rest of parameters:
+        let (vararg, kwonlyargs, kw_defaults, kwarg) = match args2 {
+            Some((_, x)) => x,
+            None => (None, vec![], vec![], None),
+        };
+
         ast::Parameters {
             args: names,
-            vararg: None,
+            kwonlyargs: kwonlyargs,
+            vararg: vararg,
+            kwarg: kwarg,
             defaults: default_elements,
+            kw_defaults: kw_defaults,
         }
-    }
+    },
+    <params:ParameterListStarArgs> => {
+        let (vararg, kwonlyargs, kw_defaults, kwarg) = params;
+        ast::Parameters {
+            args: vec![],
+            kwonlyargs: kwonlyargs,
+            vararg: vararg,
+            kwarg: kwarg,
+            defaults: vec![],
+            kw_defaults: kw_defaults,
+        }
+    },
+    "**" <kw:Identifier> => {
+        ast::Parameters {
+            args: vec![],
+            kwonlyargs: vec![],
+            vararg: None,
+            kwarg: Some(kw),
+            defaults: vec![],
+            kw_defaults: vec![],
+        }
+    },
 };
 
-Parameter: (String, Option<ast::Expression>) = {
-    <i:Identifier> => (i.clone(), None),
-    <i:Identifier> "=" <e:Test> => (i.clone(), Some(e)),
+TypedParameterDef: (String, Option<ast::Expression>) = {
+    <i:TypedParameter> => (i, None),
+    <i:TypedParameter> "=" <e:Test> => (i, Some(e)),
+};
+
+// TODO: add type annotations here:
+TypedParameter: String = {
+    Identifier,
+};
+
+ParameterListStarArgs: (Option<String>, Vec<String>, Vec<Option<ast::Expression>>, Option<String>) = {
+    "*" <va:Identifier> <kw:("," TypedParameterDef)*> <kwarg:("," "**" Identifier)?> => {
+        // Extract keyword arguments:
+        let mut kwonlyargs = vec![];
+        let mut kw_defaults = vec![];
+        for (name, value) in kw.into_iter().map(|x| x.1) {
+            kwonlyargs.push(name);
+            kw_defaults.push(value);
+        }
+
+        let kwarg = match kwarg {
+            Some((_, _, name)) => Some(name),
+            None => None,
+        };
+
+        (Some(va), kwonlyargs, kw_defaults, kwarg)
+    }
 };
 
 ClassDef: ast::LocatedStatement = {
@@ -505,9 +568,9 @@ Test: ast::Expression = {
 };
 
 LambdaDef: ast::Expression = {
-    "lambda" <p:TypedArgsList> ":" <b:Expression> =>
+    "lambda" <p:TypedArgsList?> ":" <b:Expression> =>
         ast::Expression::Lambda {
-            args:p,
+            args: p.unwrap_or(Default::default()),
             body:Box::new(b)
        }
 }

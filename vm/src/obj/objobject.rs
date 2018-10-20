@@ -49,6 +49,28 @@ fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     objbool::not(vm, &eq)
 }
 
+// TODO: is object the right place for delattr?
+fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.object())),
+            (attr, Some(vm.ctx.str_type()))
+        ]
+    );
+
+    // Get dict:
+    let dict = match zelf.borrow().kind {
+        PyObjectKind::Class { ref dict, .. } => dict.clone(),
+        PyObjectKind::Instance { ref dict, .. } => dict.clone(),
+        _ => return Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
+    };
+
+    // Delete attr from dict:
+    vm.call_method(&dict, "__delitem__", vec![attr.clone()])
+}
+
 fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.object()))]);
     vm.call_method(zelf, "__repr__", vec![])
@@ -67,6 +89,7 @@ pub fn init(context: &PyContext) {
     object.set_attr("__init__", context.new_rustfunc(object_init));
     object.set_attr("__eq__", context.new_rustfunc(object_eq));
     object.set_attr("__ne__", context.new_rustfunc(object_ne));
+    object.set_attr("__delattr__", context.new_rustfunc(object_delattr));
     object.set_attr("__dict__", context.new_member_descriptor(object_dict));
     object.set_attr("__str__", context.new_rustfunc(object_str));
     object.set_attr("__repr__", context.new_rustfunc(object_repr));

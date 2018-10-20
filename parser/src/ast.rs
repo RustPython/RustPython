@@ -198,11 +198,14 @@ pub enum Expression {
  * In cpython this is called arguments, but we choose parameters to
  * distuingish between function parameters and actual call arguments.
  */
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Default)]
 pub struct Parameters {
     pub args: Vec<String>,
+    pub kwonlyargs: Vec<String>,
     pub vararg: Option<String>,
+    pub kwarg: Option<String>,
     pub defaults: Vec<Expression>,
+    pub kw_defaults: Vec<Option<Expression>>,
 }
 
 #[derive(Debug, PartialEq)]

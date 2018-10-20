@@ -228,8 +228,11 @@ mod tests {
                     expression: ast::Expression::Lambda {
                         args: ast::Parameters {
                             args: vec![String::from("x"), String::from("y")],
+                            kwonlyargs: vec![],
                             vararg: None,
+                            kwarg: None,
                             defaults: vec![],
+                            kw_defaults: vec![],
                         },
                         body: Box::new(ast::Expression::Binop {
                             a: Box::new(ast::Expression::Identifier {
@@ -305,8 +308,11 @@ mod tests {
                                 name: String::from("__init__"),
                                 args: ast::Parameters {
                                     args: vec![String::from("self")],
+                                    kwonlyargs: vec![],
                                     vararg: None,
+                                    kwarg: None,
                                     defaults: vec![],
+                                    kw_defaults: vec![],
                                 },
                                 body: vec![ast::LocatedStatement {
                                     location: ast::Location::new(3, 3),
@@ -321,10 +327,13 @@ mod tests {
                                 name: String::from("method_with_default"),
                                 args: ast::Parameters {
                                     args: vec![String::from("self"), String::from("arg"),],
+                                    kwonlyargs: vec![],
                                     vararg: None,
+                                    kwarg: None,
                                     defaults: vec![ast::Expression::String {
                                         value: "default".to_string()
-                                    }]
+                                    }],
+                                    kw_defaults: vec![],
                                 },
                                 body: vec![ast::LocatedStatement {
                                     location: ast::Location::new(5, 3),
