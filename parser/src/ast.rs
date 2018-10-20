@@ -210,6 +210,7 @@ pub struct Parameters {
 
 #[derive(Debug, PartialEq)]
 pub enum ComprehensionKind {
+    GeneratorExpression { element: Expression },
     List { element: Expression },
     Set { element: Expression },
     Dict { key: Expression, value: Expression },

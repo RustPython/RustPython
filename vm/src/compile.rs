@@ -933,6 +933,7 @@ impl Compiler {
         assert!(generators.len() > 0);
 
         let name = match kind {
+            ast::ComprehensionKind::GeneratorExpression { .. } => "<genexpr>",
             ast::ComprehensionKind::List { .. } => "<listcomp>",
             ast::ComprehensionKind::Set { .. } => "<setcomp>",
             ast::ComprehensionKind::Dict { .. } => "<dictcomp>",
@@ -948,6 +949,7 @@ impl Compiler {
 
         // Create empty object of proper type:
         match kind {
+            ast::ComprehensionKind::GeneratorExpression { .. } => {}
             ast::ComprehensionKind::List { .. } => {
                 self.emit(Instruction::BuildList { size: 0 });
             }
@@ -990,30 +992,26 @@ impl Compiler {
         }
 
         match kind {
-            ast::ComprehensionKind::List { element } => {
-                // Evaluate element:
+            ast::ComprehensionKind::GeneratorExpression { element } => {
                 self.compile_expression(element)?;
-
-                // List append:
+                self.emit(Instruction::YieldValue);
+            }
+            ast::ComprehensionKind::List { element } => {
+                self.compile_expression(element)?;
                 self.emit(Instruction::ListAppend {
                     i: 1 + generators.len(),
                 });
             }
             ast::ComprehensionKind::Set { element } => {
-                // Evaluate element:
                 self.compile_expression(element)?;
-
-                // List append:
                 self.emit(Instruction::SetAdd {
                     i: 1 + generators.len(),
                 });
             }
             ast::ComprehensionKind::Dict { key, value } => {
-                // Evaluate value and element:
                 self.compile_expression(value)?;
                 self.compile_expression(key)?;
 
-                // List append:
                 self.emit(Instruction::MapAdd {
                     i: 1 + generators.len(),
                 });
