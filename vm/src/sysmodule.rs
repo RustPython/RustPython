@@ -1,11 +1,15 @@
-// use super::pyobject::{Executor, PyObject, PyObjectKind, PyObjectRef};
+use super::pyobject::{DictProtocol, PyContext, PyObjectRef};
+use std::env;
 
 /*
  * The magic sys module.
  */
-use std::env;
 
-use super::pyobject::{DictProtocol, PyContext, PyObjectRef};
+fn argv(ctx: &PyContext) -> PyObjectRef {
+    let mut argv: Vec<PyObjectRef> = env::args().map(|x| ctx.new_str(x)).collect();
+    argv.remove(0);
+    ctx.new_list(argv)
+}
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let path_list = match env::var_os("PYTHONPATH") {
@@ -20,6 +24,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let sys_mod = ctx.new_module(&sys_name, ctx.new_scope(None));
     modules.set_item(&sys_name, sys_mod.clone());
     sys_mod.set_item(&"modules".to_string(), modules);
+    sys_mod.set_item(&"argv".to_string(), argv(ctx));
     sys_mod.set_item(&"path".to_string(), path);
     sys_mod
 }
