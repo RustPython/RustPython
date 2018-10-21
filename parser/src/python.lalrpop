@@ -46,7 +46,6 @@ SimpleStatement: ast::LocatedStatement = {
 };
 
 SmallStatement: ast::LocatedStatement = {
-  // <e:Expression> => ast::Statement::Expression { expression: e },
   ExpressionStatement,
   PassStatement,
   DelStatement,

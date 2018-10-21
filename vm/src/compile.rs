@@ -86,6 +86,8 @@ impl Compiler {
         self.code_object_stack.push(CodeObject::new(
             Vec::new(),
             None,
+            Vec::new(),
+            None,
             source_path.clone(),
             obj_name,
         ));
@@ -428,6 +430,8 @@ impl Compiler {
                 self.code_object_stack.push(CodeObject::new(
                     vec![String::from("__locals__")],
                     None,
+                    vec![],
+                    None,
                     self.source_path.clone(),
                     name.clone(),
                 ));
@@ -591,6 +595,8 @@ impl Compiler {
         self.code_object_stack.push(CodeObject::new(
             args.args.clone(),
             args.vararg.clone(),
+            args.kwonlyargs.clone(),
+            args.kwarg.clone(),
             self.source_path.clone(),
             name.clone(),
         ));
@@ -952,6 +958,8 @@ impl Compiler {
         // Create magnificent function <listcomp>:
         self.code_object_stack.push(CodeObject::new(
             vec![".0".to_string()],
+            None,
+            vec![],
             None,
             self.source_path.clone(),
             name,

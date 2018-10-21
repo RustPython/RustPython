@@ -7,11 +7,20 @@ def sum(x, y):
 # assert total(1,1,1,1) == 4
 # assert total(1,2,3,4) == 10
 
-assert sum(1,1) == 2
-assert sum(1,3) == 4
+assert sum(1, 1) == 2
+assert sum(1, 3) == 4
 
 def sum2y(x, y):
     return x+y*2
 
-assert sum2y(1,1) == 3
-assert sum2y(1,3) == 7
+assert sum2y(1, 1) == 3
+assert sum2y(1, 3) == 7
+
+def va(a, b=2, *c, d, **e):
+    assert a == 1
+    assert b == 22
+    assert c == (3, 4)
+    assert d == 1337
+    assert e['f'] == 42
+
+va(1, 22, 3, 4, d=1337, f=42)

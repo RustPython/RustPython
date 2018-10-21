@@ -108,6 +108,27 @@ pub fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+pub fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (dict, Some(vm.ctx.dict_type())),
+            (needle, Some(vm.ctx.str_type()))
+        ]
+    );
+
+    // What we are looking for:
+    let needle = objstr::get_value(&needle);
+
+    let elements = get_elements(dict);
+    if elements.contains_key(&needle) {
+        Ok(elements[&needle].clone())
+    } else {
+        Err(vm.new_value_error(format!("Key not found: {}", needle)))
+    }
+}
+
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
     (*dict_type.borrow_mut()).kind = PyObjectKind::Class {
         name: String::from("dict"),
@@ -122,6 +143,7 @@ pub fn init(context: &PyContext) {
     dict_type.set_attr("__len__", context.new_rustfunc(dict_len));
     dict_type.set_attr("__contains__", context.new_rustfunc(dict_contains));
     dict_type.set_attr("__delitem__", context.new_rustfunc(dict_delitem));
+    dict_type.set_attr("__getitem__", context.new_rustfunc(dict_getitem));
     dict_type.set_attr("__new__", context.new_rustfunc(dict_new));
     dict_type.set_attr("__repr__", context.new_rustfunc(dict_repr));
 }

@@ -412,16 +412,14 @@ impl VirtualMachine {
 
     fn subscript(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Subscript implementation: a[b]
+        // TODO: simply always call __getitem__
         let a2 = &*a.borrow();
         match &a2.kind {
             PyObjectKind::String { ref value } => objstr::subscript(self, value, b),
             PyObjectKind::List { ref elements } | PyObjectKind::Tuple { ref elements } => {
                 super::obj::objsequence::get_item(self, &a, elements, b)
             }
-            _ => Err(self.new_type_error(format!(
-                "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-                a, b
-            ))),
+            _ => self.call_method(&a, "__getitem__", vec![b]),
         }
     }
 
@@ -715,40 +713,72 @@ impl VirtualMachine {
         let nargs = args.args.len();
         let nexpected_args = code_object.arg_names.len();
 
-        // Check the number of positional arguments
-        if nargs > nexpected_args {
-            return Err(self.new_type_error(format!(
-                "Expected {} arguments (got: {})",
-                nexpected_args, nargs
-            )));
-        }
+        // This parses the arguments from args and kwargs into
+        // the proper variables keeping into account default values
+        // and starargs and kwargs.
+        // See also: PyEval_EvalCodeWithName in cpython:
+        // https://github.com/python/cpython/blob/master/Python/ceval.c#L3681
+
+        let n = if nargs > nexpected_args {
+            nexpected_args
+        } else {
+            nargs
+        };
 
         // Copy positional arguments into local variables
-        for (n, arg) in args.args.iter().enumerate() {
-            scope.set_item(&code_object.arg_names[n], arg.clone())
+        for i in 0..n {
+            let arg_name = &code_object.arg_names[i];
+            let arg = &args.args[i];
+            scope.set_item(arg_name, arg.clone());
         }
 
         // Pack other positional arguments in to *args:
         if let Some(vararg_name) = &code_object.varargs {
-            // let last_args = into_iter().collect()?;
-            let last_args = vec![];
+            let mut last_args = vec![];
+            for i in n..nargs {
+                let arg = &args.args[i];
+                last_args.push(arg.clone());
+            }
             let vararg_value = self.ctx.new_tuple(last_args);
             scope.set_item(vararg_name, vararg_value);
+        } else {
+            // Check the number of positional arguments
+            if nargs > nexpected_args {
+                return Err(self.new_type_error(format!(
+                    "Expected {} arguments (got: {})",
+                    nexpected_args, nargs
+                )));
+            }
         }
+
+        // Do we support `**kwargs` ?
+        let kwargs = if let Some(name) = &code_object.varkeywords {
+            let d = self.new_dict();
+            scope.set_item(&name, d.clone());
+            Some(d)
+        } else {
+            None
+        };
 
         // Handle keyword arguments
         for (name, value) in args.kwargs {
-            if !code_object.arg_names.contains(&name) {
+            // Check if we have a parameter with this name:
+            if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
+            {
+                if scope.contains_key(&name) {
+                    return Err(
+                        self.new_type_error(format!("Got multiple values for argument '{}'", name))
+                    );
+                }
+
+                scope.set_item(&name, value);
+            } else if let Some(d) = &kwargs {
+                d.set_item(&name, value);
+            } else {
                 return Err(
                     self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
                 );
             }
-            if scope.contains_key(&name) {
-                return Err(
-                    self.new_type_error(format!("Got multiple values for argument '{}'", name))
-                );
-            }
-            scope.set_item(&name, value.clone());
         }
 
         // Add missing positional arguments, if we have fewer positional arguments than the
@@ -789,6 +819,24 @@ impl VirtualMachine {
                 default_index += 1;
             }
         };
+
+        // Check if kw only arguments are all present:
+        let kwdefs: HashMap<String, String> = HashMap::new();
+        for arg_name in &code_object.kwonlyarg_names {
+            if !scope.contains_key(arg_name) {
+                if kwdefs.contains_key(arg_name) {
+                    // If not yet specified, take the default value
+                    unimplemented!();
+                } else {
+                    // No default value and not specified.
+                    return Err(self.new_type_error(format!(
+                        "Missing required kw only argument: '{}'",
+                        arg_name
+                    )));
+                }
+            }
+        }
+
         Ok(())
     }
 

@@ -21,8 +21,10 @@ pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<ast::Location>,
-    pub arg_names: Vec<String>, // Names of positional arguments
-    pub varargs: Option<String>,
+    pub arg_names: Vec<String>,  // Names of positional arguments
+    pub varargs: Option<String>, // *args
+    pub kwonlyarg_names: Vec<String>,
+    pub varkeywords: Option<String>, // **kwargs
     pub source_path: Option<String>,
     pub obj_name: String, // Name of the object that created this code object
 }
@@ -31,6 +33,8 @@ impl CodeObject {
     pub fn new(
         arg_names: Vec<String>,
         varargs: Option<String>,
+        kwonlyarg_names: Vec<String>,
+        varkeywords: Option<String>,
         source_path: Option<String>,
         obj_name: String,
     ) -> CodeObject {
@@ -40,6 +44,8 @@ impl CodeObject {
             locations: Vec::new(),
             arg_names: arg_names,
             varargs: varargs,
+            kwonlyarg_names: kwonlyarg_names,
+            varkeywords: varkeywords,
             source_path: source_path,
             obj_name: obj_name,
         }
