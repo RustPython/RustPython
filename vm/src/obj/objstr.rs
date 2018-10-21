@@ -11,6 +11,7 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("__add__", context.new_rustfunc(str_add));
     str_type.set_attr("__eq__", context.new_rustfunc(str_eq));
     str_type.set_attr("__contains__", context.new_rustfunc(str_contains));
+    str_type.set_attr("__getitem__", context.new_rustfunc(str_getitem));
     str_type.set_attr("__len__", context.new_rustfunc(str_len));
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
@@ -219,6 +220,16 @@ fn str_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     let needle = get_value(&needle);
     Ok(vm.ctx.new_bool(value.contains(needle.as_str())))
+}
+
+fn str_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (needle, None)]
+    );
+    let value = get_value(&s);
+    subscript(vm, &value, needle.clone())
 }
 
 // TODO: should with following format

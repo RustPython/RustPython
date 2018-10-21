@@ -3,7 +3,7 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
-use super::objsequence::seq_equal;
+use super::objsequence::{get_item, seq_equal};
 use super::objstr;
 use super::objtype;
 
@@ -51,6 +51,15 @@ fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
+fn tuple_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(tuple, Some(vm.ctx.tuple_type())), (needle, None)]
+    );
+    get_item(vm, tuple, &get_elements(&tuple), needle.clone())
+}
+
 pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -83,6 +92,7 @@ pub fn init(context: &PyContext) {
     let ref tuple_type = context.tuple_type;
     tuple_type.set_attr("__eq__", context.new_rustfunc(tuple_eq));
     tuple_type.set_attr("__contains__", context.new_rustfunc(tuple_contains));
+    tuple_type.set_attr("__getitem__", context.new_rustfunc(tuple_getitem));
     tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
     tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
 }

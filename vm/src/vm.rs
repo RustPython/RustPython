@@ -411,16 +411,7 @@ impl VirtualMachine {
     }
 
     fn subscript(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        // Subscript implementation: a[b]
-        // TODO: simply always call __getitem__
-        let a2 = &*a.borrow();
-        match &a2.kind {
-            PyObjectKind::String { ref value } => objstr::subscript(self, value, b),
-            PyObjectKind::List { ref elements } | PyObjectKind::Tuple { ref elements } => {
-                super::obj::objsequence::get_item(self, &a, elements, b)
-            }
-            _ => self.call_method(&a, "__getitem__", vec![b]),
-        }
+        self.call_method(&a, "__getitem__", vec![b])
     }
 
     fn execute_store_subscript(&mut self) -> Option<PyResult> {

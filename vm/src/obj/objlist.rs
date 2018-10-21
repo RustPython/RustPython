@@ -4,7 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objiter;
-use super::objsequence::{seq_equal, PySliceableSequence};
+use super::objsequence::{get_item, seq_equal, PySliceableSequence};
 use super::objstr;
 use super::objtype;
 
@@ -132,7 +132,7 @@ pub fn list_append(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn list_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.clear called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let mut list_obj = list.borrow_mut();
@@ -184,15 +184,26 @@ fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
+fn list_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.getitem called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type())), (needle, None)]
+    );
+    get_item(vm, list, &get_elements(list), needle.clone())
+}
+
 pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
     list_type.set_attr("__add__", context.new_rustfunc(list_add));
     list_type.set_attr("__contains__", context.new_rustfunc(list_contains));
     list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
+    list_type.set_attr("__getitem__", context.new_rustfunc(list_getitem));
     list_type.set_attr("__len__", context.new_rustfunc(list_len));
     list_type.set_attr("__new__", context.new_rustfunc(list_new));
     list_type.set_attr("__repr__", context.new_rustfunc(list_repr));
     list_type.set_attr("append", context.new_rustfunc(list_append));
-    list_type.set_attr("clear", context.new_rustfunc(clear));
+    list_type.set_attr("clear", context.new_rustfunc(list_clear));
     list_type.set_attr("reverse", context.new_rustfunc(list_reverse));
 }

@@ -24,3 +24,8 @@ def va(a, b=2, *c, d, **e):
     assert e['f'] == 42
 
 va(1, 22, 3, 4, d=1337, f=42)
+
+def va2(*args, **kwargs):
+    assert args == (5, 4)
+
+va2(5, 4)
