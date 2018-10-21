@@ -237,7 +237,12 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-// builtin_hash
+fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+
+    vm.call_method(obj, "__hash__", vec![])
+}
+
 // builtin_help
 // builtin_hex
 
@@ -522,6 +527,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("float"), ctx.float_type());
     dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
     dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
+    dict.insert(String::from("hash"), ctx.new_rustfunc(builtin_hash));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
     dict.insert(String::from("int"), ctx.int_type());
     dict.insert(

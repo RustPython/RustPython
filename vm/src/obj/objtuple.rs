@@ -3,6 +3,7 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
+use super::objint;
 use super::objsequence::{get_item, seq_equal};
 use super::objstr;
 use super::objtype;
@@ -22,6 +23,24 @@ fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         false
     };
     Ok(vm.ctx.new_bool(result))
+}
+
+fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
+
+    let mut x: usize = 0x345678;
+    let elements = get_elements(zelf);
+    let len: usize = elements.len();
+    let mut mult = 0xf4243;
+
+    for elem in &elements {
+        let y: usize = objint::get_value(&vm.call_method(elem, "__hash__", vec![])?) as usize;
+        x = (x ^ y) * mult;
+        mult = mult + 82520 + len * 2;
+    }
+    x += 97531;
+
+    Ok(vm.ctx.new_int(x as i32))
 }
 
 fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -93,6 +112,7 @@ pub fn init(context: &PyContext) {
     tuple_type.set_attr("__eq__", context.new_rustfunc(tuple_eq));
     tuple_type.set_attr("__contains__", context.new_rustfunc(tuple_contains));
     tuple_type.set_attr("__getitem__", context.new_rustfunc(tuple_getitem));
+    tuple_type.set_attr("__hash__", context.new_rustfunc(tuple_hash));
     tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
     tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
 }

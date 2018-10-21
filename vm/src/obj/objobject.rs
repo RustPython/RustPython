@@ -49,6 +49,13 @@ fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     objbool::not(vm, &eq)
 }
 
+fn object_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(_zelf, Some(vm.ctx.object()))]);
+
+    // For now default to non hashable
+    Err(vm.new_type_error("unhashable type".to_string()))
+}
+
 // TODO: is object the right place for delattr?
 fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -91,6 +98,7 @@ pub fn init(context: &PyContext) {
     object.set_attr("__ne__", context.new_rustfunc(object_ne));
     object.set_attr("__delattr__", context.new_rustfunc(object_delattr));
     object.set_attr("__dict__", context.new_member_descriptor(object_dict));
+    object.set_attr("__hash__", context.new_rustfunc(object_hash));
     object.set_attr("__str__", context.new_rustfunc(object_str));
     object.set_attr("__repr__", context.new_rustfunc(object_repr));
 }

@@ -99,6 +99,13 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn int_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
+
+    // TODO: how to hash int?
+    Ok(zelf.clone())
+}
+
 fn int_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
     Ok(vm.ctx.new_int(get_value(i).abs()))
@@ -283,6 +290,7 @@ pub fn init(context: &PyContext) {
     int_type.set_attr("__and__", context.new_rustfunc(int_and));
     int_type.set_attr("__divmod__", context.new_rustfunc(int_divmod));
     int_type.set_attr("__floordiv__", context.new_rustfunc(int_floordiv));
+    int_type.set_attr("__hash__", context.new_rustfunc(int_hash));
     int_type.set_attr("__new__", context.new_rustfunc(int_new));
     int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
