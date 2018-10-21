@@ -13,6 +13,13 @@ pub struct Node {
 */
 
 #[derive(Debug, PartialEq)]
+pub enum Top {
+    Program(Program),
+    Statement(LocatedStatement),
+    Expression(Expression),
+}
+
+#[derive(Debug, PartialEq)]
 pub struct Program {
     pub statements: Vec<LocatedStatement>,
 }

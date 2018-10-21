@@ -3,11 +3,13 @@ extern crate lalrpop_util;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read;
+use std::iter;
 use std::path::Path;
 
 use super::ast;
 use super::lexer;
 use super::python;
+use super::token;
 
 pub fn read_file(filename: &Path) -> Result<String, String> {
     match File::open(&filename) {
@@ -40,32 +42,35 @@ pub fn parse(filename: &Path) -> Result<ast::Program, String> {
     }
 }
 
+macro_rules! do_lalr_parsing {
+    ($input: expr, $pat: ident, $tok: ident) => {{
+        let lxr = lexer::Lexer::new($input);
+        let marker_token = (Default::default(), token::Tok::$tok, Default::default());
+        let tokenizer = iter::once(Ok(marker_token)).chain(lxr);
+
+        match python::TopParser::new().parse(tokenizer) {
+            Err(why) => Err(format!("{:?}", why)),
+            Ok(top) => {
+                if let ast::Top::$pat(x) = top {
+                    Ok(x)
+                } else {
+                    unreachable!()
+                }
+            }
+        }
+    }};
+}
+
 pub fn parse_program(source: &str) -> Result<ast::Program, String> {
-    let lxr = lexer::Lexer::new(&source);
-    match python::ProgramParser::new().parse(lxr) {
-        Err(lalrpop_util::ParseError::UnrecognizedToken {
-            token: None,
-            expected: _,
-        }) => Err(String::from("Unexpected end of input.")),
-        Err(why) => Err(String::from(format!("{:?}", why))),
-        Ok(p) => Ok(p),
-    }
+    do_lalr_parsing!(source, Program, StartProgram)
 }
 
 pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, String> {
-    let lxr = lexer::Lexer::new(&source);
-    match python::StatementParser::new().parse(lxr) {
-        Err(why) => Err(String::from(format!("{:?}", why))),
-        Ok(p) => Ok(p),
-    }
+    do_lalr_parsing!(source, Statement, StartStatement)
 }
 
 pub fn parse_expression(source: &str) -> Result<ast::Expression, String> {
-    let lxr = lexer::Lexer::new(&source);
-    match python::ExpressionParser::new().parse(lxr) {
-        Err(why) => Err(String::from(format!("{:?}", why))),
-        Ok(p) => Ok(p),
-    }
+    do_lalr_parsing!(source, Expression, StartExpression)
 }
 
 #[cfg(test)]

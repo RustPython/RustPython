@@ -83,8 +83,12 @@ impl Compiler {
     }
 
     fn push_new_code_object(&mut self, source_path: Option<String>, obj_name: String) {
-        self.code_object_stack
-            .push(CodeObject::new(Vec::new(), source_path.clone(), obj_name));
+        self.code_object_stack.push(CodeObject::new(
+            Vec::new(),
+            None,
+            source_path.clone(),
+            obj_name,
+        ));
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
@@ -384,21 +388,7 @@ impl Compiler {
                 decorator_list,
             } => {
                 // Create bytecode for this function:
-                let have_kwargs = args.defaults.len() > 0;
-                if have_kwargs {
-                    // Construct a tuple:
-                    let size = args.defaults.len();
-                    for element in &args.defaults {
-                        self.compile_expression(element)?;
-                    }
-                    self.emit(Instruction::BuildTuple { size });
-                }
-
-                self.code_object_stack.push(CodeObject::new(
-                    args.args.clone(),
-                    self.source_path.clone(),
-                    name.clone(),
-                ));
+                let flags = self.enter_function(name, args)?;
                 self.compile_statements(body)?;
 
                 // Emit None at end:
@@ -406,8 +396,7 @@ impl Compiler {
                     value: bytecode::Constant::None,
                 });
                 self.emit(Instruction::ReturnValue);
-
-                let code = self.code_object_stack.pop().unwrap();
+                let code = self.pop_code_object();
 
                 self.prepare_decorators(decorator_list)?;
                 self.emit(Instruction::LoadConst {
@@ -420,10 +409,6 @@ impl Compiler {
                 });
 
                 // Turn code object into function object:
-                let mut flags = bytecode::FunctionOpArg::empty();
-                if have_kwargs {
-                    flags = flags | bytecode::FunctionOpArg::HAS_DEFAULTS;
-                }
                 self.emit(Instruction::MakeFunction { flags: flags });
                 self.apply_decorators(decorator_list);
 
@@ -442,6 +427,7 @@ impl Compiler {
                 self.emit(Instruction::LoadBuildClass);
                 self.code_object_stack.push(CodeObject::new(
                     vec![String::from("__locals__")],
+                    None,
                     self.source_path.clone(),
                     name.clone(),
                 ));
@@ -455,7 +441,7 @@ impl Compiler {
                 });
                 self.emit(Instruction::ReturnValue);
 
-                let code = self.code_object_stack.pop().unwrap();
+                let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code { code: code },
                 });
@@ -585,6 +571,36 @@ impl Compiler {
             }
         }
         Ok(())
+    }
+
+    fn enter_function(
+        &mut self,
+        name: &String,
+        args: &ast::Parameters,
+    ) -> Result<bytecode::FunctionOpArg, String> {
+        let have_kwargs = args.defaults.len() > 0;
+        if have_kwargs {
+            // Construct a tuple:
+            let size = args.defaults.len();
+            for element in &args.defaults {
+                self.compile_expression(element)?;
+            }
+            self.emit(Instruction::BuildTuple { size });
+        }
+
+        self.code_object_stack.push(CodeObject::new(
+            args.args.clone(),
+            args.vararg.clone(),
+            self.source_path.clone(),
+            name.clone(),
+        ));
+
+        let mut flags = bytecode::FunctionOpArg::empty();
+        if have_kwargs {
+            flags = flags | bytecode::FunctionOpArg::HAS_DEFAULTS;
+        }
+
+        Ok(flags)
     }
 
     fn prepare_decorators(&mut self, decorator_list: &Vec<ast::Expression>) -> Result<(), String> {
@@ -886,26 +902,19 @@ impl Compiler {
                 });
             }
             ast::Expression::Lambda { args, body } => {
-                self.code_object_stack.push(CodeObject::new(
-                    args.args.clone(),
-                    self.source_path.clone(),
-                    "<lambda>".to_string(),
-                ));
+                let name = "<lambda>".to_string();
+                let flags = self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
-                let code = self.code_object_stack.pop().unwrap();
+                let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code { code: code },
                 });
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: String::from("<lambda>"),
-                    },
+                    value: bytecode::Constant::String { value: name },
                 });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction {
-                    flags: bytecode::FunctionOpArg::empty(),
-                });
+                self.emit(Instruction::MakeFunction { flags: flags });
             }
             ast::Expression::Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
@@ -943,6 +952,7 @@ impl Compiler {
         // Create magnificent function <listcomp>:
         self.code_object_stack.push(CodeObject::new(
             vec![".0".to_string()],
+            None,
             self.source_path.clone(),
             name,
         ));
@@ -1033,7 +1043,7 @@ impl Compiler {
         self.emit(Instruction::ReturnValue);
 
         // Fetch code for listcomp function:
-        let code = self.code_object_stack.pop().unwrap();
+        let code = self.pop_code_object();
 
         // List comprehension code:
         self.emit(Instruction::LoadConst {

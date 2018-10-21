@@ -11,7 +11,16 @@ use std::str::FromStr;
 
 grammar;
 
-pub Program: ast::Program = {
+// This is a hack to reduce the amount of lalrpop tables generated:
+// For each public entry point, a full parse table is generated.
+// By having only a single pub function, we reduce this to one.
+pub Top: ast::Top = {
+    StartProgram <p:Program> => ast::Top::Program(p),
+    StartStatement <s:Statement> => ast::Top::Statement(s),
+    StartExpression <e:Expression> => ast::Top::Expression(e),
+};
+
+Program: ast::Program = {
   <lines:FileLine*> => ast::Program { statements: Vec::from_iter(lines.into_iter().filter_map(|e| e)) },
 };
 
@@ -26,7 +35,7 @@ Suite: Vec<ast::LocatedStatement> = {
   "\n" indent <s:Statement+> dedent => s,
 };
 
-pub Statement: ast::LocatedStatement = {
+Statement: ast::LocatedStatement = {
   SimpleStatement,
   CompoundStatement,
 };
@@ -608,7 +617,7 @@ CompOp: ast::Comparison = {
   "is" "not" => ast::Comparison::IsNot,
 };
 
-pub Expression: ast::Expression = {
+Expression: ast::Expression = {
   <e1:Expression> "|" <e2:XorExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitOr, b: Box::new(e2) },
   <e:XorExpression> => e,
 };
@@ -914,6 +923,9 @@ extern {
     enum lexer::Tok {
         indent => lexer::Tok::Indent,
         dedent => lexer::Tok::Dedent,
+        StartProgram => lexer::Tok::StartProgram,
+        StartStatement => lexer::Tok::StartStatement,
+        StartExpression => lexer::Tok::StartExpression,
         "+" => lexer::Tok::Plus,
         "-" => lexer::Tok::Minus,
         ":" => lexer::Tok::Colon,

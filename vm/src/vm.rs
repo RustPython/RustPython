@@ -673,86 +673,7 @@ impl VirtualMachine {
                 ref code,
                 ref scope,
                 ref defaults,
-            } => {
-                let code_object = copy_code(code.clone());
-                let nargs = args.args.len();
-
-                // Check the number of positional arguments
-                let nexpected_args = code_object.arg_names.len();
-                if nargs > nexpected_args {
-                    return Err(self.new_type_error(format!(
-                        "Expected {} arguments (got: {})",
-                        nexpected_args, nargs
-                    )));
-                }
-
-                let mut scope = self.ctx.new_scope(Some(scope.clone()));
-
-                // Copy positional arguments into local variables
-                for (n, arg) in args.args.iter().enumerate() {
-                    scope.set_item(&code_object.arg_names[n], arg.clone())
-                }
-
-                // TODO: Pack other positional arguments in to *args
-
-                // Handle keyword arguments
-                for (name, value) in args.kwargs {
-                    if !code_object.arg_names.contains(&name) {
-                        return Err(self.new_type_error(format!(
-                            "Got an unexpected keyword argument '{}'",
-                            name
-                        )));
-                    }
-                    if scope.contains_key(&name) {
-                        return Err(self.new_type_error(format!(
-                            "Got multiple values for argument '{}'",
-                            name
-                        )));
-                    }
-                    scope.set_item(&name, value.clone());
-                }
-
-                // Add missing positional arguments, if we have fewer positional arguments than the
-                // function definition calls for
-                if nargs < nexpected_args {
-                    let available_defaults = match defaults.borrow().kind {
-                        PyObjectKind::Tuple { ref elements } => elements.clone(),
-                        PyObjectKind::None => vec![],
-                        _ => panic!("function defaults not tuple or None"),
-                    };
-
-                    // Given the number of defaults available, check all the arguments for which we
-                    // _don't_ have defaults; if any are missing, raise an exception
-                    let required_args = nexpected_args - available_defaults.len();
-                    let mut missing = vec![];
-                    for i in 0..required_args {
-                        let variable_name = &code_object.arg_names[i];
-                        if !scope.contains_key(variable_name) {
-                            missing.push(variable_name)
-                        }
-                    }
-                    if !missing.is_empty() {
-                        return Err(self.new_type_error(format!(
-                            "Missing {} required positional arguments: {:?}",
-                            missing.len(),
-                            missing
-                        )));
-                    }
-
-                    // We have sufficient defaults, so iterate over the corresponding names and use
-                    // the default if we don't already have a value
-                    let mut default_index = 0;
-                    for i in required_args..nexpected_args {
-                        let arg_name = &code_object.arg_names[i];
-                        if !scope.contains_key(arg_name) {
-                            scope.set_item(arg_name, available_defaults[default_index].clone());
-                        }
-                        default_index += 1;
-                    }
-                };
-                let frame = Frame::new(code.clone(), scope);
-                self.run_frame(frame)
-            }
+            } => self.invoke_python_function(code, scope, defaults, args),
             PyObjectKind::Class {
                 name: _,
                 dict: _,
@@ -767,6 +688,108 @@ impl VirtualMachine {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
         }
+    }
+
+    fn invoke_python_function(
+        &mut self,
+        code: &PyObjectRef,
+        scope: &PyObjectRef,
+        defaults: &PyObjectRef,
+        args: PyFuncArgs,
+    ) -> PyResult {
+        let code_object = copy_code(code.clone());
+        let scope = self.ctx.new_scope(Some(scope.clone()));
+        self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
+
+        let frame = Frame::new(code.clone(), scope);
+        self.run_frame(frame)
+    }
+
+    fn fill_scope_from_args(
+        &mut self,
+        code_object: &bytecode::CodeObject,
+        scope: &PyObjectRef,
+        args: PyFuncArgs,
+        defaults: &PyObjectRef,
+    ) -> Result<(), PyObjectRef> {
+        let nargs = args.args.len();
+        let nexpected_args = code_object.arg_names.len();
+
+        // Check the number of positional arguments
+        if nargs > nexpected_args {
+            return Err(self.new_type_error(format!(
+                "Expected {} arguments (got: {})",
+                nexpected_args, nargs
+            )));
+        }
+
+        // Copy positional arguments into local variables
+        for (n, arg) in args.args.iter().enumerate() {
+            scope.set_item(&code_object.arg_names[n], arg.clone())
+        }
+
+        // Pack other positional arguments in to *args:
+        if let Some(vararg_name) = &code_object.varargs {
+            // let last_args = into_iter().collect()?;
+            let last_args = vec![];
+            let vararg_value = self.ctx.new_tuple(last_args);
+            scope.set_item(vararg_name, vararg_value);
+        }
+
+        // Handle keyword arguments
+        for (name, value) in args.kwargs {
+            if !code_object.arg_names.contains(&name) {
+                return Err(
+                    self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
+                );
+            }
+            if scope.contains_key(&name) {
+                return Err(
+                    self.new_type_error(format!("Got multiple values for argument '{}'", name))
+                );
+            }
+            scope.set_item(&name, value.clone());
+        }
+
+        // Add missing positional arguments, if we have fewer positional arguments than the
+        // function definition calls for
+        if nargs < nexpected_args {
+            let available_defaults = match defaults.borrow().kind {
+                PyObjectKind::Tuple { ref elements } => elements.clone(),
+                PyObjectKind::None => vec![],
+                _ => panic!("function defaults not tuple or None"),
+            };
+
+            // Given the number of defaults available, check all the arguments for which we
+            // _don't_ have defaults; if any are missing, raise an exception
+            let required_args = nexpected_args - available_defaults.len();
+            let mut missing = vec![];
+            for i in 0..required_args {
+                let variable_name = &code_object.arg_names[i];
+                if !scope.contains_key(variable_name) {
+                    missing.push(variable_name)
+                }
+            }
+            if !missing.is_empty() {
+                return Err(self.new_type_error(format!(
+                    "Missing {} required positional arguments: {:?}",
+                    missing.len(),
+                    missing
+                )));
+            }
+
+            // We have sufficient defaults, so iterate over the corresponding names and use
+            // the default if we don't already have a value
+            let mut default_index = 0;
+            for i in required_args..nexpected_args {
+                let arg_name = &code_object.arg_names[i];
+                if !scope.contains_key(arg_name) {
+                    scope.set_item(arg_name, available_defaults[default_index].clone());
+                }
+                default_index += 1;
+            }
+        };
+        Ok(())
     }
 
     fn import(&mut self, module: &str, symbol: &Option<String>) -> Option<PyResult> {
