@@ -175,6 +175,11 @@ pub enum Instruction {
     UnpackSequence {
         size: usize,
     },
+    UnpackEx {
+        before: usize,
+        after: usize,
+    },
+    Unpack,
 }
 
 #[derive(Debug, Clone, PartialEq)]

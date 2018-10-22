@@ -26,3 +26,17 @@ x = (a, b, c) = y = q
 assert (a, b, c) == q
 assert x == q
 assert y == q
+
+a, *b = q
+print(a)
+print(b)
+assert a == 1
+assert b == [2, 3]
+
+a, *b, c, d = q
+print(a)
+print(b)
+assert a == 1
+assert b == []
+assert c == 2
+assert d == 3

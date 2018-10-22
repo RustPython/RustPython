@@ -29,3 +29,6 @@ def va2(*args, **kwargs):
     assert args == (5, 4)
 
 va2(5, 4)
+x = (5, 4)
+# TODO:
+# va2(*x)

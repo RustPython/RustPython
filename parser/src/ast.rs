@@ -178,6 +178,9 @@ pub enum Expression {
         kind: Box<ComprehensionKind>,
         generators: Vec<Comprehension>,
     },
+    Starred {
+        value: Box<Expression>,
+    },
     Slice {
         elements: Vec<Expression>,
     },

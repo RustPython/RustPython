@@ -1341,8 +1341,56 @@ impl VirtualMachine {
 
                 let elements = objtuple::get_elements(&value);
                 if elements.len() != *size {
-                    panic!("Wrong number of values to unpack");
+                    Some(Err(self.new_value_error(
+                        "Wrong number of values to unpack".to_string(),
+                    )))
+                } else {
+                    for element in elements.into_iter().rev() {
+                        self.push_value(element);
+                    }
+                    None
                 }
+            }
+            bytecode::Instruction::UnpackEx { before, after } => {
+                let value = self.pop_value();
+
+                let elements = objtuple::get_elements(&value);
+                let min_expected = *before + *after;
+                if elements.len() < min_expected {
+                    Some(Err(self.new_value_error(format!(
+                        "Not enough values to unpack (expected at least {}, got {}",
+                        min_expected,
+                        elements.len()
+                    ))))
+                } else {
+                    let middle = elements.len() - *before - *after;
+
+                    // Elements on stack from right-to-left:
+                    for element in elements[*before + middle..].iter().rev() {
+                        self.push_value(element.clone());
+                    }
+
+                    let middle_elements = elements
+                        .iter()
+                        .skip(*before)
+                        .take(middle)
+                        .map(|x| x.clone())
+                        .collect();
+                    let t = self.ctx.new_list(middle_elements);
+                    self.push_value(t);
+
+                    // Lastly the first reversed values:
+                    for element in elements[..*before].iter().rev() {
+                        self.push_value(element.clone());
+                    }
+
+                    None
+                }
+            }
+            bytecode::Instruction::Unpack => {
+                let value = self.pop_value();
+
+                let elements = objtuple::get_elements(&value);
 
                 for element in elements.into_iter().rev() {
                     self.push_value(element);

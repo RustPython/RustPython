@@ -642,11 +642,35 @@ impl Compiler {
                 });
             }
             ast::Expression::Tuple { elements } => {
-                self.emit(Instruction::UnpackSequence {
-                    size: elements.len(),
-                });
+                let mut seen_star = false;
+
+                // Scan for star args:
+                for (i, element) in elements.iter().enumerate() {
+                    if let ast::Expression::Starred { .. } = element {
+                        if seen_star {
+                            return Err("two starred expressions in assignment".to_string());
+                        } else {
+                            seen_star = true;
+                            self.emit(Instruction::UnpackEx {
+                                before: i,
+                                after: elements.len() - i - 1,
+                            });
+                        }
+                    }
+                }
+
+                if !seen_star {
+                    self.emit(Instruction::UnpackSequence {
+                        size: elements.len(),
+                    });
+                }
+
                 for element in elements {
-                    self.compile_store(element)?;
+                    if let ast::Expression::Starred { value } = element {
+                        self.compile_store(value)?;
+                    } else {
+                        self.compile_store(element)?;
+                    }
                 }
             }
             _ => {
@@ -924,6 +948,10 @@ impl Compiler {
             }
             ast::Expression::Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
+            }
+            ast::Expression::Starred { value } => {
+                self.compile_expression(value)?;
+                self.emit(Instruction::Unpack);
             }
             ast::Expression::IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();

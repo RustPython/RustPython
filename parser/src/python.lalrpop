@@ -36,22 +36,22 @@ Suite: Vec<ast::LocatedStatement> = {
 };
 
 Statement: ast::LocatedStatement = {
-  SimpleStatement,
-  CompoundStatement,
+    SimpleStatement,
+    CompoundStatement,
 };
 
 SimpleStatement: ast::LocatedStatement = {
-  <s:SmallStatement> "\n" => s,
-  <s:SmallStatement> ";" => s,
+    <s:SmallStatement> "\n" => s,
+    <s:SmallStatement> ";" => s,
 };
 
 SmallStatement: ast::LocatedStatement = {
-  ExpressionStatement,
-  PassStatement,
-  DelStatement,
-  FlowStatement,
-  ImportStatement,
-  AssertStatement,
+    ExpressionStatement,
+    PassStatement,
+    DelStatement,
+    FlowStatement,
+    ImportStatement,
+    AssertStatement,
 };
 
 PassStatement: ast::LocatedStatement = {
@@ -73,61 +73,76 @@ DelStatement: ast::LocatedStatement = {
 };
 
 ExpressionStatement: ast::LocatedStatement = {
-  <loc:@L> <expr:TestList> <suffix:AssignSuffix*> => {
-    // Just an expression, no assignment:
-    if suffix.is_empty() {
-      if expr.len() > 1 {
-        ast::LocatedStatement {
-          location: loc.clone(),
-          node: ast::Statement::Expression { expression: ast::Expression::Tuple { elements: expr } }
-        }
-      } else {
-        ast::LocatedStatement {
-          location: loc.clone(),
-          node: ast::Statement::Expression { expression: expr.into_iter().next().unwrap() },
-        }
-      }
-    } else {
-      let mut targets = vec![if expr.len() > 1 {
-        ast::Expression::Tuple { elements: expr }
-      } else {
-        expr.into_iter().next().unwrap()
-      }];
-      let mut values : Vec<ast::Expression> = suffix
-        .into_iter()
-        .map(|test_list| if test_list.len() > 1 {
-            ast::Expression::Tuple {
-                elements: test_list
+    <loc:@L> <expr:TestOrStarExprList> <suffix:AssignSuffix*> => {
+        // First build tuple from first item:
+        let expr = if expr.len() > 1 {
+            ast::Expression::Tuple { elements: expr }
+        } else {
+            expr.into_iter().next().unwrap()
+        };
+
+        // Just an expression, no assignment:
+        if suffix.is_empty() {
+            ast::LocatedStatement {
+                location: loc.clone(),
+                node: ast::Statement::Expression { expression: expr }
             }
         } else {
-            test_list.into_iter().next().unwrap()
-        })
-        .collect();
+          let mut targets = vec![expr];
+          let mut values : Vec<ast::Expression> = suffix
+            .into_iter()
+            .map(|test_list| if test_list.len() > 1 {
+                ast::Expression::Tuple {
+                    elements: test_list
+                }
+            } else {
+                test_list.into_iter().next().unwrap()
+            })
+            .collect();
 
-      while values.len() > 1 {
-        targets.push(values.remove(0));
-      }
+          while values.len() > 1 {
+            targets.push(values.remove(0));
+          }
 
-      let value = values.into_iter().next().unwrap();
+          let value = values.into_iter().next().unwrap();
 
-      ast::LocatedStatement {
-        location: loc.clone(),
-        node: ast::Statement::Assign { targets, value },
-      }
-    }
-  },
-  <loc:@L> <e1:Test> <op:AugAssign> <e2:TestList> => {
-    // TODO: this works in most cases:
-    let rhs = e2.into_iter().next().unwrap();
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::AugAssign { target: e1, op: op, value: rhs },
-    }
-  },
+          ast::LocatedStatement {
+            location: loc.clone(),
+            node: ast::Statement::Assign { targets, value },
+          }
+        }
+    },
+    <loc:@L> <expr:TestOrStarExprList> <op:AugAssign> <e2:TestList> => {
+        let expr = if expr.len() > 1 {
+            ast::Expression::Tuple { elements: expr }
+        } else {
+            expr.into_iter().next().unwrap()
+        };
+
+        // TODO: this works in most cases:
+        let rhs = e2.into_iter().next().unwrap();
+        ast::LocatedStatement {
+          location: loc,
+          node: ast::Statement::AugAssign { target: expr, op: op, value: rhs },
+        }
+    },
 };
 
 AssignSuffix: Vec<ast::Expression> = {
     "=" <e:TestList> => e,
+};
+
+TestOrStarExprList: Vec<ast::Expression> = {
+    <e:TestOrStarExpr> <e2:("," TestOrStarExpr)*> => {
+        let mut res = vec![e];
+        res.extend(e2.into_iter().map(|x| x.1));
+        res
+    }
+};
+
+TestOrStarExpr: ast::Expression = {
+    Test,
+    StarExpr,
 };
 
 AugAssign: ast::Operator = {
@@ -276,88 +291,88 @@ AssertStatement: ast::LocatedStatement = {
 };
 
 CompoundStatement: ast::LocatedStatement = {
-  IfStatement,
-  WhileStatement,
-  ForStatement,
-  TryStatement,
-  WithStatement,
-  FuncDef,
-  ClassDef,
+    IfStatement,
+    WhileStatement,
+    ForStatement,
+    TryStatement,
+    WithStatement,
+    FuncDef,
+    ClassDef,
 };
 
 IfStatement: ast::LocatedStatement = {
-  <loc:@L> "if" <t:Test> ":" <s1:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
-    // Determine last else:
-    let mut last = match s3 {
-      Some(s) => Some(s.2),
-      None => None,
-    };
+    <loc:@L> "if" <t:Test> ":" <s1:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
+        // Determine last else:
+        let mut last = match s3 {
+            Some(s) => Some(s.2),
+            None => None,
+        };
 
-    // handle elif:
-    for i in s2.into_iter().rev() {
-      let x = ast::LocatedStatement {
-        location: i.0,
-        node: ast::Statement::If { test: i.2, body: i.4, orelse: last },
-      };
-      last = Some(vec![x]);
-    }
+        // handle elif:
+        for i in s2.into_iter().rev() {
+          let x = ast::LocatedStatement {
+            location: i.0,
+            node: ast::Statement::If { test: i.2, body: i.4, orelse: last },
+          };
+          last = Some(vec![x]);
+        }
 
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::If { test: t, body: s1, orelse: last }
-    }
-  },
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::If { test: t, body: s1, orelse: last }
+        }
+    },
 };
 
 WhileStatement: ast::LocatedStatement = {
-  <loc:@L> "while" <e:Test> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
-    let or_else = match s2 {
-      Some(s) => Some(s.2),
-      None => None,
-    };
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::While { test: e, body: s, orelse: or_else },
-    }
-  },
+    <loc:@L> "while" <e:Test> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
+        let or_else = match s2 {
+            Some(s) => Some(s.2),
+            None => None,
+        };
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::While { test: e, body: s, orelse: or_else },
+        }
+    },
 };
 
 ForStatement: ast::LocatedStatement = {
-  <loc:@L> "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
-    let or_else = match s2 {
-      Some(s) => Some(s.2),
-      None => None,
-    };
-    ast::LocatedStatement {
-          location: loc,
-          node: ast::Statement::For {
-            target: e,
-            iter: t, body: s, orelse: or_else
-          },
-    }
-  },
+    <loc:@L> "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
+        let or_else = match s2 {
+            Some(s) => Some(s.2),
+            None => None,
+        };
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::For {
+                target: e,
+                iter: t, body: s, orelse: or_else
+            },
+        }
+    },
 };
 
 TryStatement: ast::LocatedStatement = {
-  <loc:@L> "try" ":" <body:Suite> <handlers:ExceptClause*> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
-    let or_else = match else_suite {
-      Some(s) => Some(s.2),
-      None => None,
-    };
-    let finalbody = match finally {
-      Some(s) => Some(s.2),
-      None => None,
-    };
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Try {
-        body: body,
-        handlers: handlers,
-        orelse: or_else,
-        finalbody: finalbody,
-      },
-    }
-  },
+    <loc:@L> "try" ":" <body:Suite> <handlers:ExceptClause*> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
+        let or_else = match else_suite {
+            Some(s) => Some(s.2),
+            None => None,
+        };
+        let finalbody = match finally {
+            Some(s) => Some(s.2),
+            None => None,
+        };
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Try {
+                body: body,
+                handlers: handlers,
+                orelse: or_else,
+                finalbody: finalbody,
+            },
+        }
+    },
 };
 
 ExceptClause: ast::ExceptHandler = {
@@ -584,23 +599,23 @@ LambdaDef: ast::Expression = {
 }
 
 OrTest: ast::Expression = {
-  <e:AndTest> => e,
-  <e1:OrTest> "or" <e2:AndTest> => ast::Expression::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::Or, b: Box::new(e2) },
+    <e:AndTest> => e,
+    <e1:OrTest> "or" <e2:AndTest> => ast::Expression::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::Or, b: Box::new(e2) },
 };
 
 AndTest: ast::Expression = {
-  <e:NotTest> => e,
-  <e1:AndTest> "and" <e2:NotTest> => ast::Expression::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::And, b: Box::new(e2) },
+    <e:NotTest> => e,
+    <e1:AndTest> "and" <e2:NotTest> => ast::Expression::BoolOp { a: Box::new(e1), op: ast::BooleanOperator::And, b: Box::new(e2) },
 };
 
 NotTest: ast::Expression = {
-  "not" <e:NotTest> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Not },
-  <e:Comparison> => e,
+    "not" <e:NotTest> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Not },
+    <e:Comparison> => e,
 };
 
 Comparison: ast::Expression = {
-  <e1:Comparison> <op:CompOp> <e2:Expression> => ast::Expression::Compare { a: Box::new(e1), op: op, b: Box::new(e2) },
-  <e:Expression> => e,
+    <e1:Comparison> <op:CompOp> <e2:Expression> => ast::Expression::Compare { a: Box::new(e1), op: op, b: Box::new(e2) },
+    <e:Expression> => e,
 };
 
 CompOp: ast::Comparison = {
@@ -647,17 +662,17 @@ Term: ast::Expression = {
 };
 
 MulOp: ast::Operator = {
-  "*" => ast::Operator::Mult,
-  "/" => ast::Operator::Div,
-  "//" => ast::Operator::FloorDiv,
-  "%" => ast::Operator::Mod,
-  "@" => ast::Operator::MatMult,
+    "*" => ast::Operator::Mult,
+    "/" => ast::Operator::Div,
+    "//" => ast::Operator::FloorDiv,
+    "%" => ast::Operator::Mod,
+    "@" => ast::Operator::MatMult,
 };
 
 Factor: ast::Expression = {
-  "+" <e:Factor> => e,
-  "-" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Neg },
-  <e:Power> => e,
+    "+" <e:Factor> => e,
+    "-" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Neg },
+    <e:Power> => e,
 };
 
 Power: ast::Expression = {
@@ -670,10 +685,10 @@ Power: ast::Expression = {
 };
 
 AtomExpr: ast::Expression = {
-  <e:Atom> => e,
-  <f:AtomExpr>  "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
-  <e:AtomExpr>  "[" <s:Subscript> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
-  <e:AtomExpr> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
+    <e:Atom> => e,
+    <f:AtomExpr>  "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
+    <e:AtomExpr>  "[" <s:Subscript> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
+    <e:AtomExpr> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
 };
 
 Subscript: ast::Expression = {
@@ -811,6 +826,11 @@ TestList: Vec<ast::Expression> = {
   }
 };
 
+// Test
+StarExpr: ast::Expression = {
+    "*" <e:Expression> => ast::Expression::Starred { value: Box::new(e) },
+};
+
 // Comprehensions:
 CompIter: (Option<Vec<ast::Comprehension>>, Option<ast::Expression>) = {
     // CompIf,
@@ -887,6 +907,7 @@ FunctionArgument: (Option<String>, ast::Expression) = {
         (None, expr)
     },
     <i:Identifier> "=" <e:Test> => (Some(i.clone()), e),
+    "*" <e:Test> => (None, ast::Expression::Starred { value: Box::new(e) }),
 };
 
 Comma<T>: Vec<T> = {
@@ -908,10 +929,11 @@ Number: ast::Number = {
 };
 
 String: String = {
-  <s:string+> => {
-    s.join("")
-  },
+    <s:string+> => {
+        s.join("")
+    },
 };
+
 Identifier: String = <s:name> => s;
 
 // Hook external lexer:
