@@ -1,4 +1,5 @@
 /target
+wasm/target
 **/*.rs.bk
 **/*.bytecode
 __pycache__
