@@ -111,13 +111,11 @@ target/wasm32-unknown-emscripten/release/rustpython_wasm.js
 
 You will also find `index.html` in the `wasm` directory. 
 From here, you can copy these 3 files into the static assets directory of your web server and you should be
-able to see the ouput in the browser:
+able to see the ouput in the web console of your browser.
 
 ```
 Hello RustPython!
 ```
-
-in the web console.
 
 # Code style
 
