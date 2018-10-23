@@ -1,0 +1,14 @@
+[package]
+name = "rustpython_wasm"
+version = "0.1.0"
+authors = ["rmliddle <ryan@rmliddle.com>"]
+
+[workspace]
+members = []
+
+[dependencies]
+rustpython_parser = {path = "../parser"}
+rustpython_vm = {path = "../vm"}
+
+[profile.release]
+opt-level = 's'

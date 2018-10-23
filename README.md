@@ -2,7 +2,7 @@
 A Python-3  (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :metal:.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 # Usage
 
@@ -20,9 +20,6 @@ Or use the interactive shell:
     >>>>> 2+2
     4
 
-<!-- Or use pip to install extra modules:
-
-    $ cargo run -m pip install requests -->
 
 # Goals
 
@@ -36,15 +33,18 @@ Or use the interactive shell:
 - `src`: using the other subcrates to bring rustpython to life.
 - `docs`: documentation (work in progress)
 - `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)
+- `wasm`: Binary crate and resources for WebAssembly build 
 - `tests`: integration test snippets
 
 # Contributing
 
 To start contributing, there are a lot of things that need to be done.
 Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustPython/issues).
-Another approach is to checkout the sourcecode, and try out rustpython until
-you hit a limitation, and try to fix that. You can also simply run
-`cargo run tests/snippets/whats_left_to_implement.py` and pickup any
+Another approach is to checkout the sourcecode: builtin functions and object methods are often the simplest
+and easiest way to contribute. 
+
+You can also simply run
+`cargo run tests/snippets/todo.py` to assist in finding any
 unimplemented method.
 
 # Testing
@@ -64,10 +64,62 @@ There also are some unittests, you can run those will cargo:
 $ cargo test --all
 ```
 
+# Compiling to WebAssembly
+
+## Setup
+
+Using `rustup` add the compile target `wasm32-unknown-emscripten`. To do so you will need to have [rustup](https://rustup.rs/) installed.
+
+```bash
+rustup target add wasm32-unknown-emscripten
+```
+
+Next, install `emsdk`:
+
+```bash
+curl https://s3.amazonaws.com/mozilla-games/emscripten/releases/emsdk-portable.tar.gz | tar -zxv
+cd emsdk-portable/
+./emsdk update
+./emsdk install sdk-incoming-64bit
+./emsdk activate sdk-incoming-64bit
+source ./emsdk_env.sh
+```
+
+## Build
+
+Move into the `wasm` directory. This contains a custom binary crate optimized for a web assembly build. 
+
+```bash
+cd wasm
+```
+
+From here run the build. This can take several minutes depending on the machine.
+```
+cargo build --target=wasm32-unknown-emscripten --release
+```
+
+Upon successful build, the following files will be available:
+
+
+```
+target/wasm32-unknown-emscripten/release/rustpython_wasm.wasm
+target/wasm32-unknown-emscripten/release/rustpython_wasm.js
+```
+
+- `rustpython_wasm.wasm`: the wasm build for rustpython. It includes both an parser and virtual machine.
+- `rustpython_wasm.js`: the loading scripts for the above wasm file.
+
+You will also find `index.html` in the `wasm` directory. 
+From here, you can copy these 3 files into the static assets directory of your web server and you should be
+able to see the ouput in the web console of your browser.
+
+```
+Hello RustPython!
+```
+
 # Code style
 
-The code style used is the default rustfmt codestyle. Please format your code
-accordingly.
+The code style used is the default rustfmt codestyle. Please format your code accordingly.
 
 # Community
 
