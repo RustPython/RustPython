@@ -110,8 +110,8 @@ target/wasm32-unknown-emscripten/release/rustpython_wasm.js
 - `rustpython_wasm.js`: the loading scripts for the above wasm file.
 
 You will also find `index.html` in the `wasm` directory. 
-From here, you can copy these 3 files into the static assets directory of your web browser and you should be
-able to see the ouput:
+From here, you can copy these 3 files into the static assets directory of your web server and you should be
+able to see the ouput in the browser:
 
 ```
 Hello RustPython!
