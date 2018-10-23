@@ -145,6 +145,9 @@ pub enum Expression {
     Yield {
         expression: Option<Box<Expression>>,
     },
+    YieldFrom {
+        expression: Box<Expression>,
+    },
     Compare {
         a: Box<Expression>,
         op: Comparison,

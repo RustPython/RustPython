@@ -1,10 +1,12 @@
 use super::bytecode;
 use super::exceptions;
+use super::frame::Frame;
 use super::obj::objbool;
 use super::obj::objbytes;
 use super::obj::objdict;
 use super::obj::objfloat;
 use super::obj::objfunction;
+use super::obj::objgenerator;
 use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objlist;
@@ -66,6 +68,7 @@ pub struct PyContext {
     pub iter_type: PyObjectRef,
     pub str_type: PyObjectRef,
     pub function_type: PyObjectRef,
+    pub generator_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
@@ -119,6 +122,7 @@ impl PyContext {
 
         let module_type = create_type("module", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
+        let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
             create_type("member_descriptor", &type_type, &object_type, &dict_type);
@@ -156,6 +160,7 @@ impl PyContext {
             str_type: str_type,
             object: object_type,
             function_type: function_type,
+            generator_type: generator_type,
             module_type: module_type,
             bound_method_type: bound_method_type,
             member_descriptor_type: member_descriptor_type,
@@ -169,6 +174,7 @@ impl PyContext {
         objobject::init(&context);
         objdict::init(&context);
         objfunction::init(&context);
+        objgenerator::init(&context);
         objint::init(&context);
         objfloat::init(&context);
         objbytes::init(&context);
@@ -218,6 +224,11 @@ impl PyContext {
     pub fn function_type(&self) -> PyObjectRef {
         self.function_type.clone()
     }
+
+    pub fn generator_type(&self) -> PyObjectRef {
+        self.generator_type.clone()
+    }
+
     pub fn bound_method_type(&self) -> PyObjectRef {
         self.bound_method_type.clone()
     }
@@ -646,6 +657,9 @@ pub enum PyObjectKind {
         scope: PyObjectRef,
         defaults: PyObjectRef,
     },
+    Generator {
+        frame: Frame,
+    },
     BoundMethod {
         function: PyObjectRef,
         object: PyObjectRef,
@@ -693,6 +707,7 @@ impl fmt::Debug for PyObjectKind {
             } => write!(f, "slice"),
             &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectKind::Function { .. } => write!(f, "function"),
+            &PyObjectKind::Generator { .. } => write!(f, "generator"),
             &PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
@@ -774,6 +789,7 @@ impl PyObject {
             PyObjectKind::Instance { dict: _ } => format!("<instance>"),
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { .. } => format!("<func>"),
+            PyObjectKind::Generator { .. } => format!("<generator>"),
             PyObjectKind::BoundMethod { .. } => format!("<bound-method>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),

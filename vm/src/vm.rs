@@ -14,6 +14,7 @@ use super::bytecode;
 use super::frame::{copy_code, Block, Frame};
 use super::import::import;
 use super::obj::objbool;
+use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objobject;
@@ -349,7 +350,7 @@ impl VirtualMachine {
         }
     }
 
-    fn run_frame(&mut self, frame: Frame) -> PyResult {
+    pub fn run_frame(&mut self, frame: Frame) -> PyResult {
         self.frames.push(frame);
         let filename = if let Some(source_path) = &self.current_frame().code.source_path {
             source_path.to_string()
@@ -690,8 +691,15 @@ impl VirtualMachine {
         let scope = self.ctx.new_scope(Some(scope.clone()));
         self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
 
+        // Construct frame:
         let frame = Frame::new(code.clone(), scope);
-        self.run_frame(frame)
+
+        // If we have a generator, create a new generator
+        if code_object.is_generator {
+            objgenerator::new_generator(self, frame)
+        } else {
+            self.run_frame(frame)
+        }
     }
 
     fn fill_scope_from_args(

@@ -567,11 +567,22 @@ Decorator: ast::Expression = {
 };
 
 YieldExpr: ast::Expression = {
-    "yield" => {
+    "yield" <ex:TestList?> => {
         ast::Expression::Yield {
-            expression: None,
+            expression: ex.map(|expr| Box::new(
+                if expr.len() > 1 {
+                    ast::Expression::Tuple { elements: expr }
+                } else {
+                    expr.into_iter().next().unwrap()
+                })
+            )
         }
-    }
+    },
+    "yield" "from" <e:Test> => {
+        ast::Expression::YieldFrom {
+            expression: Box::new(e),
+        }
+    },
 };
 
 Test: ast::Expression = {
@@ -1000,6 +1011,7 @@ extern {
         "except" => lexer::Tok::Except,
         "finally" => lexer::Tok::Finally,
         "for" => lexer::Tok::For,
+        "from" => lexer::Tok::From,
         "if" => lexer::Tok::If,
         "in" => lexer::Tok::In,
         "is" => lexer::Tok::Is,

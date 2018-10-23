@@ -896,6 +896,7 @@ impl Compiler {
                 self.emit(Instruction::BuildSlice { size: size });
             }
             ast::Expression::Yield { expression } => {
+                self.mark_generator();
                 match expression {
                     Some(expression) => self.compile_expression(expression)?,
                     None => self.emit(Instruction::LoadConst {
@@ -903,6 +904,12 @@ impl Compiler {
                     }),
                 };
                 self.emit(Instruction::YieldValue);
+            }
+            ast::Expression::YieldFrom { expression } => {
+                self.mark_generator();
+                self.compile_expression(expression)?;
+                self.emit(Instruction::YieldValue);
+                unimplemented!("yield from todo");
             }
             ast::Expression::True => {
                 self.emit(Instruction::LoadConst {
@@ -1137,6 +1144,10 @@ impl Compiler {
 
     fn set_source_location(&mut self, location: &ast::Location) {
         self.current_source_location = location.clone();
+    }
+
+    fn mark_generator(&mut self) {
+        self.current_code_object().is_generator = true;
     }
 }
 

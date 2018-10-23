@@ -12,10 +12,9 @@ pub enum Block {
         start: bytecode::Label,
         end: bytecode::Label,
     },
-    // TODO: Remove this allow once TryExcept is in use
-    #[allow(dead_code)]
-    // TODO: Implement try/except blocks
-    TryExcept { handler: bytecode::Label },
+    TryExcept {
+        handler: bytecode::Label,
+    },
     With {
         end: bytecode::Label,
         context_manager: PyObjectRef,

@@ -3,6 +3,7 @@ pub mod objbytes;
 pub mod objdict;
 pub mod objfloat;
 pub mod objfunction;
+pub mod objgenerator;
 pub mod objint;
 pub mod objiter;
 pub mod objlist;

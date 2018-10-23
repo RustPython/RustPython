@@ -27,6 +27,7 @@ pub struct CodeObject {
     pub varkeywords: Option<String>, // **kwargs
     pub source_path: Option<String>,
     pub obj_name: String, // Name of the object that created this code object
+    pub is_generator: bool,
 }
 
 impl CodeObject {
@@ -48,6 +49,7 @@ impl CodeObject {
             varkeywords: varkeywords,
             source_path: source_path,
             obj_name: obj_name,
+            is_generator: false,
         }
     }
 }
