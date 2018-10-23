@@ -11,7 +11,11 @@ use super::compile;
 use super::pyobject::{DictProtocol, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
-fn import_uncached_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
+fn import_uncached_module(
+    vm: &mut VirtualMachine,
+    current_path: PathBuf,
+    module: &str,
+) -> PyResult {
     // Check for Rust-native modules
     if let Some(module) = vm.stdlib_inits.get(module) {
         return Ok(module(&vm.ctx).clone());
@@ -21,8 +25,8 @@ fn import_uncached_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
     let import_error = vm.context().exceptions.import_error.clone();
 
     // Time to search for module in any place:
-    let filepath =
-        find_source(vm, module).map_err(|e| vm.new_exception(notfound_error.clone(), e))?;
+    let filepath = find_source(vm, current_path, module)
+        .map_err(|e| vm.new_exception(notfound_error.clone(), e))?;
     let source = parser::read_file(filepath.as_path())
         .map_err(|e| vm.new_exception(import_error.clone(), e))?;
 
@@ -49,19 +53,28 @@ fn import_uncached_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
     Ok(vm.ctx.new_module(module, scope))
 }
 
-pub fn import_module(vm: &mut VirtualMachine, module_name: &str) -> PyResult {
+pub fn import_module(
+    vm: &mut VirtualMachine,
+    current_path: PathBuf,
+    module_name: &str,
+) -> PyResult {
     // First, see if we already loaded the module:
     let sys_modules = vm.sys_module.get_item("modules").unwrap();
     if let Some(module) = sys_modules.get_item(module_name) {
         return Ok(module);
     }
-    let module = import_uncached_module(vm, module_name)?;
+    let module = import_uncached_module(vm, current_path, module_name)?;
     sys_modules.set_item(module_name, module.clone());
     Ok(module)
 }
 
-pub fn import(vm: &mut VirtualMachine, module_name: &str, symbol: &Option<String>) -> PyResult {
-    let module = import_module(vm, module_name)?;
+pub fn import(
+    vm: &mut VirtualMachine,
+    current_path: PathBuf,
+    module_name: &str,
+    symbol: &Option<String>,
+) -> PyResult {
+    let module = import_module(vm, current_path, module_name)?;
     // If we're importing a symbol, look it up and use it, otherwise construct a module and return
     // that
     let obj = match symbol {
@@ -71,7 +84,7 @@ pub fn import(vm: &mut VirtualMachine, module_name: &str, symbol: &Option<String
     Ok(obj)
 }
 
-fn find_source(vm: &VirtualMachine, name: &str) -> Result<PathBuf, String> {
+fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
     let sys_path = vm.sys_module.get_item("path").unwrap();
     let mut paths: Vec<PathBuf> = match sys_path.borrow().kind {
         PyObjectKind::List { ref elements } => elements
@@ -84,18 +97,7 @@ fn find_source(vm: &VirtualMachine, name: &str) -> Result<PathBuf, String> {
         _ => panic!("sys.path unexpectedly not a list"),
     };
 
-    let source_path = &vm.current_frame().code.source_path;
-    paths.insert(
-        0,
-        match source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
-        },
-    );
+    paths.insert(0, current_path);
 
     let suffixes = [".py", "/__init__.py"];
     let mut filepaths = vec![];

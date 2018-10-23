@@ -8,7 +8,7 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
-use super::objstr;
+// use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
 
 /*
@@ -23,10 +23,12 @@ pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult 
         return Ok(iter_target.clone());
     } else if objtype::isinstance(iter_target, vm.ctx.list_type()) {
         iter_target.clone()
+    // } else if hasattr(iter_target, "__iter__") {
     } else {
-        let type_str = objstr::get_value(&vm.to_str(iter_target.typ()).unwrap());
-        let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
-        return Err(type_error);
+        return vm.call_method(iter_target, "__iter__", vec![]);
+        // let type_str = objstr::get_value(&vm.to_str(iter_target.typ()).unwrap());
+        // let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
+        // return Err(type_error);
     };
 
     let iter_obj = PyObject::new(

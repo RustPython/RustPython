@@ -18,6 +18,7 @@ use rustpython_vm::{compile, import};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use std::path::Path;
+use std::path::PathBuf;
 
 fn main() {
     env_logger::init();
@@ -95,7 +96,8 @@ fn run_command(vm: &mut VirtualMachine, mut source: String) -> PyResult {
 
 fn run_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
     debug!("Running module {}", module);
-    import::import_module(vm, module)
+    let current_path = PathBuf::from(".");
+    import::import_module(vm, current_path, module)
 }
 
 fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {

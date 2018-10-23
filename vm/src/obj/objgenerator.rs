@@ -32,22 +32,24 @@ fn generator_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn generator_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.generator_type()))]);
-    send(vm, o)
+    let value = vm.get_none();
+    send(vm, o, &value)
 }
 
 fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(o, Some(vm.ctx.generator_type()))]);
-    send(vm, o)
+    arg_check!(
+        vm,
+        args,
+        required = [(o, Some(vm.ctx.generator_type())), (value, None)]
+    );
+    send(vm, o, value)
 }
 
-fn send(vm: &mut VirtualMachine, _gen: &PyObjectRef) -> PyResult {
-    /*
-       TODO
-        if let PyObjectKind::Generator { frame } = &gen.borrow_mut().kind {
-            vm.run_frame(frame)
-        } else {
-            panic!("Cannot extract frame from non-generator");
-        }
-    */
-    Ok(vm.get_none())
+fn send(vm: &mut VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
+    if let PyObjectKind::Generator { ref mut frame } = gen.borrow_mut().kind {
+        frame.push_value(value.clone());
+        frame.run_frame(vm)
+    } else {
+        panic!("Cannot extract frame from non-generator");
+    }
 }
