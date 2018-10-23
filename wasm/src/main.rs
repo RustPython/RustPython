@@ -1,10 +1,9 @@
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 
-use rustpython_vm::pyobject::{PyResult};
+use rustpython_vm::compile;
+use rustpython_vm::pyobject::PyResult;
 use rustpython_vm::VirtualMachine;
-use rustpython_vm::{compile};
-
 
 fn main() {
     let mut vm = VirtualMachine::new();
@@ -20,7 +19,6 @@ fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: Option<String
 }
 
 fn run_command(vm: &mut VirtualMachine, mut source: String) -> PyResult {
-
     // This works around https://github.com/RustPython/RustPython/issues/17
     source.push_str("\n");
     _run_string(vm, &source, None)

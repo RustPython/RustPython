@@ -2,7 +2,7 @@
 A Python-3  (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :metal:.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 # Usage
 
@@ -33,6 +33,7 @@ Or use the interactive shell:
 - `src`: using the other subcrates to bring rustpython to life.
 - `docs`: documentation (work in progress)
 - `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)
+- `wasm`: Binary crate and resources for WebAssembly build 
 - `tests`: integration test snippets
 
 # Contributing
@@ -67,7 +68,7 @@ $ cargo test --all
 
 ## Setup
 
-Using `rustup` add the compile target `wasm32-unknown-emscripten`. To do so you will need to have [rustup](https://rustup.rs/).
+Using `rustup` add the compile target `wasm32-unknown-emscripten`. To do so you will need to have [rustup](https://rustup.rs/) installed.
 
 ```bash
 rustup target add wasm32-unknown-emscripten
