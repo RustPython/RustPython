@@ -143,10 +143,10 @@ pub enum Expression {
         a: Box<Expression>,
     },
     Yield {
-        expression: Option<Box<Expression>>,
+        value: Option<Box<Expression>>,
     },
     YieldFrom {
-        expression: Box<Expression>,
+        value: Box<Expression>,
     },
     Compare {
         a: Box<Expression>,

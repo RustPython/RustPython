@@ -14,7 +14,7 @@ pub fn init(context: &PyContext) {
     let ref generator_type = context.generator_type;
     generator_type.set_attr("__iter__", context.new_rustfunc(generator_iter));
     generator_type.set_attr("__next__", context.new_rustfunc(generator_next));
-    generator_type.set_attr("__send__", context.new_rustfunc(generator_send));
+    generator_type.set_attr("send", context.new_rustfunc(generator_send));
 }
 
 pub fn new_generator(vm: &mut VirtualMachine, frame: Frame) -> PyResult {

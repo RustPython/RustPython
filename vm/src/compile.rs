@@ -895,9 +895,9 @@ impl Compiler {
                 }
                 self.emit(Instruction::BuildSlice { size: size });
             }
-            ast::Expression::Yield { expression } => {
+            ast::Expression::Yield { value } => {
                 self.mark_generator();
-                match expression {
+                match value {
                     Some(expression) => self.compile_expression(expression)?,
                     None => self.emit(Instruction::LoadConst {
                         value: bytecode::Constant::None,
@@ -905,9 +905,9 @@ impl Compiler {
                 };
                 self.emit(Instruction::YieldValue);
             }
-            ast::Expression::YieldFrom { expression } => {
+            ast::Expression::YieldFrom { value } => {
                 self.mark_generator();
-                self.compile_expression(expression)?;
+                self.compile_expression(value)?;
                 self.emit(Instruction::YieldValue);
                 unimplemented!("yield from todo");
             }

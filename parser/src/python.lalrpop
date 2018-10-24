@@ -21,7 +21,9 @@ pub Top: ast::Top = {
 };
 
 Program: ast::Program = {
-  <lines:FileLine*> => ast::Program { statements: Vec::from_iter(lines.into_iter().filter_map(|e| e)) },
+    <lines:FileLine*> => ast::Program {
+        statements: Vec::from_iter(lines.into_iter().filter_map(|e| e))
+    },
 };
 
 // A file line either has a declaration, or an empty newline:
@@ -31,8 +33,8 @@ FileLine: Option<ast::LocatedStatement> = {
 };
 
 Suite: Vec<ast::LocatedStatement> = {
-  <s:SimpleStatement> => vec![s],
-  "\n" indent <s:Statement+> dedent => s,
+    <s:SimpleStatement> => vec![s],
+    "\n" indent <s:Statement+> dedent => s,
 };
 
 Statement: ast::LocatedStatement = {
@@ -89,19 +91,10 @@ ExpressionStatement: ast::LocatedStatement = {
             }
         } else {
           let mut targets = vec![expr];
-          let mut values : Vec<ast::Expression> = suffix
-            .into_iter()
-            .map(|test_list| if test_list.len() > 1 {
-                ast::Expression::Tuple {
-                    elements: test_list
-                }
-            } else {
-                test_list.into_iter().next().unwrap()
-            })
-            .collect();
+          let mut values = suffix;
 
           while values.len() > 1 {
-            targets.push(values.remove(0));
+                targets.push(values.remove(0));
           }
 
           let value = values.into_iter().next().unwrap();
@@ -122,14 +115,23 @@ ExpressionStatement: ast::LocatedStatement = {
         // TODO: this works in most cases:
         let rhs = e2.into_iter().next().unwrap();
         ast::LocatedStatement {
-          location: loc,
-          node: ast::Statement::AugAssign { target: expr, op: op, value: rhs },
+            location: loc,
+            node: ast::Statement::AugAssign { target: expr, op: op, value: rhs },
         }
     },
 };
 
-AssignSuffix: Vec<ast::Expression> = {
-    "=" <e:TestList> => e,
+AssignSuffix: ast::Expression = {
+    "=" <e:TestList> => {
+        if e.len() > 1 {
+            ast::Expression::Tuple {
+                elements: e
+            }
+        } else {
+            e.into_iter().next().unwrap()
+        }
+    },
+    "=" <e:YieldExpr> => e,
 };
 
 TestOrStarExprList: Vec<ast::Expression> = {
@@ -146,52 +148,52 @@ TestOrStarExpr: ast::Expression = {
 };
 
 AugAssign: ast::Operator = {
-  "+=" => ast::Operator::Add,
-  "-=" => ast::Operator::Sub,
-  "*=" => ast::Operator::Mult,
-  "@=" => ast::Operator::MatMult,
-  "/=" => ast::Operator::Div,
-  "%=" => ast::Operator::Mod,
-  "&=" => ast::Operator::BitAnd,
-  "|=" => ast::Operator::BitOr,
-  "^=" => ast::Operator::BitXor,
-  "<<=" => ast::Operator::LShift,
-  ">>=" => ast::Operator::RShift,
-  "**=" => ast::Operator::Pow,
-  "//=" => ast::Operator::FloorDiv,
+    "+=" => ast::Operator::Add,
+    "-=" => ast::Operator::Sub,
+    "*=" => ast::Operator::Mult,
+    "@=" => ast::Operator::MatMult,
+    "/=" => ast::Operator::Div,
+    "%=" => ast::Operator::Mod,
+    "&=" => ast::Operator::BitAnd,
+    "|=" => ast::Operator::BitOr,
+    "^=" => ast::Operator::BitXor,
+    "<<=" => ast::Operator::LShift,
+    ">>=" => ast::Operator::RShift,
+    "**=" => ast::Operator::Pow,
+    "//=" => ast::Operator::FloorDiv,
 };
 
 FlowStatement: ast::LocatedStatement = {
-  <loc:@L> "break" => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Break,
-    }
-  },
-  <loc:@L> "continue" => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Continue,
-    }
-  },
-  <loc:@L> "return" <t:TestList?> => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Return { value: t },
-    }
-  },
-  <loc:@L> "raise" <t:Test?> => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Raise { expression: t },
-    }
-  },
-  <loc:@L> <y:YieldExpr> => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Expression { expression: y },
-    }
-  },
+    <loc:@L> "break" => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Break,
+        }
+    },
+    <loc:@L> "continue" => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Continue,
+        }
+    },
+    <loc:@L> "return" <t:TestList?> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Return { value: t },
+        }
+    },
+    <loc:@L> "raise" <t:Test?> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Raise { expression: t },
+        }
+    },
+    <loc:@L> <y:YieldExpr> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Expression { expression: y },
+        }
+    },
 };
 
 ImportStatement: ast::LocatedStatement = {
@@ -264,30 +266,30 @@ ImportPart<I>: (String, Option<String>) = {
 
 // A name like abc or abc.def.ghi
 DottedName: String = {
-  <n:name> => n,
-  <n:name> <n2: ("." Identifier)+>  => {
-    let mut r = n.to_string();
-    for x in n2 {
-      r.push_str(".");
-      r.push_str(&x.1);
-    }
-    r
-  },
+    <n:name> => n,
+    <n:name> <n2: ("." Identifier)+>  => {
+        let mut r = n.to_string();
+        for x in n2 {
+            r.push_str(".");
+            r.push_str(&x.1);
+        }
+        r
+    },
 };
 
 AssertStatement: ast::LocatedStatement = {
-  <loc:@L> "assert" <t:Test> <m: ("," Test)?> => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::Assert {
-        test: t,
-        msg: match m {
-          Some(e) => Some(e.1),
-          None => None,
+    <loc:@L> "assert" <t:Test> <m: ("," Test)?> => {
+        ast::LocatedStatement {
+          location: loc,
+          node: ast::Statement::Assert {
+            test: t,
+            msg: match m {
+              Some(e) => Some(e.1),
+              None => None,
+            }
+          }
         }
-      }
-    }
-  },
+    },
 };
 
 CompoundStatement: ast::LocatedStatement = {
@@ -376,33 +378,33 @@ TryStatement: ast::LocatedStatement = {
 };
 
 ExceptClause: ast::ExceptHandler = {
-  "except" <typ:Test?> ":" <body:Suite> => {
-    ast::ExceptHandler {
-      typ: typ,
-      name: None,
-      body: body,
-    }
-  },
-  "except" <x:(Test "as" Identifier)> ":" <body:Suite> => {
-    ast::ExceptHandler {
-      typ: Some(x.0),
-      name: Some(x.2),
-      body: body,
-    }
-  },
+    "except" <typ:Test?> ":" <body:Suite> => {
+        ast::ExceptHandler {
+            typ: typ,
+            name: None,
+            body: body,
+        }
+    },
+    "except" <x:(Test "as" Identifier)> ":" <body:Suite> => {
+        ast::ExceptHandler {
+            typ: Some(x.0),
+            name: Some(x.2),
+            body: body,
+        }
+    },
 };
 
 WithStatement: ast::LocatedStatement = {
-  <loc:@L> "with" <i1:WithItem> <i2:("," WithItem)*> ":" <s:Suite> => {
-    let mut items = vec![i1];
-    for item in i2 {
-        items.push(item.1);
-    }
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::With { items: items, body: s },
-    }
-  },
+    <loc:@L> "with" <i1:WithItem> <i2:("," WithItem)*> ":" <s:Suite> => {
+        let mut items = vec![i1];
+        for item in i2 {
+            items.push(item.1);
+        }
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::With { items: items, body: s },
+        }
+    },
 };
 
 WithItem: ast::WithItem = {
@@ -569,7 +571,7 @@ Decorator: ast::Expression = {
 YieldExpr: ast::Expression = {
     "yield" <ex:TestList?> => {
         ast::Expression::Yield {
-            expression: ex.map(|expr| Box::new(
+            value: ex.map(|expr| Box::new(
                 if expr.len() > 1 {
                     ast::Expression::Tuple { elements: expr }
                 } else {
@@ -580,7 +582,7 @@ YieldExpr: ast::Expression = {
     },
     "yield" "from" <e:Test> => {
         ast::Expression::YieldFrom {
-            expression: Box::new(e),
+            value: Box::new(e),
         }
     },
 };
@@ -630,21 +632,21 @@ Comparison: ast::Expression = {
 };
 
 CompOp: ast::Comparison = {
-  "==" => ast::Comparison::Equal,
-  "!=" => ast::Comparison::NotEqual,
-  "<" => ast::Comparison::Less,
-  "<=" => ast::Comparison::LessOrEqual,
-  ">" => ast::Comparison::Greater,
-  ">=" => ast::Comparison::GreaterOrEqual,
-  "in" => ast::Comparison::In,
-  "not" "in" => ast::Comparison::NotIn,
-  "is" => ast::Comparison::Is,
-  "is" "not" => ast::Comparison::IsNot,
+    "==" => ast::Comparison::Equal,
+    "!=" => ast::Comparison::NotEqual,
+    "<" => ast::Comparison::Less,
+    "<=" => ast::Comparison::LessOrEqual,
+    ">" => ast::Comparison::Greater,
+    ">=" => ast::Comparison::GreaterOrEqual,
+    "in" => ast::Comparison::In,
+    "not" "in" => ast::Comparison::NotIn,
+    "is" => ast::Comparison::Is,
+    "is" "not" => ast::Comparison::IsNot,
 };
 
 Expression: ast::Expression = {
-  <e1:Expression> "|" <e2:XorExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitOr, b: Box::new(e2) },
-  <e:XorExpression> => e,
+    <e1:Expression> "|" <e2:XorExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitOr, b: Box::new(e2) },
+    <e:XorExpression> => e,
 };
 
 XorExpression: ast::Expression = {
@@ -854,7 +856,7 @@ StarExpr: ast::Expression = {
 
 // Comprehensions:
 CompIter: (Option<Vec<ast::Comprehension>>, Option<ast::Expression>) = {
-    // CompIf,
+   //  <e:CompIf> => (None, Some(e)),
     <c:CompFor> => (Some(c), None),
 };
 
@@ -891,7 +893,13 @@ ExpressionNoCond: ast::Expression = {
 
 //CompIf: ast::Expression = {
 //    "if" <c:ExpressionNoCond> <c2:CompIter?> => {
-//        c
+//        match c2 {
+//            None => {
+//                vec![]
+//            },
+//            Some() => {
+//            },
+//        }
 //    }
 //};
 

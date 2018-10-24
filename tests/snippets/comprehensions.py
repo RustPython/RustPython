@@ -18,3 +18,7 @@ v = {b * 2 for b in x}
 # TODO:
 #u = {str(b): b-2 for b in x}
 
+# TODO: With if filtering:
+#y = [a+2 for a in x if a % 2]
+#print(y)
+#assert y == [3, 5]
