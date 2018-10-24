@@ -55,6 +55,15 @@ pub fn copy_code(code_obj: PyObjectRef) -> bytecode::CodeObject {
     }
 }
 
+// Running a frame can result in one of the below:
+pub enum ExecutionResult {
+    Return(PyObjectRef),
+    Yield(PyObjectRef),
+}
+
+// A valid execution result, or an exception
+pub type FrameResult = Result<ExecutionResult, PyObjectRef>;
+
 impl Frame {
     pub fn new(code: PyObjectRef, globals: PyObjectRef) -> Frame {
         //populate the globals and locals
@@ -79,7 +88,15 @@ impl Frame {
         }
     }
 
-    pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> PyResult {
+    pub fn run_frame_full(&mut self, vm: &mut VirtualMachine) -> PyResult {
+        match self.run_frame(vm) {
+            Ok(ExecutionResult::Return(value)) => Ok(value),
+            Err(err) => Err(err),
+            _ => panic!("Got unexpected result from function"),
+        }
+    }
+
+    pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> FrameResult {
         let filename = if let Some(source_path) = &self.code.source_path {
             source_path.to_string()
         } else {
@@ -147,7 +164,7 @@ impl Frame {
     }
 
     // Execute a single instruction:
-    fn execute_instruction(&mut self, vm: &mut VirtualMachine) -> Option<PyResult> {
+    fn execute_instruction(&mut self, vm: &mut VirtualMachine) -> Option<FrameResult> {
         let instruction = self.fetch_instruction();
         {
             trace!("=======");
@@ -313,12 +330,12 @@ impl Frame {
                 if let Some(exc) = self.unwind_blocks(vm) {
                     Some(Err(exc))
                 } else {
-                    Some(Ok(value))
+                    Some(Ok(ExecutionResult::Return(value)))
                 }
             }
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
-                Some(Ok(value))
+                Some(Ok(ExecutionResult::Yield(value)))
                 // unimplemented!("TODO: implement generators: {:?}", value);
             }
             bytecode::Instruction::SetupLoop { start, end } => {
@@ -655,7 +672,7 @@ impl Frame {
         vm: &mut VirtualMachine,
         module: &str,
         symbol: &Option<String>,
-    ) -> Option<PyResult> {
+    ) -> Option<FrameResult> {
         let current_path = match &self.code.source_path {
             Some(source_path) => {
                 let mut source_pathbuf = PathBuf::from(source_path);
@@ -797,13 +814,13 @@ impl Frame {
         vm.call_method(context_manager, "__exit__", args)
     }
 
-    fn store_name(&mut self, name: &str) -> Option<PyResult> {
+    fn store_name(&mut self, name: &str) -> Option<FrameResult> {
         let obj = self.pop_value();
         self.locals.set_item(name, obj);
         None
     }
 
-    fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> Option<PyResult> {
+    fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> Option<FrameResult> {
         let locals = match self.locals.borrow().kind {
             PyObjectKind::Scope { ref scope } => scope.locals.clone(),
             _ => panic!("We really expect our scope to be a scope!"),
@@ -813,11 +830,11 @@ impl Frame {
         let name = vm.ctx.new_str(name.to_string());
         match vm.call_method(&locals, "__delitem__", vec![name]) {
             Ok(_) => None,
-            err => Some(err),
+            Err(err) => Some(Err(err)),
         }
     }
 
-    fn load_name(&mut self, vm: &mut VirtualMachine, name: &str) -> Option<PyResult> {
+    fn load_name(&mut self, vm: &mut VirtualMachine, name: &str) -> Option<FrameResult> {
         // Lookup name in scope and put it onto the stack!
         let mut scope = self.locals.clone();
         loop {
@@ -840,7 +857,7 @@ impl Frame {
         vm.call_method(&a, "__getitem__", vec![b])
     }
 
-    fn execute_store_subscript(&mut self, vm: &mut VirtualMachine) -> Option<PyResult> {
+    fn execute_store_subscript(&mut self, vm: &mut VirtualMachine) -> Option<FrameResult> {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
@@ -859,12 +876,12 @@ impl Frame {
         }
     }
 
-    fn execute_delete_subscript(&mut self, vm: &mut VirtualMachine) -> Option<PyResult> {
+    fn execute_delete_subscript(&mut self, vm: &mut VirtualMachine) -> Option<FrameResult> {
         let idx = self.pop_value();
         let obj = self.pop_value();
         match vm.call_method(&obj, "__delitem__", vec![idx]) {
             Ok(_) => None,
-            err => Some(err),
+            Err(err) => Some(Err(err)),
         }
     }
 
@@ -878,7 +895,7 @@ impl Frame {
         &mut self,
         vm: &mut VirtualMachine,
         op: &bytecode::BinaryOperator,
-    ) -> Option<PyResult> {
+    ) -> Option<FrameResult> {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
         let result = match op {
@@ -907,7 +924,7 @@ impl Frame {
         &mut self,
         vm: &mut VirtualMachine,
         op: &bytecode::UnaryOperator,
-    ) -> Option<PyResult> {
+    ) -> Option<FrameResult> {
         let a = self.pop_value();
         let result = match op {
             &bytecode::UnaryOperator::Minus => {
@@ -1035,7 +1052,7 @@ impl Frame {
         &mut self,
         vm: &mut VirtualMachine,
         op: &bytecode::ComparisonOperator,
-    ) -> Option<PyResult> {
+    ) -> Option<FrameResult> {
         let b = self.pop_value();
         let a = self.pop_value();
         let result = match op {
@@ -1060,7 +1077,7 @@ impl Frame {
         }
     }
 
-    fn load_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> Option<PyResult> {
+    fn load_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> Option<FrameResult> {
         let parent = self.pop_value();
         match vm.get_attribute(parent, attr_name) {
             Ok(obj) => {
@@ -1071,19 +1088,19 @@ impl Frame {
         }
     }
 
-    fn store_attr(&mut self, attr_name: &str) -> Option<PyResult> {
+    fn store_attr(&mut self, attr_name: &str) -> Option<FrameResult> {
         let parent = self.pop_value();
         let value = self.pop_value();
         parent.set_attr(attr_name, value);
         None
     }
 
-    fn delete_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> Option<PyResult> {
+    fn delete_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> Option<FrameResult> {
         let parent = self.pop_value();
         let name = vm.ctx.new_str(attr_name.to_string());
         match vm.call_method(&parent, "__delattr__", vec![name]) {
             Ok(_) => None,
-            err => Some(err),
+            Err(err) => Some(Err(err)),
         }
     }
 

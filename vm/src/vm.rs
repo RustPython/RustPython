@@ -32,7 +32,7 @@ pub struct VirtualMachine {
 impl VirtualMachine {
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
         let mut frame = Frame::new(code, scope);
-        frame.run_frame(self)
+        frame.run_frame_full(self)
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
@@ -201,7 +201,7 @@ impl VirtualMachine {
         if code_object.is_generator {
             objgenerator::new_generator(self, frame)
         } else {
-            frame.run_frame(self)
+            frame.run_frame_full(self)
         }
     }
 

@@ -2,7 +2,7 @@
  * The mythical generator.
  */
 
-use super::super::frame::Frame;
+use super::super::frame::{ExecutionResult, Frame};
 use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
     TypeProtocol,
@@ -48,7 +48,15 @@ fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn send(vm: &mut VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
     if let PyObjectKind::Generator { ref mut frame } = gen.borrow_mut().kind {
         frame.push_value(value.clone());
-        frame.run_frame(vm)
+        match frame.run_frame(vm) {
+            Ok(ExecutionResult::Yield(value)) => Ok(value),
+            Ok(ExecutionResult::Return(_value)) => {
+                // Stop iteration!
+                let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
+                Err(vm.new_exception(stop_iteration, "End of generator".to_string()))
+            }
+            Err(err) => Err(err),
+        }
     } else {
         panic!("Cannot extract frame from non-generator");
     }
