@@ -997,7 +997,7 @@ impl Compiler {
             vec![],
             None,
             self.source_path.clone(),
-            name,
+            name.clone(),
         ));
 
         // Create empty object of proper type:
@@ -1047,7 +1047,9 @@ impl Compiler {
         match kind {
             ast::ComprehensionKind::GeneratorExpression { element } => {
                 self.compile_expression(element)?;
+                self.mark_generator();
                 self.emit(Instruction::YieldValue);
+                self.emit(Instruction::Pop);
             }
             ast::ComprehensionKind::List { element } => {
                 self.compile_expression(element)?;
@@ -1095,9 +1097,7 @@ impl Compiler {
 
         // List comprehension function name:
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::String {
-                value: String::from("<listcomp>"),
-            },
+            value: bytecode::Constant::String { value: name },
         });
 
         // Turn code object into function object:

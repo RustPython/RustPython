@@ -17,7 +17,6 @@ use super::obj::objtuple;
 use super::obj::objtype;
 use super::vm::VirtualMachine;
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
@@ -813,63 +812,6 @@ impl PyObject {
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(RefCell::new(self))
-    }
-}
-
-// impl<'a> PartialEq<&'a PyObject> for &'a PyObject {
-impl PartialEq for PyObject {
-    fn eq(&self, other: &PyObject) -> bool {
-        match (&self.kind, &other.kind) {
-            (
-                PyObjectKind::Integer { value: ref v1i },
-                PyObjectKind::Integer { value: ref v2i },
-            ) => v2i == v1i,
-            (PyObjectKind::Float { value: a }, PyObjectKind::Float { value: b }) => a == b,
-            (PyObjectKind::Integer { value: a }, PyObjectKind::Float { value: b }) => {
-                *a as f64 == *b
-            }
-            (PyObjectKind::Float { value: a }, PyObjectKind::Integer { value: b }) => {
-                *a == *b as f64
-            }
-            (PyObjectKind::String { value: ref v1i }, PyObjectKind::String { value: ref v2i }) => {
-                *v2i == *v1i
-            }
-            (PyObjectKind::List { elements: ref l1 }, PyObjectKind::List { elements: ref l2 })
-            | (
-                PyObjectKind::Tuple { elements: ref l1 },
-                PyObjectKind::Tuple { elements: ref l2 },
-            ) => {
-                if l1.len() == l2.len() {
-                    Iterator::zip(l1.iter(), l2.iter()).all(|elem| elem.0 == elem.1)
-                } else {
-                    false
-                }
-            }
-            (PyObjectKind::None, PyObjectKind::None) => true,
-            _ => panic!(
-                "TypeError in COMPARE_OP: can't compare {:?} with {:?}",
-                self, other
-            ),
-        }
-    }
-}
-
-impl Eq for PyObject {}
-
-impl PartialOrd for PyObject {
-    fn partial_cmp(&self, other: &PyObject) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for PyObject {
-    fn cmp(&self, other: &PyObject) -> Ordering {
-        match (&self.kind, &other.kind) {
-            (PyObjectKind::Integer { value: v1 }, PyObjectKind::Integer { value: ref v2 }) => {
-                v1.cmp(v2)
-            }
-            _ => panic!("Not impl"),
-        }
     }
 }
 

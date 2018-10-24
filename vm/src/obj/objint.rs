@@ -99,6 +99,66 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn int_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.int_type())),
+            (other, Some(vm.ctx.int_type()))
+        ]
+    );
+    let zelf = i32::from_pyobj(zelf);
+    let other = i32::from_pyobj(other);
+    let result = zelf < other;
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn int_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.int_type())),
+            (other, Some(vm.ctx.int_type()))
+        ]
+    );
+    let zelf = i32::from_pyobj(zelf);
+    let other = i32::from_pyobj(other);
+    let result = zelf <= other;
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn int_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.int_type())),
+            (other, Some(vm.ctx.int_type()))
+        ]
+    );
+    let zelf = i32::from_pyobj(zelf);
+    let other = i32::from_pyobj(other);
+    let result = zelf > other;
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn int_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.int_type())),
+            (other, Some(vm.ctx.int_type()))
+        ]
+    );
+    let zelf = i32::from_pyobj(zelf);
+    let other = i32::from_pyobj(other);
+    let result = zelf >= other;
+    Ok(vm.ctx.new_bool(result))
+}
+
 fn int_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
 
@@ -285,6 +345,10 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     int_type.set_attr("__eq__", context.new_rustfunc(int_eq));
+    int_type.set_attr("__lt__", context.new_rustfunc(int_lt));
+    int_type.set_attr("__le__", context.new_rustfunc(int_le));
+    int_type.set_attr("__gt__", context.new_rustfunc(int_gt));
+    int_type.set_attr("__ge__", context.new_rustfunc(int_ge));
     int_type.set_attr("__abs__", context.new_rustfunc(int_abs));
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
     int_type.set_attr("__and__", context.new_rustfunc(int_and));

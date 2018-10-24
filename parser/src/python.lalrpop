@@ -416,17 +416,17 @@ WithItem: ast::WithItem = {
 };
 
 FuncDef: ast::LocatedStatement = {
-  <d:Decorator*> <loc:@L> "def" <i:Identifier> <a:Parameters> ":" <s:Suite> => {
-    ast::LocatedStatement {
-      location: loc,
-      node: ast::Statement::FunctionDef {
-        name: i,
-        args: a,
-        body: s,
-        decorator_list: d,
-      }
-    }
-  },
+    <d:Decorator*> <loc:@L> "def" <i:Identifier> <a:Parameters> ":" <s:Suite> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::FunctionDef {
+                name: i,
+                args: a,
+                body: s,
+                decorator_list: d,
+            }
+        }
+    },
 };
 
 Parameters: ast::Parameters = {
@@ -648,28 +648,38 @@ Expression: ast::Expression = {
 };
 
 XorExpression: ast::Expression = {
-  <e1:XorExpression> "^" <e2:AndExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitXor, b: Box::new(e2) },
-  <e:AndExpression> => e,
+    <e1:XorExpression> "^" <e2:AndExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitXor, b: Box::new(e2) },
+    AndExpression,
 };
 
 AndExpression: ast::Expression = {
-  <e1:AndExpression> "&" <e2:ArithmaticExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitAnd, b: Box::new(e2) },
-  <e:ArithmaticExpression> => e,
+    <e1:AndExpression> "&" <e2:ShiftExpression> => ast::Expression::Binop { a: Box::new(e1), op: ast::Operator::BitAnd, b: Box::new(e2) },
+    ShiftExpression,
+};
+
+ShiftExpression: ast::Expression = {
+    <e1:ShiftExpression> <op:ShiftOp> <e2:ArithmaticExpression> => ast::Expression::Binop { a: Box::new(e1), op: op, b: Box::new(e2) },
+    ArithmaticExpression,
+};
+
+ShiftOp: ast::Operator = {
+    "<<" => ast::Operator::LShift,
+    ">>" => ast::Operator::RShift,
 };
 
 ArithmaticExpression: ast::Expression = {
-  <a:ArithmaticExpression> <op:AddOp> <b:Term> => ast::Expression::Binop { a: Box::new(a), op: op, b: Box::new(b) },
-  Term,
+    <a:ArithmaticExpression> <op:AddOp> <b:Term> => ast::Expression::Binop { a: Box::new(a), op: op, b: Box::new(b) },
+    Term,
 };
 
 AddOp: ast::Operator = {
-  "+" => ast::Operator::Add,
-  "-" => ast::Operator::Sub,
+    "+" => ast::Operator::Add,
+    "-" => ast::Operator::Sub,
 };
 
 Term: ast::Expression = {
-  <a:Term> <op:MulOp> <b:Factor> => ast::Expression::Binop { a: Box::new(a), op: op, b: Box::new(b) },
-  Factor,
+    <a:Term> <op:MulOp> <b:Factor> => ast::Expression::Binop { a: Box::new(a), op: op, b: Box::new(b) },
+    Factor,
 };
 
 MulOp: ast::Operator = {
@@ -687,12 +697,12 @@ Factor: ast::Expression = {
 };
 
 Power: ast::Expression = {
-  <e:AtomExpr> <e2:("**" Factor)?> => {
-      match e2 {
-         None => e,
-         Some(x) => ast::Expression::Binop { a: Box::new(e), op: ast::Operator::Pow, b: Box::new(x.1) },
-      }
-  }
+    <e:AtomExpr> <e2:("**" Factor)?> => {
+        match e2 {
+            None => e,
+            Some(x) => ast::Expression::Binop { a: Box::new(e), op: ast::Operator::Pow, b: Box::new(x.1) },
+        }
+    }
 };
 
 AtomExpr: ast::Expression = {
@@ -703,13 +713,13 @@ AtomExpr: ast::Expression = {
 };
 
 Subscript: ast::Expression = {
-  <e:Test> => e,
-  <e1:Test?> ":" <e2:Test?> <e3:SliceOp?>  => {
-    let s1 = e1.unwrap_or(ast::Expression::None);
-    let s2 = e2.unwrap_or(ast::Expression::None);
-    let s3 = e3.unwrap_or(ast::Expression::None);
-    ast::Expression::Slice { elements: vec![s1, s2, s3] }
-  }
+    <e:Test> => e,
+    <e1:Test?> ":" <e2:Test?> <e3:SliceOp?>  => {
+        let s1 = e1.unwrap_or(ast::Expression::None);
+        let s2 = e2.unwrap_or(ast::Expression::None);
+        let s3 = e3.unwrap_or(ast::Expression::None);
+        ast::Expression::Slice { elements: vec![s1, s2, s3] }
+    }
 };
 
 SliceOp: ast::Expression = {
@@ -717,43 +727,43 @@ SliceOp: ast::Expression = {
 }
 
 Atom: ast::Expression = {
-  <s:String> => ast::Expression::String { value: s },
-  <n:Number> => ast::Expression::Number { value: n },
-  <i:Identifier> => ast::Expression::Identifier { name: i },
-  "[" <e:TestListComp?> "]" => {
+    <s:String> => ast::Expression::String { value: s },
+    <n:Number> => ast::Expression::Number { value: n },
+    <i:Identifier> => ast::Expression::Identifier { name: i },
+    "[" <e:TestListComp?> "]" => {
         let elements = e.unwrap_or(Vec::new());
         ast::Expression::List { elements }
-  },
-  "[" <e:TestListComp2> "]" => {
+    },
+    "[" <e:TestListComp2> "]" => {
         // List comprehension:
         e
-  },
-  "(" <e:TestList?> <trailing_comma:","?> ")" => {
-     match e {
-         None => ast::Expression::Tuple { elements: Vec::new() },
-         Some(elements) => {
-             if elements.len() == 1 && trailing_comma.is_none() {
-               // This is "(e)", which is equivalent to "e"
-               elements.into_iter().next().unwrap()
-             } else {
-               ast::Expression::Tuple { elements }
+    },
+    "(" <e:TestList?> <trailing_comma:","?> ")" => {
+         match e {
+             None => ast::Expression::Tuple { elements: Vec::new() },
+             Some(elements) => {
+                 if elements.len() == 1 && trailing_comma.is_none() {
+                   // This is "(e)", which is equivalent to "e"
+                   elements.into_iter().next().unwrap()
+                 } else {
+                   ast::Expression::Tuple { elements }
+                 }
              }
          }
-     }
-  },
-  "(" <e:Test> <c:CompFor> ")" => {
+    },
+    "(" <e:Test> <c:CompFor> ")" => {
         ast::Expression::Comprehension {
             kind: Box::new(ast::ComprehensionKind::GeneratorExpression { element: e }),
             generators: c,
         }
-  },
-  "{" <e:TestDict?> "}" => ast::Expression::Dict { elements: e.unwrap_or(Vec::new()) },
-  "{" <e:TestDictComp> "}" => e,
-  "{" <e:TestSet> "}" => ast::Expression::Set { elements: e },
-  "{" <e:TestSetComp> "}" => e,
-  "True" => ast::Expression::True,
-  "False" => ast::Expression::False,
-  "None" => ast::Expression::None,
+    },
+    "{" <e:TestDict?> "}" => ast::Expression::Dict { elements: e.unwrap_or(Vec::new()) },
+    "{" <e:TestDictComp> "}" => e,
+    "{" <e:TestSet> "}" => ast::Expression::Set { elements: e },
+    "{" <e:TestSetComp> "}" => e,
+    "True" => ast::Expression::True,
+    "False" => ast::Expression::False,
+    "None" => ast::Expression::None,
 };
 
 TestListComp: Vec<ast::Expression> = {
@@ -971,6 +981,8 @@ extern {
         "//" => lexer::Tok::DoubleSlash,
         "^" => lexer::Tok::CircumFlex,
         "|" => lexer::Tok::Vbar,
+        "<<" => lexer::Tok::LeftShift,
+        ">>" => lexer::Tok::RightShift,
         "/" => lexer::Tok::Slash,
         "(" => lexer::Tok::Lpar,
         ")" => lexer::Tok::Rpar,

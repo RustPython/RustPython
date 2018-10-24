@@ -354,13 +354,12 @@ fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(x, Some(vm.ctx.int_type())), (y, Some(vm.ctx.int_type()))]
     );
 
-    use std::cmp::Ordering;
+    let order = vm.call_method(x, "__gt__", vec![y.clone()])?;
 
-    let order = x.cmp(y);
-
-    match order {
-        Ordering::Less | Ordering::Equal => Ok(x.clone()),
-        _ => Ok(y.clone()),
+    if objbool::get_value(&order) {
+        Ok(y.clone())
+    } else {
+        Ok(x.clone())
     }
 }
 

@@ -336,7 +336,6 @@ impl Frame {
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
                 Some(Ok(ExecutionResult::Yield(value)))
-                // unimplemented!("TODO: implement generators: {:?}", value);
             }
             bytecode::Instruction::SetupLoop { start, end } => {
                 self.push_block(Block::Loop {
@@ -902,14 +901,21 @@ impl Frame {
             &bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
             &bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
             &bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            &bytecode::BinaryOperator::MatrixMultiply => {
+                vm.call_method(&a_ref, "__matmul__", vec![b_ref])
+            }
             &bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
             &bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
+            &bytecode::BinaryOperator::FloorDivide => {
+                vm.call_method(&a_ref, "__floordiv__", vec![b_ref])
+            }
             &bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
             &bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
+            &bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
+            &bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
             &bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             &bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             &bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-            _ => panic!("NOT IMPL {:?}", op),
         };
         match result {
             Ok(value) => {
@@ -960,35 +966,19 @@ impl Frame {
     }
 
     fn _lt(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        let result_bool = a2 < b2;
-        let result = vm.ctx.new_bool(result_bool);
-        Ok(result)
+        vm.call_method(&a, "__lt__", vec![b])
     }
 
     fn _le(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        let result_bool = a2 <= b2;
-        let result = vm.ctx.new_bool(result_bool);
-        Ok(result)
+        vm.call_method(&a, "__le__", vec![b])
     }
 
     fn _gt(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        let result_bool = a2 > b2;
-        let result = vm.ctx.new_bool(result_bool);
-        Ok(result)
+        vm.call_method(&a, "__gt__", vec![b])
     }
 
     fn _ge(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        let b2 = &*b.borrow();
-        let a2 = &*a.borrow();
-        let result_bool = a2 >= b2;
-        let result = vm.ctx.new_bool(result_bool);
-        Ok(result)
+        vm.call_method(&a, "__ge__", vec![b])
     }
 
     fn _id(&self, a: PyObjectRef) -> usize {
