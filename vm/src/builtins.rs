@@ -258,7 +258,20 @@ fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_help
-// builtin_hex
+
+fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
+
+    let n = match number.borrow().kind {
+        PyObjectKind::Integer { value } => value,
+        ref kind => panic!(
+            "argument checking failure: hex not supported for {:?}",
+            kind
+        ),
+    } as u32;
+
+    Ok(vm.new_str(format!("0x{:x}", n)))
+}
 
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
@@ -542,6 +555,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
     dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
     dict.insert(String::from("hash"), ctx.new_rustfunc(builtin_hash));
+    dict.insert(String::from("hex"), ctx.new_rustfunc(builtin_hex));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
     dict.insert(String::from("int"), ctx.int_type());
     dict.insert(
