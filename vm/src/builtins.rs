@@ -5,6 +5,7 @@ use std::io::{self, Write};
 
 use super::compile;
 use super::obj::objbool;
+use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
@@ -78,14 +79,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
-    let n = match number.borrow().kind {
-        PyObjectKind::Integer { value } => value,
-        ref kind => panic!(
-            "argument checking failure: bin not supported for {:?}",
-            kind
-        ),
-    } as u32;
-
+    let n = objint::get_value(number);
     Ok(vm.new_str(format!("0b{:b}", n)))
 }
 
@@ -262,14 +256,7 @@ fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
-    let n = match number.borrow().kind {
-        PyObjectKind::Integer { value } => value,
-        ref kind => panic!(
-            "argument checking failure: hex not supported for {:?}",
-            kind
-        ),
-    } as u32;
-
+    let n = objint::get_value(number);
     Ok(vm.new_str(format!("0x{:x}", n)))
 }
 
