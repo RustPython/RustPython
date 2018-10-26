@@ -74,7 +74,21 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_ascii
-// builtin_bin
+
+fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
+
+    let n = match number.borrow().kind {
+        PyObjectKind::Integer { value } => value,
+        ref kind => panic!(
+            "argument checking failure: bin not supported for {:?}",
+            kind
+        ),
+    } as u32;
+
+    Ok(vm.new_str(format!("0b{:b}", n)))
+}
+
 // builtin_bool
 // builtin_breakpoint
 // builtin_bytearray
@@ -514,6 +528,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("abs"), ctx.new_rustfunc(builtin_abs));
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
+    dict.insert(String::from("bin"), ctx.new_rustfunc(builtin_bin));
     dict.insert(String::from("bool"), ctx.bool_type());
     dict.insert(String::from("bytes"), ctx.bytes_type());
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
