@@ -80,7 +80,12 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
     let n = objint::get_value(number);
-    Ok(vm.new_str(format!("0b{:b}", n)))
+    let s = match n.signum() {
+        -1 => format!("-0b{:b}", n.abs()),
+        _ => format!("0b{:b}", n),
+    };
+
+    Ok(vm.new_str(s))
 }
 
 // builtin_bool
@@ -257,7 +262,12 @@ fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
     let n = objint::get_value(number);
-    Ok(vm.new_str(format!("0x{:x}", n)))
+    let s = match n.signum() {
+        -1 => format!("-0x{:x}", n.abs()),
+        _ => format!("0x{:x}", n),
+    };
+
+    Ok(vm.new_str(s))
 }
 
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
