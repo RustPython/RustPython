@@ -57,7 +57,7 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(iterable, None)]
     );
 
-    if !objtype::issubclass(cls, vm.ctx.set_type()) {
+    if !objtype::issubclass(cls, &vm.ctx.set_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of set", cls)));
     }
 

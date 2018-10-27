@@ -18,10 +18,10 @@ use super::objtype; // Required for arg_check! to use isinstance
  */
 pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     // Check what we are going to iterate over:
-    let iterated_obj = if objtype::isinstance(iter_target, vm.ctx.iter_type()) {
+    let iterated_obj = if objtype::isinstance(iter_target, &vm.ctx.iter_type()) {
         // If object is already an iterator, return that one.
         return Ok(iter_target.clone());
-    } else if objtype::isinstance(iter_target, vm.ctx.list_type()) {
+    } else if objtype::isinstance(iter_target, &vm.ctx.list_type()) {
         iter_target.clone()
     // } else if hasattr(iter_target, "__iter__") {
     } else {
@@ -56,7 +56,7 @@ pub fn get_next_object(
         Ok(value) => Ok(Some(value)),
         Err(next_error) => {
             // Check if we have stopiteration, or something else:
-            if objtype::isinstance(&next_error, vm.ctx.exceptions.stop_iteration.clone()) {
+            if objtype::isinstance(&next_error, &vm.ctx.exceptions.stop_iteration) {
                 Ok(None)
             } else {
                 Err(next_error)

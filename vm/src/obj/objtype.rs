@@ -59,12 +59,12 @@ pub fn base_classes(obj: &PyObjectRef) -> Vec<PyObjectRef> {
     _mro(obj.typ()).unwrap()
 }
 
-pub fn isinstance(obj: &PyObjectRef, cls: PyObjectRef) -> bool {
+pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let mro = _mro(obj.typ()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
 
-pub fn issubclass(typ: &PyObjectRef, cls: PyObjectRef) -> bool {
+pub fn issubclass(typ: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let mro = _mro(typ.clone()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
@@ -126,7 +126,7 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
         match vm.invoke(init, args.insert(obj.clone())) {
             Ok(res) => {
                 // TODO: assert that return is none?
-                if !isinstance(&res, vm.get_none()) {
+                if !isinstance(&res, &vm.get_none()) {
                     // panic!("__init__ must return none");
                     // return Err(vm.new_type_error("__init__ must return None".to_string()));
                 }

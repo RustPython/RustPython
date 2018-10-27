@@ -40,21 +40,21 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 }
                 seq.end()
             };
-        if objtype::isinstance(self.pyobject, self.ctx.str_type()) {
+        if objtype::isinstance(self.pyobject, &self.ctx.str_type()) {
             serializer.serialize_str(&objstr::get_value(&self.pyobject))
-        } else if objtype::isinstance(self.pyobject, self.ctx.float_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.ctx.float_type()) {
             serializer.serialize_f64(objfloat::get_value(self.pyobject))
-        } else if objtype::isinstance(self.pyobject, self.ctx.bool_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
-        } else if objtype::isinstance(self.pyobject, self.ctx.int_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.ctx.int_type()) {
             serializer.serialize_i32(objint::get_value(self.pyobject))
-        } else if objtype::isinstance(self.pyobject, self.ctx.list_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.ctx.list_type()) {
             let elements = objlist::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
-        } else if objtype::isinstance(self.pyobject, self.ctx.tuple_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.ctx.tuple_type()) {
             let elements = objtuple::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
-        } else if objtype::isinstance(self.pyobject, self.ctx.dict_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.ctx.dict_type()) {
             let elements = objdict::get_elements(self.pyobject);
             let mut map = serializer.serialize_map(Some(elements.len()))?;
             for (key, e) in elements {

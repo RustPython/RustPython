@@ -22,7 +22,7 @@ fn bytes_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.bytes_type())), (arg, None)]
     );
-    let val = if objtype::isinstance(arg, vm.ctx.list_type()) {
+    let val = if objtype::isinstance(arg, &vm.ctx.list_type()) {
         let mut data_bytes = vec![];
         for elem in objlist::get_elements(arg) {
             let v = match objint::to_int(vm, &elem, 10) {
@@ -46,7 +46,7 @@ fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
     );
 
-    let result = if objtype::isinstance(b, vm.ctx.bytes_type()) {
+    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a) == get_value(b)
     } else {
         false

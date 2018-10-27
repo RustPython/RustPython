@@ -177,7 +177,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: handle optional global and locals
 
     // Determine code object:
-    let code_obj = if objtype::isinstance(source, vm.ctx.str_type()) {
+    let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Exec;
         let source = objstr::get_value(source);
         compile::compile(vm, &source, mode, None)?
@@ -258,7 +258,7 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None), (typ, None)]);
 
-    let isinstance = objtype::isinstance(obj, typ.clone());
+    let isinstance = objtype::isinstance(obj, typ);
     Ok(vm.context().new_bool(isinstance))
 }
 
@@ -268,7 +268,7 @@ fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     let cls1 = &args.args[0];
-    let cls2 = args.args[1].clone();
+    let cls2 = &args.args[1];
 
     Ok(vm.context().new_bool(objtype::issubclass(cls1, cls2)))
 }
@@ -374,7 +374,7 @@ fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match vm.call_method(iterator, "__next__", vec![]) {
         Ok(value) => Ok(value),
         Err(value) => {
-            if objtype::isinstance(&value, vm.ctx.exceptions.stop_iteration.clone()) {
+            if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
                 match default_value {
                     None => Err(value),
                     Some(value) => Ok(value.clone()),

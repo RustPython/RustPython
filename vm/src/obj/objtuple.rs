@@ -15,7 +15,7 @@ fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, vm.ctx.tuple_type()) {
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_equal(vm, zelf, other)?

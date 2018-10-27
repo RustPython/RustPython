@@ -20,7 +20,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(cls, None)],
         optional = [(val_option, None)]
     );
-    if !objtype::issubclass(cls, vm.ctx.int_type()) {
+    if !objtype::issubclass(cls, &vm.ctx.int_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of int", cls)));
     }
 
@@ -38,11 +38,11 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // Casting function:
 pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> Result<i32, PyObjectRef> {
-    let val = if objtype::isinstance(obj, vm.ctx.int_type()) {
+    let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj)
-    } else if objtype::isinstance(obj, vm.ctx.float_type()) {
+    } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
         objfloat::get_value(obj) as i32
-    } else if objtype::isinstance(obj, vm.ctx.str_type()) {
+    } else if objtype::isinstance(obj, &vm.ctx.str_type()) {
         let s = objstr::get_value(obj);
         match i32::from_str_radix(&s, base) {
             Ok(v) => v,
@@ -85,11 +85,11 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
-    let result = if objtype::isinstance(other, vm.ctx.int_type()) {
+    let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
         let zelf = i32::from_pyobj(zelf);
         let other = i32::from_pyobj(other);
         zelf == other
-    } else if objtype::isinstance(other, vm.ctx.float_type()) {
+    } else if objtype::isinstance(other, &vm.ctx.float_type()) {
         let zelf = i32::from_pyobj(zelf) as f64;
         let other = objfloat::get_value(other);
         zelf == other
@@ -178,9 +178,9 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let i = i32::from_pyobj(i);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(i + get_value(i2)))
-    } else if objtype::isinstance(i2, vm.ctx.float_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(i as f64 + objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
@@ -193,7 +193,7 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(i) / get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
@@ -207,9 +207,9 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let i = i32::from_pyobj(i);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(i - get_value(i2)))
-    } else if objtype::isinstance(i2, vm.ctx.float_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(i as f64 - objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot substract {:?} and {:?}", i, i2)))
@@ -222,9 +222,9 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(i) * get_value(i2)))
-    } else if objtype::isinstance(i2, vm.ctx.float_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm
             .ctx
             .new_float(get_value(i) as f64 * objfloat::get_value(i2)))
@@ -240,9 +240,9 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_float(v1 as f64 / get_value(i2) as f64))
-    } else if objtype::isinstance(i2, vm.ctx.float_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(v1 as f64 / objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot divide {:?} and {:?}", i, i2)))
@@ -256,7 +256,7 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(v1 % get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot modulo {:?} and {:?}", i, i2)))
@@ -270,10 +270,10 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1.pow(v2 as u32)))
-    } else if objtype::isinstance(i2, vm.ctx.float_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1 as f64).powf(v2)))
     } else {
@@ -288,7 +288,7 @@ fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let r1 = int_floordiv(vm, args.clone());
         let r2 = int_mod(vm, args.clone());
         Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
@@ -304,7 +304,7 @@ fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 ^ v2))
     } else {
@@ -319,7 +319,7 @@ fn int_or(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 | v2))
     } else {
@@ -334,7 +334,7 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 & v2))
     } else {

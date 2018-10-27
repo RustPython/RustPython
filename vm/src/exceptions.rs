@@ -24,11 +24,11 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
     if let Some(tb) = exc.get_attr("__traceback__") {
         println!("Traceback (most recent call last):");
-        if objtype::isinstance(&tb, vm.ctx.list_type()) {
+        if objtype::isinstance(&tb, &vm.ctx.list_type()) {
             let mut elements = objlist::get_elements(&tb);
             elements.reverse();
             for element in elements {
-                if objtype::isinstance(&element, vm.ctx.tuple_type()) {
+                if objtype::isinstance(&element, &vm.ctx.tuple_type()) {
                     let element = objtuple::get_elements(&element);
                     let filename = if let Ok(x) = vm.to_str(element[0].clone()) {
                         objstr::get_value(&x)

@@ -18,9 +18,9 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.float_type())), (arg, None)]
     );
-    let val = if objtype::isinstance(arg, vm.ctx.float_type()) {
+    let val = if objtype::isinstance(arg, &vm.ctx.float_type()) {
         get_value(arg)
-    } else if objtype::isinstance(arg, vm.ctx.int_type()) {
+    } else if objtype::isinstance(arg, &vm.ctx.int_type()) {
         objint::get_value(arg) as f64
     } else {
         return Err(vm.new_type_error("Cannot construct int".to_string()));
@@ -49,10 +49,10 @@ fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
     let zelf = get_value(zelf);
-    let result = if objtype::isinstance(other, vm.ctx.float_type()) {
+    let result = if objtype::isinstance(other, &vm.ctx.float_type()) {
         let other = get_value(other);
         zelf == other
-    } else if objtype::isinstance(other, vm.ctx.int_type()) {
+    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
         let other = objint::get_value(other) as f64;
         zelf == other
     } else {
@@ -89,9 +89,9 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.float_type()) {
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(v1 + get_value(i2)))
-    } else if objtype::isinstance(i2, vm.ctx.int_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_float(v1 + objint::get_value(i2) as f64))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
@@ -105,7 +105,8 @@ fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
     let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
-    if objtype::isinstance(i2, vm.ctx.float_type()) || objtype::isinstance(i2, vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.float_type()) || objtype::isinstance(i2, &vm.ctx.int_type())
+    {
         let r1 = float_floordiv(vm, args.clone());
         let r2 = float_mod(vm, args.clone());
         Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
@@ -120,9 +121,9 @@ fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    if objtype::isinstance(i2, vm.ctx.float_type()) {
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float((get_value(i) / get_value(i2)).floor()))
-    } else if objtype::isinstance(i2, vm.ctx.int_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_float((get_value(i) / objint::get_value(i2) as f64).floor()))
@@ -138,9 +139,9 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.float_type()) {
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(v1 - get_value(i2)))
-    } else if objtype::isinstance(i2, vm.ctx.int_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_float(v1 - objint::get_value(i2) as f64))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
@@ -153,9 +154,9 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    if objtype::isinstance(i2, vm.ctx.float_type()) {
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(get_value(i) % get_value(i2)))
-    } else if objtype::isinstance(i2, vm.ctx.int_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_float(get_value(i) % objint::get_value(i2) as f64))
@@ -172,10 +173,10 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, vm.ctx.float_type()) {
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
         let result = v1.powf(get_value(i2));
         Ok(vm.ctx.new_float(result))
-    } else if objtype::isinstance(i2, vm.ctx.int_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let result = v1.powf(objint::get_value(i2) as f64);
         Ok(vm.ctx.new_float(result))
     } else {

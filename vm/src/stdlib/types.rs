@@ -21,7 +21,7 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let bases = match bases {
         Some(b) => {
-            if objtype::isinstance(b, vm.ctx.tuple_type()) {
+            if objtype::isinstance(b, &vm.ctx.tuple_type()) {
                 objtuple::get_elements(b)
             } else {
                 return Err(vm.new_type_error("Bases must be a tuple".to_string()));
