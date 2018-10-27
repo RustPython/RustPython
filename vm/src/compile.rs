@@ -279,10 +279,18 @@ impl Compiler {
                 self.set_label(end_label);
                 self.emit(Instruction::PopBlock);
             }
-            ast::Statement::Raise { expression } => match expression {
+            ast::Statement::Raise { exception, cause } => match exception {
                 Some(value) => {
                     self.compile_expression(value)?;
-                    self.emit(Instruction::Raise { argc: 1 });
+                    match cause {
+                        Some(cause) => {
+                            self.compile_expression(cause)?;
+                            self.emit(Instruction::Raise { argc: 2 });
+                        }
+                        None => {
+                            self.emit(Instruction::Raise { argc: 1 });
+                        }
+                    }
                 }
                 None => {
                     unimplemented!();

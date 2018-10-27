@@ -18,7 +18,7 @@ fn tokenize_tokenize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let source = objstr::get_value(readline);
 
     // TODO: implement generator when the time has come.
-    let lexer1 = lexer::Lexer::new(&source);
+    let lexer1 = lexer::make_tokenizer(&source);
 
     let tokens = lexer1.map(|st| vm.ctx.new_str(format!("{:?}", st.unwrap().1)));
     let tokens = Vec::from_iter(tokens);

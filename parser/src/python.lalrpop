@@ -182,16 +182,26 @@ FlowStatement: ast::LocatedStatement = {
             node: ast::Statement::Return { value: t },
         }
     },
-    <loc:@L> "raise" <t:Test?> => {
-        ast::LocatedStatement {
-            location: loc,
-            node: ast::Statement::Raise { expression: t },
-        }
-    },
     <loc:@L> <y:YieldExpr> => {
         ast::LocatedStatement {
             location: loc,
             node: ast::Statement::Expression { expression: y },
+        }
+    },
+    RaiseStatement,
+};
+
+RaiseStatement: ast::LocatedStatement = {
+    <loc:@L> "raise" => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Raise { exception: None, cause: None },
+        }
+    },
+    <loc:@L> "raise" <t:Test> <c:("from" Test)?> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Raise { exception: Some(t), cause: c.map(|x| x.1) },
         }
     },
 };
@@ -472,6 +482,45 @@ TypedArgsList: ast::Parameters = {
             Some((_, x)) => x,
             None => (None, vec![], vec![], None),
         };
+
+        ast::Parameters {
+            args: names,
+            kwonlyargs: kwonlyargs,
+            vararg: vararg,
+            kwarg: kwarg,
+            defaults: default_elements,
+            kw_defaults: kw_defaults,
+        }
+    },
+    <param1:TypedParameterDef> <param2:("," TypedParameterDef)*> <kw:("," "**" Identifier)> => {
+        // Combine first parameters:
+        let mut args = vec![param1];
+        args.extend(param2.into_iter().map(|x| x.1));
+
+        let mut names = vec![];
+        let mut default_elements = vec![];
+
+        for (name, default) in args.into_iter() {
+            names.push(name.clone());
+            if let Some(default) = default {
+                default_elements.push(default);
+            } else {
+                if default_elements.len() > 0 {
+                    // Once we have started with defaults, all remaining arguments must
+                    // have defaults
+                    panic!(
+                        "non-default argument follows default argument: {}",
+                        name
+                    );
+                }
+            }
+        }
+
+        // Now gather rest of parameters:
+        let vararg = None;
+        let kwonlyargs = vec![];
+        let kw_defaults = vec![];
+        let kwarg = Some(kw.2);
 
         ast::Parameters {
             args: names,
@@ -910,7 +959,7 @@ ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
         for (name, value) in e {
             match name {
                 Some(n) => {
-                    keywords.push(ast::Keyword { name: Some(n), value: value });
+                    keywords.push(ast::Keyword { name: n, value: value });
                 },
                 None => {
                     if keywords.len() > 0 {
@@ -924,7 +973,7 @@ ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
     }
 };
 
-FunctionArgument: (Option<String>, ast::Expression) = {
+FunctionArgument: (Option<Option<String>>, ast::Expression) = {
     <e:Test> <c:CompFor?> => {
         let expr = match c {
             Some(c) => ast::Expression::Comprehension {
@@ -935,8 +984,9 @@ FunctionArgument: (Option<String>, ast::Expression) = {
         };
         (None, expr)
     },
-    <i:Identifier> "=" <e:Test> => (Some(i.clone()), e),
+    <i:Identifier> "=" <e:Test> => (Some(Some(i.clone())), e),
     "*" <e:Test> => (None, ast::Expression::Starred { value: Box::new(e) }),
+    "**" <e:Test> => (Some(None), e),
 };
 
 Comma<T>: Vec<T> = {
@@ -1023,7 +1073,7 @@ extern {
         "assert" => lexer::Tok::Assert,
         "break" => lexer::Tok::Break,
         "class" => lexer::Tok::Class,
-        "continue" => lexer::Tok::Break,
+        "continue" => lexer::Tok::Continue,
         "def" => lexer::Tok::Def,
         "del" => lexer::Tok::Del,
         "elif" => lexer::Tok::Elif,

@@ -91,7 +91,8 @@ pub enum Statement {
         orelse: Option<Vec<LocatedStatement>>,
     },
     Raise {
-        expression: Option<Expression>,
+        exception: Option<Expression>,
+        cause: Option<Expression>,
     },
     Try {
         body: Vec<LocatedStatement>,

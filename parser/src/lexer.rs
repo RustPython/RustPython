@@ -1,9 +1,8 @@
 pub use super::token::Tok;
 use std::collections::HashMap;
-use std::str::CharIndices;
 
-pub struct Lexer<'input> {
-    chars: CharIndices<'input>,
+pub struct Lexer<T: Iterator<Item = char>> {
+    chars: T,
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
     indentation_stack: Vec<usize>,
@@ -85,10 +84,129 @@ pub fn get_keywords() -> HashMap<String, Tok> {
 
 pub type Spanned<Tok> = Result<(Location, Tok, Location), LexicalError>;
 
-impl<'input> Lexer<'input> {
-    pub fn new(input: &'input str) -> Self {
+pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = Spanned<Tok>> + 'a {
+    let nlh = NewlineHandler::new(source.chars());
+    let lch = LineContinationHandler::new(nlh);
+    let lexer = Lexer::new(lch);
+    lexer
+}
+
+// The newline handler is an iterator which collapses different newline
+// types into \n always.
+pub struct NewlineHandler<T: Iterator<Item = char>> {
+    source: T,
+    chr0: Option<char>,
+    chr1: Option<char>,
+}
+
+impl<T> NewlineHandler<T>
+where
+    T: Iterator<Item = char>,
+{
+    pub fn new(source: T) -> Self {
+        let mut nlh = NewlineHandler {
+            source: source,
+            chr0: None,
+            chr1: None,
+        };
+        nlh.shift();
+        nlh.shift();
+        nlh
+    }
+
+    fn shift(&mut self) -> Option<char> {
+        let result = self.chr0;
+        self.chr0 = self.chr1;
+        self.chr1 = self.source.next();
+        result
+    }
+}
+
+impl<T> Iterator for NewlineHandler<T>
+where
+    T: Iterator<Item = char>,
+{
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Collapse \r\n into \n
+        loop {
+            if self.chr0 == Some('\r') {
+                if self.chr1 == Some('\n') {
+                    // Transform windows EOL into \n
+                    self.shift();
+                } else {
+                    // Transform MAC EOL into \n
+                    self.chr0 = Some('\n')
+                }
+            } else {
+                break;
+            }
+        }
+
+        self.shift()
+    }
+}
+
+// Glues \ and \n into a single line:
+pub struct LineContinationHandler<T: Iterator<Item = char>> {
+    source: T,
+    chr0: Option<char>,
+    chr1: Option<char>,
+}
+
+impl<T> LineContinationHandler<T>
+where
+    T: Iterator<Item = char>,
+{
+    pub fn new(source: T) -> Self {
+        let mut nlh = LineContinationHandler {
+            source: source,
+            chr0: None,
+            chr1: None,
+        };
+        nlh.shift();
+        nlh.shift();
+        nlh
+    }
+
+    fn shift(&mut self) -> Option<char> {
+        let result = self.chr0;
+        self.chr0 = self.chr1;
+        self.chr1 = self.source.next();
+        result
+    }
+}
+
+impl<T> Iterator for LineContinationHandler<T>
+where
+    T: Iterator<Item = char>,
+{
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Collapse \r\n into \n
+        loop {
+            if self.chr0 == Some('\\') && self.chr1 == Some('\n') {
+                // Skip backslash and newline
+                self.shift();
+                self.shift();
+            } else {
+                break;
+            }
+        }
+
+        self.shift()
+    }
+}
+
+impl<T> Lexer<T>
+where
+    T: Iterator<Item = char>,
+{
+    pub fn new(input: T) -> Self {
         let mut lxr = Lexer {
-            chars: input.char_indices(),
+            chars: input,
             at_begin_of_line: true,
             nesting: 0,
             indentation_stack: vec![0],
@@ -155,9 +273,6 @@ impl<'input> Lexer<'input> {
                 Some('\n') => {
                     return;
                 }
-                Some('\r') => {
-                    return;
-                }
                 Some(_) => {}
                 None => return,
             }
@@ -165,6 +280,13 @@ impl<'input> Lexer<'input> {
     }
 
     fn lex_string(&mut self) -> Spanned<Tok> {
+        let type_char = match self.chr0 {
+            Some('u') | Some('f') | Some('r') => self.next_char(),
+            _ => None,
+        };
+
+        let is_raw = type_char == Some('r');
+
         let quote_char = self.next_char().unwrap();
         let mut string_content = String::new();
         let start_pos = self.get_pos();
@@ -182,43 +304,36 @@ impl<'input> Lexer<'input> {
         loop {
             match self.next_char() {
                 Some('\\') => {
-                    match self.next_char() {
-                        Some('\\') => {
-                            string_content.push('\\');
-                        }
-                        Some('\'') => string_content.push('\''),
-                        Some('\"') => string_content.push('\"'),
-                        Some('\n') => {
-                            // Ignore Unix EOL character
-                        }
-                        Some('\r') => {
-                            match self.chr0 {
-                                Some('\n') => {
-                                    // Ignore Windows EOL characters (2 bytes)
-                                    self.next_char();
-                                }
-                                _ => {
-                                    // Ignore Mac EOL character
-                                }
+                    if is_raw {
+                        string_content.push('\\');
+                    } else {
+                        match self.next_char() {
+                            Some('\\') => {
+                                string_content.push('\\');
                             }
-                        }
-                        Some('a') => string_content.push('\x07'),
-                        Some('b') => string_content.push('\x08'),
-                        Some('f') => string_content.push('\x0c'),
-                        Some('n') => {
-                            string_content.push('\n');
-                        }
-                        Some('r') => string_content.push('\r'),
-                        Some('t') => {
-                            string_content.push('\t');
-                        }
-                        Some('v') => string_content.push('\x0b'),
-                        Some(c) => {
-                            string_content.push('\\');
-                            string_content.push(c);
-                        }
-                        None => {
-                            return Err(LexicalError::StringError);
+                            Some('\'') => string_content.push('\''),
+                            Some('\"') => string_content.push('\"'),
+                            Some('\n') => {
+                                // Ignore Unix EOL character
+                            }
+                            Some('a') => string_content.push('\x07'),
+                            Some('b') => string_content.push('\x08'),
+                            Some('f') => string_content.push('\x0c'),
+                            Some('n') => {
+                                string_content.push('\n');
+                            }
+                            Some('r') => string_content.push('\r'),
+                            Some('t') => {
+                                string_content.push('\t');
+                            }
+                            Some('v') => string_content.push('\x0b'),
+                            Some(c) => {
+                                string_content.push('\\');
+                                string_content.push(c);
+                            }
+                            None => {
+                                return Err(LexicalError::StringError);
+                            }
                         }
                     }
                 }
@@ -281,7 +396,7 @@ impl<'input> Lexer<'input> {
         let c = self.chr0;
         let nxt = self.chars.next();
         self.chr0 = self.chr1;
-        self.chr1 = nxt.map(|x| x.1);
+        self.chr1 = nxt;
         self.location.column += 1;
         c
     }
@@ -316,17 +431,6 @@ impl<'input> Lexer<'input> {
                         Some('#') => {
                             self.lex_comment();
                             self.at_begin_of_line = true;
-                            continue 'top_loop;
-                        }
-                        Some('\r') => {
-                            // Empty line!
-                            self.next_char();
-                            if self.chr0 == Some('\n') {
-                                // absorb two bytes if Windows line ending
-                                self.next_char();
-                            }
-                            self.at_begin_of_line = true;
-                            self.new_line();
                             continue 'top_loop;
                         }
                         Some('\n') => {
@@ -376,7 +480,18 @@ impl<'input> Lexer<'input> {
 
             match self.chr0 {
                 Some('0'...'9') => return Some(self.lex_number()),
-                Some('_') | Some('a'...'z') | Some('A'...'Z') => return Some(self.lex_identifier()),
+                Some('_') | Some('a'...'z') | Some('A'...'Z') => {
+                    // Detect r"", f"" and u""
+                    match self.chr0 {
+                        Some('r') | Some('u') | Some('f') => match self.chr1 {
+                            Some('\'') | Some('\"') => {
+                                return Some(self.lex_string());
+                            }
+                            _ => return Some(self.lex_identifier()),
+                        },
+                        _ => return Some(self.lex_identifier()),
+                    }
+                }
                 Some('#') => {
                     self.lex_comment();
                     continue;
@@ -691,20 +806,6 @@ impl<'input> Lexer<'input> {
                     let tok_end = self.get_pos();
                     return Some(Ok((tok_start, Tok::Dot, tok_end)));
                 }
-                Some('\r') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    let tok_end = self.get_pos();
-                    self.new_line();
-
-                    // Depending on the nesting level, we emit newline or not:
-                    if self.nesting == 0 {
-                        self.at_begin_of_line = true;
-                        return Some(Ok((tok_start, Tok::Newline, tok_end)));
-                    } else {
-                        continue;
-                    }
-                }
                 Some('\n') => {
                     let tok_start = self.get_pos();
                     self.next_char();
@@ -746,7 +847,10 @@ impl<'input> Lexer<'input> {
 Calling the next element in the iterator will yield the next lexical
 token.
 */
-impl<'input> Iterator for Lexer<'input> {
+impl<T> Iterator for Lexer<T>
+where
+    T: Iterator<Item = char>,
+{
     type Item = Spanned<Tok>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -766,16 +870,44 @@ impl<'input> Iterator for Lexer<'input> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Lexer, Tok};
+    use super::{make_tokenizer, NewlineHandler, Tok};
     use std::iter::FromIterator;
+    use std::iter::Iterator;
 
     const WINDOWS_EOL: &str = "\r\n";
     const MAC_EOL: &str = "\r";
     const UNIX_EOL: &str = "\n";
 
     pub fn lex_source(source: &String) -> Vec<Tok> {
-        let lexer = Lexer::new(source);
+        let lexer = make_tokenizer(source);
         Vec::from_iter(lexer.map(|x| x.unwrap().1))
+    }
+
+    #[test]
+    fn test_newline_processor() {
+        // Escape \ followed by \n (by removal):
+        let src = "b\\\r\n";
+        assert_eq!(4, src.len());
+        let nlh = NewlineHandler::new(src.chars());
+        let x: Vec<char> = nlh.collect();
+        assert_eq!(vec!['b', '\\', '\n'], x);
+    }
+
+    #[test]
+    fn test_raw_string() {
+        let source = String::from("r\"\\\\\" \"\\\\\"");
+        let tokens = lex_source(&source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::String {
+                    value: "\\\\".to_string()
+                },
+                Tok::String {
+                    value: "\\".to_string()
+                }
+            ]
+        );
     }
 
     macro_rules! test_line_comment {
