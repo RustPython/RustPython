@@ -337,6 +337,31 @@ impl Frame {
                 let value = self.pop_value();
                 Some(Ok(ExecutionResult::Yield(value)))
             }
+            bytecode::Instruction::YieldFrom => {
+                // Value send into iterator:
+                self.pop_value();
+
+                let top_of_stack = self.last_value();
+                let next_obj = objiter::get_next_object(vm, &top_of_stack);
+
+                match next_obj {
+                    Ok(Some(value)) => {
+                        // Set back program counter:
+                        self.lasti -= 1;
+                        Some(Ok(ExecutionResult::Yield(value)))
+                    }
+                    Ok(None) => {
+                        // Pop iterator from stack:
+                        self.pop_value();
+                        None
+                    }
+                    Err(next_error) => {
+                        // Pop iterator from stack:
+                        self.pop_value();
+                        Some(Err(next_error))
+                    }
+                }
+            }
             bytecode::Instruction::SetupLoop { start, end } => {
                 self.push_block(Block::Loop {
                     start: *start,
@@ -398,35 +423,31 @@ impl Frame {
             bytecode::Instruction::ForIter => {
                 // The top of stack contains the iterator, lets push it forward:
                 let top_of_stack = self.last_value();
-                let next_obj: PyResult = vm.call_method(&top_of_stack, "__next__", vec![]);
+                let next_obj = objiter::get_next_object(vm, &top_of_stack);
 
                 // Check the next object:
                 match next_obj {
-                    Ok(value) => {
+                    Ok(Some(value)) => {
                         self.push_value(value);
                         None
                     }
-                    Err(next_error) => {
-                        // Check if we have stopiteration, or something else:
-                        if objtype::isinstance(
-                            &next_error,
-                            vm.ctx.exceptions.stop_iteration.clone(),
-                        ) {
-                            // Pop iterator from stack:
-                            self.pop_value();
+                    Ok(None) => {
+                        // Pop iterator from stack:
+                        self.pop_value();
 
-                            // End of for loop
-                            let end_label = if let Block::Loop { start: _, end } = self.last_block()
-                            {
-                                *end
-                            } else {
-                                panic!("Wrong block type")
-                            };
-                            self.jump(end_label);
-                            None
+                        // End of for loop
+                        let end_label = if let Block::Loop { start: _, end } = self.last_block() {
+                            *end
                         } else {
-                            Some(Err(next_error))
-                        }
+                            panic!("Wrong block type")
+                        };
+                        self.jump(end_label);
+                        None
+                    }
+                    Err(next_error) => {
+                        // Pop iterator from stack:
+                        self.pop_value();
+                        Some(Err(next_error))
                     }
                 }
             }

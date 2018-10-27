@@ -268,7 +268,6 @@ where
         // Skip everything until end of line
         self.next_char();
         loop {
-            self.next_char();
             match self.chr0 {
                 Some('\n') => {
                     return;
@@ -276,6 +275,7 @@ where
                 Some(_) => {}
                 None => return,
             }
+            self.next_char();
         }
     }
 

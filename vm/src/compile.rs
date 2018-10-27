@@ -293,7 +293,7 @@ impl Compiler {
                     }
                 }
                 None => {
-                    unimplemented!();
+                    self.emit(Instruction::Raise { argc: 0 });
                 }
             },
             ast::Statement::Try {
@@ -792,6 +792,7 @@ impl Compiler {
                                 value: name.to_string(),
                             });
                         } else {
+                            // This means **kwargs!
                             panic!("name must be set");
                         }
                         self.compile_expression(&keyword.value)?;
@@ -916,8 +917,11 @@ impl Compiler {
             ast::Expression::YieldFrom { value } => {
                 self.mark_generator();
                 self.compile_expression(value)?;
-                self.emit(Instruction::YieldValue);
-                unimplemented!("yield from todo");
+                self.emit(Instruction::GetIter);
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::None,
+                });
+                self.emit(Instruction::YieldFrom);
             }
             ast::Expression::True => {
                 self.emit(Instruction::LoadConst {

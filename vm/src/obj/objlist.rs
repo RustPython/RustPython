@@ -51,15 +51,8 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = match iterable {
         None => vec![],
         Some(iterable) => {
-            let mut elements = vec![];
             let iterator = objiter::get_iter(vm, iterable)?;
-            loop {
-                match vm.call_method(&iterator, "__next__", vec![]) {
-                    Ok(v) => elements.push(v),
-                    _ => break,
-                }
-            }
-            elements
+            objiter::get_all(vm, &iterator)?
         }
     };
 

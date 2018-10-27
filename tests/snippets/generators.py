@@ -25,3 +25,13 @@ assert 23 == next(i)
 assert 15 == i.send(10)
 assert 17 == i.send(10)
 
+
+def g3():
+    yield 23
+    yield from make_numbers()
+    yield 44
+
+r = list(g3())
+# print(r)
+assert r == [23, 1, 2, 3, 44]
+

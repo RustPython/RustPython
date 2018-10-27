@@ -43,6 +43,44 @@ pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult 
     Ok(iter_obj)
 }
 
+/*
+ * Helper function to retrieve the next object (or none) from an iterator.
+ */
+pub fn get_next_object(
+    vm: &mut VirtualMachine,
+    iter_obj: &PyObjectRef,
+) -> Result<Option<PyObjectRef>, PyObjectRef> {
+    let next_obj: PyResult = vm.call_method(iter_obj, "__next__", vec![]);
+
+    match next_obj {
+        Ok(value) => Ok(Some(value)),
+        Err(next_error) => {
+            // Check if we have stopiteration, or something else:
+            if objtype::isinstance(&next_error, vm.ctx.exceptions.stop_iteration.clone()) {
+                Ok(None)
+            } else {
+                Err(next_error)
+            }
+        }
+    }
+}
+
+/* Retrieve all elements from an iterator */
+pub fn get_all(
+    vm: &mut VirtualMachine,
+    iter_obj: &PyObjectRef,
+) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+    let mut elements = vec![];
+    loop {
+        let element = get_next_object(vm, iter_obj)?;
+        match element {
+            Some(v) => elements.push(v),
+            None => break,
+        }
+    }
+    Ok(elements)
+}
+
 // Sequence iterator:
 fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter_target, None)]);
