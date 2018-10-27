@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_parse_double_list_comprehension() {
-        let source = String::from("[x for y, y2 in z for a in b]");
+        let source = String::from("[x for y, y2 in z for a in b if a < 5 if a > 10]");
         let parse_ast = parse_expression(&source).unwrap();
         assert_eq!(
             parse_ast,
@@ -415,7 +415,26 @@ mod tests {
                         iter: ast::Expression::Identifier {
                             name: "b".to_string()
                         },
-                        ifs: vec![],
+                        ifs: vec![
+                            ast::Expression::Compare {
+                                a: Box::new(ast::Expression::Identifier {
+                                    name: "a".to_string()
+                                }),
+                                op: ast::Comparison::Less,
+                                b: Box::new(ast::Expression::Number {
+                                    value: ast::Number::Integer { value: 5 }
+                                }),
+                            },
+                            ast::Expression::Compare {
+                                a: Box::new(ast::Expression::Identifier {
+                                    name: "a".to_string()
+                                }),
+                                op: ast::Comparison::Greater,
+                                b: Box::new(ast::Expression::Number {
+                                    value: ast::Number::Integer { value: 10 }
+                                }),
+                            },
+                        ],
                     }
                 ],
             }

@@ -1050,6 +1050,16 @@ impl Compiler {
             self.emit(Instruction::ForIter);
 
             self.compile_store(&generator.target)?;
+
+            // Now evaluate the ifs:
+            for if_condition in &generator.ifs {
+                self.compile_test(
+                    if_condition,
+                    None,
+                    Some(start_label),
+                    EvalContext::Statement,
+                )?
+            }
         }
 
         match kind {

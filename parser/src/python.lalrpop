@@ -904,34 +904,16 @@ StarExpr: ast::Expression = {
 };
 
 // Comprehensions:
-CompIter: (Option<Vec<ast::Comprehension>>, Option<ast::Expression>) = {
-   //  <e:CompIf> => (None, Some(e)),
-    <c:CompFor> => (Some(c), None),
+CompFor: Vec<ast::Comprehension> = {
+    <c:SingleForComprehension+> => c,
 };
 
-CompFor: Vec<ast::Comprehension> = {
-    "for" <e:ExpressionList> "in" <i:OrTest> <c2:CompIter?> => {
-        match c2 {
-            None => {
-                vec![ast::Comprehension {
-                    target: e,
-                    iter: i,
-                    ifs: vec![],
-                }]
-            },
-            Some((Some(mut cphs), None)) => {
-                let mut res = vec![];
-                res.push(ast::Comprehension {
-                    target: e,
-                    iter: i,
-                    ifs: vec![],
-                });
-                res.append(&mut cphs);
-                res
-            },
-            _ => {
-                panic!("TODO");
-            },
+SingleForComprehension: ast::Comprehension = {
+    "for" <e:ExpressionList> "in" <i:OrTest> <c2:ComprehensionIf*> => {
+        ast::Comprehension {
+            target: e,
+            iter: i,
+            ifs: c2,
         }
     }
 };
@@ -940,17 +922,9 @@ ExpressionNoCond: ast::Expression = {
     OrTest,
 };
 
-//CompIf: ast::Expression = {
-//    "if" <c:ExpressionNoCond> <c2:CompIter?> => {
-//        match c2 {
-//            None => {
-//                vec![]
-//            },
-//            Some() => {
-//            },
-//        }
-//    }
-//};
+ComprehensionIf: ast::Expression = {
+    "if" <c:ExpressionNoCond> => c,
+};
 
 ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
     <e: Comma<FunctionArgument>> => {
