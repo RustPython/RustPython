@@ -216,8 +216,8 @@ pub enum Expression {
 pub struct Parameters {
     pub args: Vec<String>,
     pub kwonlyargs: Vec<String>,
-    pub vararg: Option<String>,
-    pub kwarg: Option<String>,
+    pub vararg: Option<Option<String>>, // Optionally we handle optionally named '*args' or '*'
+    pub kwarg: Option<Option<String>>,
     pub defaults: Vec<Expression>,
     pub kw_defaults: Vec<Option<Expression>>,
 }

@@ -625,8 +625,11 @@ impl Frame {
             }
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
+                let elements = match self.extract_elements(vm, &value) {
+                    Ok(elements) => elements,
+                    Err(err) => return Some(Err(err)),
+                };
 
-                let elements = objtuple::get_elements(&value);
                 if elements.len() != *size {
                     Some(Err(vm.new_value_error(
                         "Wrong number of values to unpack".to_string(),
@@ -640,8 +643,10 @@ impl Frame {
             }
             bytecode::Instruction::UnpackEx { before, after } => {
                 let value = self.pop_value();
-
-                let elements = objtuple::get_elements(&value);
+                let elements = match self.extract_elements(vm, &value) {
+                    Ok(elements) => elements,
+                    Err(err) => return Some(Err(err)),
+                };
                 let min_expected = *before + *after;
                 if elements.len() < min_expected {
                     Some(Err(vm.new_value_error(format!(
@@ -685,6 +690,23 @@ impl Frame {
                 None
             }
         }
+    }
+
+    fn extract_elements(
+        &mut self,
+        vm: &mut VirtualMachine,
+        value: &PyObjectRef,
+    ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+        // Extract elements from item, if possible:
+        let elements = if objtype::isinstance(value, &vm.ctx.tuple_type()) {
+            objtuple::get_elements(value)
+        } else if objtype::isinstance(value, &vm.ctx.list_type()) {
+            objlist::get_elements(value)
+        } else {
+            let iter = objiter::get_iter(vm, value)?;
+            objiter::get_all(vm, &iter)?
+        };
+        Ok(elements)
     }
 
     fn import(

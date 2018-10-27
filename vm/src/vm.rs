@@ -235,14 +235,18 @@ impl VirtualMachine {
         }
 
         // Pack other positional arguments in to *args:
-        if let Some(vararg_name) = &code_object.varargs {
+        if let Some(vararg) = &code_object.varargs {
             let mut last_args = vec![];
             for i in n..nargs {
                 let arg = &args.args[i];
                 last_args.push(arg.clone());
             }
             let vararg_value = self.ctx.new_tuple(last_args);
-            scope.set_item(vararg_name, vararg_value);
+
+            // If we have a name (not '*' only) then store it:
+            if let Some(vararg_name) = vararg {
+                scope.set_item(vararg_name, vararg_value);
+            }
         } else {
             // Check the number of positional arguments
             if nargs > nexpected_args {
@@ -254,9 +258,14 @@ impl VirtualMachine {
         }
 
         // Do we support `**kwargs` ?
-        let kwargs = if let Some(name) = &code_object.varkeywords {
+        let kwargs = if let Some(kwargs) = &code_object.varkeywords {
             let d = self.new_dict();
-            scope.set_item(&name, d.clone());
+
+            // Store when we have a name:
+            if let Some(kwargs_name) = kwargs {
+                scope.set_item(&kwargs_name, d.clone());
+            }
+
             Some(d)
         } else {
             None

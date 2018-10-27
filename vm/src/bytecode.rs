@@ -21,10 +21,10 @@ pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<ast::Location>,
-    pub arg_names: Vec<String>,  // Names of positional arguments
-    pub varargs: Option<String>, // *args
+    pub arg_names: Vec<String>,          // Names of positional arguments
+    pub varargs: Option<Option<String>>, // *args or *
     pub kwonlyarg_names: Vec<String>,
-    pub varkeywords: Option<String>, // **kwargs
+    pub varkeywords: Option<Option<String>>, // **kwargs or **
     pub source_path: Option<String>,
     pub obj_name: String, // Name of the object that created this code object
     pub is_generator: bool,
@@ -33,9 +33,9 @@ pub struct CodeObject {
 impl CodeObject {
     pub fn new(
         arg_names: Vec<String>,
-        varargs: Option<String>,
+        varargs: Option<Option<String>>,
         kwonlyarg_names: Vec<String>,
-        varkeywords: Option<String>,
+        varkeywords: Option<Option<String>>,
         source_path: Option<String>,
         obj_name: String,
     ) -> CodeObject {

@@ -76,13 +76,6 @@ DelStatement: ast::LocatedStatement = {
 
 ExpressionStatement: ast::LocatedStatement = {
     <loc:@L> <expr:TestOrStarExprList> <suffix:AssignSuffix*> => {
-        // First build tuple from first item:
-        let expr = if expr.len() > 1 {
-            ast::Expression::Tuple { elements: expr }
-        } else {
-            expr.into_iter().next().unwrap()
-        };
-
         // Just an expression, no assignment:
         if suffix.is_empty() {
             ast::LocatedStatement {
@@ -106,12 +99,6 @@ ExpressionStatement: ast::LocatedStatement = {
         }
     },
     <loc:@L> <expr:TestOrStarExprList> <op:AugAssign> <e2:TestList> => {
-        let expr = if expr.len() > 1 {
-            ast::Expression::Tuple { elements: expr }
-        } else {
-            expr.into_iter().next().unwrap()
-        };
-
         // TODO: this works in most cases:
         let rhs = e2.into_iter().next().unwrap();
         ast::LocatedStatement {
@@ -134,11 +121,19 @@ AssignSuffix: ast::Expression = {
     "=" <e:YieldExpr> => e,
 };
 
-TestOrStarExprList: Vec<ast::Expression> = {
-    <e:TestOrStarExpr> <e2:("," TestOrStarExpr)*> => {
+TestOrStarExprList: ast::Expression = {
+    <e:TestOrStarExpr> <e2:("," TestOrStarExpr)*> <comma:","?> => {
         let mut res = vec![e];
         res.extend(e2.into_iter().map(|x| x.1));
-        res
+
+        // First build tuple from first item:
+        let expr = if (res.len() > 1) || comma.is_some() {
+            ast::Expression::Tuple { elements: res }
+        } else {
+            res.into_iter().next().unwrap()
+        };
+
+        expr
     }
 };
 
@@ -453,29 +448,8 @@ Parameters: ast::Parameters = {
 // parameters are (String, None), kwargs are (String, Some(Test)) where Test is
 // the default
 TypedArgsList: ast::Parameters = {
-    <param1:TypedParameterDef> <param2:("," TypedParameterDef)*> <args2:("," ParameterListStarArgs)?> => {
-        // Combine first parameters:
-        let mut args = vec![param1];
-        args.extend(param2.into_iter().map(|x| x.1));
-
-        let mut names = vec![];
-        let mut default_elements = vec![];
-
-        for (name, default) in args.into_iter() {
-            names.push(name.clone());
-            if let Some(default) = default {
-                default_elements.push(default);
-            } else {
-                if default_elements.len() > 0 {
-                    // Once we have started with defaults, all remaining arguments must
-                    // have defaults
-                    panic!(
-                        "non-default argument follows default argument: {}",
-                        name
-                    );
-                }
-            }
-        }
+    <param1:TypedParameters> <args2:("," ParameterListStarArgs)?> => {
+        let (names, default_elements) = param1;
 
         // Now gather rest of parameters:
         let (vararg, kwonlyargs, kw_defaults, kwarg) = match args2 {
@@ -492,35 +466,14 @@ TypedArgsList: ast::Parameters = {
             kw_defaults: kw_defaults,
         }
     },
-    <param1:TypedParameterDef> <param2:("," TypedParameterDef)*> <kw:("," "**" Identifier)> => {
-        // Combine first parameters:
-        let mut args = vec![param1];
-        args.extend(param2.into_iter().map(|x| x.1));
-
-        let mut names = vec![];
-        let mut default_elements = vec![];
-
-        for (name, default) in args.into_iter() {
-            names.push(name.clone());
-            if let Some(default) = default {
-                default_elements.push(default);
-            } else {
-                if default_elements.len() > 0 {
-                    // Once we have started with defaults, all remaining arguments must
-                    // have defaults
-                    panic!(
-                        "non-default argument follows default argument: {}",
-                        name
-                    );
-                }
-            }
-        }
+    <param1:TypedParameters> <kw:("," KwargParameter)> => {
+        let (names, default_elements) = param1;
 
         // Now gather rest of parameters:
         let vararg = None;
         let kwonlyargs = vec![];
         let kw_defaults = vec![];
-        let kwarg = Some(kw.2);
+        let kwarg = Some(kw.1);
 
         ast::Parameters {
             args: names,
@@ -542,7 +495,7 @@ TypedArgsList: ast::Parameters = {
             kw_defaults: kw_defaults,
         }
     },
-    "**" <kw:Identifier> => {
+    <kw:KwargParameter> => {
         ast::Parameters {
             args: vec![],
             kwonlyargs: vec![],
@@ -552,6 +505,37 @@ TypedArgsList: ast::Parameters = {
             kw_defaults: vec![],
         }
     },
+};
+
+// Use inline here to make sure the "," is not creating an ambiguity.
+#[inline]
+TypedParameters: (Vec<String>, Vec<ast::Expression>) = {
+    <param1:TypedParameterDef> <param2:("," TypedParameterDef)*> => {
+        // Combine first parameters:
+        let mut args = vec![param1];
+        args.extend(param2.into_iter().map(|x| x.1));
+
+        let mut names = vec![];
+        let mut default_elements = vec![];
+
+        for (name, default) in args.into_iter() {
+            names.push(name.clone());
+            if let Some(default) = default {
+                default_elements.push(default);
+            } else {
+                if default_elements.len() > 0 {
+                    // Once we have started with defaults, all remaining arguments must
+                    // have defaults
+                    panic!(
+                        "non-default argument follows default argument: {}",
+                        name
+                    );
+                }
+            }
+        }
+
+        (names, default_elements)
+    }
 };
 
 TypedParameterDef: (String, Option<ast::Expression>) = {
@@ -564,8 +548,8 @@ TypedParameter: String = {
     Identifier,
 };
 
-ParameterListStarArgs: (Option<String>, Vec<String>, Vec<Option<ast::Expression>>, Option<String>) = {
-    "*" <va:Identifier> <kw:("," TypedParameterDef)*> <kwarg:("," "**" Identifier)?> => {
+ParameterListStarArgs: (Option<Option<String>>, Vec<String>, Vec<Option<ast::Expression>>, Option<Option<String>>) = {
+    "*" <va:Identifier?> <kw:("," TypedParameterDef)*> <kwarg:("," KwargParameter)?> => {
         // Extract keyword arguments:
         let mut kwonlyargs = vec![];
         let mut kw_defaults = vec![];
@@ -575,11 +559,17 @@ ParameterListStarArgs: (Option<String>, Vec<String>, Vec<Option<ast::Expression>
         }
 
         let kwarg = match kwarg {
-            Some((_, _, name)) => Some(name),
+            Some((_, name)) => Some(name),
             None => None,
         };
 
         (Some(va), kwonlyargs, kw_defaults, kwarg)
+    }
+};
+
+KwargParameter: Option<String> = {
+    "**" <kwarg:Identifier?> => {
+        kwarg
     }
 };
 

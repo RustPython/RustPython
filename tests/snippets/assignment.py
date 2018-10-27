@@ -40,3 +40,14 @@ assert a == 1
 assert b == []
 assert c == 2
 assert d == 3
+
+a, = [1]
+assert a == 1
+
+def g():
+    yield 1337
+    yield 42
+
+a, b = g()
+assert a == 1337
+assert b == 42
