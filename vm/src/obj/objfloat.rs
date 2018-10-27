@@ -61,6 +61,21 @@ fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn float_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.float_type())),
+            (other, Some(vm.ctx.float_type()))
+        ]
+    );
+    let zelf = get_value(zelf);
+    let other = get_value(other);
+    let result = zelf < other;
+    Ok(vm.ctx.new_bool(result))
+}
+
 fn float_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -187,6 +202,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let ref float_type = context.float_type;
     float_type.set_attr("__eq__", context.new_rustfunc(float_eq));
+    float_type.set_attr("__lt__", context.new_rustfunc(float_lt));
     float_type.set_attr("__le__", context.new_rustfunc(float_le));
     float_type.set_attr("__abs__", context.new_rustfunc(float_abs));
     float_type.set_attr("__add__", context.new_rustfunc(float_add));
