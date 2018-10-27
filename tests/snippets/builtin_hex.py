@@ -6,4 +6,4 @@ try:
 except TypeError:
     pass
 else:
-    assert False
+    assert False, "TypeError not raised when ord() is called with a dict"
