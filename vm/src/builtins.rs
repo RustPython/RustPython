@@ -5,6 +5,7 @@ use std::io::{self, Write};
 
 use super::compile;
 use super::obj::objbool;
+use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
@@ -74,7 +75,19 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_ascii
-// builtin_bin
+
+fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
+
+    let n = objint::get_value(number);
+    let s = match n.signum() {
+        -1 => format!("-0b{:b}", n.abs()),
+        _ => format!("0b{:b}", n),
+    };
+
+    Ok(vm.new_str(s))
+}
+
 // builtin_bool
 // builtin_breakpoint
 // builtin_bytearray
@@ -244,7 +257,18 @@ fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_help
-// builtin_hex
+
+fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
+
+    let n = objint::get_value(number);
+    let s = match n.signum() {
+        -1 => format!("-0x{:x}", n.abs()),
+        _ => format!("0x{:x}", n),
+    };
+
+    Ok(vm.new_str(s))
+}
 
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
@@ -514,6 +538,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("abs"), ctx.new_rustfunc(builtin_abs));
     dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
+    dict.insert(String::from("bin"), ctx.new_rustfunc(builtin_bin));
     dict.insert(String::from("bool"), ctx.bool_type());
     dict.insert(String::from("bytes"), ctx.bytes_type());
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
@@ -527,6 +552,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
     dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
     dict.insert(String::from("hash"), ctx.new_rustfunc(builtin_hash));
+    dict.insert(String::from("hex"), ctx.new_rustfunc(builtin_hex));
     dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
     dict.insert(String::from("int"), ctx.int_type());
     dict.insert(
