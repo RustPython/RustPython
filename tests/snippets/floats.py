@@ -11,3 +11,7 @@ assert a <= c
 assert b > a
 assert not a > b
 assert not a > c
+assert b >= a
+assert c >= a
+assert not a >= b
+
