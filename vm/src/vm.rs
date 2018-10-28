@@ -12,7 +12,10 @@ use super::builtins;
 use super::bytecode;
 use super::frame::{copy_code, Frame};
 use super::obj::objgenerator;
+use super::obj::objiter;
+use super::obj::objlist;
 use super::obj::objobject;
+use super::obj::objtuple;
 use super::obj::objtype;
 use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult};
 use super::stdlib;
@@ -349,6 +352,22 @@ impl VirtualMachine {
         }
 
         Ok(())
+    }
+
+    pub fn extract_elements(
+        &mut self,
+        value: &PyObjectRef,
+    ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+        // Extract elements from item, if possible:
+        let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
+            objtuple::get_elements(value)
+        } else if objtype::isinstance(value, &self.ctx.list_type()) {
+            objlist::get_elements(value)
+        } else {
+            let iter = objiter::get_iter(self, value)?;
+            objiter::get_all(self, &iter)?
+        };
+        Ok(elements)
     }
 
     pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &str) -> PyResult {

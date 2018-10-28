@@ -13,7 +13,6 @@ use super::obj::objdict;
 use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objstr;
-use super::obj::objtuple;
 use super::obj::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject,
@@ -482,7 +481,7 @@ impl Frame {
                             vec![]
                         };
                         let args = self.pop_value();
-                        let args = self.extract_elements(vm, &args)?;
+                        let args = vm.extract_elements(&args)?;
                         PyFuncArgs { args, kwargs }
                     }
                 };
@@ -595,7 +594,7 @@ impl Frame {
             }
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
-                let elements = self.extract_elements(vm, &value)?;
+                let elements = vm.extract_elements(&value)?;
                 if elements.len() != *size {
                     Err(vm.new_value_error("Wrong number of values to unpack".to_string()))
                 } else {
@@ -607,7 +606,7 @@ impl Frame {
             }
             bytecode::Instruction::UnpackEx { before, after } => {
                 let value = self.pop_value();
-                let elements = self.extract_elements(vm, &value)?;
+                let elements = vm.extract_elements(&value)?;
                 let min_expected = *before + *after;
                 if elements.len() < min_expected {
                     Err(vm.new_value_error(format!(
@@ -642,30 +641,13 @@ impl Frame {
             }
             bytecode::Instruction::Unpack => {
                 let value = self.pop_value();
-                let elements = self.extract_elements(vm, &value)?;
+                let elements = vm.extract_elements(&value)?;
                 for element in elements.into_iter().rev() {
                     self.push_value(element);
                 }
                 Ok(None)
             }
         }
-    }
-
-    fn extract_elements(
-        &mut self,
-        vm: &mut VirtualMachine,
-        value: &PyObjectRef,
-    ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
-        // Extract elements from item, if possible:
-        let elements = if objtype::isinstance(value, &vm.ctx.tuple_type()) {
-            objtuple::get_elements(value)
-        } else if objtype::isinstance(value, &vm.ctx.list_type()) {
-            objlist::get_elements(value)
-        } else {
-            let iter = objiter::get_iter(vm, value)?;
-            objiter::get_all(vm, &iter)?
-        };
-        Ok(elements)
     }
 
     fn get_elements(
@@ -678,7 +660,7 @@ impl Frame {
         if unpack {
             let mut result: Vec<PyObjectRef> = vec![];
             for element in elements {
-                let expanded = self.extract_elements(vm, &element)?;
+                let expanded = vm.extract_elements(&element)?;
                 for inner in expanded {
                     result.push(inner);
                 }

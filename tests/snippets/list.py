@@ -6,3 +6,6 @@ assert x[1] == 2
 y = [2, *x]
 assert y == [2, 1, 2, 3]
 
+y.extend(x)
+assert y == [2, 1, 2, 3, 1, 2, 3]
+

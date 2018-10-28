@@ -137,6 +137,22 @@ fn list_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+pub fn list_extend(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type())), (x, None)]
+    );
+    let mut new_elements = vm.extract_elements(x)?;
+    let mut list_obj = list.borrow_mut();
+    if let PyObjectKind::List { ref mut elements } = list_obj.kind {
+        elements.append(&mut new_elements);
+        Ok(vm.get_none())
+    } else {
+        Err(vm.new_type_error("list.extend is called with no list".to_string()))
+    }
+}
+
 fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
@@ -198,5 +214,6 @@ pub fn init(context: &PyContext) {
     list_type.set_attr("__repr__", context.new_rustfunc(list_repr));
     list_type.set_attr("append", context.new_rustfunc(list_append));
     list_type.set_attr("clear", context.new_rustfunc(list_clear));
+    list_type.set_attr("extend", context.new_rustfunc(list_extend));
     list_type.set_attr("reverse", context.new_rustfunc(list_reverse));
 }
