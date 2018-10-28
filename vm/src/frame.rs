@@ -62,7 +62,7 @@ pub enum ExecutionResult {
 }
 
 // A valid execution result, or an exception
-pub type FrameResult = Result<ExecutionResult, PyObjectRef>;
+pub type FrameResult = Result<Option<ExecutionResult>, PyObjectRef>;
 
 impl Frame {
     pub fn new(code: PyObjectRef, globals: PyObjectRef) -> Frame {
@@ -89,14 +89,13 @@ impl Frame {
     }
 
     pub fn run_frame_full(&mut self, vm: &mut VirtualMachine) -> PyResult {
-        match self.run_frame(vm) {
-            Ok(ExecutionResult::Return(value)) => Ok(value),
-            Err(err) => Err(err),
+        match self.run_frame(vm)? {
+            ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),
         }
     }
 
-    pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> FrameResult {
+    pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
         let filename = if let Some(source_path) = &self.code.source_path {
             source_path.to_string()
         } else {
@@ -111,11 +110,11 @@ impl Frame {
             let lineno = self.get_lineno();
             let result = self.execute_instruction(vm);
             match result {
-                None => {}
-                Some(Ok(value)) => {
+                Ok(None) => {}
+                Ok(Some(value)) => {
                     break Ok(value);
                 }
-                Some(Err(exception)) => {
+                Err(exception) => {
                     // unwind block stack on exception and find any handlers.
                     // Add an entry in the traceback:
                     assert!(objtype::isinstance(
@@ -164,7 +163,7 @@ impl Frame {
     }
 
     // Execute a single instruction:
-    fn execute_instruction(&mut self, vm: &mut VirtualMachine) -> Option<FrameResult> {
+    fn execute_instruction(&mut self, vm: &mut VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
         {
             trace!("=======");
@@ -182,7 +181,7 @@ impl Frame {
             bytecode::Instruction::LoadConst { ref value } => {
                 let obj = self.unwrap_constant(vm, value);
                 self.push_value(obj);
-                None
+                Ok(None)
             }
             bytecode::Instruction::Import {
                 ref name,
@@ -196,14 +195,14 @@ impl Frame {
             bytecode::Instruction::Pop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
-                None
+                Ok(None)
             }
             bytecode::Instruction::Duplicate => {
                 // Duplicate top of stack
                 let value = self.pop_value();
                 self.push_value(value.clone());
                 self.push_value(value);
-                None
+                Ok(None)
             }
             bytecode::Instruction::Rotate { amount } => {
                 // Shuffles top of stack amount down
@@ -226,25 +225,25 @@ impl Frame {
                 for value in values {
                     self.push_value(value);
                 }
-                None
+                Ok(None)
             }
             bytecode::Instruction::BuildList { size } => {
                 let elements = self.pop_multiple(*size);
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj);
-                None
+                Ok(None)
             }
             bytecode::Instruction::BuildSet { size } => {
                 let elements = self.pop_multiple(*size);
                 let py_obj = vm.ctx.new_set(elements);
                 self.push_value(py_obj);
-                None
+                Ok(None)
             }
             bytecode::Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(*size);
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj);
-                None
+                Ok(None)
             }
             bytecode::Instruction::BuildMap { size } => {
                 let mut elements = HashMap::new();
@@ -267,7 +266,7 @@ impl Frame {
                     vm.ctx.dict_type(),
                 );
                 self.push_value(map_obj);
-                None
+                Ok(None)
             }
             bytecode::Instruction::BuildSlice { size } => {
                 assert!(*size == 2 || *size == 3);
@@ -291,33 +290,27 @@ impl Frame {
                     vm.ctx.type_type(),
                 );
                 self.push_value(obj);
-                None
+                Ok(None)
             }
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
                 // TODO: objlist::list_append()
-                match vm.call_method(&list_obj, "append", vec![item]) {
-                    Ok(_) => None,
-                    Err(err) => Some(Err(err)),
-                }
+                vm.call_method(&list_obj, "append", vec![item])?;
+                Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
                 let set_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                match vm.call_method(&set_obj, "add", vec![item]) {
-                    Ok(_) => None,
-                    Err(err) => Some(Err(err)),
-                }
+                vm.call_method(&set_obj, "add", vec![item])?;
+                Ok(None)
             }
             bytecode::Instruction::MapAdd { i } => {
                 let dict_obj = self.nth_value(*i + 1);
                 let key = self.pop_value();
                 let value = self.pop_value();
-                match vm.call_method(&dict_obj, "__setitem__", vec![key, value]) {
-                    Ok(_) => None,
-                    Err(err) => Some(Err(err)),
-                }
+                vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
+                Ok(None)
             }
             bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(vm, op),
             bytecode::Instruction::LoadAttr { ref name } => self.load_attr(vm, name),
@@ -328,37 +321,32 @@ impl Frame {
             bytecode::Instruction::ReturnValue => {
                 let value = self.pop_value();
                 if let Some(exc) = self.unwind_blocks(vm) {
-                    Some(Err(exc))
+                    Err(exc)
                 } else {
-                    Some(Ok(ExecutionResult::Return(value)))
+                    Ok(Some(ExecutionResult::Return(value)))
                 }
             }
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
-                Some(Ok(ExecutionResult::Yield(value)))
+                Ok(Some(ExecutionResult::Yield(value)))
             }
             bytecode::Instruction::YieldFrom => {
                 // Value send into iterator:
                 self.pop_value();
 
                 let top_of_stack = self.last_value();
-                let next_obj = objiter::get_next_object(vm, &top_of_stack);
+                let next_obj = objiter::get_next_object(vm, &top_of_stack)?;
 
                 match next_obj {
-                    Ok(Some(value)) => {
+                    Some(value) => {
                         // Set back program counter:
                         self.lasti -= 1;
-                        Some(Ok(ExecutionResult::Yield(value)))
+                        Ok(Some(ExecutionResult::Yield(value)))
                     }
-                    Ok(None) => {
+                    None => {
                         // Pop iterator from stack:
                         self.pop_value();
-                        None
-                    }
-                    Err(next_error) => {
-                        // Pop iterator from stack:
-                        self.pop_value();
-                        Some(Err(next_error))
+                        Ok(None)
                     }
                 }
             }
@@ -367,26 +355,22 @@ impl Frame {
                     start: *start,
                     end: *end,
                 });
-                None
+                Ok(None)
             }
             bytecode::Instruction::SetupExcept { handler } => {
                 self.push_block(Block::TryExcept { handler: *handler });
-                None
+                Ok(None)
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
                 // Call enter:
-                match vm.call_method(&context_manager, "__enter__", vec![]) {
-                    Ok(obj) => {
-                        self.push_block(Block::With {
-                            end: *end,
-                            context_manager: context_manager.clone(),
-                        });
-                        self.push_value(obj);
-                        None
-                    }
-                    Err(err) => Some(Err(err)),
-                }
+                let obj = vm.call_method(&context_manager, "__enter__", vec![])?;
+                self.push_block(Block::With {
+                    end: *end,
+                    context_manager: context_manager.clone(),
+                });
+                self.push_value(obj);
+                Ok(None)
             }
             bytecode::Instruction::CleanupWith { end: end1 } => {
                 let block = self.pop_block().unwrap();
@@ -398,27 +382,21 @@ impl Frame {
                     assert!(end1 == end2);
 
                     // call exit now with no exception:
-                    match self.with_exit(vm, context_manager, None) {
-                        Ok(..) => None,
-                        Err(exc) => Some(Err(exc)),
-                    }
+                    self.with_exit(vm, context_manager, None)?;
+                    Ok(None)
                 } else {
                     panic!("Block stack is incorrect, expected a with block");
                 }
             }
             bytecode::Instruction::PopBlock => {
                 self.pop_block();
-                None
+                Ok(None)
             }
             bytecode::Instruction::GetIter => {
                 let iterated_obj = self.pop_value();
-                match objiter::get_iter(vm, &iterated_obj) {
-                    Ok(iter_obj) => {
-                        self.push_value(iter_obj);
-                        None
-                    }
-                    Err(err) => Some(Err(err)),
-                }
+                let iter_obj = objiter::get_iter(vm, &iterated_obj)?;
+                self.push_value(iter_obj);
+                Ok(None)
             }
             bytecode::Instruction::ForIter => {
                 // The top of stack contains the iterator, lets push it forward:
@@ -429,7 +407,7 @@ impl Frame {
                 match next_obj {
                     Ok(Some(value)) => {
                         self.push_value(value);
-                        None
+                        Ok(None)
                     }
                     Ok(None) => {
                         // Pop iterator from stack:
@@ -442,12 +420,12 @@ impl Frame {
                             panic!("Wrong block type")
                         };
                         self.jump(end_label);
-                        None
+                        Ok(None)
                     }
                     Err(next_error) => {
                         // Pop iterator from stack:
                         self.pop_value();
-                        Some(Err(next_error))
+                        Err(next_error)
                     }
                 }
             }
@@ -464,7 +442,7 @@ impl Frame {
                 let scope = self.locals.clone();
                 let obj = vm.ctx.new_function(code_obj, scope, defaults);
                 self.push_value(obj);
-                None
+                Ok(None)
             }
             bytecode::Instruction::CallFunction { count } => {
                 let args: Vec<PyObjectRef> = self.pop_multiple(*count);
@@ -475,18 +453,10 @@ impl Frame {
                 let func_ref = self.pop_value();
 
                 // Call function:
-                let func_result = vm.invoke(func_ref, args);
+                let value = vm.invoke(func_ref, args)?;
 
-                match func_result {
-                    Ok(value) => {
-                        self.push_value(value);
-                        None
-                    }
-                    Err(value) => {
-                        // Ripple exception upwards:
-                        Some(Err(value))
-                    }
-                }
+                self.push_value(value);
+                Ok(None)
             }
             bytecode::Instruction::CallFunctionKw { count } => {
                 let kwarg_names = self.pop_value();
@@ -502,47 +472,30 @@ impl Frame {
                 let func_ref = self.pop_value();
 
                 // Call function:
-                let func_result = vm.invoke(func_ref, args);
-
-                match func_result {
-                    Ok(value) => {
-                        self.push_value(value);
-                        None
-                    }
-                    Err(value) => {
-                        // Ripple exception upwards:
-                        Some(Err(value))
-                    }
-                }
+                let value = vm.invoke(func_ref, args)?;
+                self.push_value(value);
+                Ok(None)
             }
             bytecode::Instruction::Jump { target } => {
                 self.jump(*target);
-                None
+                Ok(None)
             }
             bytecode::Instruction::JumpIf { target } => {
                 let obj = self.pop_value();
-                match objbool::boolval(vm, obj) {
-                    Ok(value) => {
-                        if value {
-                            self.jump(*target);
-                        }
-                        None
-                    }
-                    Err(value) => Some(Err(value)),
+                let value = objbool::boolval(vm, obj)?;
+                if value {
+                    self.jump(*target);
                 }
+                Ok(None)
             }
 
             bytecode::Instruction::JumpIfFalse { target } => {
                 let obj = self.pop_value();
-                match objbool::boolval(vm, obj) {
-                    Ok(value) => {
-                        if !value {
-                            self.jump(*target);
-                        }
-                        None
-                    }
-                    Err(value) => Some(Err(value)),
+                let value = objbool::boolval(vm, obj)?;
+                if !value {
+                    self.jump(*target);
                 }
+                Ok(None)
             }
 
             bytecode::Instruction::Raise { argc } => {
@@ -553,7 +506,7 @@ impl Frame {
                 };
                 if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);
-                    Some(Err(exception))
+                    Err(exception)
                 } else {
                     let msg = format!(
                         "Can only raise BaseException derived types, not {:?}",
@@ -561,7 +514,7 @@ impl Frame {
                     );
                     let type_error_type = vm.ctx.exceptions.type_error.clone();
                     let type_error = vm.new_exception(type_error_type, msg);
-                    Some(Err(type_error))
+                    Err(type_error)
                 }
             }
 
@@ -570,11 +523,11 @@ impl Frame {
                 if let Block::Loop { start: _, end } = block {
                     self.jump(end);
                 }
-                None
+                Ok(None)
             }
             bytecode::Instruction::Pass => {
                 // Ah, this is nice, just relax!
-                None
+                Ok(None)
             }
             bytecode::Instruction::Continue => {
                 let block = self.unwind_loop(vm);
@@ -583,7 +536,7 @@ impl Frame {
                 } else {
                     assert!(false);
                 }
-                None
+                Ok(None)
             }
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
@@ -601,7 +554,7 @@ impl Frame {
                         .unwrap();
                     }
                 }
-                None
+                Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
                 let rustfunc = PyObject::new(
@@ -611,7 +564,7 @@ impl Frame {
                     vm.ctx.type_type(),
                 );
                 self.push_value(rustfunc);
-                None
+                Ok(None)
             }
             bytecode::Instruction::StoreLocals => {
                 let locals = self.pop_value();
@@ -621,39 +574,30 @@ impl Frame {
                     }
                     _ => panic!("We really expect our scope to be a scope!"),
                 }
-                None
+                Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
-                let elements = match self.extract_elements(vm, &value) {
-                    Ok(elements) => elements,
-                    Err(err) => return Some(Err(err)),
-                };
-
+                let elements = self.extract_elements(vm, &value)?;
                 if elements.len() != *size {
-                    Some(Err(vm.new_value_error(
-                        "Wrong number of values to unpack".to_string(),
-                    )))
+                    Err(vm.new_value_error("Wrong number of values to unpack".to_string()))
                 } else {
                     for element in elements.into_iter().rev() {
                         self.push_value(element);
                     }
-                    None
+                    Ok(None)
                 }
             }
             bytecode::Instruction::UnpackEx { before, after } => {
                 let value = self.pop_value();
-                let elements = match self.extract_elements(vm, &value) {
-                    Ok(elements) => elements,
-                    Err(err) => return Some(Err(err)),
-                };
+                let elements = self.extract_elements(vm, &value)?;
                 let min_expected = *before + *after;
                 if elements.len() < min_expected {
-                    Some(Err(vm.new_value_error(format!(
+                    Err(vm.new_value_error(format!(
                         "Not enough values to unpack (expected at least {}, got {}",
                         min_expected,
                         elements.len()
-                    ))))
+                    )))
                 } else {
                     let middle = elements.len() - *before - *after;
 
@@ -676,7 +620,7 @@ impl Frame {
                         self.push_value(element.clone());
                     }
 
-                    None
+                    Ok(None)
                 }
             }
             bytecode::Instruction::Unpack => {
@@ -687,7 +631,7 @@ impl Frame {
                 for element in elements.into_iter().rev() {
                     self.push_value(element);
                 }
-                None
+                Ok(None)
             }
         }
     }
@@ -714,7 +658,7 @@ impl Frame {
         vm: &mut VirtualMachine,
         module: &str,
         symbol: &Option<String>,
-    ) -> Option<FrameResult> {
+    ) -> FrameResult {
         let current_path = match &self.code.source_path {
             Some(source_path) => {
                 let mut source_pathbuf = PathBuf::from(source_path);
@@ -724,14 +668,11 @@ impl Frame {
             None => PathBuf::from("."),
         };
 
-        let obj = match import(vm, current_path, &module.to_string(), symbol) {
-            Ok(value) => value,
-            Err(value) => return Some(Err(value)),
-        };
+        let obj = import(vm, current_path, &module.to_string(), symbol)?;
 
         // Push module on stack:
         self.push_value(obj);
-        None
+        Ok(None)
     }
 
     // Unwind all blocks:
@@ -856,13 +797,13 @@ impl Frame {
         vm.call_method(context_manager, "__exit__", args)
     }
 
-    fn store_name(&mut self, name: &str) -> Option<FrameResult> {
+    fn store_name(&mut self, name: &str) -> FrameResult {
         let obj = self.pop_value();
         self.locals.set_item(name, obj);
-        None
+        Ok(None)
     }
 
-    fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> Option<FrameResult> {
+    fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let locals = match self.locals.borrow().kind {
             PyObjectKind::Scope { ref scope } => scope.locals.clone(),
             _ => panic!("We really expect our scope to be a scope!"),
@@ -870,27 +811,25 @@ impl Frame {
 
         // Assume here that locals is a dict
         let name = vm.ctx.new_str(name.to_string());
-        match vm.call_method(&locals, "__delitem__", vec![name]) {
-            Ok(_) => None,
-            Err(err) => Some(Err(err)),
-        }
+        vm.call_method(&locals, "__delitem__", vec![name])?;
+        Ok(None)
     }
 
-    fn load_name(&mut self, vm: &mut VirtualMachine, name: &str) -> Option<FrameResult> {
+    fn load_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         // Lookup name in scope and put it onto the stack!
         let mut scope = self.locals.clone();
         loop {
             if scope.contains_key(name) {
                 let obj = scope.get_item(name).unwrap();
                 self.push_value(obj);
-                break None;
+                break Ok(None);
             } else if scope.has_parent() {
                 scope = scope.get_parent();
             } else {
                 let name_error_type = vm.ctx.exceptions.name_error.clone();
                 let msg = format!("Has not attribute '{}'", name);
                 let name_error = vm.new_exception(name_error_type, msg);
-                break Some(Err(name_error));
+                break Err(name_error);
             }
         }
     }
@@ -899,32 +838,28 @@ impl Frame {
         vm.call_method(&a, "__getitem__", vec![b])
     }
 
-    fn execute_store_subscript(&mut self, vm: &mut VirtualMachine) -> Option<FrameResult> {
+    fn execute_store_subscript(&mut self, vm: &mut VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
         let a2 = &mut *obj.borrow_mut();
-        let result = match &mut a2.kind {
-            PyObjectKind::List { ref mut elements } => objlist::set_item(vm, elements, idx, value),
+        match &mut a2.kind {
+            PyObjectKind::List { ref mut elements } => {
+                objlist::set_item(vm, elements, idx, value)?;
+                Ok(None)
+            }
             _ => Err(vm.new_type_error(format!(
                 "TypeError: __setitem__ assign type {:?} with index {:?} is not supported (yet?)",
                 obj, idx
             ))),
-        };
-
-        match result {
-            Ok(_) => None,
-            Err(value) => Some(Err(value)),
         }
     }
 
-    fn execute_delete_subscript(&mut self, vm: &mut VirtualMachine) -> Option<FrameResult> {
+    fn execute_delete_subscript(&mut self, vm: &mut VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        match vm.call_method(&obj, "__delitem__", vec![idx]) {
-            Ok(_) => None,
-            Err(err) => Some(Err(err)),
-        }
+        vm.call_method(&obj, "__delitem__", vec![idx])?;
+        Ok(None)
     }
 
     fn jump(&mut self, label: bytecode::Label) {
@@ -937,10 +872,10 @@ impl Frame {
         &mut self,
         vm: &mut VirtualMachine,
         op: &bytecode::BinaryOperator,
-    ) -> Option<FrameResult> {
+    ) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let result = match op {
+        let value = match op {
             &bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
             &bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
             &bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
@@ -959,45 +894,36 @@ impl Frame {
             &bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             &bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             &bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-        };
-        match result {
-            Ok(value) => {
-                self.push_value(value);
-                None
-            }
-            Err(value) => Some(Err(value)),
-        }
+        }?;
+
+        self.push_value(value);
+        Ok(None)
     }
 
     fn execute_unop(
         &mut self,
         vm: &mut VirtualMachine,
         op: &bytecode::UnaryOperator,
-    ) -> Option<FrameResult> {
+    ) -> FrameResult {
         let a = self.pop_value();
-        let result = match op {
+        let value = match op {
             &bytecode::UnaryOperator::Minus => {
                 // TODO:
                 // self.invoke('__neg__'
                 match a.borrow().kind {
-                    PyObjectKind::Integer { value: ref value1 } => Ok(vm.ctx.new_int(-*value1)),
-                    PyObjectKind::Float { value: ref value1 } => Ok(vm.ctx.new_float(-*value1)),
+                    PyObjectKind::Integer { value: ref value1 } => vm.ctx.new_int(-*value1),
+                    PyObjectKind::Float { value: ref value1 } => vm.ctx.new_float(-*value1),
                     _ => panic!("Not impl {:?}", a),
                 }
             }
-            &bytecode::UnaryOperator::Not => match objbool::boolval(vm, a) {
-                Ok(result) => Ok(vm.ctx.new_bool(!result)),
-                Err(err) => Err(err),
-            },
+            &bytecode::UnaryOperator::Not => {
+                let value = objbool::boolval(vm, a)?;
+                vm.ctx.new_bool(!value)
+            }
             _ => panic!("Not impl {:?}", op),
         };
-        match result {
-            Ok(value) => {
-                self.push_value(value);
-                None
-            }
-            Err(value) => Some(Err(value)),
-        }
+        self.push_value(value);
+        Ok(None)
     }
 
     fn _eq(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
@@ -1085,10 +1011,10 @@ impl Frame {
         &mut self,
         vm: &mut VirtualMachine,
         op: &bytecode::ComparisonOperator,
-    ) -> Option<FrameResult> {
+    ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let result = match op {
+        let value = match op {
             &bytecode::ComparisonOperator::Equal => self._eq(vm, a, b),
             &bytecode::ComparisonOperator::NotEqual => self._ne(vm, a, b),
             &bytecode::ComparisonOperator::Less => self._lt(vm, a, b),
@@ -1099,42 +1025,31 @@ impl Frame {
             &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b),
             &bytecode::ComparisonOperator::In => self._in(vm, a, b),
             &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b),
-        };
+        }?;
 
-        match result {
-            Ok(value) => {
-                self.push_value(value);
-                None
-            }
-            Err(value) => Some(Err(value)),
-        }
+        self.push_value(value);
+        Ok(None)
     }
 
-    fn load_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> Option<FrameResult> {
+    fn load_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
-        match vm.get_attribute(parent, attr_name) {
-            Ok(obj) => {
-                self.push_value(obj);
-                None
-            }
-            Err(err) => Some(Err(err)),
-        }
+        let obj = vm.get_attribute(parent, attr_name)?;
+        self.push_value(obj);
+        Ok(None)
     }
 
-    fn store_attr(&mut self, attr_name: &str) -> Option<FrameResult> {
+    fn store_attr(&mut self, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
         parent.set_attr(attr_name, value);
-        None
+        Ok(None)
     }
 
-    fn delete_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> Option<FrameResult> {
+    fn delete_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let name = vm.ctx.new_str(attr_name.to_string());
-        match vm.call_method(&parent, "__delattr__", vec![name]) {
-            Ok(_) => None,
-            Err(err) => Some(Err(err)),
-        }
+        vm.call_method(&parent, "__delattr__", vec![name])?;
+        Ok(None)
     }
 
     fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
