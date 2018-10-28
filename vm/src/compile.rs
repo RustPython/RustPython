@@ -879,7 +879,10 @@ impl Compiler {
                     self.compile_expression(key)?;
                     self.compile_expression(value)?;
                 }
-                self.emit(Instruction::BuildMap { size: size });
+                self.emit(Instruction::BuildMap {
+                    size: size,
+                    unpack: false,
+                });
             }
             ast::Expression::Slice { elements } => {
                 let size = elements.len();
@@ -982,14 +985,45 @@ impl Compiler {
 
         // Normal arguments:
         let must_unpack = self.gather_elements(args)?;
+        let has_double_star = keywords.iter().any(|k| k.name.is_none());
 
-        if must_unpack {
+        if must_unpack || has_double_star {
+            // Create a tuple with positional args:
             self.emit(Instruction::BuildTuple {
                 size: args.len(),
-                unpack: true,
+                unpack: must_unpack,
             });
+
+            // Create an optional map with kw-args:
             if keywords.len() > 0 {
-                unimplemented!()
+                for keyword in keywords {
+                    if let Some(name) = &keyword.name {
+                        self.emit(Instruction::LoadConst {
+                            value: bytecode::Constant::String {
+                                value: name.to_string(),
+                            },
+                        });
+                        self.compile_expression(&keyword.value)?;
+                        if has_double_star {
+                            self.emit(Instruction::BuildMap {
+                                size: 1,
+                                unpack: false,
+                            });
+                        }
+                    } else {
+                        // This means **kwargs!
+                        self.compile_expression(&keyword.value)?;
+                    }
+                }
+
+                self.emit(Instruction::BuildMap {
+                    size: keywords.len(),
+                    unpack: has_double_star,
+                });
+
+                self.emit(Instruction::CallFunction {
+                    typ: CallType::Ex(true),
+                });
             } else {
                 self.emit(Instruction::CallFunction {
                     typ: CallType::Ex(false),
@@ -1099,7 +1133,10 @@ impl Compiler {
                 });
             }
             ast::ComprehensionKind::Dict { .. } => {
-                self.emit(Instruction::BuildMap { size: 0 });
+                self.emit(Instruction::BuildMap {
+                    size: 0,
+                    unpack: false,
+                });
             }
         }
 

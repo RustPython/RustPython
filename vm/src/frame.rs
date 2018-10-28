@@ -9,6 +9,7 @@ use super::builtins;
 use super::bytecode;
 use super::import::import;
 use super::obj::objbool;
+use super::obj::objdict;
 use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objstr;
@@ -245,21 +246,29 @@ impl Frame {
                 self.push_value(list_obj);
                 Ok(None)
             }
-            bytecode::Instruction::BuildMap { size } => {
+            bytecode::Instruction::BuildMap { size, unpack } => {
                 let mut elements = HashMap::new();
                 for _x in 0..*size {
                     let obj = self.pop_value();
-                    // XXX: Currently, we only support String keys, so we have to unwrap the
-                    // PyObject (and ensure it is a String).
-                    let key_pyobj = self.pop_value();
-                    let key = match key_pyobj.borrow().kind {
-                        PyObjectKind::String { ref value } => value.clone(),
-                        ref kind => unimplemented!(
-                            "Only strings can be used as dict keys, we saw: {:?}",
-                            kind
-                        ),
-                    };
-                    elements.insert(key, obj);
+                    if *unpack {
+                        // Take all key-value pairs from the dict:
+                        let dict_elements = objdict::get_elements(&obj);
+                        for (key, obj) in dict_elements {
+                            elements.insert(key, obj);
+                        }
+                    } else {
+                        // XXX: Currently, we only support String keys, so we have to unwrap the
+                        // PyObject (and ensure it is a String).
+                        let key_pyobj = self.pop_value();
+                        let key = match key_pyobj.borrow().kind {
+                            PyObjectKind::String { ref value } => value.clone(),
+                            ref kind => unimplemented!(
+                                "Only strings can be used as dict keys, we saw: {:?}",
+                                kind
+                            ),
+                        };
+                        elements.insert(key, obj);
+                    }
                 }
                 let map_obj = PyObject::new(
                     PyObjectKind::Dict { elements: elements },
@@ -466,15 +475,15 @@ impl Frame {
                         PyFuncArgs::new(args, kwarg_names)
                     }
                     bytecode::CallType::Ex(has_kwargs) => {
-                        let kwarg_names = if *has_kwargs {
-                            self.pop_value();
-                            unimplemented!();
+                        let kwargs = if *has_kwargs {
+                            let kw_dict = self.pop_value();
+                            objdict::get_elements(&kw_dict).into_iter().collect()
                         } else {
                             vec![]
                         };
                         let args = self.pop_value();
                         let args = self.extract_elements(vm, &args)?;
-                        PyFuncArgs::new(args, kwarg_names)
+                        PyFuncArgs { args, kwargs }
                     }
                 };
 

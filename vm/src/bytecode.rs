@@ -159,6 +159,7 @@ pub enum Instruction {
     },
     BuildMap {
         size: usize,
+        unpack: bool,
     },
     BuildSlice {
         size: usize,
