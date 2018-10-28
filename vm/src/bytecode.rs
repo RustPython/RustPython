@@ -122,10 +122,7 @@ pub enum Instruction {
         flags: FunctionOpArg,
     },
     CallFunction {
-        count: usize,
-    },
-    CallFunctionKw {
-        count: usize,
+        typ: CallType,
     },
     ForIter,
     ReturnValue,
@@ -158,6 +155,7 @@ pub enum Instruction {
     },
     BuildSet {
         size: usize,
+        unpack: bool,
     },
     BuildMap {
         size: usize,
@@ -185,6 +183,13 @@ pub enum Instruction {
         after: usize,
     },
     Unpack,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CallType {
+    Positional(usize),
+    Keyword(usize),
+    Ex(bool),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -9,7 +9,7 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::{ast, parser};
-use super::bytecode::{self, CodeObject, Instruction};
+use super::bytecode::{self, CallType, CodeObject, Instruction};
 use super::pyobject::{PyObject, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
 
@@ -330,7 +330,9 @@ impl Compiler {
                         });
                         self.emit(Instruction::Rotate { amount: 2 });
                         self.compile_expression(exc_type)?;
-                        self.emit(Instruction::CallFunction { count: 2 });
+                        self.emit(Instruction::CallFunction {
+                            typ: CallType::Positional(2),
+                        });
 
                         // We cannot handle this exception type:
                         self.emit(Instruction::JumpIfFalse {
@@ -478,7 +480,7 @@ impl Compiler {
                     self.compile_expression(base)?;
                 }
                 self.emit(Instruction::CallFunction {
-                    count: 2 + bases.len(),
+                    typ: CallType::Positional(2 + bases.len()),
                 });
 
                 self.apply_decorators(decorator_list);
@@ -498,10 +500,14 @@ impl Compiler {
                 match msg {
                     Some(e) => {
                         self.compile_expression(e)?;
-                        self.emit(Instruction::CallFunction { count: 1 });
+                        self.emit(Instruction::CallFunction {
+                            typ: CallType::Positional(1),
+                        });
                     }
                     None => {
-                        self.emit(Instruction::CallFunction { count: 0 });
+                        self.emit(Instruction::CallFunction {
+                            typ: CallType::Positional(0),
+                        });
                     }
                 }
                 self.emit(Instruction::Raise { argc: 1 });
@@ -633,7 +639,9 @@ impl Compiler {
     fn apply_decorators(&mut self, decorator_list: &Vec<ast::Expression>) {
         // Apply decorators:
         for _ in decorator_list {
-            self.emit(Instruction::CallFunction { count: 1 });
+            self.emit(Instruction::CallFunction {
+                typ: CallType::Positional(1),
+            });
         }
     }
 
@@ -859,10 +867,11 @@ impl Compiler {
             }
             ast::Expression::Set { elements } => {
                 let size = elements.len();
-                for element in elements {
-                    self.compile_expression(element)?;
-                }
-                self.emit(Instruction::BuildSet { size: size });
+                let must_unpack = self.gather_elements(elements)?;
+                self.emit(Instruction::BuildSet {
+                    size: size,
+                    unpack: must_unpack,
+                });
             }
             ast::Expression::Dict { elements } => {
                 let size = elements.len();
@@ -968,37 +977,53 @@ impl Compiler {
         args: &Vec<ast::Expression>,
         keywords: &Vec<ast::Keyword>,
     ) -> Result<(), String> {
-        self.compile_expression(&*function)?;
+        self.compile_expression(function)?;
         let count = args.len() + keywords.len();
 
         // Normal arguments:
-        for value in args {
-            self.compile_expression(value)?;
-        }
+        let must_unpack = self.gather_elements(args)?;
 
-        // Keyword arguments:
-        if keywords.len() > 0 {
-            let mut kwarg_names = vec![];
-            for keyword in keywords {
-                if let Some(name) = &keyword.name {
-                    kwarg_names.push(bytecode::Constant::String {
-                        value: name.to_string(),
-                    });
-                } else {
-                    // This means **kwargs!
-                    panic!("name must be set");
-                }
-                self.compile_expression(&keyword.value)?;
-            }
-
-            self.emit(Instruction::LoadConst {
-                value: bytecode::Constant::Tuple {
-                    elements: kwarg_names,
-                },
+        if must_unpack {
+            self.emit(Instruction::BuildTuple {
+                size: args.len(),
+                unpack: true,
             });
-            self.emit(Instruction::CallFunctionKw { count });
+            if keywords.len() > 0 {
+                unimplemented!()
+            } else {
+                self.emit(Instruction::CallFunction {
+                    typ: CallType::Ex(false),
+                });
+            }
         } else {
-            self.emit(Instruction::CallFunction { count });
+            // Keyword arguments:
+            if keywords.len() > 0 {
+                let mut kwarg_names = vec![];
+                for keyword in keywords {
+                    if let Some(name) = &keyword.name {
+                        kwarg_names.push(bytecode::Constant::String {
+                            value: name.to_string(),
+                        });
+                    } else {
+                        // This means **kwargs!
+                        panic!("name must be set");
+                    }
+                    self.compile_expression(&keyword.value)?;
+                }
+
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Tuple {
+                        elements: kwarg_names,
+                    },
+                });
+                self.emit(Instruction::CallFunction {
+                    typ: CallType::Keyword(count),
+                });
+            } else {
+                self.emit(Instruction::CallFunction {
+                    typ: CallType::Positional(count),
+                });
+            }
         }
         Ok(())
     }
@@ -1068,7 +1093,10 @@ impl Compiler {
                 });
             }
             ast::ComprehensionKind::Set { .. } => {
-                self.emit(Instruction::BuildSet { size: 0 });
+                self.emit(Instruction::BuildSet {
+                    size: 0,
+                    unpack: false,
+                });
             }
             ast::ComprehensionKind::Dict { .. } => {
                 self.emit(Instruction::BuildMap { size: 0 });
@@ -1183,7 +1211,9 @@ impl Compiler {
         self.emit(Instruction::GetIter);
 
         // Call just created <listcomp> function:
-        self.emit(Instruction::CallFunction { count: 1 });
+        self.emit(Instruction::CallFunction {
+            typ: CallType::Positional(1),
+        });
         Ok(())
     }
 

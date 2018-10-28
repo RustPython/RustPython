@@ -27,12 +27,13 @@ va(1, 22, 3, 4, d=1337, f=42)
 
 def va2(*args, **kwargs):
     assert args == (5, 4)
+    assert len(kwargs) == 0
 
 va2(5, 4)
 x = (5, 4)
-# TODO:
-# va2(*x)
+va2(*x)
 
+va2(5, *x[1:])
 # def va3(x, *, b=2):
 #    pass
 

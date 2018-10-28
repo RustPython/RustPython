@@ -233,8 +233,8 @@ impl Frame {
                 self.push_value(list_obj);
                 Ok(None)
             }
-            bytecode::Instruction::BuildSet { size } => {
-                let elements = self.pop_multiple(*size);
+            bytecode::Instruction::BuildSet { size, unpack } => {
+                let elements = self.get_elements(vm, *size, *unpack)?;
                 let py_obj = vm.ctx.new_set(elements);
                 self.push_value(py_obj);
                 Ok(None)
@@ -444,34 +444,42 @@ impl Frame {
                 self.push_value(obj);
                 Ok(None)
             }
-            bytecode::Instruction::CallFunction { count } => {
-                let args: Vec<PyObjectRef> = self.pop_multiple(*count);
-                let args = PyFuncArgs {
-                    args: args,
-                    kwargs: vec![],
+            bytecode::Instruction::CallFunction { typ } => {
+                let args = match typ {
+                    bytecode::CallType::Positional(count) => {
+                        let args: Vec<PyObjectRef> = self.pop_multiple(*count);
+                        PyFuncArgs {
+                            args: args,
+                            kwargs: vec![],
+                        }
+                    }
+                    bytecode::CallType::Keyword(count) => {
+                        let kwarg_names = self.pop_value();
+                        let args: Vec<PyObjectRef> = self.pop_multiple(*count);
+
+                        let kwarg_names = kwarg_names
+                            .to_vec()
+                            .unwrap()
+                            .iter()
+                            .map(|pyobj| objstr::get_value(pyobj))
+                            .collect();
+                        PyFuncArgs::new(args, kwarg_names)
+                    }
+                    bytecode::CallType::Ex(has_kwargs) => {
+                        let kwarg_names = if *has_kwargs {
+                            self.pop_value();
+                            unimplemented!();
+                        } else {
+                            vec![]
+                        };
+                        let args = self.pop_value();
+                        let args = self.extract_elements(vm, &args)?;
+                        PyFuncArgs::new(args, kwarg_names)
+                    }
                 };
-                let func_ref = self.pop_value();
 
                 // Call function:
-                let value = vm.invoke(func_ref, args)?;
-
-                self.push_value(value);
-                Ok(None)
-            }
-            bytecode::Instruction::CallFunctionKw { count } => {
-                let kwarg_names = self.pop_value();
-                let args: Vec<PyObjectRef> = self.pop_multiple(*count);
-
-                let kwarg_names = kwarg_names
-                    .to_vec()
-                    .unwrap()
-                    .iter()
-                    .map(|pyobj| objstr::get_value(pyobj))
-                    .collect();
-                let args = PyFuncArgs::new(args, kwarg_names);
                 let func_ref = self.pop_value();
-
-                // Call function:
                 let value = vm.invoke(func_ref, args)?;
                 self.push_value(value);
                 Ok(None)
