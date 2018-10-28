@@ -150,9 +150,11 @@ pub enum Instruction {
     },
     BuildTuple {
         size: usize,
+        unpack: bool,
     },
     BuildList {
         size: usize,
+        unpack: bool,
     },
     BuildSet {
         size: usize,

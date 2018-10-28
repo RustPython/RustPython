@@ -523,7 +523,10 @@ impl Compiler {
 
                         // If we have more than 1 return value, make it a tuple:
                         if size > 1 {
-                            self.emit(Instruction::BuildTuple { size });
+                            self.emit(Instruction::BuildTuple {
+                                size,
+                                unpack: false,
+                            });
                         }
                     }
                     None => {
@@ -597,7 +600,10 @@ impl Compiler {
             for element in &args.defaults {
                 self.compile_expression(element)?;
             }
-            self.emit(Instruction::BuildTuple { size });
+            self.emit(Instruction::BuildTuple {
+                size,
+                unpack: false,
+            });
         }
 
         self.code_object_stack.push(CodeObject::new(
@@ -774,40 +780,7 @@ impl Compiler {
                 function,
                 args,
                 keywords,
-            } => {
-                self.compile_expression(&*function)?;
-                let count = args.len() + keywords.len();
-
-                // Normal arguments:
-                for value in args {
-                    self.compile_expression(value)?;
-                }
-
-                // Keyword arguments:
-                if keywords.len() > 0 {
-                    let mut kwarg_names = vec![];
-                    for keyword in keywords {
-                        if let Some(name) = &keyword.name {
-                            kwarg_names.push(bytecode::Constant::String {
-                                value: name.to_string(),
-                            });
-                        } else {
-                            // This means **kwargs!
-                            panic!("name must be set");
-                        }
-                        self.compile_expression(&keyword.value)?;
-                    }
-
-                    self.emit(Instruction::LoadConst {
-                        value: bytecode::Constant::Tuple {
-                            elements: kwarg_names,
-                        },
-                    });
-                    self.emit(Instruction::CallFunctionKw { count });
-                } else {
-                    self.emit(Instruction::CallFunction { count });
-                }
-            }
+            } => self.compile_call(function, args, keywords)?,
             ast::Expression::BoolOp { .. } => {
                 self.compile_test(expression, None, None, EvalContext::Expression)?
             }
@@ -870,17 +843,19 @@ impl Compiler {
             }
             ast::Expression::List { elements } => {
                 let size = elements.len();
-                for element in elements {
-                    self.compile_expression(element)?;
-                }
-                self.emit(Instruction::BuildList { size: size });
+                let must_unpack = self.gather_elements(elements)?;
+                self.emit(Instruction::BuildList {
+                    size: size,
+                    unpack: must_unpack,
+                });
             }
             ast::Expression::Tuple { elements } => {
                 let size = elements.len();
-                for element in elements {
-                    self.compile_expression(element)?;
-                }
-                self.emit(Instruction::BuildTuple { size: size });
+                let must_unpack = self.gather_elements(elements)?;
+                self.emit(Instruction::BuildTuple {
+                    size: size,
+                    unpack: must_unpack,
+                });
             }
             ast::Expression::Set { elements } => {
                 let size = elements.len();
@@ -971,6 +946,7 @@ impl Compiler {
             ast::Expression::Starred { value } => {
                 self.compile_expression(value)?;
                 self.emit(Instruction::Unpack);
+                panic!("We should not just unpack a starred args, since the size is unknown.");
             }
             ast::Expression::IfExpression { test, body, orelse } => {
                 let no_label = self.new_label();
@@ -984,6 +960,76 @@ impl Compiler {
             }
         }
         Ok(())
+    }
+
+    fn compile_call(
+        &mut self,
+        function: &ast::Expression,
+        args: &Vec<ast::Expression>,
+        keywords: &Vec<ast::Keyword>,
+    ) -> Result<(), String> {
+        self.compile_expression(&*function)?;
+        let count = args.len() + keywords.len();
+
+        // Normal arguments:
+        for value in args {
+            self.compile_expression(value)?;
+        }
+
+        // Keyword arguments:
+        if keywords.len() > 0 {
+            let mut kwarg_names = vec![];
+            for keyword in keywords {
+                if let Some(name) = &keyword.name {
+                    kwarg_names.push(bytecode::Constant::String {
+                        value: name.to_string(),
+                    });
+                } else {
+                    // This means **kwargs!
+                    panic!("name must be set");
+                }
+                self.compile_expression(&keyword.value)?;
+            }
+
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::Tuple {
+                    elements: kwarg_names,
+                },
+            });
+            self.emit(Instruction::CallFunctionKw { count });
+        } else {
+            self.emit(Instruction::CallFunction { count });
+        }
+        Ok(())
+    }
+
+    // Given a vector of expr / star expr generate code which gives either
+    // a list of expressions on the stack, or a list of tuples.
+    fn gather_elements(&mut self, elements: &Vec<ast::Expression>) -> Result<bool, String> {
+        // First determine if we have starred elements:
+        let has_stars = elements.iter().any(|e| {
+            if let ast::Expression::Starred { .. } = e {
+                true
+            } else {
+                false
+            }
+        });
+
+        for element in elements {
+            if let ast::Expression::Starred { value } = element {
+                self.compile_expression(value)?;
+            } else {
+                self.compile_expression(element)?;
+                if has_stars {
+                    self.emit(Instruction::BuildTuple {
+                        size: 1,
+                        unpack: false,
+                    });
+                }
+            }
+        }
+
+        Ok(has_stars)
     }
 
     fn compile_comprehension(
@@ -1016,7 +1062,10 @@ impl Compiler {
         match kind {
             ast::ComprehensionKind::GeneratorExpression { .. } => {}
             ast::ComprehensionKind::List { .. } => {
-                self.emit(Instruction::BuildList { size: 0 });
+                self.emit(Instruction::BuildList {
+                    size: 0,
+                    unpack: false,
+                });
             }
             ast::ComprehensionKind::Set { .. } => {
                 self.emit(Instruction::BuildSet { size: 0 });

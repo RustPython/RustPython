@@ -227,6 +227,38 @@ where
     fn lex_identifier(&mut self) -> Spanned<Tok> {
         let mut name = String::new();
         let start_pos = self.get_pos();
+
+        // Detect potential string like rb'' b'' f'' u'' r''
+        let mut saw_b = false;
+        let mut saw_r = false;
+        let mut saw_u = false;
+        let saw_f = false;
+        loop {
+            // Detect r"", f"", b"" and u""
+            // TODO: handle f-strings
+            if !(saw_b || saw_u || saw_f) && (self.chr0 == Some('b') || self.chr0 == Some('B')) {
+                saw_b = true;
+            } else if !(saw_b || saw_r || saw_u || saw_f)
+                && (self.chr0 == Some('u') || self.chr0 == Some('U'))
+            {
+                saw_u = true;
+            } else if !(saw_r || saw_u || saw_f)
+                && (self.chr0 == Some('r') || self.chr0 == Some('R'))
+            {
+                saw_r = true;
+            } else {
+                break;
+            }
+
+            // Take up char into name:
+            name.push(self.next_char().unwrap());
+
+            // Check if we have a string:
+            if self.chr0 == Some('"') || self.chr0 == Some('\'') {
+                return self.lex_string(saw_b, saw_r, saw_u, saw_f);
+            }
+        }
+
         while self.is_char() {
             name.push(self.next_char().unwrap());
         }
@@ -279,14 +311,13 @@ where
         }
     }
 
-    fn lex_string(&mut self) -> Spanned<Tok> {
-        let type_char = match self.chr0 {
-            Some('u') | Some('f') | Some('r') => self.next_char(),
-            _ => None,
-        };
-
-        let is_raw = type_char == Some('r');
-
+    fn lex_string(
+        &mut self,
+        _is_bytes: bool,
+        is_raw: bool,
+        _is_unicode: bool,
+        _is_fstring: bool,
+    ) -> Spanned<Tok> {
         let quote_char = self.next_char().unwrap();
         let mut string_content = String::new();
         let start_pos = self.get_pos();
@@ -480,27 +511,16 @@ where
 
             match self.chr0 {
                 Some('0'...'9') => return Some(self.lex_number()),
-                Some('_') | Some('a'...'z') | Some('A'...'Z') => {
-                    // Detect r"", f"" and u""
-                    match self.chr0 {
-                        Some('r') | Some('u') | Some('f') => match self.chr1 {
-                            Some('\'') | Some('\"') => {
-                                return Some(self.lex_string());
-                            }
-                            _ => return Some(self.lex_identifier()),
-                        },
-                        _ => return Some(self.lex_identifier()),
-                    }
-                }
+                Some('_') | Some('a'...'z') | Some('A'...'Z') => return Some(self.lex_identifier()),
                 Some('#') => {
                     self.lex_comment();
                     continue;
                 }
                 Some('"') => {
-                    return Some(self.lex_string());
+                    return Some(self.lex_string(false, false, false, false));
                 }
                 Some('\'') => {
-                    return Some(self.lex_string());
+                    return Some(self.lex_string(false, false, false, false));
                 }
                 Some('=') => {
                     let tok_start = self.get_pos();

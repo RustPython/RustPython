@@ -227,8 +227,8 @@ impl Frame {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::BuildList { size } => {
-                let elements = self.pop_multiple(*size);
+            bytecode::Instruction::BuildList { size, unpack } => {
+                let elements = self.get_elements(vm, *size, *unpack)?;
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj);
                 Ok(None)
@@ -239,8 +239,8 @@ impl Frame {
                 self.push_value(py_obj);
                 Ok(None)
             }
-            bytecode::Instruction::BuildTuple { size } => {
-                let elements = self.pop_multiple(*size);
+            bytecode::Instruction::BuildTuple { size, unpack } => {
+                let elements = self.get_elements(vm, *size, *unpack)?;
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj);
                 Ok(None)
@@ -625,9 +625,7 @@ impl Frame {
             }
             bytecode::Instruction::Unpack => {
                 let value = self.pop_value();
-
-                let elements = objtuple::get_elements(&value);
-
+                let elements = self.extract_elements(vm, &value)?;
                 for element in elements.into_iter().rev() {
                     self.push_value(element);
                 }
@@ -651,6 +649,27 @@ impl Frame {
             objiter::get_all(vm, &iter)?
         };
         Ok(elements)
+    }
+
+    fn get_elements(
+        &mut self,
+        vm: &mut VirtualMachine,
+        size: usize,
+        unpack: bool,
+    ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+        let elements = self.pop_multiple(size);
+        if unpack {
+            let mut result: Vec<PyObjectRef> = vec![];
+            for element in elements {
+                let expanded = self.extract_elements(vm, &element)?;
+                for inner in expanded {
+                    result.push(inner);
+                }
+            }
+            Ok(result)
+        } else {
+            Ok(elements)
+        }
     }
 
     fn import(

@@ -808,14 +808,15 @@ Atom: ast::Expression = {
 };
 
 TestListComp: Vec<ast::Expression> = {
-    <e:TestList> <_trailing_comma:","?> => {
-        e
+    <e:TestOrStarExpr> <e2:("," TestOrStarExpr)*> <_trailing_comma:","?> => {
+        let mut res = vec![e];
+        res.extend(e2.into_iter().map(|x| x.1));
+        res
     },
 };
 
 TestListComp2: ast::Expression = {
-    <e:Test> <c:CompFor> => {
-        // vec![e]
+    <e:TestOrStarExpr> <c:CompFor> => {
         ast::Expression::Comprehension {
             kind: Box::new(ast::ComprehensionKind::List { element: e }),
             generators: c,
