@@ -109,18 +109,14 @@ fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 }
 
 fn object_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, None),
-            (other, None)
-        ]
-    );
+    arg_check!(vm, args, required = [(zelf, None), (other, None)]);
 
     let zelf_type = objtype::get_type_name(&zelf.typ());
     let other_type = objtype::get_type_name(&other.typ());
-    Err(vm.new_type_error(format!("unsupported operand type(s) for &: {:?} and {:?}", zelf_type, other_type)))
+    Err(vm.new_type_error(format!(
+        "unsupported operand type(s) for &: {:?} and {:?}",
+        zelf_type, other_type
+    )))
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
