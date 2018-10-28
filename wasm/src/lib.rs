@@ -1,8 +1,8 @@
 extern crate rustpython_vm;
 extern crate wasm_bindgen;
-use wasm_bindgen::prelude::*;
-use rustpython_vm::VirtualMachine;
 use rustpython_vm::compile;
+use rustpython_vm::VirtualMachine;
+use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 extern "C" {
@@ -23,6 +23,6 @@ pub fn run_code(source: &str) -> () {
     let vars = vm.context().new_scope(Some(builtins));
     match vm.run_code_obj(code_obj.unwrap(), vars) {
         Ok(_value) => log("Execution successful"),
-        Err(_) => log("Execution failed")
+        Err(_) => log("Execution failed"),
     }
 }
