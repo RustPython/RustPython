@@ -768,7 +768,7 @@ SliceOp: ast::Expression = {
 }
 
 Atom: ast::Expression = {
-    <s:String> => ast::Expression::String { value: s },
+    StringConstant,
     <n:Number> => ast::Expression::Number { value: n },
     <i:Identifier> => ast::Expression::Identifier { name: i },
     "[" <e:TestListComp?> "]" => {
@@ -972,9 +972,14 @@ Number: ast::Number = {
   }
 };
 
-String: String = {
+StringConstant: ast::Expression = {
     <s:string+> => {
-        s.join("")
+        let glued = s.join("");
+        ast::Expression::String { value: glued }
+    },
+    <s:bytes+> => {
+        let glued = s.into_iter().flatten().collect::<Vec<u8>>();
+        ast::Expression::Bytes { value: glued }
     },
 };
 
@@ -1067,6 +1072,7 @@ extern {
         "None" => lexer::Tok::None,
         number => lexer::Tok::Number { value: <String> },
         string => lexer::Tok::String { value: <String> },
+        bytes => lexer::Tok::Bytes { value: <Vec<u8>> },
         name => lexer::Tok::Name { name: <String> },
         "\n" => lexer::Tok::Newline,
         ";" => lexer::Tok::Semi,

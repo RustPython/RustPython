@@ -191,6 +191,9 @@ pub enum Expression {
     String {
         value: String,
     },
+    Bytes {
+        value: Vec<u8>,
+    },
     Identifier {
         name: String,
     },

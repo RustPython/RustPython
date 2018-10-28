@@ -10,6 +10,7 @@ assert "\n" == """
 assert len(""" " \" """) == 5
 
 assert type("") is str
+assert type(b"") is bytes
 
 assert str(1) == "1"
 assert str(2.1) == "2.1"

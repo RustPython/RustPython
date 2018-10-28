@@ -232,7 +232,7 @@ where
         let mut saw_b = false;
         let mut saw_r = false;
         let mut saw_u = false;
-        let saw_f = false;
+        let mut saw_f = false;
         loop {
             // Detect r"", f"", b"" and u""
             // TODO: handle f-strings
@@ -242,10 +242,12 @@ where
                 && (self.chr0 == Some('u') || self.chr0 == Some('U'))
             {
                 saw_u = true;
-            } else if !(saw_r || saw_u || saw_f)
-                && (self.chr0 == Some('r') || self.chr0 == Some('R'))
-            {
+            } else if !(saw_r || saw_u) && (self.chr0 == Some('r') || self.chr0 == Some('R')) {
                 saw_r = true;
+            } else if !(saw_b || saw_u || saw_f)
+                && (self.chr0 == Some('f') || self.chr0 == Some('F'))
+            {
+                saw_f = true;
             } else {
                 break;
             }
@@ -313,7 +315,7 @@ where
 
     fn lex_string(
         &mut self,
-        _is_bytes: bool,
+        is_bytes: bool,
         is_raw: bool,
         _is_unicode: bool,
         _is_fstring: bool,
@@ -400,13 +402,17 @@ where
         }
         let end_pos = self.get_pos();
 
-        return Ok((
-            start_pos,
+        let tok = if is_bytes {
+            Tok::Bytes {
+                value: string_content.as_bytes().to_vec(),
+            }
+        } else {
             Tok::String {
                 value: string_content,
-            },
-            end_pos,
-        ));
+            }
+        };
+
+        return Ok((start_pos, tok, end_pos));
     }
 
     fn is_char(&self) -> bool {
@@ -921,10 +927,10 @@ mod tests {
             tokens,
             vec![
                 Tok::String {
-                    value: "\\\\".to_string()
+                    value: "\\\\".to_string(),
                 },
                 Tok::String {
-                    value: "\\".to_string()
+                    value: "\\".to_string(),
                 }
             ]
         );

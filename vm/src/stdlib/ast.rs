@@ -543,6 +543,11 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
             node.set_attr("s", ctx.new_str(value.clone()));
             node
         }
+        ast::Expression::Bytes { value } => {
+            let node = create_node(ctx, "Bytes");
+            node.set_attr("s", ctx.new_bytes(value.clone()));
+            node
+        }
     };
 
     // TODO: retrieve correct lineno:

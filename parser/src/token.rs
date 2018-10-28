@@ -4,6 +4,7 @@ pub enum Tok {
     Name { name: String },
     Number { value: String },
     String { value: String },
+    Bytes { value: Vec<u8> },
     Newline,
     Indent,
     Dedent,

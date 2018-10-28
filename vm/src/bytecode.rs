@@ -199,6 +199,7 @@ pub enum Constant {
     Float { value: f64 },
     Boolean { value: bool },
     String { value: String },
+    Bytes { value: Vec<u8> },
     Code { code: CodeObject },
     Tuple { elements: Vec<Constant> },
     None,

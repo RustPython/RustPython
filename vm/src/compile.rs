@@ -932,6 +932,13 @@ impl Compiler {
                     },
                 });
             }
+            ast::Expression::Bytes { value } => {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Bytes {
+                        value: value.clone(),
+                    },
+                });
+            }
             ast::Expression::Identifier { name } => {
                 self.emit(Instruction::LoadName {
                     name: name.to_string(),

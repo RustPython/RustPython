@@ -1075,6 +1075,7 @@ impl Frame {
             bytecode::Constant::Integer { ref value } => vm.ctx.new_int(*value),
             bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
             bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
+            bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
             bytecode::Constant::Code { ref code } => {
                 PyObject::new(PyObjectKind::Code { code: code.clone() }, vm.get_type())
