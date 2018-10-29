@@ -5,7 +5,7 @@ use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
 
-fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);
     let v = get_value(float);
     Ok(vm.new_str(v.to_string()))
@@ -35,6 +35,16 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
         *value
     } else {
         panic!("Inner error getting float");
+    }
+}
+
+pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyObjectRef> {
+    if objtype::isinstance(obj, &vm.ctx.float_type()) {
+        Ok(get_value(obj))
+    } else if objtype::isinstance(obj, &vm.ctx.int_type()) {
+        Ok(objint::get_value(obj) as f64)
+    } else {
+        Err(vm.new_type_error(format!("Cannot cast {:?} to float", obj)))
     }
 }
 

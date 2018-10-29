@@ -1074,6 +1074,7 @@ impl Frame {
         match *value {
             bytecode::Constant::Integer { ref value } => vm.ctx.new_int(*value),
             bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
+            bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
             bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),

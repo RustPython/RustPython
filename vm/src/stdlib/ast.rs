@@ -13,6 +13,7 @@ use super::super::pyobject::{
     AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
+use num_complex::Complex64;
 use std::ops::Deref;
 
 /*
@@ -391,6 +392,9 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
             let py_n = match value {
                 ast::Number::Integer { value } => ctx.new_int(*value),
                 ast::Number::Float { value } => ctx.new_float(*value),
+                ast::Number::Complex { real, imag } => {
+                    ctx.new_complex(Complex64::new(*real, *imag))
+                }
             };
             node.set_attr("n", py_n);
 

@@ -1,5 +1,6 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -56,7 +57,10 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     };
 
-    Ok(vm.ctx.new_list(elements))
+    Ok(PyObject::new(
+        PyObjectKind::List { elements: elements },
+        cls.clone(),
+    ))
 }
 
 fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

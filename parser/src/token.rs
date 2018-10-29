@@ -3,6 +3,7 @@
 pub enum Tok {
     Name { name: String },
     Number { value: String },
+    Complex { real: f64, imag: f64 },
     String { value: String },
     Bytes { value: Vec<u8> },
     Newline,

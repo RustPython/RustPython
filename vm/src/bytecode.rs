@@ -10,9 +10,9 @@ let call_function = 0x64;
 /*
  * Primitive instruction type, which can be encoded and decoded.
  */
-extern crate rustpython_parser;
 
-use self::rustpython_parser::ast;
+use num_complex::Complex64;
+use rustpython_parser::ast;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -197,6 +197,7 @@ pub enum CallType {
 pub enum Constant {
     Integer { value: i32 }, // TODO: replace by arbitrary big int math.
     Float { value: f64 },
+    Complex { value: Complex64 },
     Boolean { value: bool },
     String { value: String },
     Bytes { value: Vec<u8> },

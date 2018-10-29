@@ -3,6 +3,7 @@ use super::exceptions;
 use super::frame::Frame;
 use super::obj::objbool;
 use super::obj::objbytes;
+use super::obj::objcomplex;
 use super::obj::objdict;
 use super::obj::objfloat;
 use super::obj::objfunction;
@@ -16,6 +17,7 @@ use super::obj::objstr;
 use super::obj::objtuple;
 use super::obj::objtype;
 use super::vm::VirtualMachine;
+use num_complex::Complex64;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -57,6 +59,7 @@ pub struct PyContext {
     pub dict_type: PyObjectRef,
     pub int_type: PyObjectRef,
     pub float_type: PyObjectRef,
+    pub complex_type: PyObjectRef,
     pub bytes_type: PyObjectRef,
     pub bool_type: PyObjectRef,
     pub true_value: PyObjectRef,
@@ -130,6 +133,7 @@ impl PyContext {
         let set_type = create_type("set", &type_type, &object_type, &dict_type);
         let int_type = create_type("int", &type_type, &object_type, &dict_type);
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
+        let complex_type = create_type("complex", &type_type, &object_type, &dict_type);
         let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
@@ -146,6 +150,7 @@ impl PyContext {
         let context = PyContext {
             int_type: int_type,
             float_type: float_type,
+            complex_type: complex_type,
             bytes_type: bytes_type,
             list_type: list_type,
             set_type: set_type,
@@ -176,6 +181,7 @@ impl PyContext {
         objgenerator::init(&context);
         objint::init(&context);
         objfloat::init(&context);
+        objcomplex::init(&context);
         objbytes::init(&context);
         objstr::init(&context);
         objtuple::init(&context);
@@ -191,6 +197,10 @@ impl PyContext {
 
     pub fn float_type(&self) -> PyObjectRef {
         self.float_type.clone()
+    }
+
+    pub fn complex_type(&self) -> PyObjectRef {
+        self.complex_type.clone()
     }
 
     pub fn bytes_type(&self) -> PyObjectRef {
@@ -260,6 +270,10 @@ impl PyContext {
 
     pub fn new_float(&self, i: f64) -> PyObjectRef {
         PyObject::new(PyObjectKind::Float { value: i }, self.float_type())
+    }
+
+    pub fn new_complex(&self, i: Complex64) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Complex { value: i }, self.complex_type())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
@@ -624,6 +638,9 @@ pub enum PyObjectKind {
     Float {
         value: f64,
     },
+    Complex {
+        value: Complex64,
+    },
     Bytes {
         value: Vec<u8>,
     },
@@ -690,6 +707,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::String { ref value } => write!(f, "str \"{}\"", value),
             &PyObjectKind::Integer { ref value } => write!(f, "int {}", value),
             &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
+            &PyObjectKind::Complex { ref value } => write!(f, "complex {}", value),
             &PyObjectKind::Bytes { ref value } => write!(f, "bytes {:?}", value),
             &PyObjectKind::List { elements: _ } => write!(f, "list"),
             &PyObjectKind::Tuple { elements: _ } => write!(f, "tuple"),
@@ -740,6 +758,7 @@ impl PyObject {
             PyObjectKind::String { ref value } => value.clone(),
             PyObjectKind::Integer { ref value } => format!("{:?}", value),
             PyObjectKind::Float { ref value } => format!("{:?}", value),
+            PyObjectKind::Complex { ref value } => format!("{:?}", value),
             PyObjectKind::Bytes { ref value } => format!("b'{:?}'", value),
             PyObjectKind::List { ref elements } => format!(
                 "[{}]",

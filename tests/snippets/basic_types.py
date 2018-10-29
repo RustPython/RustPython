@@ -37,3 +37,7 @@ except TypeError:
     pass
 
 assert int() == 0
+
+a = complex(2, 4)
+assert type(a) is complex
+assert type(a + a) is complex

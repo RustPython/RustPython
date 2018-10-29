@@ -300,4 +300,5 @@ pub enum Comparison {
 pub enum Number {
     Integer { value: i32 },
     Float { value: f64 },
+    Complex { real: f64, imag: f64 },
 }

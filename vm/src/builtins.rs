@@ -126,7 +126,6 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     compile::compile(vm, &source, mode, None)
 }
 
-// builtin_complex
 // builtin_delattr
 
 fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -543,6 +542,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("bytes"), ctx.bytes_type());
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
+    dict.insert(String::from("complex"), ctx.complex_type());
     dict.insert(String::from("dict"), ctx.dict_type());
     dict.insert(String::from("divmod"), ctx.new_rustfunc(builtin_divmod));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));

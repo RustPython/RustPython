@@ -1,5 +1,6 @@
 pub mod objbool;
 pub mod objbytes;
+pub mod objcomplex;
 pub mod objdict;
 pub mod objfloat;
 pub mod objfunction;

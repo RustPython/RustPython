@@ -5,6 +5,7 @@ authors = ["Shing Lyu <shing.lyu@gmail.com>"]
 
 [dependencies]
 bitflags = "1.0.4"
+num-complex = "0.2"
 log = "0.3"
 rustpython_parser = {path = "../parser"}
 serde = "1.0.66"

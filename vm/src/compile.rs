@@ -6,12 +6,11 @@
  *   https://github.com/micropython/micropython/blob/master/py/compile.c
  */
 
-extern crate rustpython_parser;
-
-use self::rustpython_parser::{ast, parser};
 use super::bytecode::{self, CallType, CodeObject, Instruction};
 use super::pyobject::{PyObject, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
+use num_complex::Complex64;
+use rustpython_parser::{ast, parser};
 
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
@@ -846,6 +845,9 @@ impl Compiler {
                 let const_value = match value {
                     ast::Number::Integer { value } => bytecode::Constant::Integer { value: *value },
                     ast::Number::Float { value } => bytecode::Constant::Float { value: *value },
+                    ast::Number::Complex { real, imag } => bytecode::Constant::Complex {
+                        value: Complex64::new(*real, *imag),
+                    },
                 };
                 self.emit(Instruction::LoadConst { value: const_value });
             }
@@ -1301,8 +1303,8 @@ mod tests {
     use super::bytecode::CodeObject;
     use super::bytecode::Constant::*;
     use super::bytecode::Instruction::*;
-    use super::rustpython_parser::parser;
     use super::Compiler;
+    use rustpython_parser::parser;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
         compiler.push_new_code_object(Option::None, "<module>".to_string());
