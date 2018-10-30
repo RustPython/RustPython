@@ -436,7 +436,7 @@ impl Compiler {
                 name,
                 body,
                 bases,
-                keywords: _,
+                keywords,
                 decorator_list,
             } => {
                 self.prepare_decorators(decorator_list)?;
@@ -483,9 +483,34 @@ impl Compiler {
                 for base in bases {
                     self.compile_expression(base)?;
                 }
-                self.emit(Instruction::CallFunction {
-                    typ: CallType::Positional(2 + bases.len()),
-                });
+
+                if keywords.len() > 0 {
+                    let mut kwarg_names = vec![];
+                    for keyword in keywords {
+                        if let Some(name) = &keyword.name {
+                            kwarg_names.push(bytecode::Constant::String {
+                                value: name.to_string(),
+                            });
+                        } else {
+                            // This means **kwargs!
+                            panic!("name must be set");
+                        }
+                        self.compile_expression(&keyword.value)?;
+                    }
+
+                    self.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::Tuple {
+                            elements: kwarg_names,
+                        },
+                    });
+                    self.emit(Instruction::CallFunction {
+                        typ: CallType::Keyword(2 + keywords.len() + bases.len()),
+                    });
+                } else {
+                    self.emit(Instruction::CallFunction {
+                        typ: CallType::Positional(2 + bases.len()),
+                    });
+                }
 
                 self.apply_decorators(decorator_list);
 

@@ -644,14 +644,10 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let function = args.shift();
     let name_arg = args.shift();
-    let name_arg_ref = name_arg.borrow();
-    let name = match name_arg_ref.kind {
-        PyObjectKind::String { ref value } => value,
-        _ => panic!("Class name must by a string!"),
-    };
     let mut bases = args.args.clone();
+    let metaclass = args.get_kwarg("metaclass", vm.get_type());
+
     bases.push(vm.context().object());
-    let metaclass = vm.get_type();
     let namespace = vm.new_dict();
     &vm.invoke(
         function,
@@ -660,5 +656,8 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
             kwargs: vec![],
         },
     );
-    objtype::new(metaclass, name, bases, namespace)
+
+    let bases = vm.context().new_tuple(bases);
+
+    vm.call_method(&metaclass, "__new__", vec![name_arg, bases, namespace])
 }
