@@ -10,6 +10,8 @@ use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
+use num_bigint::ToBigInt;
+use num_traits::cast::ToPrimitive;
 
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
 // PyObject serialisation via a proxy object which holds a reference to a VM
@@ -47,7 +49,8 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject, &self.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject, &self.ctx.int_type()) {
-            serializer.serialize_i32(objint::get_value(self.pyobject))
+            // TODO: Figure out how to use the serialize trait on BigInt:
+            serializer.serialize_i32(objint::get_value(self.pyobject).to_i32().unwrap())
         } else if objtype::isinstance(self.pyobject, &self.ctx.list_type()) {
             let elements = objlist::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)
@@ -113,12 +116,7 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
             {
                 // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
                 // implement those for now
-                use std::i32;
-                if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
-                    Ok(self.ctx.new_int(value as i32))
-                } else {
-                    Err(E::custom(format!("i64 out of range: {}", value)))
-                }
+                Ok(self.ctx.new_int(value.to_bigint().unwrap()))
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
@@ -127,12 +125,7 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
             {
                 // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
                 // implement those for now
-                use std::i32;
-                if value <= i32::MAX as u64 {
-                    Ok(self.ctx.new_int(value as i32))
-                } else {
-                    Err(E::custom(format!("u64 out of range: {}", value)))
-                }
+                Ok(self.ctx.new_int(value.to_bigint().unwrap()))
             }
 
             fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>

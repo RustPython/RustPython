@@ -17,7 +17,9 @@ use super::obj::objstr;
 use super::obj::objtuple;
 use super::obj::objtype;
 use super::vm::VirtualMachine;
+use num_bigint::BigInt;
 use num_complex::Complex64;
+use num_traits::{One, Zero};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -145,8 +147,16 @@ impl PyContext {
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
-        let true_value = PyObject::new(PyObjectKind::Integer { value: 1 }, bool_type.clone());
-        let false_value = PyObject::new(PyObjectKind::Integer { value: 0 }, bool_type.clone());
+        let true_value = PyObject::new(
+            PyObjectKind::Integer { value: One::one() },
+            bool_type.clone(),
+        );
+        let false_value = PyObject::new(
+            PyObjectKind::Integer {
+                value: Zero::zero(),
+            },
+            bool_type.clone(),
+        );
         let context = PyContext {
             int_type: int_type,
             float_type: float_type,
@@ -264,7 +274,7 @@ impl PyContext {
         )
     }
 
-    pub fn new_int(&self, i: i32) -> PyObjectRef {
+    pub fn new_int(&self, i: BigInt) -> PyObjectRef {
         PyObject::new(PyObjectKind::Integer { value: i }, self.int_type())
     }
 
@@ -633,7 +643,7 @@ pub enum PyObjectKind {
         value: String,
     },
     Integer {
-        value: i32,
+        value: BigInt,
     },
     Float {
         value: f64,

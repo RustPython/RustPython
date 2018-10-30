@@ -1,6 +1,7 @@
 use super::super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
 use super::objbool;
+use num_traits::ToPrimitive;
 use std::marker::Sized;
 
 pub trait PySliceableSequence {
@@ -68,7 +69,8 @@ pub fn get_item(
 ) -> PyResult {
     match &(subscript.borrow()).kind {
         PyObjectKind::Integer { value } => {
-            let pos_index = elements.to_vec().get_pos(*value);
+            let value = value.to_i32().unwrap();
+            let pos_index = elements.to_vec().get_pos(value);
             if pos_index < elements.len() {
                 let obj = elements[pos_index].clone();
                 Ok(obj)

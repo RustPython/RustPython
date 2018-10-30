@@ -7,6 +7,8 @@ use super::objint;
 use super::objsequence::{get_item, seq_equal};
 use super::objstr;
 use super::objtype;
+use num_bigint::ToBigInt;
+use num_traits::ToPrimitive;
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -34,19 +36,21 @@ fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mult = 0xf4243;
 
     for elem in &elements {
-        let y: usize = objint::get_value(&vm.call_method(elem, "__hash__", vec![])?) as usize;
+        let y: usize = objint::get_value(&vm.call_method(elem, "__hash__", vec![])?)
+            .to_usize()
+            .unwrap();
         x = (x ^ y) * mult;
         mult = mult + 82520 + len * 2;
     }
     x += 97531;
 
-    Ok(vm.ctx.new_int(x as i32))
+    Ok(vm.ctx.new_int(x.to_bigint().unwrap()))
 }
 
 fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
     let elements = get_elements(zelf);
-    Ok(vm.context().new_int(elements.len() as i32))
+    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
 }
 
 fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

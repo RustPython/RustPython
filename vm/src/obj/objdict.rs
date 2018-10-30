@@ -5,6 +5,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objstr;
 use super::objtype;
+use num_bigint::ToBigInt;
 use std::collections::HashMap;
 
 pub fn _set_item(
@@ -41,7 +42,7 @@ fn dict_new(_vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn dict_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.dict_type()))]);
     let elements = get_elements(o);
-    Ok(vm.ctx.new_int(elements.len() as i32))
+    Ok(vm.ctx.new_int(elements.len().to_bigint().unwrap()))
 }
 
 fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

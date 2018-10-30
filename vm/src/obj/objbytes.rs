@@ -5,6 +5,7 @@ use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objlist;
 use super::objtype;
+use num_traits::ToPrimitive;
 // Binary data support
 
 // Fill bytes class methods:
@@ -25,11 +26,8 @@ fn bytes_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let val = if objtype::isinstance(arg, &vm.ctx.list_type()) {
         let mut data_bytes = vec![];
         for elem in objlist::get_elements(arg) {
-            let v = match objint::to_int(vm, &elem, 10) {
-                Ok(int_ref) => int_ref,
-                Err(err) => return Err(err),
-            };
-            data_bytes.push(v as u8);
+            let v = objint::to_int(vm, &elem, 10)?;
+            data_bytes.push(v.to_u8().unwrap());
         }
         data_bytes
     } else {

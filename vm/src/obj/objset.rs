@@ -11,6 +11,7 @@ use super::objbool;
 use super::objiter;
 use super::objstr;
 use super::objtype;
+use num_bigint::ToBigInt;
 use std::collections::HashMap;
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
@@ -90,7 +91,7 @@ fn set_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.len called with: {:?}", args);
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let elements = get_elements(s);
-    Ok(vm.context().new_int(elements.len() as i32))
+    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
 }
 
 fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

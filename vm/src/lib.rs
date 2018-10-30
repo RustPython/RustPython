@@ -3,7 +3,9 @@ extern crate bitflags;
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
+extern crate num_bigint;
 extern crate num_complex;
+extern crate num_traits;
 extern crate serde;
 extern crate serde_json;
 

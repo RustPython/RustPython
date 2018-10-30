@@ -4,10 +4,13 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
+use super::objint;
 use super::objiter;
 use super::objsequence::{get_item, seq_equal, PySliceableSequence};
 use super::objstr;
 use super::objtype;
+use num_bigint::ToBigInt;
+use num_traits::ToPrimitive;
 
 // set_item:
 pub fn set_item(
@@ -16,16 +19,16 @@ pub fn set_item(
     idx: PyObjectRef,
     obj: PyObjectRef,
 ) -> PyResult {
-    match &(idx.borrow()).kind {
-        PyObjectKind::Integer { value } => {
-            let pos_index = l.get_pos(*value);
-            l[pos_index] = obj;
-            Ok(vm.get_none())
-        }
-        _ => panic!(
+    if objtype::isinstance(&idx, &vm.ctx.int_type()) {
+        let value = objint::get_value(&idx).to_i32().unwrap();
+        let pos_index = l.get_pos(value);
+        l[pos_index] = obj;
+        Ok(vm.get_none())
+    } else {
+        panic!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
             l, idx
-        ),
+        )
     }
 }
 
@@ -103,10 +106,8 @@ fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(o);
     let mut str_parts = vec![];
     for elem in elements {
-        match vm.to_repr(elem) {
-            Ok(s) => str_parts.push(objstr::get_value(&s)),
-            Err(err) => return Err(err),
-        }
+        let s = vm.to_repr(elem)?;
+        str_parts.push(objstr::get_value(&s));
     }
 
     let s = format!("[{}]", str_parts.join(", "));
@@ -161,7 +162,7 @@ fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let elements = get_elements(list);
-    Ok(vm.context().new_int(elements.len() as i32))
+    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
 }
 
 fn list_reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

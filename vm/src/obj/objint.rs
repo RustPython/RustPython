@@ -6,6 +6,12 @@ use super::super::vm::VirtualMachine;
 use super::objfloat;
 use super::objstr;
 use super::objtype;
+use num_bigint::{BigInt, ToBigInt};
+use num_traits::{Signed, ToPrimitive, Zero};
+
+// This proxy allows for easy switching between types.
+// TODO: maybe this is a good idea:
+// type IntType = BigInt;
 
 fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
@@ -28,7 +34,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let base = 10;
     let val = match val_option {
         Some(val) => to_int(vm, val, base)?,
-        None => 0,
+        None => Zero::zero(),
     };
     Ok(PyObject::new(
         PyObjectKind::Integer { value: val },
@@ -37,15 +43,19 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // Casting function:
-pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> Result<i32, PyObjectRef> {
+pub fn to_int(
+    vm: &mut VirtualMachine,
+    obj: &PyObjectRef,
+    base: u32,
+) -> Result<BigInt, PyObjectRef> {
     let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj)
     } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
-        objfloat::get_value(obj) as i32
+        objfloat::get_value(obj).to_bigint().unwrap()
     } else if objtype::isinstance(obj, &vm.ctx.str_type()) {
         let s = objstr::get_value(obj);
         match i32::from_str_radix(&s, base) {
-            Ok(v) => v,
+            Ok(v) => v.to_bigint().unwrap(),
             Err(err) => {
                 trace!("Error occured during int conversion {:?}", err);
                 return Err(vm.new_value_error(format!(
@@ -65,16 +75,16 @@ pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> Result<i
 }
 
 // Retrieve inner int value:
-pub fn get_value(obj: &PyObjectRef) -> i32 {
+pub fn get_value(obj: &PyObjectRef) -> BigInt {
     if let PyObjectKind::Integer { value } = &obj.borrow().kind {
-        *value
+        value.clone()
     } else {
         panic!("Inner error getting int {:?}", obj);
     }
 }
 
-impl FromPyObjectRef for i32 {
-    fn from_pyobj(obj: &PyObjectRef) -> i32 {
+impl FromPyObjectRef for BigInt {
+    fn from_pyobj(obj: &PyObjectRef) -> BigInt {
         get_value(obj)
     }
 }
@@ -86,11 +96,11 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
     let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
-        let zelf = i32::from_pyobj(zelf);
-        let other = i32::from_pyobj(other);
+        let zelf = BigInt::from_pyobj(zelf);
+        let other = BigInt::from_pyobj(other);
         zelf == other
     } else if objtype::isinstance(other, &vm.ctx.float_type()) {
-        let zelf = i32::from_pyobj(zelf) as f64;
+        let zelf = BigInt::from_pyobj(zelf).to_f64().unwrap();
         let other = objfloat::get_value(other);
         zelf == other
     } else {
@@ -108,8 +118,8 @@ fn int_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (other, Some(vm.ctx.int_type()))
         ]
     );
-    let zelf = i32::from_pyobj(zelf);
-    let other = i32::from_pyobj(other);
+    let zelf = BigInt::from_pyobj(zelf);
+    let other = BigInt::from_pyobj(other);
     let result = zelf < other;
     Ok(vm.ctx.new_bool(result))
 }
@@ -123,8 +133,8 @@ fn int_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (other, Some(vm.ctx.int_type()))
         ]
     );
-    let zelf = i32::from_pyobj(zelf);
-    let other = i32::from_pyobj(other);
+    let zelf = BigInt::from_pyobj(zelf);
+    let other = BigInt::from_pyobj(other);
     let result = zelf <= other;
     Ok(vm.ctx.new_bool(result))
 }
@@ -138,8 +148,8 @@ fn int_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (other, Some(vm.ctx.int_type()))
         ]
     );
-    let zelf = i32::from_pyobj(zelf);
-    let other = i32::from_pyobj(other);
+    let zelf = BigInt::from_pyobj(zelf);
+    let other = BigInt::from_pyobj(other);
     let result = zelf > other;
     Ok(vm.ctx.new_bool(result))
 }
@@ -153,8 +163,8 @@ fn int_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (other, Some(vm.ctx.int_type()))
         ]
     );
-    let zelf = i32::from_pyobj(zelf);
-    let other = i32::from_pyobj(other);
+    let zelf = BigInt::from_pyobj(zelf);
+    let other = BigInt::from_pyobj(other);
     let result = zelf >= other;
     Ok(vm.ctx.new_bool(result))
 }
@@ -177,11 +187,13 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let i = i32::from_pyobj(i);
+    let i = BigInt::from_pyobj(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(i + get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm.ctx.new_float(i as f64 + objfloat::get_value(i2)))
+        Ok(vm
+            .ctx
+            .new_float(i.to_f64().unwrap() + objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
@@ -206,11 +218,13 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let i = i32::from_pyobj(i);
+    let i = BigInt::from_pyobj(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(i - get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm.ctx.new_float(i as f64 - objfloat::get_value(i2)))
+        Ok(vm
+            .ctx
+            .new_float(i.to_f64().unwrap() - objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot substract {:?} and {:?}", i, i2)))
     }
@@ -227,7 +241,7 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm
             .ctx
-            .new_float(get_value(i) as f64 * objfloat::get_value(i2)))
+            .new_float(get_value(i).to_f64().unwrap() * objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot multiply {:?} and {:?}", i, i2)))
     }
@@ -241,9 +255,13 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_float(v1 as f64 / get_value(i2) as f64))
+        Ok(vm
+            .ctx
+            .new_float(v1.to_f64().unwrap() / get_value(i2).to_f64().unwrap()))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm.ctx.new_float(v1 as f64 / objfloat::get_value(i2)))
+        Ok(vm
+            .ctx
+            .new_float(v1.to_f64().unwrap() / objfloat::get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot divide {:?} and {:?}", i, i2)))
     }
@@ -271,11 +289,14 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        let v2 = get_value(i2);
-        Ok(vm.ctx.new_int(v1.pow(v2 as u32)))
+        let v2 = get_value(i2).to_u32().unwrap();
+        // TODO: look for bigint pow method
+        Ok(vm
+            .ctx
+            .new_int(v1.to_i32().unwrap().pow(v2).to_bigint().unwrap()))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         let v2 = objfloat::get_value(i2);
-        Ok(vm.ctx.new_float((v1 as f64).powf(v2)))
+        Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))
     } else {
         Err(vm.new_type_error(format!("Cannot raise power {:?} and {:?}", i, i2)))
     }

@@ -14,6 +14,8 @@ use super::pyobject::{
     PyObjectRef, PyResult, Scope, TypeProtocol,
 };
 use super::vm::VirtualMachine;
+use num_bigint::ToBigInt;
+use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
@@ -80,9 +82,10 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
     let n = objint::get_value(number);
-    let s = match n.signum() {
-        -1 => format!("-0b{:b}", n.abs()),
-        _ => format!("0b{:b}", n),
+    let s = if n.is_negative() {
+        format!("-0b{:b}", n.abs())
+    } else {
+        format!("0b{:b}", n)
     };
 
     Ok(vm.new_str(s))
@@ -97,15 +100,7 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
 
-    let code_point_obj = i.borrow();
-
-    let code_point = *match code_point_obj.kind {
-        PyObjectKind::Integer { ref value } => value,
-        ref kind => panic!(
-            "argument checking failure: chr not supported for {:?}",
-            kind
-        ),
-    } as u32;
+    let code_point = objint::get_value(i).to_u32().unwrap();
 
     let txt = match char::from_u32(code_point) {
         Some(value) => value.to_string(),
@@ -261,9 +256,10 @@ fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
     let n = objint::get_value(number);
-    let s = match n.signum() {
-        -1 => format!("-0x{:x}", n.abs()),
-        _ => format!("0x{:x}", n),
+    let s = if n.is_negative() {
+        format!("-0x{:x}", n.abs())
+    } else {
+        format!("0x{:x}", n)
     };
 
     Ok(vm.new_str(s))
@@ -272,7 +268,7 @@ fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
-    Ok(vm.context().new_int(obj.get_id() as i32))
+    Ok(vm.context().new_int(obj.get_id().to_bigint().unwrap()))
 }
 
 // builtin_input
@@ -304,8 +300,12 @@ fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
     match obj.borrow().kind {
-        PyObjectKind::Dict { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
-        PyObjectKind::Tuple { ref elements } => Ok(vm.context().new_int(elements.len() as i32)),
+        PyObjectKind::Dict { ref elements } => {
+            Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+        }
+        PyObjectKind::Tuple { ref elements } => {
+            Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+        }
         _ => {
             let len_method_name = "__len__".to_string();
             match vm.get_attribute(obj.clone(), &len_method_name) {
@@ -427,7 +427,9 @@ fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ));
     }
     match string.chars().next() {
-        Some(character) => Ok(vm.context().new_int(character as i32)),
+        Some(character) => Ok(vm
+            .context()
+            .new_int((character as i32).to_bigint().unwrap())),
         None => Err(vm.new_type_error(
             "ord() could not guess the integer representing this character".to_string(),
         )),
@@ -486,8 +488,9 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(range, Some(vm.ctx.int_type()))]);
     match range.borrow().kind {
         PyObjectKind::Integer { ref value } => {
-            let range_elements: Vec<PyObjectRef> =
-                (0..*value).map(|num| vm.context().new_int(num)).collect();
+            let range_elements: Vec<PyObjectRef> = (0..value.to_i32().unwrap())
+                .map(|num| vm.context().new_int(num.to_bigint().unwrap()))
+                .collect();
             Ok(vm.context().new_list(range_elements))
         }
         _ => panic!("argument checking failure: first argument to range must be an integer"),

@@ -4,6 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
+use num_traits::ToPrimitive;
 
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);
@@ -21,7 +22,7 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let val = if objtype::isinstance(arg, &vm.ctx.float_type()) {
         get_value(arg)
     } else if objtype::isinstance(arg, &vm.ctx.int_type()) {
-        objint::get_value(arg) as f64
+        objint::get_value(arg).to_f64().unwrap()
     } else {
         return Err(vm.new_type_error("Cannot construct int".to_string()));
     };
@@ -42,7 +43,7 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyO
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else if objtype::isinstance(obj, &vm.ctx.int_type()) {
-        Ok(objint::get_value(obj) as f64)
+        Ok(objint::get_value(obj).to_f64().unwrap())
     } else {
         Err(vm.new_type_error(format!("Cannot cast {:?} to float", obj)))
     }
@@ -63,7 +64,7 @@ fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let other = get_value(other);
         zelf == other
     } else if objtype::isinstance(other, &vm.ctx.int_type()) {
-        let other = objint::get_value(other) as f64;
+        let other = objint::get_value(other).to_f64().unwrap();
         zelf == other
     } else {
         false
@@ -147,7 +148,9 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(v1 + get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_float(v1 + objint::get_value(i2) as f64))
+        Ok(vm
+            .ctx
+            .new_float(v1 + objint::get_value(i2).to_f64().unwrap()))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
@@ -181,7 +184,7 @@ fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
-            .new_float((get_value(i) / objint::get_value(i2) as f64).floor()))
+            .new_float((get_value(i) / objint::get_value(i2).to_f64().unwrap()).floor()))
     } else {
         Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
     }
@@ -197,7 +200,9 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(v1 - get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_float(v1 - objint::get_value(i2) as f64))
+        Ok(vm
+            .ctx
+            .new_float(v1 - objint::get_value(i2).to_f64().unwrap()))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
@@ -214,7 +219,7 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
-            .new_float(get_value(i) % objint::get_value(i2) as f64))
+            .new_float(get_value(i) % objint::get_value(i2).to_f64().unwrap()))
     } else {
         Err(vm.new_type_error(format!("Cannot mod {:?} and {:?}", i, i2)))
     }
@@ -232,7 +237,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let result = v1.powf(get_value(i2));
         Ok(vm.ctx.new_float(result))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        let result = v1.powf(objint::get_value(i2) as f64);
+        let result = v1.powf(objint::get_value(i2).to_f64().unwrap());
         Ok(vm.ctx.new_float(result))
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
