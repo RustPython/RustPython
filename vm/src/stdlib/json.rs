@@ -49,8 +49,10 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject, &self.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject, &self.ctx.int_type()) {
-            // TODO: Figure out how to use the serialize trait on BigInt:
-            serializer.serialize_i32(objint::get_value(self.pyobject).to_i32().unwrap())
+            let v = objint::get_value(self.pyobject);
+            serializer.serialize_i64(v.to_i64().unwrap())
+        // Allthough this may seem nice, it does not give the right result:
+        // v.serialize(serializer)
         } else if objtype::isinstance(self.pyobject, &self.ctx.list_type()) {
             let elements = objlist::get_elements(self.pyobject);
             serialize_seq_elements(serializer, elements)

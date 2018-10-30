@@ -41,3 +41,10 @@ assert int() == 0
 a = complex(2, 4)
 assert type(a) is complex
 assert type(a + a) is complex
+
+
+a = 12345
+
+b = a*a*a*a*a*a*a*a
+assert b.bit_length() == 109
+

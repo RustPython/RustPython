@@ -363,6 +363,13 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    let v = get_value(i);
+    let bits = v.bits();
+    Ok(vm.ctx.new_int(bits.to_bigint().unwrap()))
+}
+
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     int_type.set_attr("__eq__", context.new_rustfunc(int_eq));
@@ -385,4 +392,5 @@ pub fn init(context: &PyContext) {
     int_type.set_attr("__sub__", context.new_rustfunc(int_sub));
     int_type.set_attr("__truediv__", context.new_rustfunc(int_truediv));
     int_type.set_attr("__xor__", context.new_rustfunc(int_xor));
+    int_type.set_attr("bit_length", context.new_rustfunc(int_bit_length));
 }
