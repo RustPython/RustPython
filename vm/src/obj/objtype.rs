@@ -137,34 +137,34 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(obj)
 }
 
-pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &str) -> PyResult {
-    let cls = obj.typ();
-    trace!("get_attribute: {:?}, {:?}, {:?}", cls, obj, name);
-    if let Some(attr) = cls.get_attr(name) {
-        let attr_class = attr.typ();
-        if let Some(descriptor) = attr_class.get_attr("__get__") {
-            return vm.invoke(
-                descriptor,
-                PyFuncArgs {
-                    args: vec![attr, obj, cls],
-                    kwargs: vec![],
-                },
-            );
-        }
-    }
+// pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &str) -> PyResult {
+//     let cls = obj.typ();
+//     trace!("get_attribute: {:?}, {:?}, {:?}", cls, obj, name);
+//     if let Some(attr) = cls.get_attr(name) {
+//         let attr_class = attr.typ();
+//         if let Some(descriptor) = attr_class.get_attr("__get__") {
+//             return vm.invoke(
+//                 descriptor,
+//                 PyFuncArgs {
+//                     args: vec![attr, obj, cls],
+//                     kwargs: vec![],
+//                 },
+//             );
+//         }
+//     }
 
-    if let Some(obj_attr) = obj.get_attr(name) {
-        Ok(obj_attr)
-    } else if let Some(cls_attr) = cls.get_attr(name) {
-        Ok(cls_attr)
-    } else {
-        let attribute_error = vm.context().exceptions.attribute_error.clone();
-        Err(vm.new_exception(
-            attribute_error,
-            format!("{:?} object has no attribute {}", cls, name),
-        ))
-    }
-}
+//     if let Some(obj_attr) = obj.get_attr(name) {
+//         Ok(obj_attr)
+//     } else if let Some(cls_attr) = cls.get_attr(name) {
+//         Ok(cls_attr)
+//     } else {
+//         let attribute_error = vm.context().exceptions.attribute_error.clone();
+//         Err(vm.new_exception(
+//             attribute_error,
+//             format!("{:?} object has no attribute {}", cls, name),
+//         ))
+//     }
+// }
 
 pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     // Gather all members here:
@@ -264,7 +264,7 @@ fn type_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn call(vm: &mut VirtualMachine, typ: PyObjectRef, args: PyFuncArgs) -> PyResult {
-    let function = get_attribute(vm, typ, &String::from("__call__"))?;
+    let function = vm.get_attribute(typ, &String::from("__call__"))?;
     vm.invoke(function, args)
 }
 

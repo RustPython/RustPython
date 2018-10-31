@@ -17,7 +17,10 @@ use super::obj::objlist;
 use super::obj::objobject;
 use super::obj::objtuple;
 use super::obj::objtype;
-use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{
+    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
+};
 use super::stdlib;
 use super::sysmodule;
 
@@ -174,12 +177,18 @@ impl VirtualMachine {
                 name: _,
                 dict: _,
                 mro: _,
-            } => objtype::call(self, func_ref.clone(), args),
+            } => {
+                let function = self.get_attribute(func_ref.clone(), "__call__")?;
+                self.invoke(function, args)
+            }
             PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectKind::Instance { .. } => objobject::call(self, args.insert(func_ref.clone())),
+            PyObjectKind::Instance { .. } => {
+                let function = self.get_attribute(func_ref.clone(), "__call__")?;
+                self.invoke(function, args)
+            }
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
@@ -371,7 +380,19 @@ impl VirtualMachine {
     }
 
     pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &str) -> PyResult {
-        objtype::get_attribute(self, obj.clone(), attr_name)
+        let cls = obj.typ();
+        if let Some(attr) = cls.get_attr("__getattribute__") {
+            let name = self.new_str(attr_name.to_string());
+            self.invoke(
+                attr,
+                PyFuncArgs {
+                    args: vec![obj.clone(), name],
+                    kwargs: vec![],
+                },
+            )
+        } else {
+            panic!("Everything should have a __getattribute__");
+        }
     }
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
