@@ -225,6 +225,13 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn float_neg(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.float_type()))]);
+
+    let v1 = get_value(i);
+    Ok(vm.ctx.new_float(-v1))
+}
+
 fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -257,6 +264,7 @@ pub fn init(context: &PyContext) {
     float_type.set_attr("__floordiv__", context.new_rustfunc(float_floordiv));
     float_type.set_attr("__init__", context.new_rustfunc(float_init));
     float_type.set_attr("__mod__", context.new_rustfunc(float_mod));
+    float_type.set_attr("__neg__", context.new_rustfunc(float_neg));
     float_type.set_attr("__pow__", context.new_rustfunc(float_pow));
     float_type.set_attr("__sub__", context.new_rustfunc(float_sub));
     float_type.set_attr("__repr__", context.new_rustfunc(float_repr));

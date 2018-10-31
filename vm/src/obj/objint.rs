@@ -281,6 +281,12 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_neg(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    let i = BigInt::from_pyobj(i);
+    Ok(vm.ctx.new_int(-i))
+}
+
 fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -386,6 +392,7 @@ pub fn init(context: &PyContext) {
     int_type.set_attr("__new__", context.new_rustfunc(int_new));
     int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
+    int_type.set_attr("__neg__", context.new_rustfunc(int_neg));
     int_type.set_attr("__or__", context.new_rustfunc(int_or));
     int_type.set_attr("__pow__", context.new_rustfunc(int_pow));
     int_type.set_attr("__repr__", context.new_rustfunc(int_repr));

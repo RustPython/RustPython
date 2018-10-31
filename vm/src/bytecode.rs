@@ -124,7 +124,9 @@ pub enum Instruction {
     CallFunction {
         typ: CallType,
     },
-    ForIter,
+    ForIter {
+        target: Label,
+    },
     ReturnValue,
     YieldValue,
     YieldFrom,

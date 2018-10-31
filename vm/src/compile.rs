@@ -199,13 +199,9 @@ impl Compiler {
                 }
                 self.set_label(end_label);
             }
-            ast::Statement::While {
-                test,
-                body,
-                orelse: _,
-            } => {
-                // TODO: Handle while-loop else clauses
+            ast::Statement::While { test, body, orelse } => {
                 let start_label = self.new_label();
+                let else_label = self.new_label();
                 let end_label = self.new_label();
                 self.emit(Instruction::SetupLoop {
                     start: start_label,
@@ -214,12 +210,17 @@ impl Compiler {
 
                 self.set_label(start_label);
 
-                self.compile_test(test, None, Some(end_label), EvalContext::Statement)?;
+                self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
                 self.compile_statements(body)?;
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
+                self.set_label(else_label);
+                if let Some(orelse) = orelse {
+                    self.compile_statements(orelse)?;
+                }
                 self.set_label(end_label);
+                self.emit(Instruction::PopBlock);
             }
             ast::Statement::With { items, body } => {
                 let end_label = self.new_label();
@@ -246,9 +247,8 @@ impl Compiler {
                 target,
                 iter,
                 body,
-                orelse: _,
+                orelse,
             } => {
-                // TODO: Handle for loop else clauses
                 // The thing iterated:
                 for i in iter {
                     self.compile_expression(i)?;
@@ -259,13 +259,14 @@ impl Compiler {
 
                 // Start loop
                 let start_label = self.new_label();
+                let else_label = self.new_label();
                 let end_label = self.new_label();
                 self.emit(Instruction::SetupLoop {
                     start: start_label,
                     end: end_label,
                 });
                 self.set_label(start_label);
-                self.emit(Instruction::ForIter);
+                self.emit(Instruction::ForIter { target: else_label });
 
                 // Start of loop iteration, set targets:
                 self.compile_store(target)?;
@@ -275,6 +276,10 @@ impl Compiler {
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
+                self.set_label(else_label);
+                if let Some(orelse) = orelse {
+                    self.compile_statements(orelse)?;
+                }
                 self.set_label(end_label);
                 self.emit(Instruction::PopBlock);
             }
@@ -1174,7 +1179,7 @@ impl Compiler {
                 end: end_label,
             });
             self.set_label(start_label);
-            self.emit(Instruction::ForIter);
+            self.emit(Instruction::ForIter { target: end_label });
 
             self.compile_store(&generator.target)?;
 

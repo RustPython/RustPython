@@ -409,6 +409,30 @@ impl VirtualMachine {
     pub fn _and(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_method(&a, "__and__", vec![b])
     }
+
+    pub fn _eq(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__eq__", vec![b])
+    }
+
+    pub fn _ne(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__ne__", vec![b])
+    }
+
+    pub fn _lt(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__lt__", vec![b])
+    }
+
+    pub fn _le(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__le__", vec![b])
+    }
+
+    pub fn _gt(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__gt__", vec![b])
+    }
+
+    pub fn _ge(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_method(a, "__ge__", vec![b])
+    }
 }
 
 #[cfg(test)]

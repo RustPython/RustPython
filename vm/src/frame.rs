@@ -408,7 +408,7 @@ impl Frame {
                 self.push_value(iter_obj);
                 Ok(None)
             }
-            bytecode::Instruction::ForIter => {
+            bytecode::Instruction::ForIter { target } => {
                 // The top of stack contains the iterator, lets push it forward:
                 let top_of_stack = self.last_value();
                 let next_obj = objiter::get_next_object(vm, &top_of_stack);
@@ -424,12 +424,7 @@ impl Frame {
                         self.pop_value();
 
                         // End of for loop
-                        let end_label = if let Block::Loop { start: _, end } = self.last_block() {
-                            *end
-                        } else {
-                            panic!("Wrong block type")
-                        };
-                        self.jump(end_label);
+                        self.jump(*target);
                         Ok(None)
                     }
                     Err(next_error) => {
@@ -927,47 +922,16 @@ impl Frame {
     ) -> FrameResult {
         let a = self.pop_value();
         let value = match op {
-            &bytecode::UnaryOperator::Minus => {
-                // TODO:
-                // self.invoke('__neg__'
-                match a.borrow().kind {
-                    PyObjectKind::Integer { value: ref value1 } => vm.ctx.new_int(-value1),
-                    PyObjectKind::Float { value: ref value1 } => vm.ctx.new_float(-*value1),
-                    _ => panic!("Not impl {:?}", a),
-                }
-            }
+            &bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
+            &bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
+            &bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
             &bytecode::UnaryOperator::Not => {
                 let value = objbool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)
             }
-            _ => panic!("Not impl {:?}", op),
         };
         self.push_value(value);
         Ok(None)
-    }
-
-    fn _eq(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__eq__", vec![b])
-    }
-
-    fn _ne(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__ne__", vec![b])
-    }
-
-    fn _lt(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__lt__", vec![b])
-    }
-
-    fn _le(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__le__", vec![b])
-    }
-
-    fn _gt(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__gt__", vec![b])
-    }
-
-    fn _ge(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__ge__", vec![b])
     }
 
     fn _id(&self, a: PyObjectRef) -> usize {
@@ -1035,17 +999,17 @@ impl Frame {
         let b = self.pop_value();
         let a = self.pop_value();
         let value = match op {
-            &bytecode::ComparisonOperator::Equal => self._eq(vm, a, b),
-            &bytecode::ComparisonOperator::NotEqual => self._ne(vm, a, b),
-            &bytecode::ComparisonOperator::Less => self._lt(vm, a, b),
-            &bytecode::ComparisonOperator::LessOrEqual => self._le(vm, a, b),
-            &bytecode::ComparisonOperator::Greater => self._gt(vm, a, b),
-            &bytecode::ComparisonOperator::GreaterOrEqual => self._ge(vm, a, b),
-            &bytecode::ComparisonOperator::Is => Ok(vm.ctx.new_bool(self._is(a, b))),
-            &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b),
-            &bytecode::ComparisonOperator::In => self._in(vm, a, b),
-            &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b),
-        }?;
+            &bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
+            &bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
+            &bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
+            &bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
+            &bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
+            &bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
+            &bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
+            &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
+            &bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
+            &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+        };
 
         self.push_value(value);
         Ok(None)
@@ -1103,10 +1067,6 @@ impl Frame {
 
     fn pop_block(&mut self) -> Option<Block> {
         self.blocks.pop()
-    }
-
-    fn last_block(&self) -> &Block {
-        self.blocks.last().unwrap()
     }
 
     pub fn push_value(&mut self, obj: PyObjectRef) {
