@@ -17,10 +17,7 @@ use super::obj::objlist;
 use super::obj::objobject;
 use super::obj::objtuple;
 use super::obj::objtype;
-use super::pyobject::{
-    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
-};
+use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult};
 use super::stdlib;
 use super::sysmodule;
 
@@ -146,8 +143,8 @@ impl VirtualMachine {
         self.call_method(&obj, "__str__", vec![])
     }
 
-    pub fn to_repr(&mut self, obj: PyObjectRef) -> PyResult {
-        self.call_method(&obj, "__repr__", vec![])
+    pub fn to_repr(&mut self, obj: &PyObjectRef) -> PyResult {
+        self.call_method(obj, "__repr__", vec![])
     }
 
     pub fn call_method(
@@ -363,9 +360,9 @@ impl VirtualMachine {
     ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
         // Extract elements from item, if possible:
         let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
-            objtuple::get_elements(value)
+            objtuple::get_elements(value).to_vec()
         } else if objtype::isinstance(value, &self.ctx.list_type()) {
-            objlist::get_elements(value)
+            objlist::get_elements(value).to_vec()
         } else {
             let iter = objiter::get_iter(self, value)?;
             objiter::get_all(self, &iter)?
@@ -379,6 +376,8 @@ impl VirtualMachine {
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Try __sub__, next __rsub__, next, give up
+        self.call_method(&a, "__sub__", vec![b])
+        /*
         if a.has_attr("__sub__") {
             self.call_method(&a, "__sub__", vec![b])
         } else if b.has_attr("__rsub__") {
@@ -392,6 +391,7 @@ impl VirtualMachine {
                 a_type_name, b_type_name
             )))
         }
+        */
     }
 
     pub fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

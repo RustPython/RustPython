@@ -556,15 +556,14 @@ impl Frame {
                 match expr.borrow().kind {
                     PyObjectKind::None => (),
                     _ => {
-                        let repr = vm.to_repr(expr.clone()).unwrap();
+                        let repr = vm.to_repr(&expr)?;
                         builtins::builtin_print(
                             vm,
                             PyFuncArgs {
                                 args: vec![repr],
                                 kwargs: vec![],
                             },
-                        )
-                        .unwrap();
+                        )?;
                     }
                 }
                 Ok(None)
@@ -857,17 +856,8 @@ impl Frame {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        let a2 = &mut *obj.borrow_mut();
-        match &mut a2.kind {
-            PyObjectKind::List { ref mut elements } => {
-                objlist::set_item(vm, elements, idx, value)?;
-                Ok(None)
-            }
-            _ => Err(vm.new_type_error(format!(
-                "TypeError: __setitem__ assign type {:?} with index {:?} is not supported (yet?)",
-                obj, idx
-            ))),
-        }
+        vm.call_method(&obj, "__setitem__", vec![idx, value])?;
+        Ok(None)
     }
 
     fn execute_delete_subscript(&mut self, vm: &mut VirtualMachine) -> FrameResult {

@@ -104,8 +104,8 @@ pub fn get_item(
 
 pub fn seq_equal(
     vm: &mut VirtualMachine,
-    zelf: Vec<PyObjectRef>,
-    other: Vec<PyObjectRef>,
+    zelf: &Vec<PyObjectRef>,
+    other: &Vec<PyObjectRef>,
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {

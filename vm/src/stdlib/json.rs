@@ -35,10 +35,10 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         S: serde::Serializer,
     {
         let serialize_seq_elements =
-            |serializer: S, elements: Vec<PyObjectRef>| -> Result<S::Ok, S::Error> {
+            |serializer: S, elements: &Vec<PyObjectRef>| -> Result<S::Ok, S::Error> {
                 let mut seq = serializer.serialize_seq(Some(elements.len()))?;
-                for e in elements {
-                    seq.serialize_element(&self.clone_with_object(&e))?;
+                for e in elements.iter() {
+                    seq.serialize_element(&self.clone_with_object(e))?;
                 }
                 seq.end()
             };
@@ -55,10 +55,10 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         // v.serialize(serializer)
         } else if objtype::isinstance(self.pyobject, &self.ctx.list_type()) {
             let elements = objlist::get_elements(self.pyobject);
-            serialize_seq_elements(serializer, elements)
+            serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.ctx.tuple_type()) {
             let elements = objtuple::get_elements(self.pyobject);
-            serialize_seq_elements(serializer, elements)
+            serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.ctx.dict_type()) {
             let elements = objdict::get_elements(self.pyobject);
             let mut map = serializer.serialize_map(Some(elements.len()))?;

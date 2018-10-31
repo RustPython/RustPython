@@ -51,13 +51,9 @@ fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(o);
     let mut str_parts = vec![];
     for elem in elements {
-        match vm.to_repr(elem.1) {
-            Ok(s) => {
-                let value_str = objstr::get_value(&s);
-                str_parts.push(format!("{}: {}", elem.0, value_str));
-            }
-            Err(err) => return Err(err),
-        }
+        let s = vm.to_repr(&elem.1)?;
+        let value_str = objstr::get_value(&s);
+        str_parts.push(format!("{}: {}", elem.0, value_str));
     }
 
     let s = format!("{{ {} }}", str_parts.join(", "));

@@ -9,6 +9,8 @@ use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
+use std::cell::Ref;
+use std::ops::Deref;
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -20,7 +22,7 @@ fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
-        seq_equal(vm, zelf, other)?
+        seq_equal(vm, &zelf, &other)?
     } else {
         false
     };
@@ -35,7 +37,7 @@ fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let len: usize = elements.len();
     let mut mult = 0xf4243;
 
-    for elem in &elements {
+    for elem in elements.iter() {
         let y: usize = objint::get_value(&vm.call_method(elem, "__hash__", vec![])?)
             .to_usize()
             .unwrap();
@@ -59,7 +61,7 @@ fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
 
     let mut str_parts = vec![];
-    for elem in elements {
+    for elem in elements.iter() {
         match vm.to_repr(elem) {
             Ok(s) => str_parts.push(objstr::get_value(&s)),
             Err(err) => return Err(err),
@@ -103,12 +105,14 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
-pub fn get_elements(obj: &PyObjectRef) -> Vec<PyObjectRef> {
-    if let PyObjectKind::Tuple { elements } = &obj.borrow().kind {
-        elements.to_vec()
-    } else {
-        panic!("Cannot extract elements from non-tuple");
-    }
+pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
+    Ref::map(obj.borrow(), |x| {
+        if let PyObjectKind::Tuple { ref elements } = x.kind {
+            elements
+        } else {
+            panic!("Cannot extract elements from non-tuple");
+        }
+    })
 }
 
 pub fn init(context: &PyContext) {

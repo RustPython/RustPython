@@ -500,7 +500,7 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_repr
 fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    vm.to_repr(obj.clone())
+    vm.to_repr(obj)
 }
 // builtin_reversed
 // builtin_round

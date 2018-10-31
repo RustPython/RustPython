@@ -100,7 +100,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(o);
     let mut str_parts = vec![];
     for elem in elements.values() {
-        let part = vm.to_repr(elem.clone())?;
+        let part = vm.to_repr(elem)?;
         str_parts.push(objstr::get_value(&part));
     }
 
