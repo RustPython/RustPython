@@ -17,7 +17,10 @@ use super::obj::objlist;
 use super::obj::objobject;
 use super::obj::objtuple;
 use super::obj::objtype;
-use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{
+    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
+};
 use super::stdlib;
 use super::sysmodule;
 
@@ -375,7 +378,20 @@ impl VirtualMachine {
     }
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__sub__", vec![b])
+        // Try __sub__, next __rsub__, next, give up
+        if a.has_attr("__sub__") {
+            self.call_method(&a, "__sub__", vec![b])
+        } else if b.has_attr("__rsub__") {
+            self.call_method(&b, "__rsub__", vec![a])
+        } else {
+            // Cannot sub a and b
+            let a_type_name = objtype::get_type_name(&a.typ());
+            let b_type_name = objtype::get_type_name(&b.typ());
+            Err(self.new_type_error(format!(
+                "Unsupported operand types for '-': '{}' and '{}'",
+                a_type_name, b_type_name
+            )))
+        }
     }
 
     pub fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
