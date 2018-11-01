@@ -4,6 +4,7 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objdict;
+use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
 use std::collections::HashMap;
 
@@ -137,34 +138,70 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(obj)
 }
 
-// pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &str) -> PyResult {
-//     let cls = obj.typ();
-//     trace!("get_attribute: {:?}, {:?}, {:?}", cls, obj, name);
-//     if let Some(attr) = cls.get_attr(name) {
-//         let attr_class = attr.typ();
-//         if let Some(descriptor) = attr_class.get_attr("__get__") {
-//             return vm.invoke(
-//                 descriptor,
-//                 PyFuncArgs {
-//                     args: vec![attr, obj, cls],
-//                     kwargs: vec![],
-//                 },
-//             );
-//         }
-//     }
+pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (cls, Some(vm.ctx.object())),
+            (name_str, Some(vm.ctx.str_type()))
+        ]
+    );
+    let name = objstr::get_value(&name_str);
+    trace!("type.__getattribute__({:?}, {:?})", cls, name);
+    let mcl = cls.typ();
 
-//     if let Some(obj_attr) = obj.get_attr(name) {
-//         Ok(obj_attr)
-//     } else if let Some(cls_attr) = cls.get_attr(name) {
-//         Ok(cls_attr)
-//     } else {
-//         let attribute_error = vm.context().exceptions.attribute_error.clone();
-//         Err(vm.new_exception(
-//             attribute_error,
-//             format!("{:?} object has no attribute {}", cls, name),
-//         ))
-//     }
-// }
+    if let Some(attr) = mcl.get_attr(&name) {
+        let attr_class = attr.typ();
+        if attr_class.has_attr("__set__") {
+            if let Some(descriptor) = attr_class.get_attr("__get__") {
+                return vm.invoke(
+                    descriptor,
+                    PyFuncArgs {
+                        args: vec![attr, cls.clone(), mcl],
+                        kwargs: vec![],
+                    },
+                );
+            }
+        }
+    }
+
+    if let Some(attr) = cls.get_attr(&name) {
+        let attr_class = attr.typ();
+        if let Some(descriptor) = attr_class.get_attr("__get__") {
+            let none = vm.get_none();
+            return vm.invoke(
+                descriptor,
+                PyFuncArgs {
+                    args: vec![attr, none, cls.clone()],
+                    kwargs: vec![],
+                },
+            );
+        }
+    }
+
+    if let Some(cls_attr) = cls.get_attr(&name) {
+        Ok(cls_attr)
+    } else if let Some(attr) = mcl.get_attr(&name) {
+        vm.call_get_descriptor(attr, cls.clone())
+    } else {
+        if let Some(getter) = cls.get_attr("__getattr__") {
+            vm.invoke(
+                getter,
+                PyFuncArgs {
+                    args: vec![mcl, name_str.clone()],
+                    kwargs: vec![],
+                },
+            )
+        } else {
+            let attribute_error = vm.context().exceptions.attribute_error.clone();
+            Err(vm.new_exception(
+                attribute_error,
+                format!("{:?} object {:?} has no attribute {}", mcl, cls, name),
+            ))
+        }
+    }
+}
 
 pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     // Gather all members here:

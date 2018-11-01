@@ -145,18 +145,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(obj_attr) = obj.get_attr(&name) {
         Ok(obj_attr)
     } else if let Some(attr) = cls.get_attr(&name) {
-        let attr_class = attr.typ();
-        if let Some(descriptor) = attr_class.get_attr("__get__") {
-            vm.invoke(
-                descriptor,
-                PyFuncArgs {
-                    args: vec![attr, obj.clone(), cls],
-                    kwargs: vec![],
-                },
-            )
-        } else {
-            Ok(attr)
-        }
+        vm.call_get_descriptor(attr, obj.clone())
     } else {
         if let Some(getter) = cls.get_attr("__getattr__") {
             vm.invoke(

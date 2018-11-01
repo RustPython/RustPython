@@ -14,7 +14,6 @@ use super::frame::{copy_code, Frame};
 use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objlist;
-use super::obj::objobject;
 use super::obj::objtuple;
 use super::obj::objtype;
 use super::pyobject::{
@@ -150,18 +149,37 @@ impl VirtualMachine {
         self.call_method(obj, "__repr__", vec![])
     }
 
+    pub fn call_get_descriptor(&mut self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
+        let attr_class = attr.typ();
+        if let Some(descriptor) = attr_class.get_attr("__get__") {
+            let cls = obj.typ();
+            self.invoke(
+                descriptor,
+                PyFuncArgs {
+                    args: vec![attr, obj.clone(), cls],
+                    kwargs: vec![],
+                },
+            )
+        } else {
+            Ok(attr)
+        }
+    }
+
     pub fn call_method(
         &mut self,
         obj: &PyObjectRef,
         method_name: &str,
         args: Vec<PyObjectRef>,
     ) -> PyResult {
-        let func = self.get_attribute(obj.clone(), method_name)?;
+        let cls = obj.typ();
+        let func = cls.get_attr(method_name).unwrap();
+        trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
+        let wrapped = self.call_get_descriptor(func, obj.clone())?;
         let args = PyFuncArgs {
             args: args,
             kwargs: vec![],
         };
-        self.invoke(func, args)
+        self.invoke(wrapped, args)
     }
 
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
@@ -177,18 +195,12 @@ impl VirtualMachine {
                 name: _,
                 dict: _,
                 mro: _,
-            } => {
-                let function = self.get_attribute(func_ref.clone(), "__call__")?;
-                self.invoke(function, args)
-            }
+            } => self.call_method(&func_ref, "__call__", args.args),
             PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectKind::Instance { .. } => {
-                let function = self.get_attribute(func_ref.clone(), "__call__")?;
-                self.invoke(function, args)
-            }
+            PyObjectKind::Instance { .. } => self.call_method(&func_ref, "__call__", args.args),
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
