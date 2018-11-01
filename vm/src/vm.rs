@@ -187,11 +187,16 @@ impl VirtualMachine {
         method_name: &str,
         args: PyFuncArgs,
     ) -> PyResult {
+        // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
         let cls = obj.typ();
-        let func = cls.get_attr(method_name).unwrap();
-        trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
-        let wrapped = self.call_get_descriptor(func, obj.clone())?;
-        self.invoke(wrapped, args)
+        match cls.get_attr(method_name) {
+            Some(func) => {
+                trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
+                let wrapped = self.call_get_descriptor(func, obj.clone())?;
+                self.invoke(wrapped, args)
+            }
+            None => Err(self.new_type_error(format!("Unsupported method: {}", method_name))),
+        }
     }
 
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
