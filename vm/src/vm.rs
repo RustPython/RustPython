@@ -171,14 +171,26 @@ impl VirtualMachine {
         method_name: &str,
         args: Vec<PyObjectRef>,
     ) -> PyResult {
+        self.call_method_pyargs(
+            obj,
+            method_name,
+            PyFuncArgs {
+                args: args,
+                kwargs: vec![],
+            },
+        )
+    }
+
+    pub fn call_method_pyargs(
+        &mut self,
+        obj: &PyObjectRef,
+        method_name: &str,
+        args: PyFuncArgs,
+    ) -> PyResult {
         let cls = obj.typ();
         let func = cls.get_attr(method_name).unwrap();
         trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
         let wrapped = self.call_get_descriptor(func, obj.clone())?;
-        let args = PyFuncArgs {
-            args: args,
-            kwargs: vec![],
-        };
         self.invoke(wrapped, args)
     }
 
@@ -195,12 +207,12 @@ impl VirtualMachine {
                 name: _,
                 dict: _,
                 mro: _,
-            } => self.call_method(&func_ref, "__call__", args.args),
+            } => self.call_method_pyargs(&func_ref, "__call__", args),
             PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectKind::Instance { .. } => self.call_method(&func_ref, "__call__", args.args),
+            PyObjectKind::Instance { .. } => self.call_method_pyargs(&func_ref, "__call__", args),
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
