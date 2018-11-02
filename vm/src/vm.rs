@@ -420,6 +420,10 @@ impl VirtualMachine {
         self.call_method(&obj, "__getattribute__", vec![attr_name])
     }
 
+    pub fn del_attr(&mut self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult {
+        self.call_method(&obj, "__delattr__", vec![attr_name])
+    }
+
     // get_method should be used for internal access to magic methods (by-passing
     // the full getattribute look-up.
     pub fn get_method(&mut self, obj: PyObjectRef, method_name: &str) -> PyResult {

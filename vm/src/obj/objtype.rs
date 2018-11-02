@@ -116,10 +116,7 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     debug!("type_call: {:?}", args);
     let typ = args.shift();
     let new = typ.get_attr("__new__").unwrap();
-    let obj = match vm.invoke(new, args.insert(typ.clone())) {
-        Ok(res) => res,
-        Err(err) => return Err(err),
-    };
+    let obj = vm.invoke(new, args.insert(typ.clone()))?;
 
     if let Some(init) = obj.typ().get_attr("__init__") {
         let res = vm.invoke(init, args.insert(obj.clone()))?;

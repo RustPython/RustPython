@@ -1021,7 +1021,7 @@ impl Frame {
     fn delete_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let name = vm.ctx.new_str(attr_name.to_string());
-        vm.call_method(&parent, "__delattr__", vec![name])?;
+        vm.del_attr(&parent, name)?;
         Ok(None)
     }
 

@@ -125,7 +125,14 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     compile::compile(vm, &source, mode, None)
 }
 
-// builtin_delattr
+fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(obj, None), (attr, Some(vm.ctx.str_type()))]
+    );
+    vm.del_attr(obj, attr.clone())
+}
 
 fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.is_empty() {
@@ -506,12 +513,9 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(obj, None), (attr, Some(vm.ctx.str_type())), (value, None)]
     );
-    if let PyObjectKind::String { value: ref name } = attr.borrow().kind {
-        obj.clone().set_attr(name, value.clone());
-        Ok(vm.get_none())
-    } else {
-        panic!("argument checking failure: attr not string")
-    }
+    let name = objstr::get_value(attr);
+    obj.clone().set_attr(&name, value.clone());
+    Ok(vm.get_none())
 }
 
 // builtin_slice
@@ -540,6 +544,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     dict.insert(String::from("complex"), ctx.complex_type());
+    dict.insert(String::from("delattr"), ctx.new_rustfunc(builtin_delattr));
     dict.insert(String::from("dict"), ctx.dict_type());
     dict.insert(String::from("divmod"), ctx.new_rustfunc(builtin_divmod));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));

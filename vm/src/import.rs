@@ -30,26 +30,18 @@ fn import_uncached_module(
     let source = parser::read_file(filepath.as_path())
         .map_err(|e| vm.new_exception(import_error.clone(), e))?;
 
-    let code_obj = match compile::compile(
+    let code_obj = compile::compile(
         vm,
         &source,
         compile::Mode::Exec,
         Some(filepath.to_str().unwrap().to_string()),
-    ) {
-        Ok(bytecode) => {
-            debug!("Code object: {:?}", bytecode);
-            bytecode
-        }
-        Err(value) => return Err(value),
-    };
+    )?;
+    debug!("Code object: {:?}", code_obj);
 
     let builtins = vm.get_builtin_scope();
     let scope = vm.ctx.new_scope(Some(builtins));
     scope.set_item(&"__name__".to_string(), vm.new_str(module.to_string()));
-    match vm.run_code_obj(code_obj, scope.clone()) {
-        Ok(_) => {}
-        Err(value) => return Err(value),
-    }
+    vm.run_code_obj(code_obj, scope.clone())?;
     Ok(vm.ctx.new_module(module, scope))
 }
 
