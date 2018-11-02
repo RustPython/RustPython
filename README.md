@@ -66,9 +66,14 @@ $ cargo test --all
 
 # Compiling to WebAssembly
 
+At this stage RustPython only has preliminary support for web assembly. The instructions here are intended for developers or those wishing to run a toy example.
+
 ## Setup
 
-Using `rustup` add the compile target `wasm32-unknown-emscripten`. To do so you will need to have [rustup](https://rustup.rs/) installed.
+To get started, install [wasm-bingden](https://rustwasm.github.io/wasm-bindgen/whirlwind-tour/basic-usage.html)
+and [wasm-webpack](https://rustwasm.github.io/wasm-pack/installer/). You will also need to have `npm` installed.
+
+<!-- Using `rustup` add the compile target `wasm32-unknown-emscripten`. To do so you will need to have [rustup](https://rustup.rs/) installed.
 
 ```bash
 rustup target add wasm32-unknown-emscripten
@@ -82,40 +87,57 @@ cd emsdk-portable/
 ./emsdk update
 ./emsdk install sdk-incoming-64bit
 ./emsdk activate sdk-incoming-64bit
-source ./emsdk_env.sh
-```
+``` -->
+
+
 
 ## Build
 
-Move into the `wasm` directory. This contains a custom binary crate optimized for a web assembly build. 
+Move into the `wasm` directory. This contains a custom library crate optimized for wasm build of RustPython.   
 
 ```bash
 cd wasm
 ```
 
 From here run the build. This can take several minutes depending on the machine.
-```
-cargo build --target=wasm32-unknown-emscripten --release
-```
-
-Upon successful build, the following files will be available:
-
 
 ```
-target/wasm32-unknown-emscripten/release/rustpython_wasm.wasm
-target/wasm32-unknown-emscripten/release/rustpython_wasm.js
+wasm-pack build
 ```
 
-- `rustpython_wasm.wasm`: the wasm build for rustpython. It includes both an parser and virtual machine.
-- `rustpython_wasm.js`: the loading scripts for the above wasm file.
-
-You will also find `index.html` in the `wasm` directory. 
-From here, you can copy these 3 files into the static assets directory of your web server and you should be
-able to see the ouput in the web console of your browser.
+Upon successful build, cd in the the `/pkg` directory and run:
 
 ```
-Hello RustPython!
+npm link
 ```
+
+Now move back out into the `/app` directory. The files here have been adapted from [wasm-pack-template](https://github.com/rustwasm/wasm-pack-template).
+
+Finally, run:
+
+```
+npm install
+```
+
+and you will be able to run the files with:
+
+```
+webpack-dev-server
+```
+
+Open a browser console and see the output of rustpython_wasm. To verify this, modify the line in `app/index.js`
+
+```js
+rp.run_code("print('Hello Python!')\n");
+```
+
+To the following:
+
+```js
+rp.run_code("assert(False)\n");
+```
+
+and you should observe: `Execution failed` in your console output, indicating that the execution of RustPython has failed.
 
 # Code style
 
