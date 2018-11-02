@@ -1,3 +1,10 @@
+//! This crate contains most python logic.
+//!
+//! - Compilation
+//! - Bytecode
+//! - Import mechanics
+//! - Base objects
+
 #[macro_use]
 extern crate bitflags;
 #[macro_use]

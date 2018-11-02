@@ -579,25 +579,6 @@ impl DictProtocol for PyObjectRef {
     }
 }
 
-pub trait ToRust {
-    fn to_vec(&self) -> Option<Vec<PyObjectRef>>;
-    fn to_str(&self) -> Option<String>;
-}
-
-impl ToRust for PyObjectRef {
-    fn to_vec(&self) -> Option<Vec<PyObjectRef>> {
-        match self.borrow().kind {
-            PyObjectKind::Tuple { ref elements } => Some(elements.clone()),
-            PyObjectKind::List { ref elements } => Some(elements.clone()),
-            _ => None,
-        }
-    }
-
-    fn to_str(&self) -> Option<String> {
-        Some(self.borrow().str())
-    }
-}
-
 impl fmt::Debug for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[PyObj {:?}]", self.kind)
@@ -772,6 +753,7 @@ impl PyObject {
         .into_ref()
     }
 
+    /// Deprecated method, please call `vm.to_pystr`
     pub fn str(&self) -> String {
         match self.kind {
             PyObjectKind::String { ref value } => value.clone(),

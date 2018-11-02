@@ -1,6 +1,6 @@
-/*
- * Implement abstract syntax tree nodes for the python language.
- */
+//! Implement abstract syntax tree nodes for the python language.
+//!
+//! Roughly equivalent to this: https://docs.python.org/3/library/ast.html
 
 pub use super::lexer::Location;
 /*
@@ -40,6 +40,7 @@ pub struct Located<T> {
 
 pub type LocatedStatement = Located<Statement>;
 
+/// Abstract syntax tree nodes for python statements.
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     Break,

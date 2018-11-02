@@ -1,6 +1,6 @@
 use super::super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
-    PyResult, ToRust, TypeProtocol,
+    PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objdict;
@@ -99,16 +99,14 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             required = [
                 (typ, Some(vm.ctx.type_type())),
                 (name, Some(vm.ctx.str_type())),
-                // bases needs to be mutable, which arg_check! doesn't support, so we just check
-                // the type and extract it again below
-                // TODO: arg_check! should support specifying iterables
-                (_bases, None),
+                (bases, None),
                 (dict, Some(vm.ctx.dict_type()))
             ]
         );
-        let mut bases = args.args[2].to_vec().unwrap();
+        let mut bases = vm.extract_elements(bases)?;
         bases.push(vm.context().object());
-        new(typ.clone(), &name.to_str().unwrap(), bases, dict.clone())
+        let name = objstr::get_value(name);
+        new(typ.clone(), &name, bases, dict.clone())
     } else {
         Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }
@@ -124,15 +122,11 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     };
 
     if let Some(init) = obj.typ().get_attr("__init__") {
-        match vm.invoke(init, args.insert(obj.clone())) {
-            Ok(res) => {
-                // TODO: assert that return is none?
-                if !isinstance(&res, &vm.get_none()) {
-                    // panic!("__init__ must return none");
-                    // return Err(vm.new_type_error("__init__ must return None".to_string()));
-                }
-            }
-            Err(err) => return Err(err),
+        let res = vm.invoke(init, args.insert(obj.clone()))?;
+        // TODO: assert that return is none?
+        if !isinstance(&res, &vm.get_none()) {
+            // panic!("__init__ must return none");
+            // return Err(vm.new_type_error("__init__ must return None".to_string()));
         }
     }
     Ok(obj)

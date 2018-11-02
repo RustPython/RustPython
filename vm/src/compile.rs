@@ -1,10 +1,10 @@
-/*
- * Take an AST and transform it into bytecode
- *
- * Inspirational code:
- *   https://github.com/python/cpython/blob/master/Python/compile.c
- *   https://github.com/micropython/micropython/blob/master/py/compile.c
- */
+//!
+//!
+//! Take an AST and transform it into bytecode
+//!
+//! Inspirational code:
+//!   https://github.com/python/cpython/blob/master/Python/compile.c
+//!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use super::bytecode::{self, CallType, CodeObject, Instruction};
 use super::pyobject::{PyObject, PyObjectKind, PyResult};
@@ -19,6 +19,7 @@ struct Compiler {
     current_source_location: ast::Location,
 }
 
+/// Compile a given sourcecode into a bytecode object.
 pub fn compile(
     vm: &mut VirtualMachine,
     source: &str,

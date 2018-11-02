@@ -16,7 +16,7 @@ use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult, ToRust, TypeProtocol,
+    PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -461,9 +461,8 @@ impl Frame {
                         let kwarg_names = self.pop_value();
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
 
-                        let kwarg_names = kwarg_names
-                            .to_vec()
-                            .unwrap()
+                        let kwarg_names = vm
+                            .extract_elements(&kwarg_names)?
                             .iter()
                             .map(|pyobj| objstr::get_value(pyobj))
                             .collect();

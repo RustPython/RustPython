@@ -1,3 +1,7 @@
+//! Builtin function definitions.
+//!
+//! Implements functions listed here: https://docs.python.org/3/library/builtins.html
+
 // use std::ops::Deref;
 use std::char;
 use std::collections::HashMap;
@@ -463,10 +467,8 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
     for a in args.args {
-        let s = match vm.to_str(a) {
-            Ok(v) => objstr::get_value(&v),
-            Err(err) => return Err(err),
-        };
+        let v = vm.to_str(&a)?;
+        let s = objstr::get_value(&v);
         print!("{}", s);
     }
     println!();

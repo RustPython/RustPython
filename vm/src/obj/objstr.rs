@@ -246,7 +246,7 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         panic!("str expects exactly one parameter");
     };
 
-    vm.to_str(args.args[1].clone())
+    vm.to_str(&args.args[1])
 }
 
 impl PySliceableSequence for String {

@@ -62,10 +62,8 @@ fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mut str_parts = vec![];
     for elem in elements.iter() {
-        match vm.to_repr(elem) {
-            Ok(s) => str_parts.push(objstr::get_value(&s)),
-            Err(err) => return Err(err),
-        }
+        let s = vm.to_repr(elem)?;
+        str_parts.push(objstr::get_value(&s));
     }
 
     let s = if str_parts.len() == 1 {

@@ -1,8 +1,8 @@
-/*
- * Implement virtual machine to run instructions.
- * See also:
- *   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
- */
+//! Implement virtual machine to run instructions.
+//!
+//! See also:
+//!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
+//!
 
 extern crate rustpython_parser;
 
@@ -14,6 +14,7 @@ use super::frame::{copy_code, Frame};
 use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objlist;
+use super::obj::objstr;
 use super::obj::objtuple;
 use super::obj::objtype;
 use super::pyobject::{
@@ -40,6 +41,7 @@ impl VirtualMachine {
         frame.run_frame_full(self)
     }
 
+    /// Create a new python string object.
     pub fn new_str(&self, s: String) -> PyObjectRef {
         self.ctx.new_str(s)
     }
@@ -141,8 +143,13 @@ impl VirtualMachine {
     }
 
     // Container of the virtual machine state:
-    pub fn to_str(&mut self, obj: PyObjectRef) -> PyResult {
+    pub fn to_str(&mut self, obj: &PyObjectRef) -> PyResult {
         self.call_method(&obj, "__str__", vec![])
+    }
+
+    pub fn to_pystr(&mut self, obj: &PyObjectRef) -> Result<String, PyObjectRef> {
+        let py_str_obj = self.to_str(obj)?;
+        Ok(objstr::get_value(&py_str_obj))
     }
 
     pub fn to_repr(&mut self, obj: &PyObjectRef) -> PyResult {

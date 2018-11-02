@@ -1,3 +1,6 @@
+//! This module takes care of lexing python source text. This means source
+//! code is translated into seperate tokens.
+
 pub use super::token::Tok;
 use std::collections::HashMap;
 

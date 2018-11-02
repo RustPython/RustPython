@@ -69,6 +69,25 @@ pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, String> {
     do_lalr_parsing!(source, Statement, StartStatement)
 }
 
+/// Parses a python expression
+///
+/// # Example
+/// ```
+/// use rustpython_parser::{parser, ast};
+/// let expr = parser::parse_expression("1+2").unwrap();
+///
+/// assert_eq!(ast::Expression::Binop {
+///         a: Box::new(ast::Expression::Number {
+///             value: ast::Number::Integer { value: 1 }
+///         }),
+///         op: ast::Operator::Add,
+///         b: Box::new(ast::Expression::Number {
+///             value: ast::Number::Integer { value: 2 }
+///         })
+///     },
+///     expr);
+///
+/// ```
 pub fn parse_expression(source: &str) -> Result<ast::Expression, String> {
     do_lalr_parsing!(source, Expression, StartExpression)
 }
