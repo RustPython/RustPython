@@ -247,14 +247,14 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let mut elements = HashMap::new();
+                let mut elements: HashMap<String, PyObjectRef> = HashMap::new();
                 for _x in 0..*size {
                     let obj = self.pop_value();
                     if *unpack {
                         // Take all key-value pairs from the dict:
                         let dict_elements = objdict::get_elements(&obj);
-                        for (key, obj) in dict_elements {
-                            elements.insert(key, obj);
+                        for (key, obj) in dict_elements.iter() {
+                            elements.insert(key.clone(), obj.clone());
                         }
                     } else {
                         // XXX: Currently, we only support String keys, so we have to unwrap the
@@ -471,7 +471,8 @@ impl Frame {
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
                             let kw_dict = self.pop_value();
-                            objdict::get_elements(&kw_dict).into_iter().collect()
+                            let dict_elements = objdict::get_elements(&kw_dict).clone();
+                            dict_elements.into_iter().collect()
                         } else {
                             vec![]
                         };

@@ -6,17 +6,9 @@ use super::super::vm::VirtualMachine;
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
+use std::cell::{Ref, RefMut};
 use std::collections::HashMap;
-
-pub fn _set_item(
-    vm: &mut VirtualMachine,
-    _d: PyObjectRef,
-    _idx: PyObjectRef,
-    _obj: PyObjectRef,
-) -> PyResult {
-    // TODO: Implement objdict::set_item
-    Ok(vm.get_none())
-}
+use std::ops::{Deref, DerefMut};
 
 pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     PyObject::new(
@@ -27,12 +19,28 @@ pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     )
 }
 
-pub fn get_elements(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
-    if let PyObjectKind::Dict { elements } = &obj.borrow().kind {
-        elements.clone()
-    } else {
-        panic!("Cannot extract dict elements");
-    }
+pub fn get_elements<'a>(
+    obj: &'a PyObjectRef,
+) -> impl Deref<Target = HashMap<String, PyObjectRef>> + 'a {
+    Ref::map(obj.borrow(), |py_obj| {
+        if let PyObjectKind::Dict { ref elements } = py_obj.kind {
+            elements
+        } else {
+            panic!("Cannot extract dict elements");
+        }
+    })
+}
+
+fn get_mut_elements<'a>(
+    obj: &'a PyObjectRef,
+) -> impl DerefMut<Target = HashMap<String, PyObjectRef>> + 'a {
+    RefMut::map(obj.borrow_mut(), |py_obj| {
+        if let PyObjectKind::Dict { ref mut elements } = py_obj.kind {
+            elements
+        } else {
+            panic!("Cannot extract dict elements");
+        }
+    })
 }
 
 fn dict_new(_vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -50,13 +58,13 @@ fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let elements = get_elements(o);
     let mut str_parts = vec![];
-    for elem in elements {
+    for elem in elements.iter() {
         let s = vm.to_repr(&elem.1)?;
         let value_str = objstr::get_value(&s);
         str_parts.push(format!("{}: {}", elem.0, value_str));
     }
 
-    let s = format!("{{ {} }}", str_parts.join(", "));
+    let s = format!("{{{}}}", str_parts.join(", "));
     Ok(vm.new_str(s))
 }
 
@@ -80,7 +88,7 @@ pub fn dict_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
-pub fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -94,18 +102,34 @@ pub fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let needle = objstr::get_value(&needle);
 
     // Delete the item:
-    let mut dict_obj = dict.borrow_mut();
-    if let PyObjectKind::Dict { ref mut elements } = dict_obj.kind {
-        match elements.remove(&needle) {
-            Some(_) => Ok(vm.get_none()),
-            None => Err(vm.new_value_error(format!("Key not found: {}", needle))),
-        }
-    } else {
-        panic!("Cannot extract dict elements");
+    let mut elements = get_mut_elements(dict);
+    match elements.remove(&needle) {
+        Some(_) => Ok(vm.get_none()),
+        None => Err(vm.new_value_error(format!("Key not found: {}", needle))),
     }
 }
 
-pub fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn dict_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (dict, Some(vm.ctx.dict_type())),
+            (needle, Some(vm.ctx.str_type())),
+            (value, None)
+        ]
+    );
+
+    // What we are looking for:
+    let needle = objstr::get_value(&needle);
+
+    // Delete the item:
+    let mut elements = get_mut_elements(dict);
+    elements.insert(needle, value.clone());
+    Ok(vm.get_none())
+}
+
+fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -143,4 +167,5 @@ pub fn init(context: &PyContext) {
     dict_type.set_attr("__getitem__", context.new_rustfunc(dict_getitem));
     dict_type.set_attr("__new__", context.new_rustfunc(dict_new));
     dict_type.set_attr("__repr__", context.new_rustfunc(dict_repr));
+    dict_type.set_attr("__setitem__", context.new_rustfunc(dict_setitem));
 }

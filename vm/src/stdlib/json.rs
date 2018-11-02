@@ -62,7 +62,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject, &self.ctx.dict_type()) {
             let elements = objdict::get_elements(self.pyobject);
             let mut map = serializer.serialize_map(Some(elements.len()))?;
-            for (key, e) in elements {
+            for (key, e) in elements.iter() {
                 map.serialize_entry(&key, &self.clone_with_object(&e))?;
             }
             map.end()

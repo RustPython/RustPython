@@ -95,10 +95,8 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-// builtin_bool
 // builtin_breakpoint
 // builtin_bytearray
-// builtin_bytes
 // builtin_callable
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -219,7 +217,6 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_filter
-// builtin_float
 // builtin_format
 // builtin_frozenset
 
@@ -275,7 +272,6 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_input
-// builtin_int
 
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None), (typ, None)]);
@@ -324,8 +320,6 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     }
 }
-
-// builtin_list
 
 fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
@@ -412,7 +406,6 @@ fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-// builtin_object
 // builtin_oct
 // builtin_open
 
@@ -498,14 +491,12 @@ fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-// builtin_repr
 fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
     vm.to_repr(obj)
 }
 // builtin_reversed
 // builtin_round
-// builtin_set
 
 fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -570,12 +561,10 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("list"), ctx.list_type());
     dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
     dict.insert(String::from("map"), ctx.new_rustfunc(builtin_map));
-
     dict.insert(String::from("max"), ctx.new_rustfunc(builtin_max));
     dict.insert(String::from("min"), ctx.new_rustfunc(builtin_min));
-
+    dict.insert(String::from("object"), ctx.object());
     dict.insert(String::from("ord"), ctx.new_rustfunc(builtin_ord));
-
     dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
     dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
@@ -586,7 +575,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("str"), ctx.str_type());
     dict.insert(String::from("tuple"), ctx.tuple_type());
     dict.insert(String::from("type"), ctx.type_type());
-    dict.insert(String::from("object"), ctx.object());
 
     // Exceptions:
     dict.insert(
