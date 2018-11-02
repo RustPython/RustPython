@@ -123,9 +123,8 @@ impl Frame {
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
                     ));
-                    let traceback = vm
-                        .get_method(exception.clone(), &"__traceback__".to_string())
-                        .unwrap();
+                    let traceback_name = vm.new_str("__traceback__".to_string());
+                    let traceback = vm.get_attribute(exception.clone(), traceback_name).unwrap();
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
