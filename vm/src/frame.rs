@@ -123,9 +123,8 @@ impl Frame {
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
                     ));
-                    let traceback = vm
-                        .get_attribute(exception.clone(), &"__traceback__".to_string())
-                        .unwrap();
+                    let traceback_name = vm.new_str("__traceback__".to_string());
+                    let traceback = vm.get_attribute(exception.clone(), traceback_name).unwrap();
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
@@ -1007,6 +1006,7 @@ impl Frame {
 
     fn load_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
+        let attr_name = vm.new_str(attr_name.to_string());
         let obj = vm.get_attribute(parent, attr_name)?;
         self.push_value(obj);
         Ok(None)

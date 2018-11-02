@@ -14,10 +14,12 @@ use super::frame::{copy_code, Frame};
 use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objlist;
-use super::obj::objobject;
 use super::obj::objtuple;
 use super::obj::objtype;
-use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult};
+use super::pyobject::{
+    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
+};
 use super::stdlib;
 use super::sysmodule;
 
@@ -147,18 +149,54 @@ impl VirtualMachine {
         self.call_method(obj, "__repr__", vec![])
     }
 
+    pub fn call_get_descriptor(&mut self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
+        let attr_class = attr.typ();
+        if let Some(descriptor) = attr_class.get_attr("__get__") {
+            let cls = obj.typ();
+            self.invoke(
+                descriptor,
+                PyFuncArgs {
+                    args: vec![attr, obj.clone(), cls],
+                    kwargs: vec![],
+                },
+            )
+        } else {
+            Ok(attr)
+        }
+    }
+
     pub fn call_method(
         &mut self,
         obj: &PyObjectRef,
         method_name: &str,
         args: Vec<PyObjectRef>,
     ) -> PyResult {
-        let func = self.get_attribute(obj.clone(), method_name)?;
-        let args = PyFuncArgs {
-            args: args,
-            kwargs: vec![],
-        };
-        self.invoke(func, args)
+        self.call_method_pyargs(
+            obj,
+            method_name,
+            PyFuncArgs {
+                args: args,
+                kwargs: vec![],
+            },
+        )
+    }
+
+    pub fn call_method_pyargs(
+        &mut self,
+        obj: &PyObjectRef,
+        method_name: &str,
+        args: PyFuncArgs,
+    ) -> PyResult {
+        // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
+        let cls = obj.typ();
+        match cls.get_attr(method_name) {
+            Some(func) => {
+                trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
+                let wrapped = self.call_get_descriptor(func, obj.clone())?;
+                self.invoke(wrapped, args)
+            }
+            None => Err(self.new_type_error(format!("Unsupported method: {}", method_name))),
+        }
     }
 
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
@@ -174,12 +212,12 @@ impl VirtualMachine {
                 name: _,
                 dict: _,
                 mro: _,
-            } => objtype::call(self, func_ref.clone(), args),
+            } => self.call_method_pyargs(&func_ref, "__call__", args),
             PyObjectKind::BoundMethod {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectKind::Instance { .. } => objobject::call(self, args.insert(func_ref.clone())),
+            PyObjectKind::Instance { .. } => self.call_method_pyargs(&func_ref, "__call__", args),
             ref kind => {
                 unimplemented!("invoke unimplemented for: {:?}", kind);
             }
@@ -370,8 +408,22 @@ impl VirtualMachine {
         Ok(elements)
     }
 
-    pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &str) -> PyResult {
-        objtype::get_attribute(self, obj.clone(), attr_name)
+    // get_attribute should be used for full attribute access (usually from user code).
+    pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: PyObjectRef) -> PyResult {
+        self.call_method(&obj, "__getattribute__", vec![attr_name])
+    }
+
+    // get_method should be used for internal access to magic methods (by-passing
+    // the full getattribute look-up.
+    pub fn get_method(&mut self, obj: PyObjectRef, method_name: &str) -> PyResult {
+        let cls = obj.typ();
+        match cls.get_attr(method_name) {
+            Some(method) => self.call_get_descriptor(method, obj.clone()),
+            None => {
+                Err(self
+                    .new_type_error(format!("{:?} object has no method {:?}", obj, method_name)))
+            }
+        }
     }
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

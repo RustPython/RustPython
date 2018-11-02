@@ -634,6 +634,15 @@ impl PyFuncArgs {
     pub fn shift(&mut self) -> PyObjectRef {
         self.args.remove(0)
     }
+
+    pub fn get_kwarg(&self, key: &str, default: PyObjectRef) -> PyObjectRef {
+        for (arg_name, arg_value) in self.kwargs.iter() {
+            if arg_name == key {
+                return arg_value.clone();
+            }
+        }
+        default.clone()
+    }
 }
 
 type RustPyFunc = fn(vm: &mut VirtualMachine, PyFuncArgs) -> PyResult;

@@ -127,7 +127,8 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
         }
         Err(err) => {
             // Enum rather than special string here.
-            let msg = match vm.get_attribute(err.clone(), "msg") {
+            let name = vm.new_str("msg".to_string());
+            let msg = match vm.get_attribute(err.clone(), name) {
                 Ok(value) => objstr::get_value(&value),
                 Err(_) => panic!("Expected msg attribute on exception object!"),
             };
