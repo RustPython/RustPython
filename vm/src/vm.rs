@@ -408,19 +408,21 @@ impl VirtualMachine {
         Ok(elements)
     }
 
-    pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: &str) -> PyResult {
+    // get_attribute should be used for full attribute access (usually from user code).
+    pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: PyObjectRef) -> PyResult {
+        self.call_method(&obj, "__getattribute__", vec![attr_name])
+    }
+
+    // get_method should be used for internal access to magic methods (by-passing
+    // the full getattribute look-up.
+    pub fn get_method(&mut self, obj: PyObjectRef, method_name: &str) -> PyResult {
         let cls = obj.typ();
-        if let Some(attr) = cls.get_attr("__getattribute__") {
-            let name = self.new_str(attr_name.to_string());
-            self.invoke(
-                attr,
-                PyFuncArgs {
-                    args: vec![obj.clone(), name],
-                    kwargs: vec![],
-                },
-            )
-        } else {
-            panic!("Everything should have a __getattribute__");
+        match cls.get_attr(method_name) {
+            Some(method) => self.call_get_descriptor(method, obj.clone()),
+            None => {
+                Err(self
+                    .new_type_error(format!("{:?} object has no method {:?}", obj, method_name)))
+            }
         }
     }
 

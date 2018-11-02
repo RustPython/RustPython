@@ -300,11 +300,6 @@ fn type_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(format!("<class '{}'>", type_name)))
 }
 
-pub fn call(vm: &mut VirtualMachine, typ: PyObjectRef, args: PyFuncArgs) -> PyResult {
-    let function = vm.get_attribute(typ, &String::from("__call__"))?;
-    vm.invoke(function, args)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{linearise_mro, new};

@@ -50,7 +50,7 @@ fn dir_object(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyObjectRef {
 
 fn builtin_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None)]);
-    match vm.get_attribute(x.clone(), &"__abs__") {
+    match vm.get_method(x.clone(), "__abs__") {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![], vec![])),
         Err(..) => Err(vm.new_type_error("bad operand for abs".to_string())),
     }
@@ -134,7 +134,7 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None), (y, None)]);
-    match vm.get_attribute(x.clone(), &"__divmod__") {
+    match vm.get_method(x.clone(), "__divmod__") {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
         Err(..) => Err(vm.new_type_error("unsupported operand type(s) for divmod".to_string())),
     }
@@ -218,11 +218,7 @@ fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(obj, None), (attr, Some(vm.ctx.str_type()))]
     );
-    if let PyObjectKind::String { ref value } = attr.borrow().kind {
-        vm.get_attribute(obj.clone(), value)
-    } else {
-        panic!("argument checking failure: attr not string")
-    }
+    vm.get_attribute(obj.clone(), attr.clone())
 }
 
 // builtin_globals
@@ -233,15 +229,11 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(obj, None), (attr, Some(vm.ctx.str_type()))]
     );
-    if let PyObjectKind::String { ref value } = attr.borrow().kind {
-        let has_attr = match vm.get_attribute(obj.clone(), value) {
-            Ok(..) => true,
-            Err(..) => false,
-        };
-        Ok(vm.context().new_bool(has_attr))
-    } else {
-        panic!("argument checking failure: attr not string")
-    }
+    let has_attr = match vm.get_attribute(obj.clone(), attr.clone()) {
+        Ok(..) => true,
+        Err(..) => false,
+    };
+    Ok(vm.context().new_bool(has_attr))
 }
 
 fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -308,7 +300,7 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
         _ => {
             let len_method_name = "__len__".to_string();
-            match vm.get_attribute(obj.clone(), &len_method_name) {
+            match vm.get_method(obj.clone(), &len_method_name) {
                 Ok(value) => vm.invoke(value, PyFuncArgs::default()),
                 Err(..) => Err(vm.context().new_str(
                     format!(
@@ -444,7 +436,7 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(mod_value, Some(vm.ctx.int_type()))]
     );
     let pow_method_name = "__pow__".to_string();
-    let result = match vm.get_attribute(x.clone(), &pow_method_name) {
+    let result = match vm.get_method(x.clone(), &pow_method_name) {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
         Err(..) => Err(vm.new_type_error("unsupported operand type(s) for pow".to_string())),
     };
@@ -454,7 +446,7 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match mod_value {
         Some(mod_value) => {
             let mod_method_name = "__mod__".to_string();
-            match vm.get_attribute(
+            match vm.get_method(
                 result.expect("result not defined").clone(),
                 &mod_method_name,
             ) {
