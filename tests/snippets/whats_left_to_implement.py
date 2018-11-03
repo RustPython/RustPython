@@ -873,12 +873,11 @@ for method in bytes_expected_methods:
         not_implemented.append(("bytes", method))
 
 for method in complex_expected_methods:
-# TODO: uncomment this when complex is implemented
-#    try:
-#        if not hasattr(complex, method):
-#            not_implemented.append(("complex", method))
-#    except NameError:
-    not_implemented.append(("complex", method))
+    try:
+        if not hasattr(complex, method):
+            not_implemented.append(("complex", method))
+    except NameError:
+        not_implemented.append(("complex", method))
 
 for method in dict_expected_methods:
     try:

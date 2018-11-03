@@ -12,6 +12,7 @@ pub fn init(context: &PyContext) {
     complex_type.set_attr("__add__", context.new_rustfunc(complex_add));
     complex_type.set_attr("__new__", context.new_rustfunc(complex_new));
     complex_type.set_attr("__repr__", context.new_rustfunc(complex_repr));
+    complex_type.set_attr("conjugate", context.new_rustfunc(complex_conjugate));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
@@ -62,6 +63,13 @@ fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
+}
+
+fn complex_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.complex_type()))]);
+
+    let v1 = get_value(i);
+    Ok(vm.ctx.new_complex(v1.conj()))
 }
 
 fn complex_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
