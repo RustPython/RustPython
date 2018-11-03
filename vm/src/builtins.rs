@@ -635,7 +635,19 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let metaclass = args.get_kwarg("metaclass", vm.get_type());
 
     bases.push(vm.context().object());
-    let namespace = vm.new_dict();
+    let bases = vm.context().new_tuple(bases);
+
+    // Prepare uses full __getattribute__ resolution chain.
+    let prepare_name = vm.new_str("__prepare__".to_string());
+    let prepare = vm.get_attribute(metaclass.clone(), prepare_name)?;
+    let namespace = vm.invoke(
+        prepare,
+        PyFuncArgs {
+            args: vec![name_arg.clone(), bases.clone()],
+            kwargs: vec![],
+        },
+    )?;
+
     &vm.invoke(
         function,
         PyFuncArgs {
@@ -643,8 +655,6 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
             kwargs: vec![],
         },
     );
-
-    let bases = vm.context().new_tuple(bases);
 
     // Special case: __new__ must be looked up on the metaclass, not the meta-metaclass as
     // per vm.call(metaclass, "__new__", ...)
