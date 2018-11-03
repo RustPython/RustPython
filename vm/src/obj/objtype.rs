@@ -115,16 +115,17 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     debug!("type_call: {:?}", args);
-    let typ = args.shift();
-    let new = typ.get_attr("__new__").unwrap();
-    let obj = vm.invoke(new, args.insert(typ.clone()))?;
+    let cls = args.shift();
+    let new = cls.get_attr("__new__").unwrap();
+    let new_wrapped = vm.call_get_descriptor(new, cls)?;
+    let obj = vm.invoke(new_wrapped, args.clone())?;
 
-    if let Some(init) = obj.typ().get_attr("__init__") {
-        let res = vm.invoke(init, args.insert(obj.clone()))?;
+    if let Ok(init) = vm.get_method(obj.clone(), "__init__") {
+        let res = vm.invoke(init, args)?;
         // TODO: assert that return is none?
         if !isinstance(&res, &vm.get_none()) {
             // panic!("__init__ must return none");
-            // return Err(vm.new_type_error("__init__ must return None".to_string()));
+            //     return Err(vm.new_type_error("__init__ must return None".to_string()));
         }
     }
     Ok(obj)

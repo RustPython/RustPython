@@ -19,7 +19,7 @@ use super::pyobject::{
 };
 use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
@@ -61,9 +61,7 @@ fn builtin_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iterable, None)]);
-    let items = vm.extract_elements(iterable)?;
-    for item in items {
+    for item in args.args {
         let result = objbool::boolval(vm, item)?;
         if !result {
             return Ok(vm.new_bool(false));
@@ -73,9 +71,7 @@ fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iterable, None)]);
-    let items = vm.extract_elements(iterable)?;
-    for item in items {
+    for item in args.args {
         let result = objbool::boolval(vm, item)?;
         if result {
             return Ok(vm.new_bool(true));
@@ -100,6 +96,7 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_breakpoint
+// builtin_bytearray
 // builtin_callable
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -301,16 +298,26 @@ fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    let len_method_name = "__len__".to_string();
-    match vm.get_method(obj.clone(), &len_method_name) {
-        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
-        Err(..) => Err(vm.context().new_str(
-            format!(
-                "TypeError: object of this {:?} type has no method {:?}",
-                obj, len_method_name
-            )
-            .to_string(),
-        )),
+    match obj.borrow().kind {
+        PyObjectKind::Dict { ref elements } => {
+            Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+        }
+        PyObjectKind::Tuple { ref elements } => {
+            Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+        }
+        _ => {
+            let len_method_name = "__len__".to_string();
+            match vm.get_method(obj.clone(), &len_method_name) {
+                Ok(value) => vm.invoke(value, PyFuncArgs::default()),
+                Err(..) => Err(vm.context().new_str(
+                    format!(
+                        "TypeError: object of this {:?} type has no method {:?}",
+                        obj, len_method_name
+                    )
+                    .to_string(),
+                )),
+            }
+        }
     }
 }
 
@@ -505,19 +512,7 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_slice
 // builtin_sorted
 // builtin_staticmethod
-
-fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iterable, None)]);
-    let items = vm.extract_elements(iterable)?;
-
-    // Start with zero and add at will:
-    let mut sum = vm.ctx.new_int(Zero::zero());
-    for item in items {
-        sum = vm._add(sum, item)?;
-    }
-    Ok(sum)
-}
-
+// builtin_sum
 // builtin_super
 // builtin_vars
 // builtin_zip
@@ -536,7 +531,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
     dict.insert(String::from("bin"), ctx.new_rustfunc(builtin_bin));
     dict.insert(String::from("bool"), ctx.bool_type());
-    dict.insert(String::from("bytearray"), ctx.bytearray_type());
     dict.insert(String::from("bytes"), ctx.bytes_type());
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
@@ -579,7 +573,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("set"), ctx.set_type());
     dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
     dict.insert(String::from("str"), ctx.str_type());
-    dict.insert(String::from("sum"), ctx.new_rustfunc(builtin_sum));
     dict.insert(String::from("tuple"), ctx.tuple_type());
     dict.insert(String::from("type"), ctx.type_type());
 
@@ -642,19 +635,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let metaclass = args.get_kwarg("metaclass", vm.get_type());
 
     bases.push(vm.context().object());
-    let bases = vm.context().new_tuple(bases);
-
-    // Prepare uses full __getattribute__ resolution chain.
-    let prepare_name = vm.new_str("__prepare__".to_string());
-    let prepare = vm.get_attribute(metaclass.clone(), prepare_name)?;
-    let namespace = vm.invoke(
-        prepare,
-        PyFuncArgs {
-            args: vec![name_arg.clone(), bases.clone()],
-            kwargs: vec![],
-        },
-    )?;
-
+    let namespace = vm.new_dict();
     &vm.invoke(
         function,
         PyFuncArgs {
@@ -663,15 +644,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         },
     );
 
-    // Special case: __new__ must be looked up on the metaclass, not the meta-metaclass as
-    // per vm.call(metaclass, "__new__", ...)
-    let new = metaclass.get_attr("__new__").unwrap();
-    let wrapped = vm.call_get_descriptor(new, metaclass)?;
-    vm.invoke(
-        wrapped,
-        PyFuncArgs {
-            args: vec![name_arg, bases, namespace],
-            kwargs: vec![],
-        },
-    )
+    let bases = vm.context().new_tuple(bases);
+
+    vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
 }
