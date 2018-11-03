@@ -5,13 +5,13 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objsequence::{get_item, seq_equal, PySliceableSequence};
+use super::objsequence::{
+    get_elements, get_item, get_mut_elements, seq_equal, PySliceableSequence,
+};
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
-use std::cell::{Ref, RefMut};
-use std::ops::{Deref, DerefMut};
 
 // set_item:
 fn set_item(
@@ -33,28 +33,6 @@ fn set_item(
     }
 }
 
-pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    Ref::map(obj.borrow(), |x| {
-        if let PyObjectKind::List { ref elements } = x.kind {
-            elements
-        } else {
-            panic!("Cannot extract list elements from non-list");
-        }
-    })
-}
-
-pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<PyObjectRef>> + 'a {
-    RefMut::map(obj.borrow_mut(), |x| {
-        if let PyObjectKind::List { ref mut elements } = x.kind {
-            elements
-        } else {
-            panic!("Cannot extract list elements from non-list");
-            // TODO: raise proper error?
-            // Err(vm.new_type_error("list.append is called with no list".to_string()))
-        }
-    })
-}
-
 fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -74,7 +52,7 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectKind::List { elements: elements },
+        PyObjectKind::Sequence { elements: elements },
         cls.clone(),
     ))
 }

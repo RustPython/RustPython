@@ -297,26 +297,16 @@ fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    match obj.borrow().kind {
-        PyObjectKind::Dict { ref elements } => {
-            Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
-        }
-        PyObjectKind::Tuple { ref elements } => {
-            Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
-        }
-        _ => {
-            let len_method_name = "__len__".to_string();
-            match vm.get_method(obj.clone(), &len_method_name) {
-                Ok(value) => vm.invoke(value, PyFuncArgs::default()),
-                Err(..) => Err(vm.context().new_str(
-                    format!(
-                        "TypeError: object of this {:?} type has no method {:?}",
-                        obj, len_method_name
-                    )
-                    .to_string(),
-                )),
-            }
-        }
+    let len_method_name = "__len__".to_string();
+    match vm.get_method(obj.clone(), &len_method_name) {
+        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
+        Err(..) => Err(vm.context().new_str(
+            format!(
+                "TypeError: object of this {:?} type has no method {:?}",
+                obj, len_method_name
+            )
+            .to_string(),
+        )),
     }
 }
 

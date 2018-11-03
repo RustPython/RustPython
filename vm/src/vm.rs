@@ -13,9 +13,8 @@ use super::bytecode;
 use super::frame::{copy_code, Frame};
 use super::obj::objgenerator;
 use super::obj::objiter;
-use super::obj::objlist;
+use super::obj::objsequence;
 use super::obj::objstr;
-use super::obj::objtuple;
 use super::obj::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
@@ -344,7 +343,7 @@ impl VirtualMachine {
         // function definition calls for
         if nargs < nexpected_args {
             let available_defaults = match defaults.borrow().kind {
-                PyObjectKind::Tuple { ref elements } => elements.clone(),
+                PyObjectKind::Sequence { ref elements } => elements.clone(),
                 PyObjectKind::None => vec![],
                 _ => panic!("function defaults not tuple or None"),
             };
@@ -405,9 +404,9 @@ impl VirtualMachine {
     ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
         // Extract elements from item, if possible:
         let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
-            objtuple::get_elements(value).to_vec()
+            objsequence::get_elements(value).to_vec()
         } else if objtype::isinstance(value, &self.ctx.list_type()) {
-            objlist::get_elements(value).to_vec()
+            objsequence::get_elements(value).to_vec()
         } else {
             let iter = objiter::get_iter(self, value)?;
             objiter::get_all(self, &iter)?

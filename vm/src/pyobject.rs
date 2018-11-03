@@ -323,13 +323,16 @@ impl PyContext {
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::Tuple { elements: elements },
+            PyObjectKind::Sequence { elements: elements },
             self.tuple_type(),
         )
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyObjectKind::List { elements: elements }, self.list_type())
+        PyObject::new(
+            PyObjectKind::Sequence { elements: elements },
+            self.list_type(),
+        )
     }
 
     pub fn new_set(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
@@ -673,10 +676,7 @@ pub enum PyObjectKind {
     Bytes {
         value: Vec<u8>,
     },
-    List {
-        elements: Vec<PyObjectRef>,
-    },
-    Tuple {
+    Sequence {
         elements: Vec<PyObjectRef>,
     },
     Dict {
@@ -737,9 +737,8 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Integer { ref value } => write!(f, "int {}", value),
             &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
             &PyObjectKind::Complex { ref value } => write!(f, "complex {}", value),
-            &PyObjectKind::Bytes { ref value } => write!(f, "bytes {:?}", value),
-            &PyObjectKind::List { elements: _ } => write!(f, "list"),
-            &PyObjectKind::Tuple { elements: _ } => write!(f, "tuple"),
+            &PyObjectKind::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
+            &PyObjectKind::Sequence { elements: _ } => write!(f, "list or tuple"),
             &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
             &PyObjectKind::Set { elements: _ } => write!(f, "set"),
             &PyObjectKind::Iterator {
@@ -790,28 +789,14 @@ impl PyObject {
             PyObjectKind::Float { ref value } => format!("{:?}", value),
             PyObjectKind::Complex { ref value } => format!("{:?}", value),
             PyObjectKind::Bytes { ref value } => format!("b'{:?}'", value),
-            PyObjectKind::List { ref elements } => format!(
-                "[{}]",
+            PyObjectKind::Sequence { ref elements } => format!(
+                "(/[{}]/)",
                 elements
                     .iter()
                     .map(|elem| elem.borrow().str())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            PyObjectKind::Tuple { ref elements } => {
-                if elements.len() == 1 {
-                    format!("({},)", elements[0].borrow().str())
-                } else {
-                    format!(
-                        "({})",
-                        elements
-                            .iter()
-                            .map(|elem| elem.borrow().str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                }
-            }
             PyObjectKind::Dict { ref elements } => format!(
                 "{{ {} }}",
                 elements

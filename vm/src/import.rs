@@ -8,8 +8,9 @@ use std::path::PathBuf;
 
 use self::rustpython_parser::parser;
 use super::compile;
-use super::pyobject::{DictProtocol, PyObjectKind, PyResult};
+use super::pyobject::{DictProtocol, PyResult};
 use super::vm::VirtualMachine;
+use obj::{objsequence, objstr};
 
 fn import_uncached_module(
     vm: &mut VirtualMachine,
@@ -78,16 +79,10 @@ pub fn import(
 
 fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
     let sys_path = vm.sys_module.get_item("path").unwrap();
-    let mut paths: Vec<PathBuf> = match sys_path.borrow().kind {
-        PyObjectKind::List { ref elements } => elements
-            .iter()
-            .filter_map(|item| match item.borrow().kind {
-                PyObjectKind::String { ref value } => Some(PathBuf::from(value)),
-                _ => None,
-            })
-            .collect(),
-        _ => panic!("sys.path unexpectedly not a list"),
-    };
+    let mut paths: Vec<PathBuf> = objsequence::get_elements(&sys_path)
+        .iter()
+        .map(|item| PathBuf::from(objstr::get_value(item)))
+        .collect();
 
     paths.insert(0, current_path);
 

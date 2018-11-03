@@ -5,13 +5,11 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objsequence::{get_item, seq_equal};
+use super::objsequence::{get_elements, get_item, seq_equal};
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
-use std::cell::Ref;
-use std::ops::Deref;
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -75,7 +73,7 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectKind::Tuple { elements: elements },
+        PyObjectKind::Sequence { elements: elements },
         cls.clone(),
     ))
 }
@@ -126,16 +124,6 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     Ok(vm.new_bool(false))
-}
-
-pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    Ref::map(obj.borrow(), |x| {
-        if let PyObjectKind::Tuple { ref elements } = x.kind {
-            elements
-        } else {
-            panic!("Cannot extract elements from non-tuple");
-        }
-    })
 }
 
 pub fn init(context: &PyContext) {
