@@ -7,7 +7,7 @@ use super::objfloat;
 use super::objstr;
 use super::objtype;
 use num_bigint::{BigInt, ToBigInt};
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 // This proxy allows for easy switching between types.
 // TODO: maybe this is a good idea:
@@ -296,10 +296,7 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2).to_u32().unwrap();
-        // TODO: look for bigint pow method
-        Ok(vm
-            .ctx
-            .new_int(v1.to_i32().unwrap().pow(v2).to_bigint().unwrap()))
+        Ok(vm.ctx.new_int(v1.pow(v2).to_bigint().unwrap()))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))

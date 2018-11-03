@@ -9,8 +9,7 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
     let result = match obj.borrow().kind {
         PyObjectKind::Integer { ref value } => !value.is_zero(),
         PyObjectKind::Float { value } => value != 0.0,
-        PyObjectKind::List { ref elements } => !elements.is_empty(),
-        PyObjectKind::Tuple { ref elements } => !elements.is_empty(),
+        PyObjectKind::Sequence { ref elements } => !elements.is_empty(),
         PyObjectKind::Dict { ref elements } => !elements.is_empty(),
         PyObjectKind::String { ref value } => !value.is_empty(),
         PyObjectKind::None { .. } => false,

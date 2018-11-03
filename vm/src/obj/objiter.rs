@@ -127,7 +127,7 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     {
         let iterated_obj = &*iterated_obj_ref.borrow_mut();
         match iterated_obj.kind {
-            PyObjectKind::List { ref elements } => {
+            PyObjectKind::Sequence { ref elements } => {
                 if *position < elements.len() {
                     let obj_ref = elements[*position].clone();
                     *position += 1;

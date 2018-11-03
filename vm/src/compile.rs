@@ -177,6 +177,12 @@ impl Compiler {
                 // Pop result of stack, since we not use it:
                 self.emit(Instruction::Pop);
             }
+            ast::Statement::Global { names } => {
+                unimplemented!("global {:?}", names);
+            }
+            ast::Statement::Nonlocal { names } => {
+                unimplemented!("nonlocal {:?}", names);
+            }
             ast::Statement::If { test, body, orelse } => {
                 let end_label = self.new_label();
                 match orelse {

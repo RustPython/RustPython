@@ -1,6 +1,7 @@
 //! This package contains the python basic/builtin types
 
 pub mod objbool;
+pub mod objbytearray;
 pub mod objbytes;
 pub mod objcomplex;
 pub mod objdict;

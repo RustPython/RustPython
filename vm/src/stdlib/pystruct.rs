@@ -313,7 +313,7 @@ fn struct_unpack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fmt_str = objstr::get_value(&fmt);
 
     let codes = parse_format_string(fmt_str);
-    let data = objbytes::get_value(buffer);
+    let data = objbytes::get_value(buffer).to_vec();
     let mut rdr = Cursor::new(data);
 
     let mut items = vec![];

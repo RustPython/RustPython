@@ -2,7 +2,8 @@
 #[derive(Debug, PartialEq)]
 pub enum Tok {
     Name { name: String },
-    Number { value: String },
+    Int { value: i32 },
+    Float { value: f64 },
     Complex { real: f64, imag: f64 },
     String { value: String },
     Bytes { value: Vec<u8> },

@@ -2,7 +2,9 @@ use super::super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, Type
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use num_traits::ToPrimitive;
+use std::cell::{Ref, RefMut};
 use std::marker::Sized;
+use std::ops::{Deref, DerefMut};
 
 pub trait PySliceableSequence {
     fn do_slice(&self, start: usize, stop: usize) -> Self;
@@ -85,10 +87,7 @@ pub fn get_item(
             step: _,
         } => Ok(PyObject::new(
             match &(sequence.borrow()).kind {
-                PyObjectKind::Tuple { elements: _ } => PyObjectKind::Tuple {
-                    elements: elements.to_vec().get_slice_items(&subscript),
-                },
-                PyObjectKind::List { elements: _ } => PyObjectKind::List {
+                PyObjectKind::Sequence { elements: _ } => PyObjectKind::Sequence {
                     elements: elements.to_vec().get_slice_items(&subscript),
                 },
                 ref kind => panic!("sequence get_item called for non-sequence: {:?}", kind),
@@ -119,4 +118,26 @@ pub fn seq_equal(
     } else {
         Ok(false)
     }
+}
+
+pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
+    Ref::map(obj.borrow(), |x| {
+        if let PyObjectKind::Sequence { ref elements } = x.kind {
+            elements
+        } else {
+            panic!("Cannot extract elements from non-sequence");
+        }
+    })
+}
+
+pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<PyObjectRef>> + 'a {
+    RefMut::map(obj.borrow_mut(), |x| {
+        if let PyObjectKind::Sequence { ref mut elements } = x.kind {
+            elements
+        } else {
+            panic!("Cannot extract list elements from non-sequence");
+            // TODO: raise proper error?
+            // Err(vm.new_type_error("list.append is called with no list".to_string()))
+        }
+    })
 }

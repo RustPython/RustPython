@@ -1,16 +1,15 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objsequence::{get_item, seq_equal};
+use super::objsequence::{get_elements, get_item, seq_equal};
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
-use std::cell::Ref;
-use std::ops::Deref;
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -53,6 +52,30 @@ fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
     let elements = get_elements(zelf);
     Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+}
+
+fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(cls, None)],
+        optional = [(iterable, None)]
+    );
+
+    if !objtype::issubclass(cls, &vm.ctx.tuple_type()) {
+        return Err(vm.new_type_error(format!("{:?} is not a subtype of tuple", cls)));
+    }
+
+    let elements = if let Some(iterable) = iterable {
+        vm.extract_elements(iterable)?
+    } else {
+        vec![]
+    };
+
+    Ok(PyObject::new(
+        PyObjectKind::Sequence { elements: elements },
+        cls.clone(),
+    ))
 }
 
 fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -103,16 +126,6 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
-pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    Ref::map(obj.borrow(), |x| {
-        if let PyObjectKind::Tuple { ref elements } = x.kind {
-            elements
-        } else {
-            panic!("Cannot extract elements from non-tuple");
-        }
-    })
-}
-
 pub fn init(context: &PyContext) {
     let ref tuple_type = context.tuple_type;
     tuple_type.set_attr("__eq__", context.new_rustfunc(tuple_eq));
@@ -120,5 +133,6 @@ pub fn init(context: &PyContext) {
     tuple_type.set_attr("__getitem__", context.new_rustfunc(tuple_getitem));
     tuple_type.set_attr("__hash__", context.new_rustfunc(tuple_hash));
     tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
+    tuple_type.set_attr("__new__", context.new_rustfunc(tuple_new));
     tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
 }
