@@ -646,15 +646,5 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
 
     let bases = vm.context().new_tuple(bases);
 
-    // Special case: __new__ must be looked up on the metaclass, not the meta-metaclass as
-    // per vm.call(metaclass, "__new__", ...)
-    let new = metaclass.get_attr("__new__").unwrap();
-    let wrapped = vm.call_get_descriptor(new, metaclass)?;
-    vm.invoke(
-        wrapped,
-        PyFuncArgs {
-            args: vec![name_arg, bases, namespace],
-            kwargs: vec![],
-        },
-    )
+    vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
 }
