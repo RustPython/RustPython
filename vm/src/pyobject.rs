@@ -2,6 +2,7 @@ use super::bytecode;
 use super::exceptions;
 use super::frame::Frame;
 use super::obj::objbool;
+use super::obj::objbytearray;
 use super::obj::objbytes;
 use super::obj::objcomplex;
 use super::obj::objdict;
@@ -63,6 +64,7 @@ pub struct PyContext {
     pub float_type: PyObjectRef,
     pub complex_type: PyObjectRef,
     pub bytes_type: PyObjectRef,
+    pub bytearray_type: PyObjectRef,
     pub bool_type: PyObjectRef,
     pub true_value: PyObjectRef,
     pub false_value: PyObjectRef,
@@ -137,6 +139,7 @@ impl PyContext {
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
         let complex_type = create_type("complex", &type_type, &object_type, &dict_type);
         let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
+        let bytearray_type = create_type("bytearray", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
@@ -162,6 +165,7 @@ impl PyContext {
             float_type: float_type,
             complex_type: complex_type,
             bytes_type: bytes_type,
+            bytearray_type: bytearray_type,
             list_type: list_type,
             set_type: set_type,
             bool_type: bool_type,
@@ -193,6 +197,7 @@ impl PyContext {
         objfloat::init(&context);
         objcomplex::init(&context);
         objbytes::init(&context);
+        objbytearray::init(&context);
         objstr::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
@@ -215,6 +220,10 @@ impl PyContext {
 
     pub fn bytes_type(&self) -> PyObjectRef {
         self.bytes_type.clone()
+    }
+
+    pub fn bytearray_type(&self) -> PyObjectRef {
+        self.bytearray_type.clone()
     }
 
     pub fn list_type(&self) -> PyObjectRef {

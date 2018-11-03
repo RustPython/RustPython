@@ -68,12 +68,10 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of list", cls)));
     }
 
-    let elements = match iterable {
-        None => vec![],
-        Some(iterable) => {
-            let iterator = objiter::get_iter(vm, iterable)?;
-            objiter::get_all(vm, &iterator)?
-        }
+    let elements = if let Some(iterable) = iterable {
+        vm.extract_elements(iterable)?
+    } else {
+        vec![]
     };
 
     Ok(PyObject::new(

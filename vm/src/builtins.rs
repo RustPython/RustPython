@@ -96,7 +96,6 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_breakpoint
-// builtin_bytearray
 // builtin_callable
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -531,6 +530,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
     dict.insert(String::from("bin"), ctx.new_rustfunc(builtin_bin));
     dict.insert(String::from("bool"), ctx.bool_type());
+    dict.insert(String::from("bytearray"), ctx.bytearray_type());
     dict.insert(String::from("bytes"), ctx.bytes_type());
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));

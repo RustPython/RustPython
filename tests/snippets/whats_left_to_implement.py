@@ -858,12 +858,11 @@ for method in bool_expected_methods:
         not_implemented.append(("bool", method))
 
 for method in bytearray_expected_methods:
-# TODO: uncomment this when bytearray is implemented
-#    try:
-#        if not hasattr(bytearray(), method):
-#            not_implemented.append(("bytearray", method))
-#    except NameError:
-    not_implemented.append(("bytearray", method))
+    try:
+        if not hasattr(bytearray(), method):
+            not_implemented.append(("bytearray", method))
+    except NameError:
+        not_implemented.append(("bytearray", method))
 
 for method in bytes_expected_methods:
     try:
