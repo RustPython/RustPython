@@ -5,7 +5,6 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objiter;
 use super::objsequence::{get_item, seq_equal, PySliceableSequence};
 use super::objstr;
 use super::objtype;

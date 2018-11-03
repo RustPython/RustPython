@@ -66,6 +66,17 @@ fn bytearray_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 /*
+fn bytearray_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(obj, Some(vm.ctx.bytearray_type())), (needle, None)]
+    );
+    let elements = get_elements(obj);
+    get_item(vm, list, &, needle.clone())
+}
+*/
+/*
 fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
     obj.borrow_mut().kind = PyObjectKind::Bytes { value };
 }

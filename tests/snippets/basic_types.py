@@ -36,6 +36,9 @@ try:
 except TypeError:
     pass
 
+a = bytearray([1, 2, 3])
+# assert a[1] == 2
+
 assert int() == 0
 
 a = complex(2, 4)
