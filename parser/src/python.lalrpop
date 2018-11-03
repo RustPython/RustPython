@@ -7,7 +7,6 @@
 use super::ast;
 use super::lexer;
 use std::iter::FromIterator;
-use std::str::FromStr;
 
 grammar;
 
@@ -53,6 +52,8 @@ SmallStatement: ast::LocatedStatement = {
     DelStatement,
     FlowStatement,
     ImportStatement,
+    GlobalStatement,
+    NonlocalStatement,
     AssertStatement,
 };
 
@@ -282,6 +283,24 @@ DottedName: String = {
     },
 };
 
+GlobalStatement: ast::LocatedStatement = {
+    <loc:@L> "global" <names:OneOrMore<Identifier>> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Global { names }
+        }
+    },
+};
+
+NonlocalStatement: ast::LocatedStatement = {
+    <loc:@L> "nonlocal" <names:OneOrMore<Identifier>> => {
+        ast::LocatedStatement {
+            location: loc,
+            node: ast::Statement::Nonlocal { names }
+        }
+    },
+};
+
 AssertStatement: ast::LocatedStatement = {
     <loc:@L> "assert" <t:Test> <m: ("," Test)?> => {
         ast::LocatedStatement {
@@ -400,11 +419,7 @@ ExceptClause: ast::ExceptHandler = {
 };
 
 WithStatement: ast::LocatedStatement = {
-    <loc:@L> "with" <i1:WithItem> <i2:("," WithItem)*> ":" <s:Suite> => {
-        let mut items = vec![i1];
-        for item in i2 {
-            items.push(item.1);
-        }
+    <loc:@L> "with" <items:OneOrMore<WithItem>> ":" <s:Suite> => {
         ast::LocatedStatement {
             location: loc,
             node: ast::Statement::With { items: items, body: s },
@@ -808,10 +823,8 @@ Atom: ast::Expression = {
 };
 
 TestListComp: Vec<ast::Expression> = {
-    <e:TestOrStarExpr> <e2:("," TestOrStarExpr)*> <_trailing_comma:","?> => {
-        let mut res = vec![e];
-        res.extend(e2.into_iter().map(|x| x.1));
-        res
+    <e:OneOrMore<TestOrStarExpr>> <_trailing_comma:","?> => {
+        e
     },
 };
 
@@ -825,10 +838,8 @@ TestListComp2: ast::Expression = {
 };
 
 TestDict: Vec<(ast::Expression, ast::Expression)> = {
-    <e1:DictEntry> <e2:("," DictEntry)*> <_trailing_comma:","?> => {
-        let mut d = vec![e1];
-        d.extend(e2.into_iter().map(|x| x.1));
-        d
+    <e1:OneOrMore<DictEntry>> <_trailing_comma:","?> => {
+        e1
     }
 };
 
@@ -846,10 +857,8 @@ DictEntry: (ast::Expression, ast::Expression) = {
 };
 
 TestSet: Vec<ast::Expression> = {
-    <e1:Test> <e2:("," Test)*> ","? => {
-        let mut e = vec![e1];
-        e.extend(e2.into_iter().map(|x| x.1));
-        e
+    <e1:OneOrMore<Test>> ","? => {
+        e1
     }
 };
 
@@ -962,14 +971,22 @@ Comma<T>: Vec<T> = {
     }
 };
 
-Number: ast::Number = {
-  <s:number> => {
-    if s.contains(".") {
-      ast::Number::Float { value: f64::from_str(&s).unwrap() }
-    } else {
-      ast::Number::Integer { value: i32::from_str(&s).unwrap() }
+#[inline]
+OneOrMore<T>: Vec<T> = {
+    <i1: T> <i2:("," T)*> => {
+        let mut items = vec![i1];
+        items.extend(i2.into_iter().map(|e| e.1));
+        items
     }
-  }
+};
+
+Number: ast::Number = {
+    <s:int> => {
+        ast::Number::Integer { value: s }
+    },
+    <s:float> => {
+        ast::Number::Float { value: s }
+    },
 };
 
 StringConstant: ast::Expression = {
@@ -1052,12 +1069,14 @@ extern {
         "finally" => lexer::Tok::Finally,
         "for" => lexer::Tok::For,
         "from" => lexer::Tok::From,
+        "global" => lexer::Tok::Global,
         "if" => lexer::Tok::If,
         "in" => lexer::Tok::In,
         "is" => lexer::Tok::Is,
         "import" => lexer::Tok::Import,
         "from" => lexer::Tok::From,
         "lambda" => lexer::Tok::Lambda,
+        "nonlocal" => lexer::Tok::Nonlocal,
         "not" => lexer::Tok::Not,
         "or" => lexer::Tok::Or,
         "pass" => lexer::Tok::Pass,
@@ -1070,7 +1089,8 @@ extern {
         "True" => lexer::Tok::True,
         "False" => lexer::Tok::False,
         "None" => lexer::Tok::None,
-        number => lexer::Tok::Number { value: <String> },
+        int => lexer::Tok::Int { value: <i32> },
+        float => lexer::Tok::Float { value: <f64> },
         string => lexer::Tok::String { value: <String> },
         bytes => lexer::Tok::Bytes { value: <Vec<u8>> },
         name => lexer::Tok::Name { name: <String> },

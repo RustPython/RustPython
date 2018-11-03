@@ -71,6 +71,12 @@ pub enum Statement {
     Expression {
         expression: Expression,
     },
+    Global {
+        names: Vec<String>,
+    },
+    Nonlocal {
+        names: Vec<String>,
+    },
     If {
         test: Expression,
         body: Vec<LocatedStatement>,

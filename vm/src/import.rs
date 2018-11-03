@@ -37,7 +37,7 @@ fn import_uncached_module(
         compile::Mode::Exec,
         Some(filepath.to_str().unwrap().to_string()),
     )?;
-    debug!("Code object: {:?}", code_obj);
+    // trace!("Code object: {:?}", code_obj);
 
     let builtins = vm.get_builtin_scope();
     let scope = vm.ctx.new_scope(Some(builtins));
