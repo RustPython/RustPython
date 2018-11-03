@@ -466,7 +466,13 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
+    let mut first = true;
     for a in args.args {
+        if first {
+            first = false;
+        } else {
+            print!(" ");
+        }
         let v = vm.to_str(&a)?;
         let s = objstr::get_value(&v);
         print!("{}", s);
