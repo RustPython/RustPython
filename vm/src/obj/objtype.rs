@@ -121,10 +121,8 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
 
     if let Ok(init) = vm.get_method(obj.clone(), "__init__") {
         let res = vm.invoke(init, args)?;
-        // TODO: assert that return is none?
-        if !isinstance(&res, &vm.get_none()) {
-            // panic!("__init__ must return none");
-            //     return Err(vm.new_type_error("__init__ must return None".to_string()));
+        if !res.is(&vm.get_none()) {
+            return Err(vm.new_type_error("__init__ must return None".to_string()));
         }
     }
     Ok(obj)
