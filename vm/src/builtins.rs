@@ -637,10 +637,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let function = args.shift();
     let name_arg = args.shift();
-    let mut bases = args.args.clone();
+    let bases = args.args.clone();
     let metaclass = args.get_kwarg("metaclass", vm.get_type());
 
-    bases.push(vm.context().object());
     let namespace = vm.new_dict();
     &vm.invoke(
         function,
