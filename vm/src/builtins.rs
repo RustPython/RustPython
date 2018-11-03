@@ -638,7 +638,15 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let function = args.shift();
     let name_arg = args.shift();
     let bases = args.args.clone();
-    let metaclass = args.get_kwarg("metaclass", vm.get_type());
+    let mut metaclass = args.get_kwarg("metaclass", vm.get_type());
+
+    for base in bases.clone() {
+        if objtype::issubclass(&base.typ(), &metaclass) {
+            metaclass = base.typ();
+        } else if !objtype::issubclass(&metaclass, &base.typ()) {
+            return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
+        }
+    }
 
     let namespace = vm.new_dict();
     &vm.invoke(
