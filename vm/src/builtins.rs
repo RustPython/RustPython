@@ -19,7 +19,7 @@ use super::pyobject::{
 };
 use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
-use num_traits::{Signed, ToPrimitive};
+use num_traits::{Signed, ToPrimitive, Zero};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
@@ -61,7 +61,9 @@ fn builtin_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    for item in args.args {
+    arg_check!(vm, args, required = [(iterable, None)]);
+    let items = vm.extract_elements(iterable)?;
+    for item in items {
         let result = objbool::boolval(vm, item)?;
         if !result {
             return Ok(vm.new_bool(false));
@@ -71,7 +73,9 @@ fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    for item in args.args {
+    arg_check!(vm, args, required = [(iterable, None)]);
+    let items = vm.extract_elements(iterable)?;
+    for item in items {
         let result = objbool::boolval(vm, item)?;
         if result {
             return Ok(vm.new_bool(true));
@@ -501,7 +505,19 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_slice
 // builtin_sorted
 // builtin_staticmethod
-// builtin_sum
+
+fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(iterable, None)]);
+    let items = vm.extract_elements(iterable)?;
+
+    // Start with zero and add at will:
+    let mut sum = vm.ctx.new_int(Zero::zero());
+    for item in items {
+        sum = vm._add(sum, item)?;
+    }
+    Ok(sum)
+}
+
 // builtin_super
 // builtin_vars
 // builtin_zip
@@ -563,6 +579,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("set"), ctx.set_type());
     dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
     dict.insert(String::from("str"), ctx.str_type());
+    dict.insert(String::from("sum"), ctx.new_rustfunc(builtin_sum));
     dict.insert(String::from("tuple"), ctx.tuple_type());
     dict.insert(String::from("type"), ctx.type_type());
 
