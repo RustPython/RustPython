@@ -29,6 +29,7 @@ pub fn init(context: &PyContext) {
     type_type.set_attr("__class__", context.new_member_descriptor(type_new));
     type_type.set_attr("__repr__", context.new_rustfunc(type_repr));
     type_type.set_attr("__prepare__", context.new_rustfunc(type_prepare));
+    type_type.set_attr("__getattribute__", context.new_rustfunc(type_getattribute));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -85,7 +86,7 @@ pub fn get_type_name(typ: &PyObjectRef) -> String {
 }
 
 pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    debug!("type.__new__{:?}", args);
+    debug!("type.__new__ {:?}", args);
     if args.args.len() == 2 {
         arg_check!(
             vm,

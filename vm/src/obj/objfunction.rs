@@ -1,6 +1,6 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
@@ -22,7 +22,17 @@ pub fn init(context: &PyContext) {
 }
 
 fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    Ok(vm.new_bound_method(args.args[0].clone(), args.args[1].clone()))
+    arg_check!(
+        vm,
+        args,
+        required = [(function, None), (obj, None), (cls, None)]
+    );
+
+    if obj.is(&vm.get_none()) && !cls.is(&obj.typ()) {
+        Ok(function.clone())
+    } else {
+        Ok(vm.ctx.new_bound_method(function.clone(), obj.clone()))
+    }
 }
 
 fn member_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
@@ -50,7 +60,7 @@ fn classmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match cls.get_attr("function") {
         Some(function) => {
             let py_obj = owner.clone();
-            let py_method = vm.new_bound_method(function, py_obj);
+            let py_method = vm.ctx.new_bound_method(function, py_obj);
             Ok(py_method)
         }
         None => {
