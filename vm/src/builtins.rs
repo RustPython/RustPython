@@ -459,7 +459,13 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
+    let mut first = true;
     for a in args.args {
+        if first {
+            first = false;
+        } else {
+            print!(" ");
+        }
         let v = vm.to_str(&a)?;
         let s = objstr::get_value(&v);
         print!("{}", s);
@@ -638,10 +644,17 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let function = args.shift();
     let name_arg = args.shift();
-    let mut bases = args.args.clone();
-    let metaclass = args.get_kwarg("metaclass", vm.get_type());
+    let bases = args.args.clone();
+    let mut metaclass = args.get_kwarg("metaclass", vm.get_type());
 
-    bases.push(vm.context().object());
+    for base in bases.clone() {
+        if objtype::issubclass(&base.typ(), &metaclass) {
+            metaclass = base.typ();
+        } else if !objtype::issubclass(&metaclass, &base.typ()) {
+            return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
+        }
+    }
+
     let bases = vm.context().new_tuple(bases);
 
     // Prepare uses full __getattribute__ resolution chain.
@@ -663,15 +676,5 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         },
     );
 
-    // Special case: __new__ must be looked up on the metaclass, not the meta-metaclass as
-    // per vm.call(metaclass, "__new__", ...)
-    let new = metaclass.get_attr("__new__").unwrap();
-    let wrapped = vm.call_get_descriptor(new, metaclass)?;
-    vm.invoke(
-        wrapped,
-        PyFuncArgs {
-            args: vec![name_arg, bases, namespace],
-            kwargs: vec![],
-        },
-    )
+    vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
 }
