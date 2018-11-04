@@ -531,7 +531,6 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(sum)
 }
 
-// builtin_super
 // builtin_vars
 // builtin_zip
 // builtin___import__
@@ -597,6 +596,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("staticmethod"), ctx.staticmethod_type());
     dict.insert(String::from("str"), ctx.str_type());
     dict.insert(String::from("sum"), ctx.new_rustfunc(builtin_sum));
+    dict.insert(String::from("super"), ctx.super_type());
     dict.insert(String::from("tuple"), ctx.tuple_type());
     dict.insert(String::from("type"), ctx.type_type());
 

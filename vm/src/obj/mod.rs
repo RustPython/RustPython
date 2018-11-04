@@ -16,5 +16,6 @@ pub mod objproperty;
 pub mod objsequence;
 pub mod objset;
 pub mod objstr;
+pub mod objsuper;
 pub mod objtuple;
 pub mod objtype;

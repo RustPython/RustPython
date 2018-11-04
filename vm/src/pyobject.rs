@@ -16,6 +16,7 @@ use super::obj::objobject;
 use super::obj::objproperty;
 use super::obj::objset;
 use super::obj::objstr;
+use super::obj::objsuper;
 use super::obj::objtuple;
 use super::obj::objtype;
 use super::vm::VirtualMachine;
@@ -88,6 +89,7 @@ pub struct PyContext {
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
     pub iter_type: PyObjectRef,
+    pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub property_type: PyObjectRef,
@@ -148,6 +150,7 @@ impl PyContext {
         let staticmethod_type = create_type("staticmethod", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
         let property_type = create_type("property", &type_type, &object_type, &dict_type);
+        let super_type = create_type("property", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
@@ -200,6 +203,7 @@ impl PyContext {
             str_type: str_type,
             object: object_type,
             function_type: function_type,
+            super_type: super_type,
             property_type: property_type,
             generator_type: generator_type,
             module_type: module_type,
@@ -223,6 +227,7 @@ impl PyContext {
         objbytearray::init(&context);
         objproperty::init(&context);
         objstr::init(&context);
+        objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
         objbool::init(&context);
@@ -276,6 +281,10 @@ impl PyContext {
 
     pub fn str_type(&self) -> PyObjectRef {
         self.str_type.clone()
+    }
+
+    pub fn super_type(&self) -> PyObjectRef {
+        self.super_type.clone()
     }
 
     pub fn function_type(&self) -> PyObjectRef {
