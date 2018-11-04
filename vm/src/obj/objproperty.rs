@@ -31,7 +31,7 @@ fn property_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match cls.get_attr("fget") {
         Some(getter) => {
-            let py_method = vm.new_bound_method(getter, inst.clone());
+            let py_method = vm.ctx.new_bound_method(getter, inst.clone());
             vm.invoke(py_method, PyFuncArgs::default())
         }
         None => {

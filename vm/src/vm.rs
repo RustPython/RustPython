@@ -17,8 +17,8 @@ use super::obj::objsequence;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef,
-    PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::stdlib;
 use super::sysmodule;
@@ -90,14 +90,6 @@ impl VirtualMachine {
 
     pub fn get_none(&self) -> PyObjectRef {
         self.ctx.none()
-    }
-
-    pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-        if object.is(&self.get_none()) {
-            function
-        } else {
-            self.ctx.new_bound_method(function, object)
-        }
     }
 
     pub fn get_type(&self) -> PyObjectRef {
