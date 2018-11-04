@@ -880,7 +880,9 @@ impl Compiler {
             }
             ast::Expression::Number { value } => {
                 let const_value = match value {
-                    ast::Number::Integer { value } => bytecode::Constant::Integer { value: *value },
+                    ast::Number::Integer { value } => bytecode::Constant::Integer {
+                        value: value.clone(),
+                    },
                     ast::Number::Float { value } => bytecode::Constant::Float { value: *value },
                     ast::Number::Complex { real, imag } => bytecode::Constant::Complex {
                         value: Complex64::new(*real, *imag),

@@ -11,6 +11,7 @@ let call_function = 0x64;
  * Primitive instruction type, which can be encoded and decoded.
  */
 
+use num_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_parser::ast;
 use std::collections::HashMap;
@@ -197,7 +198,7 @@ pub enum CallType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Constant {
-    Integer { value: i32 }, // TODO: replace by arbitrary big int math.
+    Integer { value: BigInt },
     Float { value: f64 },
     Complex { value: Complex64 },
     Boolean { value: bool },

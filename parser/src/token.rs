@@ -1,8 +1,12 @@
-// Loosely based on token.h from CPython source:
+//! Different token definitions.
+//! Loosely based on token.h from CPython source:
+use num_bigint::BigInt;
+
+/// Python source code can be tokenized in a sequence of these tokens.
 #[derive(Debug, PartialEq)]
 pub enum Tok {
     Name { name: String },
-    Int { value: i32 },
+    Int { value: BigInt },
     Float { value: f64 },
     Complex { real: f64, imag: f64 },
     String { value: String },

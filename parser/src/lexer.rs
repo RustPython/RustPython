@@ -2,6 +2,8 @@
 //! code is translated into seperate tokens.
 
 pub use super::token::Tok;
+use num_bigint::BigInt;
+use num_traits::Num;
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -280,10 +282,56 @@ where
     }
 
     fn lex_number(&mut self) -> Spanned<Tok> {
+        let start_pos = self.get_pos();
+        if self.chr0 == Some('0') {
+            if self.chr1 == Some('x') || self.chr1 == Some('X') {
+                // Hex!
+                self.next_char();
+                self.next_char();
+                self.lex_number_radix(start_pos, 16)
+            } else if self.chr1 == Some('o') || self.chr1 == Some('O') {
+                // Octal style!
+                self.next_char();
+                self.next_char();
+                self.lex_number_radix(start_pos, 8)
+            } else if self.chr1 == Some('b') || self.chr1 == Some('B') {
+                // Binary!
+                self.next_char();
+                self.next_char();
+                self.lex_number_radix(start_pos, 2)
+            } else {
+                self.lex_normal_number()
+            }
+        } else {
+            self.lex_normal_number()
+        }
+    }
+
+    fn lex_number_radix(&mut self, start_pos: Location, radix: u32) -> Spanned<Tok> {
         let mut value_text = String::new();
 
+        loop {
+            if self.is_number(radix) {
+                value_text.push(self.next_char().unwrap());
+            } else if self.chr0 == Some('_') {
+                self.next_char();
+            } else {
+                break;
+            }
+        }
+
+        let end_pos = self.get_pos();
+        let value = BigInt::from_str_radix(&value_text, radix).unwrap();
+        Ok((start_pos, Tok::Int { value: value }, end_pos))
+    }
+
+    fn lex_normal_number(&mut self) -> Spanned<Tok> {
         let start_pos = self.get_pos();
-        while self.is_number() {
+
+        let mut value_text = String::new();
+
+        // Normal number:
+        while self.is_number(10) {
             value_text.push(self.next_char().unwrap());
         }
 
@@ -292,7 +340,7 @@ where
             // Take '.':
             if self.chr0 == Some('.') {
                 value_text.push(self.next_char().unwrap());
-                while self.is_number() {
+                while self.is_number(10) {
                     value_text.push(self.next_char().unwrap());
                 }
             }
@@ -306,18 +354,47 @@ where
                     value_text.push(self.next_char().unwrap());
                 }
 
-                while self.is_number() {
+                while self.is_number(10) {
                     value_text.push(self.next_char().unwrap());
                 }
             }
 
-            let end_pos = self.get_pos();
             let value = f64::from_str(&value_text).unwrap();
-            Ok((start_pos, Tok::Float { value: value }, end_pos))
+            // Parse trailing 'j':
+            if self.chr0 == Some('j') {
+                self.next_char();
+                let end_pos = self.get_pos();
+                Ok((
+                    start_pos,
+                    Tok::Complex {
+                        real: 0.0,
+                        imag: value,
+                    },
+                    end_pos,
+                ))
+            } else {
+                let end_pos = self.get_pos();
+                Ok((start_pos, Tok::Float { value: value }, end_pos))
+            }
         } else {
-            let end_pos = self.get_pos();
-            let value = i32::from_str(&value_text).unwrap();
-            Ok((start_pos, Tok::Int { value: value }, end_pos))
+            // Parse trailing 'j':
+            if self.chr0 == Some('j') {
+                self.next_char();
+                let end_pos = self.get_pos();
+                let imag = f64::from_str(&value_text).unwrap();
+                Ok((
+                    start_pos,
+                    Tok::Complex {
+                        real: 0.0,
+                        imag: imag,
+                    },
+                    end_pos,
+                ))
+            } else {
+                let end_pos = self.get_pos();
+                let value = value_text.parse::<BigInt>().unwrap();
+                Ok((start_pos, Tok::Int { value: value }, end_pos))
+            }
         }
     }
 
@@ -445,10 +522,25 @@ where
         }
     }
 
-    fn is_number(&self) -> bool {
-        match self.chr0 {
-            Some('0'...'9') => return true,
-            _ => return false,
+    fn is_number(&self, radix: u32) -> bool {
+        match radix {
+            2 => match self.chr0 {
+                Some('0'...'1') => return true,
+                _ => return false,
+            },
+            8 => match self.chr0 {
+                Some('0'...'7') => return true,
+                _ => return false,
+            },
+            10 => match self.chr0 {
+                Some('0'...'9') => return true,
+                _ => return false,
+            },
+            16 => match self.chr0 {
+                Some('0'...'9') | Some('a'...'f') | Some('A'...'F') => return true,
+                _ => return false,
+            },
+            x => unimplemented!("Radix not implemented: {}", x),
         }
     }
 
@@ -920,6 +1012,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::{make_tokenizer, NewlineHandler, Tok};
+    use num_bigint::BigInt;
     use std::iter::FromIterator;
     use std::iter::Iterator;
 
@@ -959,6 +1052,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_numbers() {
+        let source = String::from("0x2f 0b1101 0 123 0.2 2j 2.2j");
+        let tokens = lex_source(&source);
+        assert_eq!(
+            tokens,
+            vec![
+                Tok::Int {
+                    value: BigInt::from(47),
+                },
+                Tok::Int {
+                    value: BigInt::from(13),
+                },
+                Tok::Int {
+                    value: BigInt::from(0),
+                },
+                Tok::Int {
+                    value: BigInt::from(123),
+                },
+                Tok::Float { value: 0.2 },
+                Tok::Complex {
+                    real: 0.0,
+                    imag: 2.0,
+                },
+                Tok::Complex {
+                    real: 0.0,
+                    imag: 2.2,
+                },
+            ]
+        );
+    }
+
     macro_rules! test_line_comment {
         ($($name:ident: $eol:expr,)*) => {
             $(
@@ -966,7 +1091,7 @@ mod tests {
             fn $name() {
                 let source = String::from(format!(r"99232  # {}", $eol));
                 let tokens = lex_source(&source);
-                assert_eq!(tokens, vec![Tok::Int { value: 99232 }]);
+                assert_eq!(tokens, vec![Tok::Int { value: BigInt::from(99232) }]);
             }
             )*
         }
@@ -989,9 +1114,9 @@ mod tests {
                 assert_eq!(
                     tokens,
                     vec![
-                        Tok::Int { value: 123 },
+                        Tok::Int { value: BigInt::from(123) },
                         Tok::Newline,
-                        Tok::Int { value: 456 },
+                        Tok::Int { value: BigInt::from(456) },
                     ]
                 )
             }
@@ -1016,11 +1141,17 @@ mod tests {
                     name: String::from("avariable"),
                 },
                 Tok::Equal,
-                Tok::Int { value: 99 },
+                Tok::Int {
+                    value: BigInt::from(99)
+                },
                 Tok::Plus,
-                Tok::Int { value: 2 },
+                Tok::Int {
+                    value: BigInt::from(2)
+                },
                 Tok::Minus,
-                Tok::Int { value: 0 },
+                Tok::Int {
+                    value: BigInt::from(0)
+                },
             ]
         );
     }
@@ -1045,7 +1176,7 @@ mod tests {
                         Tok::Newline,
                         Tok::Indent,
                         Tok::Return,
-                        Tok::Int { value: 99 },
+                        Tok::Int { value: BigInt::from(99) },
                         Tok::Newline,
                         Tok::Dedent,
                     ]
@@ -1088,7 +1219,7 @@ mod tests {
                         Tok::Newline,
                         Tok::Indent,
                         Tok::Return,
-                        Tok::Int { value: 99 },
+                        Tok::Int { value: BigInt::from(99) },
                         Tok::Newline,
                         Tok::Dedent,
                         Tok::Dedent,
@@ -1120,9 +1251,9 @@ mod tests {
                         },
                         Tok::Equal,
                         Tok::Lsqb,
-                        Tok::Int { value: 1 },
+                        Tok::Int { value: BigInt::from(1) },
                         Tok::Comma,
-                        Tok::Int { value: 2 },
+                        Tok::Int { value: BigInt::from(2) },
                         Tok::Rsqb,
                         Tok::Newline,
                     ]

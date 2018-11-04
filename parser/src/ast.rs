@@ -3,6 +3,7 @@
 //! Roughly equivalent to this: https://docs.python.org/3/library/ast.html
 
 pub use super::lexer::Location;
+use num_bigint::BigInt;
 /*
 #[derive(Debug)]
 
@@ -305,7 +306,7 @@ pub enum Comparison {
 
 #[derive(Debug, PartialEq)]
 pub enum Number {
-    Integer { value: i32 },
+    Integer { value: BigInt },
     Float { value: f64 },
     Complex { real: f64, imag: f64 },
 }
