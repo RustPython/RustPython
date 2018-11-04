@@ -847,8 +847,10 @@ impl Compiler {
 
                 // Perform operation:
                 let i = match op {
+                    ast::UnaryOperator::Pos => bytecode::UnaryOperator::Plus,
                     ast::UnaryOperator::Neg => bytecode::UnaryOperator::Minus,
                     ast::UnaryOperator::Not => bytecode::UnaryOperator::Not,
+                    ast::UnaryOperator::Inv => bytecode::UnaryOperator::Invert,
                 };
                 let i = Instruction::UnaryOperation { op: i };
                 self.emit(i);

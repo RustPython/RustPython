@@ -1,9 +1,7 @@
-/*
- * Ast standard module
- *
- * This module makes use of the parser logic, and translates all ast nodes
- * into python ast.AST objects.
- */
+//! `ast` standard module for abstract syntax trees.
+//!
+//! This module makes use of the parser logic, and translates all ast nodes
+//! into python ast.AST objects.
 
 extern crate rustpython_parser;
 
@@ -302,7 +300,9 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
 
             let str_op = match op {
                 ast::UnaryOperator::Not => "Not",
+                ast::UnaryOperator::Inv => "Invert",
                 ast::UnaryOperator::Neg => "USub",
+                ast::UnaryOperator::Pos => "UAdd",
             };
             let py_op = ctx.new_str(str_op.to_string());
             node.set_attr("op", py_op);

@@ -33,13 +33,9 @@ pub fn read_file(filename: &Path) -> Result<String, String> {
 
 pub fn parse(filename: &Path) -> Result<ast::Program, String> {
     info!("Parsing: {}", filename.display());
-    match read_file(filename) {
-        Ok(txt) => {
-            debug!("Read contents of file: {}", txt);
-            parse_program(&txt)
-        }
-        Err(msg) => Err(msg),
-    }
+    let txt = read_file(filename)?;
+    debug!("Read contents of file: {}", txt);
+    parse_program(&txt)
 }
 
 macro_rules! do_lalr_parsing {

@@ -748,8 +748,9 @@ MulOp: ast::Operator = {
 };
 
 Factor: ast::Expression = {
-    "+" <e:Factor> => e,
+    "+" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Pos },
     "-" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Neg },
+    "~" <e:Factor> => ast::Expression::Unop { a: Box::new(e), op: ast::UnaryOperator::Inv },
     <e:Power> => e,
 };
 
@@ -1013,6 +1014,7 @@ extern {
         StartExpression => lexer::Tok::StartExpression,
         "+" => lexer::Tok::Plus,
         "-" => lexer::Tok::Minus,
+        "~" => lexer::Tok::Tilde,
         ":" => lexer::Tok::Colon,
         "." => lexer::Tok::Dot,
         "," => lexer::Tok::Comma,
