@@ -115,8 +115,6 @@ fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(txt))
 }
 
-// builtin_classmethod
-
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(source, None)]);
     // TODO:
@@ -487,8 +485,6 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-// builtin_property
-
 fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(range, Some(vm.ctx.int_type()))]);
     match range.borrow().kind {
@@ -593,6 +589,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
     dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));
     dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
+    dict.insert(String::from("property"), ctx.property_type());
     dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
     dict.insert(String::from("repr"), ctx.new_rustfunc(builtin_repr));
     dict.insert(String::from("set"), ctx.set_type());

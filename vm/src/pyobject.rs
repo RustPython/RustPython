@@ -13,6 +13,7 @@ use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objobject;
+use super::obj::objproperty;
 use super::obj::objset;
 use super::obj::objstr;
 use super::obj::objtuple;
@@ -89,6 +90,7 @@ pub struct PyContext {
     pub iter_type: PyObjectRef,
     pub str_type: PyObjectRef,
     pub function_type: PyObjectRef,
+    pub property_type: PyObjectRef,
     pub generator_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
@@ -145,6 +147,7 @@ impl PyContext {
         let classmethod_type = create_type("classmethod", &type_type, &object_type, &dict_type);
         let staticmethod_type = create_type("staticmethod", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
+        let property_type = create_type("property", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
@@ -197,6 +200,7 @@ impl PyContext {
             str_type: str_type,
             object: object_type,
             function_type: function_type,
+            property_type: property_type,
             generator_type: generator_type,
             module_type: module_type,
             bound_method_type: bound_method_type,
@@ -217,6 +221,7 @@ impl PyContext {
         objcomplex::init(&context);
         objbytes::init(&context);
         objbytearray::init(&context);
+        objproperty::init(&context);
         objstr::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
@@ -275,6 +280,10 @@ impl PyContext {
 
     pub fn function_type(&self) -> PyObjectRef {
         self.function_type.clone()
+    }
+
+    pub fn property_type(&self) -> PyObjectRef {
+        self.property_type.clone()
     }
 
     pub fn classmethod_type(&self) -> PyObjectRef {
