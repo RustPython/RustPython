@@ -287,6 +287,11 @@ fn int_neg(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(-i))
 }
 
+fn int_pos(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    Ok(i.clone())
+}
+
 fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -391,6 +396,7 @@ pub fn init(context: &PyContext) {
     int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
     int_type.set_attr("__neg__", context.new_rustfunc(int_neg));
     int_type.set_attr("__or__", context.new_rustfunc(int_or));
+    int_type.set_attr("__pos__", context.new_rustfunc(int_pos));
     int_type.set_attr("__pow__", context.new_rustfunc(int_pow));
     int_type.set_attr("__repr__", context.new_rustfunc(int_repr));
     int_type.set_attr("__sub__", context.new_rustfunc(int_sub));
