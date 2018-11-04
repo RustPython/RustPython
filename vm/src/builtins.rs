@@ -522,7 +522,6 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_slice
 // builtin_sorted
-// builtin_staticmethod
 
 fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
@@ -557,6 +556,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("bytearray"), ctx.bytearray_type());
     dict.insert(String::from("bytes"), ctx.bytes_type());
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
+    dict.insert(String::from("classmethod"), ctx.classmethod_type());
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
     dict.insert(String::from("complex"), ctx.complex_type());
     dict.insert(String::from("delattr"), ctx.new_rustfunc(builtin_delattr));
@@ -597,6 +597,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("repr"), ctx.new_rustfunc(builtin_repr));
     dict.insert(String::from("set"), ctx.set_type());
     dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
+    dict.insert(String::from("staticmethod"), ctx.staticmethod_type());
     dict.insert(String::from("str"), ctx.str_type());
     dict.insert(String::from("sum"), ctx.new_rustfunc(builtin_sum));
     dict.insert(String::from("tuple"), ctx.tuple_type());
@@ -681,13 +682,13 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         },
     )?;
 
-    &vm.invoke(
+    vm.invoke(
         function,
         PyFuncArgs {
             args: vec![namespace.clone()],
             kwargs: vec![],
         },
-    );
+    )?;
 
     vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
 }

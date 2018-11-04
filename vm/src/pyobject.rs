@@ -72,6 +72,8 @@ impl fmt::Display for PyObjectRef {
 pub struct PyContext {
     pub type_type: PyObjectRef,
     pub none: PyObjectRef,
+    pub classmethod_type: PyObjectRef,
+    pub staticmethod_type: PyObjectRef,
     pub dict_type: PyObjectRef,
     pub int_type: PyObjectRef,
     pub float_type: PyObjectRef,
@@ -140,6 +142,8 @@ impl PyContext {
         objdict::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
 
         let module_type = create_type("module", &type_type, &object_type, &dict_type);
+        let classmethod_type = create_type("classmethod", &type_type, &object_type, &dict_type);
+        let staticmethod_type = create_type("staticmethod", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
@@ -177,6 +181,8 @@ impl PyContext {
             int_type: int_type,
             float_type: float_type,
             complex_type: complex_type,
+            classmethod_type: classmethod_type,
+            staticmethod_type: staticmethod_type,
             bytes_type: bytes_type,
             bytearray_type: bytearray_type,
             list_type: list_type,
@@ -250,20 +256,33 @@ impl PyContext {
     pub fn bool_type(&self) -> PyObjectRef {
         self.bool_type.clone()
     }
+
     pub fn tuple_type(&self) -> PyObjectRef {
         self.tuple_type.clone()
     }
+
     pub fn iter_type(&self) -> PyObjectRef {
         self.iter_type.clone()
     }
+
     pub fn dict_type(&self) -> PyObjectRef {
         self.dict_type.clone()
     }
+
     pub fn str_type(&self) -> PyObjectRef {
         self.str_type.clone()
     }
+
     pub fn function_type(&self) -> PyObjectRef {
         self.function_type.clone()
+    }
+
+    pub fn classmethod_type(&self) -> PyObjectRef {
+        self.classmethod_type.clone()
+    }
+
+    pub fn staticmethod_type(&self) -> PyObjectRef {
+        self.staticmethod_type.clone()
     }
 
     pub fn generator_type(&self) -> PyObjectRef {
