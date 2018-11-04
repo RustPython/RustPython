@@ -438,12 +438,22 @@ impl VirtualMachine {
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // Try __sub__, next __rsub__, next, give up
-        self.call_method(&a, "__sub__", vec![b])
-        /*
-        if a.has_attr("__sub__") {
-            self.call_method(&a, "__sub__", vec![b])
-        } else if b.has_attr("__rsub__") {
-            self.call_method(&b, "__rsub__", vec![a])
+        if let Ok(method) = self.get_method(a.clone(), "__sub__") {
+            self.invoke(
+                method,
+                PyFuncArgs {
+                    args: vec![b],
+                    kwargs: vec![],
+                },
+            )
+        } else if let Ok(method) = self.get_method(b.clone(), "__rsub__") {
+            self.invoke(
+                method,
+                PyFuncArgs {
+                    args: vec![a],
+                    kwargs: vec![],
+                },
+            )
         } else {
             // Cannot sub a and b
             let a_type_name = objtype::get_type_name(&a.typ());
@@ -453,7 +463,6 @@ impl VirtualMachine {
                 a_type_name, b_type_name
             )))
         }
-        */
     }
 
     pub fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
