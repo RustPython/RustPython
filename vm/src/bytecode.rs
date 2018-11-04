@@ -1,11 +1,5 @@
-/*
- * Implement python as a virtual machine with bytecodes.
- */
-
-/*
-let load_const_string = 0x16;
-let call_function = 0x64;
-*/
+//! Implement python as a virtual machine with bytecodes. This module
+//! implements bytecode structure.
 
 /*
  * Primitive instruction type, which can be encoded and decoded.
@@ -17,6 +11,8 @@ use rustpython_parser::ast;
 use std::collections::HashMap;
 use std::fmt;
 
+/// Primary container of a single code object. Each python function has
+/// a codeobject. Also a module has a codeobject.
 #[derive(Clone, PartialEq)]
 pub struct CodeObject {
     pub instructions: Vec<Instruction>,
@@ -63,6 +59,7 @@ bitflags! {
 
 pub type Label = usize;
 
+/// A Single bytecode instruction.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     Import {

@@ -27,6 +27,8 @@ use super::sysmodule;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
+/// Top level container of a python virtual machine. In theory you could
+/// create more instances of this struct and have them operate fully isolated.
 pub struct VirtualMachine {
     builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
@@ -45,6 +47,7 @@ impl VirtualMachine {
         self.ctx.new_str(s)
     }
 
+    /// Create a new python bool object.
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         self.ctx.new_bool(b)
     }
@@ -73,6 +76,8 @@ impl VirtualMachine {
         self.new_exception(type_error, msg)
     }
 
+    /// Create a new python ValueError object. Useful for raising errors from
+    /// python functions implemented in rust.
     pub fn new_value_error(&mut self, msg: String) -> PyObjectRef {
         let value_error = self.ctx.exceptions.value_error.clone();
         self.new_exception(value_error, msg)
@@ -225,7 +230,9 @@ impl VirtualMachine {
             } => self.invoke(function.clone(), args.insert(object.clone())),
             PyObjectKind::Instance { .. } => self.call_method_pyargs(&func_ref, "__call__", args),
             ref kind => {
-                unimplemented!("invoke unimplemented for: {:?}", kind);
+                // TODO: is it safe to just invoke __call__ otherwise?
+                trace!("invoke __call__ for: {:?}", kind);
+                self.call_method_pyargs(&func_ref, "__call__", args)
             }
         }
     }

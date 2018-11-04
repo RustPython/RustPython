@@ -399,7 +399,19 @@ fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-// builtin_oct
+fn builtin_oct(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
+
+    let n = objint::get_value(number);
+    let s = if n.is_negative() {
+        format!("-0o{:o}", n.abs())
+    } else {
+        format!("0o{:o}", n)
+    };
+
+    Ok(vm.new_str(s))
+}
+
 // builtin_open
 
 fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -576,6 +588,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("max"), ctx.new_rustfunc(builtin_max));
     dict.insert(String::from("min"), ctx.new_rustfunc(builtin_min));
     dict.insert(String::from("object"), ctx.object());
+    dict.insert(String::from("oct"), ctx.new_rustfunc(builtin_oct));
     dict.insert(String::from("ord"), ctx.new_rustfunc(builtin_ord));
     dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
     dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));

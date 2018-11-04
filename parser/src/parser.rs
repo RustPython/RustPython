@@ -12,6 +12,7 @@ use super::python;
 use super::token;
 
 pub fn read_file(filename: &Path) -> Result<String, String> {
+    info!("Loading file {:?}", filename);
     match File::open(&filename) {
         Ok(mut file) => {
             let mut s = String::new();

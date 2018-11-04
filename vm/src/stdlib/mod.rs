@@ -8,6 +8,7 @@ mod re;
 mod time_module;
 mod tokenize;
 mod types;
+mod weakref;
 use std::collections::HashMap;
 
 use super::pyobject::{PyContext, PyObjectRef};
@@ -29,5 +30,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         tokenize::mk_module as StdlibInitFunc,
     );
     modules.insert("types".to_string(), types::mk_module as StdlibInitFunc);
+    modules.insert("_weakref".to_string(), weakref::mk_module as StdlibInitFunc);
     modules
 }

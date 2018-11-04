@@ -24,7 +24,7 @@ use num_traits::{One, Zero};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 /* Python objects and references.
 
@@ -52,6 +52,9 @@ pub type PyRef<T> = Rc<RefCell<T>>;
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
 pub type PyObjectRef = PyRef<PyObject>;
+
+/// Same as PyObjectRef, except for being a weak reference.
+pub type PyObjectWeakRef = Weak<RefCell<PyObject>>;
 
 /// Use this type for function which return a python object or and exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -599,7 +602,7 @@ impl DictProtocol for PyObjectRef {
             PyObjectKind::Scope { ref mut scope } => {
                 scope.locals.set_item(k, v);
             }
-            _ => panic!("TODO"),
+            ref k => panic!("TODO {:?}", k),
         };
     }
 }
@@ -722,6 +725,9 @@ pub enum PyObjectKind {
         dict: PyObjectRef,
         mro: Vec<PyObjectRef>,
     },
+    WeakRef {
+        referent: PyObjectWeakRef,
+    },
     Instance {
         dict: PyObjectRef,
     },
@@ -741,6 +747,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Sequence { elements: _ } => write!(f, "list or tuple"),
             &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
             &PyObjectKind::Set { elements: _ } => write!(f, "set"),
+            &PyObjectKind::WeakRef { .. } => write!(f, "weakref"),
             &PyObjectKind::Iterator {
                 position: _,
                 iterated_obj: _,
@@ -813,6 +820,7 @@ impl PyObject {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            PyObjectKind::WeakRef { .. } => String::from("weakref"),
             PyObjectKind::None => String::from("None"),
             PyObjectKind::Class {
                 ref name,

@@ -26,6 +26,18 @@ Or use the interactive shell:
 - Full Python-3 environment entirely in Rust (not CPython bindings)
 - A clean implementation without compatibility hacks
 
+# Documentation
+
+Currently the project is in an early phase, and so is the documentation.
+
+You can generate documentation by running:
+
+```shell
+$ cargo doc
+```
+
+Documentation HTML files can then be found in the `target/doc` directory.
+
 # Code organization
 
 - `parser`: python lexing, parsing and ast
@@ -62,6 +74,24 @@ There also are some unittests, you can run those will cargo:
 
 ```shell
 $ cargo test --all
+```
+
+# Using another standard library
+
+As of now the standard library is under construction.
+
+You can play around
+with other standard libraries for python. For example,
+the [ouroboros library](https://github.com/pybee/ouroboros).
+
+To do this, follow this method:
+
+```shell
+$ cd ~/GIT
+$ git clone git@github.com:pybee/ouroboros.git
+$ export PYTHONPATH=~/GIT/ouroboros/ouroboros
+$ cd RustPython
+$ cargo run -- -c 'import statistics'
 ```
 
 # Compiling to WebAssembly
