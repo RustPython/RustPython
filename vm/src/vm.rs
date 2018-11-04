@@ -17,8 +17,8 @@ use super::obj::objsequence;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
-    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use super::stdlib;
 use super::sysmodule;
@@ -93,7 +93,11 @@ impl VirtualMachine {
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-        self.ctx.new_bound_method(function, object)
+        if object.is(&self.get_none()) {
+            function
+        } else {
+            self.ctx.new_bound_method(function, object)
+        }
     }
 
     pub fn get_type(&self) -> PyObjectRef {
@@ -202,7 +206,13 @@ impl VirtualMachine {
         let cls = obj.typ();
         match cls.get_attr(method_name) {
             Some(func) => {
-                trace!("vm.call_method {:?} {:?} -> {:?}", obj, method_name, func);
+                trace!(
+                    "vm.call_method {:?} {:?} {:?} -> {:?}",
+                    obj,
+                    cls,
+                    method_name,
+                    func
+                );
                 let wrapped = self.call_get_descriptor(func, obj.clone())?;
                 self.invoke(wrapped, args)
             }
@@ -423,6 +433,7 @@ impl VirtualMachine {
 
     // get_attribute should be used for full attribute access (usually from user code).
     pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: PyObjectRef) -> PyResult {
+        trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
         self.call_method(&obj, "__getattribute__", vec![attr_name])
     }
 

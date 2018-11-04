@@ -42,12 +42,9 @@ class Bar:
 
 
 bar = Bar()
-bar.fubar(2)
 
-# TODO: make below work:
-# Bar.fubar(2)
+bar.fubar(2)
+Bar.fubar(2)
 
 bar.kungfu(3)
-# TODO: make below work:
-# Bar.kungfu(3)
-
+Bar.kungfu(3)
