@@ -150,7 +150,7 @@ impl PyContext {
         let staticmethod_type = create_type("staticmethod", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
         let property_type = create_type("property", &type_type, &object_type, &dict_type);
-        let super_type = create_type("property", &type_type, &object_type, &dict_type);
+        let super_type = create_type("super", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =

@@ -8,11 +8,13 @@ class Foo:
 
     y = 7
 
+
 foo = Foo(5)
 
 assert foo.y == Foo.y
 assert foo.x == 5
 assert foo.square() == 25
+
 
 class Fubar:
     def __init__(self):
@@ -31,6 +33,12 @@ assert f.foo == 101
 
 
 class Bar:
+    def __init__(self, x):
+        self.x = x
+
+    def get_x(self):
+        return self.x
+
     @classmethod
     def fubar(cls, x):
         assert cls is Bar
@@ -41,10 +49,25 @@ class Bar:
         assert x == 3
 
 
-bar = Bar()
+bar = Bar(42)
 
 bar.fubar(2)
 Bar.fubar(2)
 
 bar.kungfu(3)
 Bar.kungfu(3)
+
+
+class Bar2(Bar):
+    def __init__(self):
+        super().__init__(101)
+
+
+# TODO: make this work:
+# bar2 = Bar2()
+# assert bar2.get_x() == 101
+
+a = super(int, 2)
+assert isinstance(a, super)
+assert type(a) is super
+
