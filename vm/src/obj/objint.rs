@@ -226,7 +226,7 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(i.to_f64().unwrap() - objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot substract {:?} and {:?}", i, i2)))
+        Err(vm.new_not_implemented_error(format!("Cannot substract {:?} and {:?}", i, i2)))
     }
 }
 
