@@ -83,6 +83,11 @@ impl VirtualMachine {
         self.new_exception(value_error, msg)
     }
 
+    pub fn new_not_implemented_error(&mut self, msg: String) -> PyObjectRef {
+        let value_error = self.ctx.exceptions.not_implemented_error.clone();
+        self.new_exception(value_error, msg)
+    }
+
     pub fn new_scope(&mut self, parent_scope: Option<PyObjectRef>) -> PyObjectRef {
         // let parent_scope = self.current_frame_mut().locals.clone();
         self.ctx.new_scope(parent_scope)
@@ -447,23 +452,50 @@ impl VirtualMachine {
     }
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        // Try __sub__, next __rsub__, next, give up
-        self.call_method(&a, "__sub__", vec![b])
-        /*
-        if a.has_attr("__sub__") {
-            self.call_method(&a, "__sub__", vec![b])
-        } else if b.has_attr("__rsub__") {
-            self.call_method(&b, "__rsub__", vec![a])
-        } else {
-            // Cannot sub a and b
-            let a_type_name = objtype::get_type_name(&a.typ());
-            let b_type_name = objtype::get_type_name(&b.typ());
-            Err(self.new_type_error(format!(
-                "Unsupported operand types for '-': '{}' and '{}'",
-                a_type_name, b_type_name
-            )))
+        // 1. Try __sub__, next __rsub__, next, give up
+        if let Ok(method) = self.get_method(a.clone(), "__sub__") {
+            match self.invoke(
+                method,
+                PyFuncArgs {
+                    args: vec![b.clone()],
+                    kwargs: vec![],
+                },
+            ) {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    if !objtype::isinstance(&err, &self.ctx.exceptions.not_implemented_error) {
+                        return Err(err);
+                    }
+                }
+            }
         }
-        */
+
+        // 2. try __rsub__
+        if let Ok(method) = self.get_method(b.clone(), "__rsub__") {
+            match self.invoke(
+                method,
+                PyFuncArgs {
+                    args: vec![a.clone()],
+                    kwargs: vec![],
+                },
+            ) {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    if !objtype::isinstance(&err, &self.ctx.exceptions.not_implemented_error) {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        // 3. It all failed :(
+        // Cannot sub a and b
+        let a_type_name = objtype::get_type_name(&a.typ());
+        let b_type_name = objtype::get_type_name(&b.typ());
+        Err(self.new_type_error(format!(
+            "Unsupported operand types for '-': '{}' and '{}'",
+            a_type_name, b_type_name
+        )))
     }
 
     pub fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
