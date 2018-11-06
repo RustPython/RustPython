@@ -31,7 +31,8 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ty.clone()
     } else {
         // TODO: implement complex logic here....
-        vm.get_none()
+        unimplemented!("TODO: get frame and determine instance and class?");
+        // vm.get_none()
     };
 
     // Check type argument:

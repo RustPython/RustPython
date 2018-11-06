@@ -100,7 +100,13 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_breakpoint
-// builtin_callable
+
+fn builtin_callable(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+    // TODO: is this a sufficiently thorough check?
+    let is_callable = obj.has_attr("__call__");
+    Ok(vm.new_bool(is_callable))
+}
 
 fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
@@ -116,12 +122,35 @@ fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(source, None)]);
-    // TODO:
-    let mode = compile::Mode::Eval;
-    let source = source.borrow().str();
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (source, None),
+            (filename, Some(vm.ctx.str_type())),
+            (mode, Some(vm.ctx.str_type()))
+        ]
+    );
+    let source = objstr::get_value(source);
 
-    compile::compile(vm, &source, mode, None)
+    let mode = {
+        let mode = objstr::get_value(mode);
+        if mode == String::from("exec") {
+            compile::Mode::Exec
+        } else if mode == "eval".to_string() {
+            compile::Mode::Eval
+        } else if mode == "single".to_string() {
+            compile::Mode::Single
+        } else {
+            return Err(
+                vm.new_value_error("compile() mode must be 'exec', 'eval' or single'".to_string())
+            );
+        }
+    };
+
+    let filename = objstr::get_value(filename);
+
+    compile::compile(vm, &source, mode, Some(filename))
 }
 
 fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -150,7 +179,28 @@ fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-// builtin_enumerate
+fn builtin_enumerate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(iterable, None)],
+        optional = [(start, None)]
+    );
+    let items = vm.extract_elements(iterable)?;
+    let start = if let Some(start) = start {
+        objint::get_value(start)
+    } else {
+        Zero::zero()
+    };
+    let mut new_items = vec![];
+    for (i, item) in items.into_iter().enumerate() {
+        let element = vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_int(i.to_bigint().unwrap() + &start), item]);
+        new_items.push(element);
+    }
+    Ok(vm.ctx.new_list(new_items))
+}
 
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -219,7 +269,6 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_filter
 // builtin_format
-// builtin_frozenset
 
 fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -550,6 +599,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("bool"), ctx.bool_type());
     dict.insert(String::from("bytearray"), ctx.bytearray_type());
     dict.insert(String::from("bytes"), ctx.bytes_type());
+    dict.insert(String::from("callable"), ctx.new_rustfunc(builtin_callable));
     dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
     dict.insert(String::from("classmethod"), ctx.classmethod_type());
     dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
@@ -558,9 +608,14 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("dict"), ctx.dict_type());
     dict.insert(String::from("divmod"), ctx.new_rustfunc(builtin_divmod));
     dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
+    dict.insert(
+        String::from("enumerate"),
+        ctx.new_rustfunc(builtin_enumerate),
+    );
     dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
     dict.insert(String::from("exec"), ctx.new_rustfunc(builtin_exec));
     dict.insert(String::from("float"), ctx.float_type());
+    dict.insert(String::from("frozenset"), ctx.frozenset_type());
     dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
     dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
     dict.insert(String::from("hash"), ctx.new_rustfunc(builtin_hash));

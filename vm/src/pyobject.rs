@@ -88,6 +88,7 @@ pub struct PyContext {
     pub list_type: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
+    pub frozenset_type: PyObjectRef,
     pub iter_type: PyObjectRef,
     pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
@@ -158,6 +159,7 @@ impl PyContext {
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
         let set_type = create_type("set", &type_type, &object_type, &dict_type);
+        let frozenset_type = create_type("frozenset", &type_type, &object_type, &dict_type);
         let int_type = create_type("int", &type_type, &object_type, &dict_type);
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
         let complex_type = create_type("complex", &type_type, &object_type, &dict_type);
@@ -193,6 +195,7 @@ impl PyContext {
             bytearray_type: bytearray_type,
             list_type: list_type,
             set_type: set_type,
+            frozenset_type: frozenset_type,
             bool_type: bool_type,
             true_value: true_value,
             false_value: false_value,
@@ -261,6 +264,10 @@ impl PyContext {
 
     pub fn set_type(&self) -> PyObjectRef {
         self.set_type.clone()
+    }
+
+    pub fn frozenset_type(&self) -> PyObjectRef {
+        self.frozenset_type.clone()
     }
 
     pub fn bool_type(&self) -> PyObjectRef {
