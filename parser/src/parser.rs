@@ -12,6 +12,7 @@ use super::python;
 use super::token;
 
 pub fn read_file(filename: &Path) -> Result<String, String> {
+    info!("Loading file {:?}", filename);
     match File::open(&filename) {
         Ok(mut file) => {
             let mut s = String::new();
@@ -33,13 +34,9 @@ pub fn read_file(filename: &Path) -> Result<String, String> {
 
 pub fn parse(filename: &Path) -> Result<ast::Program, String> {
     info!("Parsing: {}", filename.display());
-    match read_file(filename) {
-        Ok(txt) => {
-            debug!("Read contents of file: {}", txt);
-            parse_program(&txt)
-        }
-        Err(msg) => Err(msg),
-    }
+    let txt = read_file(filename)?;
+    debug!("Read contents of file: {}", txt);
+    parse_program(&txt)
 }
 
 macro_rules! do_lalr_parsing {
@@ -69,6 +66,28 @@ pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, String> {
     do_lalr_parsing!(source, Statement, StartStatement)
 }
 
+/// Parses a python expression
+///
+/// # Example
+/// ```
+/// extern crate num_bigint;
+/// extern crate rustpython_parser;
+/// use num_bigint::BigInt;
+/// use rustpython_parser::{parser, ast};
+/// let expr = parser::parse_expression("1+2").unwrap();
+///
+/// assert_eq!(ast::Expression::Binop {
+///         a: Box::new(ast::Expression::Number {
+///             value: ast::Number::Integer { value: BigInt::from(1) }
+///         }),
+///         op: ast::Operator::Add,
+///         b: Box::new(ast::Expression::Number {
+///             value: ast::Number::Integer { value: BigInt::from(2) }
+///         })
+///     },
+///     expr);
+///
+/// ```
 pub fn parse_expression(source: &str) -> Result<ast::Expression, String> {
     do_lalr_parsing!(source, Expression, StartExpression)
 }
@@ -79,6 +98,7 @@ mod tests {
     use super::parse_expression;
     use super::parse_program;
     use super::parse_statement;
+    use num_bigint::BigInt;
 
     #[test]
     fn test_parse_empty() {
@@ -131,7 +151,9 @@ mod tests {
                                     value: String::from("Hello world"),
                                 },
                                 ast::Expression::Number {
-                                    value: ast::Number::Integer { value: 2 },
+                                    value: ast::Number::Integer {
+                                        value: BigInt::from(2)
+                                    },
                                 }
                             ],
                             keywords: vec![],
@@ -162,7 +184,9 @@ mod tests {
                             keywords: vec![ast::Keyword {
                                 name: Some("keyword".to_string()),
                                 value: ast::Expression::Number {
-                                    value: ast::Number::Integer { value: 2 },
+                                    value: ast::Number::Integer {
+                                        value: BigInt::from(2)
+                                    },
                                 }
                             }],
                         },
@@ -182,13 +206,17 @@ mod tests {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::If {
                     test: ast::Expression::Number {
-                        value: ast::Number::Integer { value: 1 },
+                        value: ast::Number::Integer {
+                            value: BigInt::from(1)
+                        },
                     },
                     body: vec![ast::LocatedStatement {
                         location: ast::Location::new(1, 7),
                         node: ast::Statement::Expression {
                             expression: ast::Expression::Number {
-                                value: ast::Number::Integer { value: 10 },
+                                value: ast::Number::Integer {
+                                    value: BigInt::from(10)
+                                },
                             }
                         },
                     },],
@@ -196,13 +224,17 @@ mod tests {
                         location: ast::Location::new(2, 1),
                         node: ast::Statement::If {
                             test: ast::Expression::Number {
-                                value: ast::Number::Integer { value: 2 },
+                                value: ast::Number::Integer {
+                                    value: BigInt::from(2)
+                                },
                             },
                             body: vec![ast::LocatedStatement {
                                 location: ast::Location::new(2, 9),
                                 node: ast::Statement::Expression {
                                     expression: ast::Expression::Number {
-                                        value: ast::Number::Integer { value: 20 },
+                                        value: ast::Number::Integer {
+                                            value: BigInt::from(20)
+                                        },
                                     },
                                 },
                             },],
@@ -210,7 +242,9 @@ mod tests {
                                 location: ast::Location::new(3, 7),
                                 node: ast::Statement::Expression {
                                     expression: ast::Expression::Number {
-                                        value: ast::Number::Integer { value: 30 },
+                                        value: ast::Number::Integer {
+                                            value: BigInt::from(30)
+                                        },
                                     },
                                 },
                             },]),
@@ -276,10 +310,14 @@ mod tests {
                     value: ast::Expression::Tuple {
                         elements: vec![
                             ast::Expression::Number {
-                                value: ast::Number::Integer { value: 4 }
+                                value: ast::Number::Integer {
+                                    value: BigInt::from(4)
+                                }
                             },
                             ast::Expression::Number {
-                                value: ast::Number::Integer { value: 5 }
+                                value: ast::Number::Integer {
+                                    value: BigInt::from(5)
+                                }
                             }
                         ]
                     }
@@ -422,7 +460,9 @@ mod tests {
                                 }),
                                 op: ast::Comparison::Less,
                                 b: Box::new(ast::Expression::Number {
-                                    value: ast::Number::Integer { value: 5 }
+                                    value: ast::Number::Integer {
+                                        value: BigInt::from(5)
+                                    }
                                 }),
                             },
                             ast::Expression::Compare {
@@ -431,7 +471,9 @@ mod tests {
                                 }),
                                 op: ast::Comparison::Greater,
                                 b: Box::new(ast::Expression::Number {
-                                    value: ast::Number::Integer { value: 10 }
+                                    value: ast::Number::Integer {
+                                        value: BigInt::from(10)
+                                    }
                                 }),
                             },
                         ],

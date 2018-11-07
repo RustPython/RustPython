@@ -2,24 +2,33 @@ use super::bytecode;
 use super::exceptions;
 use super::frame::Frame;
 use super::obj::objbool;
+use super::obj::objbytearray;
 use super::obj::objbytes;
+use super::obj::objcode;
+use super::obj::objcomplex;
 use super::obj::objdict;
 use super::obj::objfloat;
+use super::obj::objframe;
 use super::obj::objfunction;
 use super::obj::objgenerator;
 use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objobject;
+use super::obj::objproperty;
 use super::obj::objset;
 use super::obj::objstr;
+use super::obj::objsuper;
 use super::obj::objtuple;
 use super::obj::objtype;
 use super::vm::VirtualMachine;
+use num_bigint::BigInt;
+use num_complex::Complex64;
+use num_traits::{One, Zero};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 /* Python objects and references.
 
@@ -40,7 +49,20 @@ The PyRef type implements
 https://doc.rust-lang.org/std/cell/index.html#introducing-mutability-inside-of-something-immutable
 */
 pub type PyRef<T> = Rc<RefCell<T>>;
+
+/// The `PyObjectRef` is one of the most used types. It is a reference to a
+/// python object. A single python object can have multiple references, and
+/// this reference counting is accounted for by this type. Use the `.clone()`
+/// method to create a new reference and increment the amount of references
+/// to the python object by 1.
 pub type PyObjectRef = PyRef<PyObject>;
+
+/// Same as PyObjectRef, except for being a weak reference.
+pub type PyObjectWeakRef = Weak<RefCell<PyObject>>;
+
+/// Use this type for function which return a python object or and exception.
+/// Both the python object and the python exception are `PyObjectRef` types
+/// since exceptions are also python objects.
 pub type PyResult = Result<PyObjectRef, PyObjectRef>; // A valid value, or an exception
 
 /*
@@ -50,24 +72,44 @@ impl fmt::Display for PyObjectRef {
     }
 }*/
 
+/*
+ // Idea: implement the iterator trait upon PyObjectRef
+impl Iterator for (VirtualMachine, PyObjectRef) {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // call method ("_next__")
+    }
+}
+*/
+
 #[derive(Debug)]
 pub struct PyContext {
-    pub type_type: PyObjectRef,
-    pub none: PyObjectRef,
-    pub dict_type: PyObjectRef,
-    pub int_type: PyObjectRef,
-    pub float_type: PyObjectRef,
     pub bytes_type: PyObjectRef,
+    pub bytearray_type: PyObjectRef,
     pub bool_type: PyObjectRef,
+    pub classmethod_type: PyObjectRef,
+    pub code_type: PyObjectRef,
+    pub dict_type: PyObjectRef,
+    pub float_type: PyObjectRef,
+    pub frame_type: PyObjectRef,
+    pub frozenset_type: PyObjectRef,
+    pub generator_type: PyObjectRef,
+    pub int_type: PyObjectRef,
+    pub iter_type: PyObjectRef,
+    pub complex_type: PyObjectRef,
     pub true_value: PyObjectRef,
     pub false_value: PyObjectRef,
     pub list_type: PyObjectRef,
+    pub none: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
-    pub iter_type: PyObjectRef,
+    pub staticmethod_type: PyObjectRef,
+    pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
+    pub type_type: PyObjectRef,
     pub function_type: PyObjectRef,
-    pub generator_type: PyObjectRef,
+    pub property_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
@@ -120,7 +162,11 @@ impl PyContext {
         objdict::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
 
         let module_type = create_type("module", &type_type, &object_type, &dict_type);
+        let classmethod_type = create_type("classmethod", &type_type, &object_type, &dict_type);
+        let staticmethod_type = create_type("staticmethod", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
+        let property_type = create_type("property", &type_type, &object_type, &dict_type);
+        let super_type = create_type("super", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
@@ -128,12 +174,17 @@ impl PyContext {
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
         let set_type = create_type("set", &type_type, &object_type, &dict_type);
+        let frozenset_type = create_type("frozenset", &type_type, &object_type, &dict_type);
         let int_type = create_type("int", &type_type, &object_type, &dict_type);
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
+        let frame_type = create_type("frame", &type_type, &object_type, &dict_type);
+        let complex_type = create_type("complex", &type_type, &object_type, &dict_type);
         let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
+        let bytearray_type = create_type("bytearray", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
+        let code_type = create_type("code", &type_type, &int_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
@@ -141,15 +192,30 @@ impl PyContext {
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
-        let true_value = PyObject::new(PyObjectKind::Integer { value: 1 }, bool_type.clone());
-        let false_value = PyObject::new(PyObjectKind::Integer { value: 0 }, bool_type.clone());
+        let true_value = PyObject::new(
+            PyObjectKind::Integer { value: One::one() },
+            bool_type.clone(),
+        );
+        let false_value = PyObject::new(
+            PyObjectKind::Integer {
+                value: Zero::zero(),
+            },
+            bool_type.clone(),
+        );
         let context = PyContext {
+            bool_type: bool_type,
+            bytearray_type: bytearray_type,
+            bytes_type: bytes_type,
+            code_type: code_type,
+            complex_type: complex_type,
+            classmethod_type: classmethod_type,
             int_type: int_type,
             float_type: float_type,
-            bytes_type: bytes_type,
+            frame_type: frame_type,
+            staticmethod_type: staticmethod_type,
             list_type: list_type,
             set_type: set_type,
-            bool_type: bool_type,
+            frozenset_type: frozenset_type,
             true_value: true_value,
             false_value: false_value,
             tuple_type: tuple_type,
@@ -159,6 +225,8 @@ impl PyContext {
             str_type: str_type,
             object: object_type,
             function_type: function_type,
+            super_type: super_type,
+            property_type: property_type,
             generator_type: generator_type,
             module_type: module_type,
             bound_method_type: bound_method_type,
@@ -176,25 +244,51 @@ impl PyContext {
         objgenerator::init(&context);
         objint::init(&context);
         objfloat::init(&context);
+        objcomplex::init(&context);
         objbytes::init(&context);
+        objbytearray::init(&context);
+        objproperty::init(&context);
         objstr::init(&context);
+        objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
         objbool::init(&context);
+        objcode::init(&context);
+        objframe::init(&context);
         exceptions::init(&context);
         context
     }
 
-    pub fn int_type(&self) -> PyObjectRef {
-        self.int_type.clone()
+    pub fn bytearray_type(&self) -> PyObjectRef {
+        self.bytearray_type.clone()
+    }
+
+    pub fn bytes_type(&self) -> PyObjectRef {
+        self.bytes_type.clone()
+    }
+
+    pub fn code_type(&self) -> PyObjectRef {
+        self.code_type.clone()
+    }
+
+    pub fn complex_type(&self) -> PyObjectRef {
+        self.complex_type.clone()
+    }
+
+    pub fn dict_type(&self) -> PyObjectRef {
+        self.dict_type.clone()
     }
 
     pub fn float_type(&self) -> PyObjectRef {
         self.float_type.clone()
     }
 
-    pub fn bytes_type(&self) -> PyObjectRef {
-        self.bytes_type.clone()
+    pub fn frame_type(&self) -> PyObjectRef {
+        self.frame_type.clone()
+    }
+
+    pub fn int_type(&self) -> PyObjectRef {
+        self.int_type.clone()
     }
 
     pub fn list_type(&self) -> PyObjectRef {
@@ -205,23 +299,44 @@ impl PyContext {
         self.set_type.clone()
     }
 
+    pub fn frozenset_type(&self) -> PyObjectRef {
+        self.frozenset_type.clone()
+    }
+
     pub fn bool_type(&self) -> PyObjectRef {
         self.bool_type.clone()
     }
+
     pub fn tuple_type(&self) -> PyObjectRef {
         self.tuple_type.clone()
     }
+
     pub fn iter_type(&self) -> PyObjectRef {
         self.iter_type.clone()
     }
-    pub fn dict_type(&self) -> PyObjectRef {
-        self.dict_type.clone()
-    }
+
     pub fn str_type(&self) -> PyObjectRef {
         self.str_type.clone()
     }
+
+    pub fn super_type(&self) -> PyObjectRef {
+        self.super_type.clone()
+    }
+
     pub fn function_type(&self) -> PyObjectRef {
         self.function_type.clone()
+    }
+
+    pub fn property_type(&self) -> PyObjectRef {
+        self.property_type.clone()
+    }
+
+    pub fn classmethod_type(&self) -> PyObjectRef {
+        self.classmethod_type.clone()
+    }
+
+    pub fn staticmethod_type(&self) -> PyObjectRef {
+        self.staticmethod_type.clone()
     }
 
     pub fn generator_type(&self) -> PyObjectRef {
@@ -254,12 +369,16 @@ impl PyContext {
         )
     }
 
-    pub fn new_int(&self, i: i32) -> PyObjectRef {
+    pub fn new_int(&self, i: BigInt) -> PyObjectRef {
         PyObject::new(PyObjectKind::Integer { value: i }, self.int_type())
     }
 
     pub fn new_float(&self, i: f64) -> PyObjectRef {
         PyObject::new(PyObjectKind::Float { value: i }, self.float_type())
+    }
+
+    pub fn new_complex(&self, i: Complex64) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Complex { value: i }, self.complex_type())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
@@ -280,13 +399,16 @@ impl PyContext {
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::Tuple { elements: elements },
+            PyObjectKind::Sequence { elements: elements },
             self.tuple_type(),
         )
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyObjectKind::List { elements: elements }, self.list_type())
+        PyObject::new(
+            PyObjectKind::Sequence { elements: elements },
+            self.list_type(),
+        )
     }
 
     pub fn new_set(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
@@ -374,6 +496,9 @@ impl PyContext {
     }
 }
 
+/// This is an actual python object. It consists of a `typ` which is the
+/// python class, and carries some rust payload optionally. This rust
+/// payload can be a rust float or rust int in case of float and int objects.
 pub struct PyObject {
     pub kind: PyObjectKind,
     pub typ: Option<PyObjectRef>,
@@ -550,27 +675,8 @@ impl DictProtocol for PyObjectRef {
             PyObjectKind::Scope { ref mut scope } => {
                 scope.locals.set_item(k, v);
             }
-            _ => panic!("TODO"),
+            ref k => panic!("TODO {:?}", k),
         };
-    }
-}
-
-pub trait ToRust {
-    fn to_vec(&self) -> Option<Vec<PyObjectRef>>;
-    fn to_str(&self) -> Option<String>;
-}
-
-impl ToRust for PyObjectRef {
-    fn to_vec(&self) -> Option<Vec<PyObjectRef>> {
-        match self.borrow().kind {
-            PyObjectKind::Tuple { ref elements } => Some(elements.clone()),
-            PyObjectKind::List { ref elements } => Some(elements.clone()),
-            _ => None,
-        }
-    }
-
-    fn to_str(&self) -> Option<String> {
-        Some(self.borrow().str())
     }
 }
 
@@ -580,6 +686,9 @@ impl fmt::Debug for PyObject {
     }
 }
 
+/// The `PyFuncArgs` struct is one of the most used structs then creating
+/// a rust function that can be called from python. It holds both positional
+/// arguments, as well as keyword arguments passed to the function.
 #[derive(Debug, Default, Clone)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
@@ -610,27 +719,49 @@ impl PyFuncArgs {
     pub fn shift(&mut self) -> PyObjectRef {
         self.args.remove(0)
     }
+
+    pub fn get_kwarg(&self, key: &str, default: PyObjectRef) -> PyObjectRef {
+        for (arg_name, arg_value) in self.kwargs.iter() {
+            if arg_name == key {
+                return arg_value.clone();
+            }
+        }
+        default.clone()
+    }
+
+    pub fn get_optional_kwarg(&self, key: &str) -> Option<PyObjectRef> {
+        for (arg_name, arg_value) in self.kwargs.iter() {
+            if arg_name == key {
+                return Some(arg_value.clone());
+            }
+        }
+        None
+    }
 }
 
 type RustPyFunc = fn(vm: &mut VirtualMachine, PyFuncArgs) -> PyResult;
 
+/// Rather than determining the type of a python object, this enum is more
+/// a holder for the rust payload of a python object. It is more a carrier
+/// of rust data for a particular python object. Determine the python type
+/// by using for example the `.typ()` method on a python object.
 pub enum PyObjectKind {
     String {
         value: String,
     },
     Integer {
-        value: i32,
+        value: BigInt,
     },
     Float {
         value: f64,
     },
+    Complex {
+        value: Complex64,
+    },
     Bytes {
         value: Vec<u8>,
     },
-    List {
-        elements: Vec<PyObjectRef>,
-    },
-    Tuple {
+    Sequence {
         elements: Vec<PyObjectRef>,
     },
     Dict {
@@ -676,6 +807,9 @@ pub enum PyObjectKind {
         dict: PyObjectRef,
         mro: Vec<PyObjectRef>,
     },
+    WeakRef {
+        referent: PyObjectWeakRef,
+    },
     Instance {
         dict: PyObjectRef,
     },
@@ -690,11 +824,12 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::String { ref value } => write!(f, "str \"{}\"", value),
             &PyObjectKind::Integer { ref value } => write!(f, "int {}", value),
             &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
-            &PyObjectKind::Bytes { ref value } => write!(f, "bytes {:?}", value),
-            &PyObjectKind::List { elements: _ } => write!(f, "list"),
-            &PyObjectKind::Tuple { elements: _ } => write!(f, "tuple"),
+            &PyObjectKind::Complex { ref value } => write!(f, "complex {}", value),
+            &PyObjectKind::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
+            &PyObjectKind::Sequence { elements: _ } => write!(f, "list or tuple"),
             &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
             &PyObjectKind::Set { elements: _ } => write!(f, "set"),
+            &PyObjectKind::WeakRef { .. } => write!(f, "weakref"),
             &PyObjectKind::Iterator {
                 position: _,
                 iterated_obj: _,
@@ -735,34 +870,22 @@ impl PyObject {
         .into_ref()
     }
 
+    /// Deprecated method, please call `vm.to_pystr`
     pub fn str(&self) -> String {
         match self.kind {
             PyObjectKind::String { ref value } => value.clone(),
             PyObjectKind::Integer { ref value } => format!("{:?}", value),
             PyObjectKind::Float { ref value } => format!("{:?}", value),
+            PyObjectKind::Complex { ref value } => format!("{:?}", value),
             PyObjectKind::Bytes { ref value } => format!("b'{:?}'", value),
-            PyObjectKind::List { ref elements } => format!(
-                "[{}]",
+            PyObjectKind::Sequence { ref elements } => format!(
+                "(/[{}]/)",
                 elements
                     .iter()
                     .map(|elem| elem.borrow().str())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            PyObjectKind::Tuple { ref elements } => {
-                if elements.len() == 1 {
-                    format!("({},)", elements[0].borrow().str())
-                } else {
-                    format!(
-                        "({})",
-                        elements
-                            .iter()
-                            .map(|elem| elem.borrow().str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                }
-            }
             PyObjectKind::Dict { ref elements } => format!(
                 "{{ {} }}",
                 elements
@@ -779,6 +902,7 @@ impl PyObject {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            PyObjectKind::WeakRef { .. } => String::from("weakref"),
             PyObjectKind::None => String::from("None"),
             PyObjectKind::Class {
                 ref name,

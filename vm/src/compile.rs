@@ -1,17 +1,16 @@
-/*
- * Take an AST and transform it into bytecode
- *
- * Inspirational code:
- *   https://github.com/python/cpython/blob/master/Python/compile.c
- *   https://github.com/micropython/micropython/blob/master/py/compile.c
- */
+//!
+//!
+//! Take an AST and transform it into bytecode
+//!
+//! Inspirational code:
+//!   https://github.com/python/cpython/blob/master/Python/compile.c
+//!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
-extern crate rustpython_parser;
-
-use self::rustpython_parser::{ast, parser};
 use super::bytecode::{self, CallType, CodeObject, Instruction};
 use super::pyobject::{PyObject, PyObjectKind, PyResult};
 use super::vm::VirtualMachine;
+use num_complex::Complex64;
+use rustpython_parser::{ast, parser};
 
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
@@ -20,6 +19,7 @@ struct Compiler {
     current_source_location: ast::Location,
 }
 
+/// Compile a given sourcecode into a bytecode object.
 pub fn compile(
     vm: &mut VirtualMachine,
     source: &str,
@@ -54,7 +54,7 @@ pub fn compile(
     trace!("Compilation completed: {:?}", code);
     Ok(PyObject::new(
         PyObjectKind::Code { code: code },
-        vm.get_type(),
+        vm.ctx.code_type(),
     ))
 }
 
@@ -177,6 +177,12 @@ impl Compiler {
                 // Pop result of stack, since we not use it:
                 self.emit(Instruction::Pop);
             }
+            ast::Statement::Global { names } => {
+                unimplemented!("global {:?}", names);
+            }
+            ast::Statement::Nonlocal { names } => {
+                unimplemented!("nonlocal {:?}", names);
+            }
             ast::Statement::If { test, body, orelse } => {
                 let end_label = self.new_label();
                 match orelse {
@@ -200,13 +206,9 @@ impl Compiler {
                 }
                 self.set_label(end_label);
             }
-            ast::Statement::While {
-                test,
-                body,
-                orelse: _,
-            } => {
-                // TODO: Handle while-loop else clauses
+            ast::Statement::While { test, body, orelse } => {
                 let start_label = self.new_label();
+                let else_label = self.new_label();
                 let end_label = self.new_label();
                 self.emit(Instruction::SetupLoop {
                     start: start_label,
@@ -215,12 +217,17 @@ impl Compiler {
 
                 self.set_label(start_label);
 
-                self.compile_test(test, None, Some(end_label), EvalContext::Statement)?;
+                self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
                 self.compile_statements(body)?;
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
+                self.set_label(else_label);
+                if let Some(orelse) = orelse {
+                    self.compile_statements(orelse)?;
+                }
                 self.set_label(end_label);
+                self.emit(Instruction::PopBlock);
             }
             ast::Statement::With { items, body } => {
                 let end_label = self.new_label();
@@ -247,9 +254,8 @@ impl Compiler {
                 target,
                 iter,
                 body,
-                orelse: _,
+                orelse,
             } => {
-                // TODO: Handle for loop else clauses
                 // The thing iterated:
                 for i in iter {
                     self.compile_expression(i)?;
@@ -260,13 +266,14 @@ impl Compiler {
 
                 // Start loop
                 let start_label = self.new_label();
+                let else_label = self.new_label();
                 let end_label = self.new_label();
                 self.emit(Instruction::SetupLoop {
                     start: start_label,
                     end: end_label,
                 });
                 self.set_label(start_label);
-                self.emit(Instruction::ForIter);
+                self.emit(Instruction::ForIter { target: else_label });
 
                 // Start of loop iteration, set targets:
                 self.compile_store(target)?;
@@ -276,6 +283,10 @@ impl Compiler {
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
+                self.set_label(else_label);
+                if let Some(orelse) = orelse {
+                    self.compile_statements(orelse)?;
+                }
                 self.set_label(end_label);
                 self.emit(Instruction::PopBlock);
             }
@@ -432,7 +443,7 @@ impl Compiler {
                 name,
                 body,
                 bases,
-                keywords: _,
+                keywords,
                 decorator_list,
             } => {
                 self.prepare_decorators(decorator_list)?;
@@ -479,9 +490,34 @@ impl Compiler {
                 for base in bases {
                     self.compile_expression(base)?;
                 }
-                self.emit(Instruction::CallFunction {
-                    typ: CallType::Positional(2 + bases.len()),
-                });
+
+                if keywords.len() > 0 {
+                    let mut kwarg_names = vec![];
+                    for keyword in keywords {
+                        if let Some(name) = &keyword.name {
+                            kwarg_names.push(bytecode::Constant::String {
+                                value: name.to_string(),
+                            });
+                        } else {
+                            // This means **kwargs!
+                            panic!("name must be set");
+                        }
+                        self.compile_expression(&keyword.value)?;
+                    }
+
+                    self.emit(Instruction::LoadConst {
+                        value: bytecode::Constant::Tuple {
+                            elements: kwarg_names,
+                        },
+                    });
+                    self.emit(Instruction::CallFunction {
+                        typ: CallType::Keyword(2 + keywords.len() + bases.len()),
+                    });
+                } else {
+                    self.emit(Instruction::CallFunction {
+                        typ: CallType::Positional(2 + bases.len()),
+                    });
+                }
 
                 self.apply_decorators(decorator_list);
 
@@ -811,8 +847,10 @@ impl Compiler {
 
                 // Perform operation:
                 let i = match op {
+                    ast::UnaryOperator::Pos => bytecode::UnaryOperator::Plus,
                     ast::UnaryOperator::Neg => bytecode::UnaryOperator::Minus,
                     ast::UnaryOperator::Not => bytecode::UnaryOperator::Not,
+                    ast::UnaryOperator::Inv => bytecode::UnaryOperator::Invert,
                 };
                 let i = Instruction::UnaryOperation { op: i };
                 self.emit(i);
@@ -844,8 +882,13 @@ impl Compiler {
             }
             ast::Expression::Number { value } => {
                 let const_value = match value {
-                    ast::Number::Integer { value } => bytecode::Constant::Integer { value: *value },
+                    ast::Number::Integer { value } => bytecode::Constant::Integer {
+                        value: value.clone(),
+                    },
                     ast::Number::Float { value } => bytecode::Constant::Float { value: *value },
+                    ast::Number::Complex { real, imag } => bytecode::Constant::Complex {
+                        value: Complex64::new(*real, *imag),
+                    },
                 };
                 self.emit(Instruction::LoadConst { value: const_value });
             }
@@ -929,6 +972,13 @@ impl Compiler {
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
                         value: value.to_string(),
+                    },
+                });
+            }
+            ast::Expression::Bytes { value } => {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Bytes {
+                        value: value.clone(),
                     },
                 });
             }
@@ -1165,7 +1215,7 @@ impl Compiler {
                 end: end_label,
             });
             self.set_label(start_label);
-            self.emit(Instruction::ForIter);
+            self.emit(Instruction::ForIter { target: end_label });
 
             self.compile_store(&generator.target)?;
 
@@ -1294,8 +1344,8 @@ mod tests {
     use super::bytecode::CodeObject;
     use super::bytecode::Constant::*;
     use super::bytecode::Instruction::*;
-    use super::rustpython_parser::parser;
     use super::Compiler;
+    use rustpython_parser::parser;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
         compiler.push_new_code_object(Option::None, "<module>".to_string());

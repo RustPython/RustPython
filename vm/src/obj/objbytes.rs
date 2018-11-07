@@ -1,42 +1,52 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
-use super::objlist;
 use super::objtype;
+use num_traits::ToPrimitive;
+use std::cell::Ref;
+use std::ops::Deref;
 // Binary data support
 
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
     let ref bytes_type = context.bytes_type;
     bytes_type.set_attr("__eq__", context.new_rustfunc(bytes_eq));
-    bytes_type.set_attr("__init__", context.new_rustfunc(bytes_init));
+    bytes_type.set_attr("__new__", context.new_rustfunc(bytes_new));
     bytes_type.set_attr("__repr__", context.new_rustfunc(bytes_repr));
 }
 
-// __init__ (store value into objectkind)
-fn bytes_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(zelf, Some(vm.ctx.bytes_type())), (arg, None)]
+        required = [(cls, None)],
+        optional = [(val_option, None)]
     );
-    let val = if objtype::isinstance(arg, &vm.ctx.list_type()) {
+    if !objtype::issubclass(cls, &vm.ctx.bytes_type()) {
+        return Err(vm.new_type_error(format!("{:?} is not a subtype of bytes", cls)));
+    }
+
+    // Create bytes data:
+    let value = if let Some(ival) = val_option {
+        let elements = vm.extract_elements(ival)?;
         let mut data_bytes = vec![];
-        for elem in objlist::get_elements(arg) {
-            let v = match objint::to_int(vm, &elem, 10) {
-                Ok(int_ref) => int_ref,
-                Err(err) => return Err(err),
-            };
-            data_bytes.push(v as u8);
+        for elem in elements.iter() {
+            let v = objint::to_int(vm, elem, 10)?;
+            data_bytes.push(v.to_u8().unwrap());
         }
         data_bytes
+    // return Err(vm.new_type_error("Cannot construct bytes".to_string()));
     } else {
-        return Err(vm.new_type_error("Cannot construct bytes".to_string()));
+        vec![]
     };
-    set_value(zelf, val);
-    Ok(vm.get_none())
+
+    Ok(PyObject::new(
+        PyObjectKind::Bytes { value: value },
+        cls.clone(),
+    ))
 }
 
 fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -47,29 +57,27 @@ fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a) == get_value(b)
+        get_value(a).to_vec() == get_value(b).to_vec()
     } else {
         false
     };
     Ok(vm.ctx.new_bool(result))
 }
 
-pub fn get_value(obj: &PyObjectRef) -> Vec<u8> {
-    if let PyObjectKind::Bytes { value } = &obj.borrow().kind {
-        value.clone()
-    } else {
-        panic!("Inner error getting int {:?}", obj);
-    }
-}
-
-fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
-    obj.borrow_mut().kind = PyObjectKind::Bytes { value };
+pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
+    Ref::map(obj.borrow(), |py_obj| {
+        if let PyObjectKind::Bytes { ref value } = py_obj.kind {
+            value
+        } else {
+            panic!("Inner error getting int {:?}", obj);
+        }
+    })
 }
 
 fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
     let data = get_value(obj);
-    let data: Vec<String> = data.into_iter().map(|b| format!("\\x{:02x}", b)).collect();
+    let data: Vec<String> = data.iter().map(|b| format!("\\x{:02x}", b)).collect();
     let data = data.join("");
     Ok(vm.new_str(format!("b'{}'", data)))
 }

@@ -5,11 +5,13 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
-use super::super::obj::{objbool, objdict, objfloat, objint, objlist, objstr, objtuple, objtype};
+use super::super::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
 use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
+use num_bigint::ToBigInt;
+use num_traits::cast::ToPrimitive;
 
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
 // PyObject serialisation via a proxy object which holds a reference to a VM
@@ -33,10 +35,10 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         S: serde::Serializer,
     {
         let serialize_seq_elements =
-            |serializer: S, elements: Vec<PyObjectRef>| -> Result<S::Ok, S::Error> {
+            |serializer: S, elements: &Vec<PyObjectRef>| -> Result<S::Ok, S::Error> {
                 let mut seq = serializer.serialize_seq(Some(elements.len()))?;
-                for e in elements {
-                    seq.serialize_element(&self.clone_with_object(&e))?;
+                for e in elements.iter() {
+                    seq.serialize_element(&self.clone_with_object(e))?;
                 }
                 seq.end()
             };
@@ -47,17 +49,20 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject, &self.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject, &self.ctx.int_type()) {
-            serializer.serialize_i32(objint::get_value(self.pyobject))
+            let v = objint::get_value(self.pyobject);
+            serializer.serialize_i64(v.to_i64().unwrap())
+        // Allthough this may seem nice, it does not give the right result:
+        // v.serialize(serializer)
         } else if objtype::isinstance(self.pyobject, &self.ctx.list_type()) {
-            let elements = objlist::get_elements(self.pyobject);
-            serialize_seq_elements(serializer, elements)
+            let elements = objsequence::get_elements(self.pyobject);
+            serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.ctx.tuple_type()) {
-            let elements = objtuple::get_elements(self.pyobject);
-            serialize_seq_elements(serializer, elements)
+            let elements = objsequence::get_elements(self.pyobject);
+            serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.ctx.dict_type()) {
             let elements = objdict::get_elements(self.pyobject);
             let mut map = serializer.serialize_map(Some(elements.len()))?;
-            for (key, e) in elements {
+            for (key, e) in elements.iter() {
                 map.serialize_entry(&key, &self.clone_with_object(&e))?;
             }
             map.end()
@@ -113,12 +118,7 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
             {
                 // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
                 // implement those for now
-                use std::i32;
-                if value >= i32::MIN as i64 && value <= i32::MAX as i64 {
-                    Ok(self.ctx.new_int(value as i32))
-                } else {
-                    Err(E::custom(format!("i64 out of range: {}", value)))
-                }
+                Ok(self.ctx.new_int(value.to_bigint().unwrap()))
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
@@ -127,12 +127,7 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
             {
                 // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
                 // implement those for now
-                use std::i32;
-                if value <= i32::MAX as u64 {
-                    Ok(self.ctx.new_int(value as i32))
-                } else {
-                    Err(E::custom(format!("u64 out of range: {}", value)))
-                }
+                Ok(self.ctx.new_int(value.to_bigint().unwrap()))
             }
 
             fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>

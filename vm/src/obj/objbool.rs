@@ -3,25 +3,24 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
+use num_traits::Zero;
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
     let result = match obj.borrow().kind {
-        PyObjectKind::Integer { value } => value != 0,
+        PyObjectKind::Integer { ref value } => !value.is_zero(),
         PyObjectKind::Float { value } => value != 0.0,
-        PyObjectKind::List { ref elements } => !elements.is_empty(),
-        PyObjectKind::Tuple { ref elements } => !elements.is_empty(),
+        PyObjectKind::Sequence { ref elements } => !elements.is_empty(),
         PyObjectKind::Dict { ref elements } => !elements.is_empty(),
         PyObjectKind::String { ref value } => !value.is_empty(),
         PyObjectKind::None { .. } => false,
         _ => {
-            if let Ok(f) = objtype::get_attribute(vm, obj.clone(), &String::from("__bool__")) {
-                match vm.invoke(f, PyFuncArgs::default()) {
-                    Ok(result) => match result.borrow().kind {
-                        PyObjectKind::Integer { value } => value != 0,
-                        _ => return Err(vm.new_type_error(String::from("TypeError"))),
-                    },
-                    Err(err) => return Err(err),
-                }
+            if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
+                let bool_res = vm.invoke(f, PyFuncArgs::default())?;
+                let v = match bool_res.borrow().kind {
+                    PyObjectKind::Integer { ref value } => !value.is_zero(),
+                    _ => return Err(vm.new_type_error(String::from("TypeError"))),
+                };
+                v
             } else {
                 true
             }
@@ -48,7 +47,7 @@ pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
     if let PyObjectKind::Integer { value } = &obj.borrow().kind {
-        *value != 0
+        !value.is_zero()
     } else {
         panic!("Inner error getting inner boolean");
     }

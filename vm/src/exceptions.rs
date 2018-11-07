@@ -1,6 +1,5 @@
-use super::obj::objlist;
+use super::obj::objsequence;
 use super::obj::objstr;
-use super::obj::objtuple;
 use super::obj::objtype;
 use super::pyobject::{
     create_type, AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
@@ -25,24 +24,24 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
     if let Some(tb) = exc.get_attr("__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let mut elements = objlist::get_elements(&tb);
+            let mut elements = objsequence::get_elements(&tb).to_vec();
             elements.reverse();
-            for element in elements {
+            for element in elements.iter() {
                 if objtype::isinstance(&element, &vm.ctx.tuple_type()) {
-                    let element = objtuple::get_elements(&element);
-                    let filename = if let Ok(x) = vm.to_str(element[0].clone()) {
+                    let element = objsequence::get_elements(&element);
+                    let filename = if let Ok(x) = vm.to_str(&element[0]) {
                         objstr::get_value(&x)
                     } else {
                         "<error>".to_string()
                     };
 
-                    let lineno = if let Ok(x) = vm.to_str(element[1].clone()) {
+                    let lineno = if let Ok(x) = vm.to_str(&element[1]) {
                         objstr::get_value(&x)
                     } else {
                         "<error>".to_string()
                     };
 
-                    let obj_name = if let Ok(x) = vm.to_str(element[2].clone()) {
+                    let obj_name = if let Ok(x) = vm.to_str(&element[2]) {
                         objstr::get_value(&x)
                     } else {
                         "<error>".to_string()
@@ -58,7 +57,7 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
         println!("No traceback set on exception");
     }
 
-    match vm.to_str(exc.clone()) {
+    match vm.to_str(exc) {
         Ok(txt) => println!("{}", objstr::get_value(&txt)),
         Err(err) => println!("Error during error {:?}", err),
     }

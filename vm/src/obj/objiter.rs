@@ -3,8 +3,7 @@
  */
 
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -17,30 +16,10 @@ use super::objtype; // Required for arg_check! to use isinstance
  * function 'iter' is called.
  */
 pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
-    // Check what we are going to iterate over:
-    let iterated_obj = if objtype::isinstance(iter_target, &vm.ctx.iter_type()) {
-        // If object is already an iterator, return that one.
-        return Ok(iter_target.clone());
-    } else if objtype::isinstance(iter_target, &vm.ctx.list_type()) {
-        iter_target.clone()
-    // } else if hasattr(iter_target, "__iter__") {
-    } else {
-        return vm.call_method(iter_target, "__iter__", vec![]);
-        // let type_str = objstr::get_value(&vm.to_str(iter_target.typ()).unwrap());
-        // let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
-        // return Err(type_error);
-    };
-
-    let iter_obj = PyObject::new(
-        PyObjectKind::Iterator {
-            position: 0,
-            iterated_obj: iterated_obj,
-        },
-        vm.ctx.iter_type(),
-    );
-
-    // We are all good here:
-    Ok(iter_obj)
+    vm.call_method(iter_target, "__iter__", vec![])
+    // let type_str = objstr::get_value(&vm.to_str(iter_target.typ()).unwrap());
+    // let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
+    // return Err(type_error);
 }
 
 /*
@@ -127,7 +106,7 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     {
         let iterated_obj = &*iterated_obj_ref.borrow_mut();
         match iterated_obj.kind {
-            PyObjectKind::List { ref elements } => {
+            PyObjectKind::Sequence { ref elements } => {
                 if *position < elements.len() {
                     let obj_ref = elements[*position].clone();
                     *position += 1;

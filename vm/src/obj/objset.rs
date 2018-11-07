@@ -11,6 +11,7 @@ use super::objbool;
 use super::objiter;
 use super::objstr;
 use super::objtype;
+use num_bigint::ToBigInt;
 use std::collections::HashMap;
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
@@ -90,20 +91,24 @@ fn set_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.len called with: {:?}", args);
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let elements = get_elements(s);
-    Ok(vm.context().new_int(elements.len() as i32))
+    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
 }
 
 fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.set_type()))]);
 
     let elements = get_elements(o);
-    let mut str_parts = vec![];
-    for elem in elements.values() {
-        let part = vm.to_repr(elem.clone())?;
-        str_parts.push(objstr::get_value(&part));
-    }
+    let s = if elements.len() == 0 {
+        "set()".to_string()
+    } else {
+        let mut str_parts = vec![];
+        for elem in elements.values() {
+            let part = vm.to_repr(elem)?;
+            str_parts.push(objstr::get_value(&part));
+        }
 
-    let s = format!("{{ {} }}", str_parts.join(", "));
+        format!("{{{}}}", str_parts.join(", "))
+    };
     Ok(vm.new_str(s))
 }
 
@@ -127,6 +132,24 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
+fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
+
+    let elements = get_elements(o);
+    let s = if elements.len() == 0 {
+        "frozenset()".to_string()
+    } else {
+        let mut str_parts = vec![];
+        for elem in elements.values() {
+            let part = vm.to_repr(elem)?;
+            str_parts.push(objstr::get_value(&part));
+        }
+
+        format!("frozenset({{{}}})", str_parts.join(", "))
+    };
+    Ok(vm.new_str(s))
+}
+
 pub fn init(context: &PyContext) {
     let ref set_type = context.set_type;
     set_type.set_attr("__contains__", context.new_rustfunc(set_contains));
@@ -134,4 +157,9 @@ pub fn init(context: &PyContext) {
     set_type.set_attr("__new__", context.new_rustfunc(set_new));
     set_type.set_attr("__repr__", context.new_rustfunc(set_repr));
     set_type.set_attr("add", context.new_rustfunc(set_add));
+
+    let ref frozenset_type = context.set_type;
+    frozenset_type.set_attr("__contains__", context.new_rustfunc(set_contains));
+    frozenset_type.set_attr("__len__", context.new_rustfunc(set_len));
+    frozenset_type.set_attr("__repr__", context.new_rustfunc(frozenset_repr));
 }

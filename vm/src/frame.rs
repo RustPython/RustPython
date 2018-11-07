@@ -9,6 +9,7 @@ use super::builtins;
 use super::bytecode;
 use super::import::import;
 use super::obj::objbool;
+use super::obj::objcode;
 use super::obj::objdict;
 use super::obj::objiter;
 use super::obj::objlist;
@@ -16,9 +17,11 @@ use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult, ToRust, TypeProtocol,
+    PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
+use num_bigint::ToBigInt;
+use num_traits::ToPrimitive;
 
 #[derive(Clone, Debug)]
 enum Block {
@@ -36,23 +39,12 @@ enum Block {
 }
 
 pub struct Frame {
-    // TODO: We are using Option<i32> in stack for handline None return value
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame
     stack: Vec<PyObjectRef>, // The main data frame of the stack machine
     blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
     pub locals: PyObjectRef, // Variables
     pub lasti: usize,        // index of last instruction ran
-                             // cmp_op: Vec<&'a Fn(NativeType, NativeType) -> bool>, // TODO: change compare to a function list
-}
-
-pub fn copy_code(code_obj: PyObjectRef) -> bytecode::CodeObject {
-    let code_obj = code_obj.borrow();
-    if let PyObjectKind::Code { ref code } = code_obj.kind {
-        code.clone()
-    } else {
-        panic!("Must be code obj");
-    }
 }
 
 // Running a frame can result in one of the below:
@@ -78,7 +70,7 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: copy_code(code),
+            code: objcode::copy_code(&code),
             stack: vec![],
             blocks: vec![],
             // save the callargs as locals
@@ -121,13 +113,12 @@ impl Frame {
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
                     ));
-                    let traceback = vm
-                        .get_attribute(exception.clone(), &"__traceback__".to_string())
-                        .unwrap();
+                    let traceback_name = vm.new_str("__traceback__".to_string());
+                    let traceback = vm.get_attribute(exception.clone(), traceback_name).unwrap();
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.get_row() as i32),
+                        vm.ctx.new_int(lineno.get_row().to_bigint().unwrap()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::list_append(
@@ -246,14 +237,14 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let mut elements = HashMap::new();
+                let mut elements: HashMap<String, PyObjectRef> = HashMap::new();
                 for _x in 0..*size {
                     let obj = self.pop_value();
                     if *unpack {
                         // Take all key-value pairs from the dict:
                         let dict_elements = objdict::get_elements(&obj);
-                        for (key, obj) in dict_elements {
-                            elements.insert(key, obj);
+                        for (key, obj) in dict_elements.iter() {
+                            elements.insert(key.clone(), obj.clone());
                         }
                     } else {
                         // XXX: Currently, we only support String keys, so we have to unwrap the
@@ -283,7 +274,7 @@ impl Frame {
                 let mut out: Vec<Option<i32>> = elements
                     .into_iter()
                     .map(|x| match x.borrow().kind {
-                        PyObjectKind::Integer { value } => Some(value),
+                        PyObjectKind::Integer { ref value } => Some(value.to_i32().unwrap()),
                         PyObjectKind::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
                     })
@@ -303,8 +294,13 @@ impl Frame {
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                // TODO: objlist::list_append()
-                vm.call_method(&list_obj, "append", vec![item])?;
+                objlist::list_append(
+                    vm,
+                    PyFuncArgs {
+                        args: vec![list_obj.clone(), item],
+                        kwargs: vec![],
+                    },
+                )?;
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
@@ -406,7 +402,7 @@ impl Frame {
                 self.push_value(iter_obj);
                 Ok(None)
             }
-            bytecode::Instruction::ForIter => {
+            bytecode::Instruction::ForIter { target } => {
                 // The top of stack contains the iterator, lets push it forward:
                 let top_of_stack = self.last_value();
                 let next_obj = objiter::get_next_object(vm, &top_of_stack);
@@ -422,12 +418,7 @@ impl Frame {
                         self.pop_value();
 
                         // End of for loop
-                        let end_label = if let Block::Loop { start: _, end } = self.last_block() {
-                            *end
-                        } else {
-                            panic!("Wrong block type")
-                        };
-                        self.jump(end_label);
+                        self.jump(*target);
                         Ok(None)
                     }
                     Err(next_error) => {
@@ -465,9 +456,8 @@ impl Frame {
                         let kwarg_names = self.pop_value();
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
 
-                        let kwarg_names = kwarg_names
-                            .to_vec()
-                            .unwrap()
+                        let kwarg_names = vm
+                            .extract_elements(&kwarg_names)?
                             .iter()
                             .map(|pyobj| objstr::get_value(pyobj))
                             .collect();
@@ -476,7 +466,8 @@ impl Frame {
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
                             let kw_dict = self.pop_value();
-                            objdict::get_elements(&kw_dict).into_iter().collect()
+                            let dict_elements = objdict::get_elements(&kw_dict).clone();
+                            dict_elements.into_iter().collect()
                         } else {
                             vec![]
                         };
@@ -559,15 +550,14 @@ impl Frame {
                 match expr.borrow().kind {
                     PyObjectKind::None => (),
                     _ => {
-                        let repr = vm.to_repr(expr.clone()).unwrap();
+                        let repr = vm.to_repr(&expr)?;
                         builtins::builtin_print(
                             vm,
                             PyFuncArgs {
                                 args: vec![repr],
                                 kwargs: vec![],
                             },
-                        )
-                        .unwrap();
+                        )?;
                     }
                 }
                 Ok(None)
@@ -860,17 +850,8 @@ impl Frame {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        let a2 = &mut *obj.borrow_mut();
-        match &mut a2.kind {
-            PyObjectKind::List { ref mut elements } => {
-                objlist::set_item(vm, elements, idx, value)?;
-                Ok(None)
-            }
-            _ => Err(vm.new_type_error(format!(
-                "TypeError: __setitem__ assign type {:?} with index {:?} is not supported (yet?)",
-                obj, idx
-            ))),
-        }
+        vm.call_method(&obj, "__setitem__", vec![idx, value])?;
+        Ok(None)
     }
 
     fn execute_delete_subscript(&mut self, vm: &mut VirtualMachine) -> FrameResult {
@@ -925,47 +906,16 @@ impl Frame {
     ) -> FrameResult {
         let a = self.pop_value();
         let value = match op {
-            &bytecode::UnaryOperator::Minus => {
-                // TODO:
-                // self.invoke('__neg__'
-                match a.borrow().kind {
-                    PyObjectKind::Integer { value: ref value1 } => vm.ctx.new_int(-*value1),
-                    PyObjectKind::Float { value: ref value1 } => vm.ctx.new_float(-*value1),
-                    _ => panic!("Not impl {:?}", a),
-                }
-            }
+            &bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
+            &bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
+            &bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
             &bytecode::UnaryOperator::Not => {
                 let value = objbool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)
             }
-            _ => panic!("Not impl {:?}", op),
         };
         self.push_value(value);
         Ok(None)
-    }
-
-    fn _eq(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__eq__", vec![b])
-    }
-
-    fn _ne(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__ne__", vec![b])
-    }
-
-    fn _lt(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__lt__", vec![b])
-    }
-
-    fn _le(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__le__", vec![b])
-    }
-
-    fn _gt(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__gt__", vec![b])
-    }
-
-    fn _ge(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__ge__", vec![b])
     }
 
     fn _id(&self, a: PyObjectRef) -> usize {
@@ -1033,17 +983,17 @@ impl Frame {
         let b = self.pop_value();
         let a = self.pop_value();
         let value = match op {
-            &bytecode::ComparisonOperator::Equal => self._eq(vm, a, b),
-            &bytecode::ComparisonOperator::NotEqual => self._ne(vm, a, b),
-            &bytecode::ComparisonOperator::Less => self._lt(vm, a, b),
-            &bytecode::ComparisonOperator::LessOrEqual => self._le(vm, a, b),
-            &bytecode::ComparisonOperator::Greater => self._gt(vm, a, b),
-            &bytecode::ComparisonOperator::GreaterOrEqual => self._ge(vm, a, b),
-            &bytecode::ComparisonOperator::Is => Ok(vm.ctx.new_bool(self._is(a, b))),
-            &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b),
-            &bytecode::ComparisonOperator::In => self._in(vm, a, b),
-            &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b),
-        }?;
+            &bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
+            &bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
+            &bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
+            &bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
+            &bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
+            &bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
+            &bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
+            &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
+            &bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
+            &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+        };
 
         self.push_value(value);
         Ok(None)
@@ -1051,6 +1001,7 @@ impl Frame {
 
     fn load_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
+        let attr_name = vm.new_str(attr_name.to_string());
         let obj = vm.get_attribute(parent, attr_name)?;
         self.push_value(obj);
         Ok(None)
@@ -1066,15 +1017,17 @@ impl Frame {
     fn delete_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let name = vm.ctx.new_str(attr_name.to_string());
-        vm.call_method(&parent, "__delattr__", vec![name])?;
+        vm.del_attr(&parent, name)?;
         Ok(None)
     }
 
     fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
-            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(*value),
+            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.to_bigint().unwrap()),
             bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
+            bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
             bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
+            bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
             bytecode::Constant::Code { ref code } => {
                 PyObject::new(PyObjectKind::Code { code: code.clone() }, vm.get_type())
@@ -1099,10 +1052,6 @@ impl Frame {
 
     fn pop_block(&mut self) -> Option<Block> {
         self.blocks.pop()
-    }
-
-    fn last_block(&self) -> &Block {
-        self.blocks.last().unwrap()
     }
 
     pub fn push_value(&mut self, obj: PyObjectRef) {

@@ -1,9 +1,7 @@
-/*
- * Ast standard module
- *
- * This module makes use of the parser logic, and translates all ast nodes
- * into python ast.AST objects.
- */
+//! `ast` standard module for abstract syntax trees.
+//!
+//! This module makes use of the parser logic, and translates all ast nodes
+//! into python ast.AST objects.
 
 extern crate rustpython_parser;
 
@@ -13,6 +11,9 @@ use super::super::pyobject::{
     AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
+use num_bigint::ToBigInt;
+use num_complex::Complex64;
+use num_traits::One;
 use std::ops::Deref;
 
 /*
@@ -234,7 +235,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
     };
 
     // set lineno on node:
-    let lineno = ctx.new_int(statement.location.get_row() as i32);
+    let lineno = ctx.new_int(statement.location.get_row().to_bigint().unwrap());
     node.set_attr("lineno", lineno);
 
     node
@@ -299,7 +300,9 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
 
             let str_op = match op {
                 ast::UnaryOperator::Not => "Not",
+                ast::UnaryOperator::Inv => "Invert",
                 ast::UnaryOperator::Neg => "USub",
+                ast::UnaryOperator::Pos => "UAdd",
             };
             let py_op = ctx.new_str(str_op.to_string());
             node.set_attr("op", py_op);
@@ -389,8 +392,11 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
             let node = create_node(ctx, "Num");
 
             let py_n = match value {
-                ast::Number::Integer { value } => ctx.new_int(*value),
+                ast::Number::Integer { value } => ctx.new_int(value.to_bigint().unwrap()),
                 ast::Number::Float { value } => ctx.new_float(*value),
+                ast::Number::Complex { real, imag } => {
+                    ctx.new_complex(Complex64::new(*real, *imag))
+                }
             };
             node.set_attr("n", py_n);
 
@@ -543,10 +549,15 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
             node.set_attr("s", ctx.new_str(value.clone()));
             node
         }
+        ast::Expression::Bytes { value } => {
+            let node = create_node(ctx, "Bytes");
+            node.set_attr("s", ctx.new_bytes(value.clone()));
+            node
+        }
     };
 
     // TODO: retrieve correct lineno:
-    let lineno = ctx.new_int(1);
+    let lineno = ctx.new_int(One::one());
     node.set_attr("lineno", lineno);
 
     node

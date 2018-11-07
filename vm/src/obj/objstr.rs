@@ -5,6 +5,8 @@ use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
+use num_bigint::ToBigInt;
+use num_traits::ToPrimitive;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
@@ -12,6 +14,7 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("__eq__", context.new_rustfunc(str_eq));
     str_type.set_attr("__contains__", context.new_rustfunc(str_contains));
     str_type.set_attr("__getitem__", context.new_rustfunc(str_getitem));
+    str_type.set_attr("__gt__", context.new_rustfunc(str_gt));
     str_type.set_attr("__len__", context.new_rustfunc(str_len));
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
@@ -48,6 +51,21 @@ fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         false
     };
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.str_type())),
+            (other, Some(vm.ctx.str_type()))
+        ]
+    );
+    let zelf = get_value(zelf);
+    let other = get_value(other);
+    let result = zelf > other;
     Ok(vm.ctx.new_bool(result))
 }
 
@@ -109,7 +127,7 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn str_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let sv = get_value(s);
-    Ok(vm.ctx.new_int(sv.len() as i32))
+    Ok(vm.ctx.new_int(sv.len().to_bigint().unwrap()))
 }
 
 fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -120,7 +138,7 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     if objtype::isinstance(s2, &vm.ctx.int_type()) {
         let value1 = get_value(&s);
-        let value2 = objint::get_value(s2);
+        let value2 = objint::get_value(s2).to_i32().unwrap();
         let mut result = String::new();
         for _x in 0..value2 {
             result.push_str(value1.as_str());
@@ -244,7 +262,7 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         panic!("str expects exactly one parameter");
     };
 
-    vm.to_str(args.args[1].clone())
+    vm.to_str(&args.args[1])
 }
 
 impl PySliceableSequence for String {
@@ -261,19 +279,21 @@ impl PySliceableSequence for String {
 
 pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
     // let value = a
-    match &(*b.borrow()).kind {
-        &PyObjectKind::Integer { value: ref pos } => {
-            let idx = value.to_string().get_pos(*pos);
-            Ok(vm.new_str(value[idx..idx + 1].to_string()))
+    if objtype::isinstance(&b, &vm.ctx.int_type()) {
+        let pos = objint::get_value(&b).to_i32().unwrap();
+        let idx = value.to_string().get_pos(pos);
+        Ok(vm.new_str(value[idx..idx + 1].to_string()))
+    } else {
+        match &(*b.borrow()).kind {
+            &PyObjectKind::Slice {
+                start: _,
+                stop: _,
+                step: _,
+            } => Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string())),
+            _ => panic!(
+                "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+                value, b
+            ),
         }
-        &PyObjectKind::Slice {
-            start: _,
-            stop: _,
-            step: _,
-        } => Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string())),
-        _ => panic!(
-            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-            value, b
-        ),
     }
 }

@@ -1,9 +1,10 @@
 use super::super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
-    PyResult, ToRust, TypeProtocol,
+    PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objdict;
+use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
 use std::collections::HashMap;
 
@@ -27,6 +28,8 @@ pub fn init(context: &PyContext) {
     type_type.set_attr("__mro__", context.new_member_descriptor(type_mro));
     type_type.set_attr("__class__", context.new_member_descriptor(type_new));
     type_type.set_attr("__repr__", context.new_rustfunc(type_repr));
+    type_type.set_attr("__prepare__", context.new_rustfunc(type_prepare));
+    type_type.set_attr("__getattribute__", context.new_rustfunc(type_getattribute));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -83,7 +86,7 @@ pub fn get_type_name(typ: &PyObjectRef) -> String {
 }
 
 pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    debug!("type.__new__{:?}", args);
+    debug!("type.__new__ {:?}", args);
     if args.args.len() == 2 {
         arg_check!(
             vm,
@@ -98,16 +101,14 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             required = [
                 (typ, Some(vm.ctx.type_type())),
                 (name, Some(vm.ctx.str_type())),
-                // bases needs to be mutable, which arg_check! doesn't support, so we just check
-                // the type and extract it again below
-                // TODO: arg_check! should support specifying iterables
-                (_bases, None),
+                (bases, None),
                 (dict, Some(vm.ctx.dict_type()))
             ]
         );
-        let mut bases = args.args[2].to_vec().unwrap();
+        let mut bases = vm.extract_elements(bases)?;
         bases.push(vm.context().object());
-        new(typ.clone(), &name.to_str().unwrap(), bases, dict.clone())
+        let name = objstr::get_value(name);
+        new(typ.clone(), &name, bases, dict.clone())
     } else {
         Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }
@@ -115,54 +116,82 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     debug!("type_call: {:?}", args);
-    let typ = args.shift();
-    let new = typ.get_attr("__new__").unwrap();
-    let obj = match vm.invoke(new, args.insert(typ.clone())) {
-        Ok(res) => res,
-        Err(err) => return Err(err),
-    };
+    let cls = args.shift();
+    let new = cls.get_attr("__new__").unwrap();
+    let new_wrapped = vm.call_get_descriptor(new, cls)?;
+    let obj = vm.invoke(new_wrapped, args.clone())?;
 
-    if let Some(init) = obj.typ().get_attr("__init__") {
-        match vm.invoke(init, args.insert(obj.clone())) {
-            Ok(res) => {
-                // TODO: assert that return is none?
-                if !isinstance(&res, &vm.get_none()) {
-                    // panic!("__init__ must return none");
-                    // return Err(vm.new_type_error("__init__ must return None".to_string()));
-                }
-            }
-            Err(err) => return Err(err),
+    if let Ok(init) = vm.get_method(obj.clone(), "__init__") {
+        let res = vm.invoke(init, args)?;
+        if !res.is(&vm.get_none()) {
+            return Err(vm.new_type_error("__init__ must return None".to_string()));
         }
     }
     Ok(obj)
 }
 
-pub fn get_attribute(vm: &mut VirtualMachine, obj: PyObjectRef, name: &str) -> PyResult {
-    let cls = obj.typ();
-    trace!("get_attribute: {:?}, {:?}, {:?}", cls, obj, name);
-    if let Some(attr) = cls.get_attr(name) {
+pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (cls, Some(vm.ctx.object())),
+            (name_str, Some(vm.ctx.str_type()))
+        ]
+    );
+    let name = objstr::get_value(&name_str);
+    trace!("type.__getattribute__({:?}, {:?})", cls, name);
+    let mcl = cls.typ();
+
+    if let Some(attr) = mcl.get_attr(&name) {
+        let attr_class = attr.typ();
+        if attr_class.has_attr("__set__") {
+            if let Some(descriptor) = attr_class.get_attr("__get__") {
+                return vm.invoke(
+                    descriptor,
+                    PyFuncArgs {
+                        args: vec![attr, cls.clone(), mcl],
+                        kwargs: vec![],
+                    },
+                );
+            }
+        }
+    }
+
+    if let Some(attr) = cls.get_attr(&name) {
         let attr_class = attr.typ();
         if let Some(descriptor) = attr_class.get_attr("__get__") {
+            let none = vm.get_none();
             return vm.invoke(
                 descriptor,
                 PyFuncArgs {
-                    args: vec![attr, obj, cls],
+                    args: vec![attr, none, cls.clone()],
                     kwargs: vec![],
                 },
             );
         }
     }
 
-    if let Some(obj_attr) = obj.get_attr(name) {
-        Ok(obj_attr)
-    } else if let Some(cls_attr) = cls.get_attr(name) {
+    if let Some(cls_attr) = cls.get_attr(&name) {
         Ok(cls_attr)
+    } else if let Some(attr) = mcl.get_attr(&name) {
+        vm.call_get_descriptor(attr, cls.clone())
     } else {
-        let attribute_error = vm.context().exceptions.attribute_error.clone();
-        Err(vm.new_exception(
-            attribute_error,
-            format!("{:?} object has no attribute {}", cls, name),
-        ))
+        if let Some(getter) = cls.get_attr("__getattr__") {
+            vm.invoke(
+                getter,
+                PyFuncArgs {
+                    args: vec![mcl, name_str.clone()],
+                    kwargs: vec![],
+                },
+            )
+        } else {
+            let attribute_error = vm.context().exceptions.attribute_error.clone();
+            Err(vm.new_exception(
+                attribute_error,
+                format!("{:?} object {:?} has no attribute {}", mcl, cls, name),
+            ))
+        }
     }
 }
 
@@ -181,7 +210,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
         } = &bc.borrow().kind
         {
             let elements = objdict::get_elements(dict);
-            for (name, value) in elements {
+            for (name, value) in elements.iter() {
                 attributes.insert(name.to_string(), value.clone());
             }
         }
@@ -190,7 +219,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     // Get instance attributes:
     if let PyObjectKind::Instance { dict } = &obj.borrow().kind {
         let elements = objdict::get_elements(dict);
-        for (name, value) in elements {
+        for (name, value) in elements.iter() {
             attributes.insert(name.to_string(), value.clone());
         }
     }
@@ -263,9 +292,8 @@ fn type_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(format!("<class '{}'>", type_name)))
 }
 
-pub fn call(vm: &mut VirtualMachine, typ: PyObjectRef, args: PyFuncArgs) -> PyResult {
-    let function = get_attribute(vm, typ, &String::from("__call__"))?;
-    vm.invoke(function, args)
+fn type_prepare(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.new_dict())
 }
 
 #[cfg(test)]

@@ -11,4 +11,6 @@ lalrpop="0.15.1"
 lalrpop-util="0.15.1"
 log="0.4.1"
 regex="0.2.2"
+num-bigint = "0.2"
+num-traits = "0.2"
 

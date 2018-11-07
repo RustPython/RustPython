@@ -15,8 +15,9 @@ v = {b * 2 for b in x}
 # TODO: how to check set equality?
 # assert v == {2, 6, 4}
 
-# TODO:
-#u = {str(b): b-2 for b in x}
+u = {str(b): b-2 for b in x}
+assert u['3'] == 1
+assert u['1'] == -1
 
 y = [a+2 for a in x if a % 2]
 print(y)

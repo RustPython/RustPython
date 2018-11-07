@@ -70,7 +70,7 @@ fn main() {
 
 fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: Option<String>) -> PyResult {
     let code_obj = compile::compile(vm, &source.to_string(), compile::Mode::Exec, source_path)?;
-    debug!("Code object: {:?}", code_obj.borrow());
+    // trace!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
     vm.run_code_obj(code_obj, vars)
@@ -127,7 +127,8 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
         }
         Err(err) => {
             // Enum rather than special string here.
-            let msg = match vm.get_attribute(err.clone(), "msg") {
+            let name = vm.new_str("msg".to_string());
+            let msg = match vm.get_attribute(err.clone(), name) {
                 Ok(value) => objstr::get_value(&value),
                 Err(_) => panic!("Expected msg attribute on exception object!"),
             };

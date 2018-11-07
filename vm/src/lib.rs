@@ -1,10 +1,22 @@
+//! This crate contains most python logic.
+//!
+//! - Compilation
+//! - Bytecode
+//! - Import mechanics
+//! - Base objects
+
 #[macro_use]
 extern crate bitflags;
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
+extern crate num_bigint;
+extern crate num_complex;
+extern crate num_traits;
 extern crate serde;
 extern crate serde_json;
+
+extern crate rustpython_parser;
 
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};

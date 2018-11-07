@@ -15,6 +15,8 @@ use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
+use num_bigint::{BigInt, ToBigInt};
+use num_traits::ToPrimitive;
 use std::io::{Cursor, Read, Write};
 
 #[derive(Debug)]
@@ -42,7 +44,7 @@ fn parse_format_string(fmt: String) -> Vec<FormatCode> {
     codes
 }
 
-fn get_int(vm: &mut VirtualMachine, arg: &PyObjectRef) -> Result<i32, PyObjectRef> {
+fn get_int(vm: &mut VirtualMachine, arg: &PyObjectRef) -> Result<BigInt, PyObjectRef> {
     objint::to_int(vm, arg, 10)
 }
 
@@ -51,7 +53,7 @@ fn pack_i8(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    let v = get_int(vm, arg)? as i8;
+    let v = get_int(vm, arg)?.to_i8().unwrap();
     data.write_i8(v).unwrap();
     Ok(())
 }
@@ -61,7 +63,7 @@ fn pack_u8(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    let v = get_int(vm, arg)? as u8;
+    let v = get_int(vm, arg)?.to_u8().unwrap();
     data.write_u8(v).unwrap();
     Ok(())
 }
@@ -85,7 +87,7 @@ fn pack_i16(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    let v = get_int(vm, arg)? as i16;
+    let v = get_int(vm, arg)?.to_i16().unwrap();
     data.write_i16::<LittleEndian>(v).unwrap();
     Ok(())
 }
@@ -95,7 +97,7 @@ fn pack_u16(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    let v = get_int(vm, arg)? as u16;
+    let v = get_int(vm, arg)?.to_u16().unwrap();
     data.write_u16::<LittleEndian>(v).unwrap();
     Ok(())
 }
@@ -105,7 +107,7 @@ fn pack_i32(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    let v = get_int(vm, arg)? as i32;
+    let v = get_int(vm, arg)?.to_i32().unwrap();
     data.write_i32::<LittleEndian>(v).unwrap();
     Ok(())
 }
@@ -115,7 +117,7 @@ fn pack_u32(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    let v = get_int(vm, arg)? as u32;
+    let v = get_int(vm, arg)?.to_u32().unwrap();
     data.write_u32::<LittleEndian>(v).unwrap();
     Ok(())
 }
@@ -125,7 +127,7 @@ fn pack_i64(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    let v = get_int(vm, arg)? as i64;
+    let v = get_int(vm, arg)?.to_i64().unwrap();
     data.write_i64::<LittleEndian>(v).unwrap();
     Ok(())
 }
@@ -135,7 +137,7 @@ fn pack_u64(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    let v = get_int(vm, arg)? as u64;
+    let v = get_int(vm, arg)?.to_u64().unwrap();
     data.write_u64::<LittleEndian>(v).unwrap();
     Ok(())
 }
@@ -224,14 +226,14 @@ fn struct_pack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn unpack_i8(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_i8() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v as i32)),
+        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
     }
 }
 
 fn unpack_u8(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_u8() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v as i32)),
+        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
     }
 }
 
@@ -245,42 +247,42 @@ fn unpack_bool(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
 fn unpack_i16(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_i16::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v as i32)),
+        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
     }
 }
 
 fn unpack_u16(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_u16::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v as i32)),
+        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
     }
 }
 
 fn unpack_i32(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_i32::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v as i32)),
+        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
     }
 }
 
 fn unpack_u32(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_u32::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v as i32)),
+        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
     }
 }
 
 fn unpack_i64(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_i64::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v as i32)),
+        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
     }
 }
 
 fn unpack_u64(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_u64::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v as i32)),
+        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
     }
 }
 
@@ -311,7 +313,7 @@ fn struct_unpack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fmt_str = objstr::get_value(&fmt);
 
     let codes = parse_format_string(fmt_str);
-    let data = objbytes::get_value(buffer);
+    let data = objbytes::get_value(buffer).to_vec();
     let mut rdr = Cursor::new(data);
 
     let mut items = vec![];

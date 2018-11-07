@@ -1,8 +1,9 @@
-/*
- * Implement abstract syntax tree nodes for the python language.
- */
+//! Implement abstract syntax tree nodes for the python language.
+//!
+//! Roughly equivalent to this: https://docs.python.org/3/library/ast.html
 
 pub use super::lexer::Location;
+use num_bigint::BigInt;
 /*
 #[derive(Debug)]
 
@@ -40,6 +41,7 @@ pub struct Located<T> {
 
 pub type LocatedStatement = Located<Statement>;
 
+/// Abstract syntax tree nodes for python statements.
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     Break,
@@ -69,6 +71,12 @@ pub enum Statement {
     },
     Expression {
         expression: Expression,
+    },
+    Global {
+        names: Vec<String>,
+    },
+    Nonlocal {
+        names: Vec<String>,
     },
     If {
         test: Expression,
@@ -191,6 +199,9 @@ pub enum Expression {
     String {
         value: String,
     },
+    Bytes {
+        value: Vec<u8>,
+    },
     Identifier {
         name: String,
     },
@@ -275,8 +286,10 @@ pub enum BooleanOperator {
 
 #[derive(Debug, PartialEq)]
 pub enum UnaryOperator {
+    Pos,
     Neg,
     Not,
+    Inv,
 }
 
 #[derive(Debug, PartialEq)]
@@ -295,6 +308,7 @@ pub enum Comparison {
 
 #[derive(Debug, PartialEq)]
 pub enum Number {
-    Integer { value: i32 },
+    Integer { value: BigInt },
     Float { value: f64 },
+    Complex { real: f64, imag: f64 },
 }

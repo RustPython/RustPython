@@ -64,11 +64,12 @@ macro_rules! arg_check {
             match expected_type {
                 Some(expected_type) => {
                     if !objtype::isinstance(arg, &expected_type) {
-                        let arg_typ = arg.typ().clone();
-                        let actual_type = arg_typ.borrow().str().clone();
+                        let arg_typ = arg.typ();
+                        let expected_type_name = $vm.to_pystr(expected_type)?;
+                        let actual_type = $vm.to_pystr(&arg_typ)?;
                         return Err($vm.new_type_error(format!(
                             "argument of type {} is required for parameter {} ({}) (got: {})",
-                            expected_type.borrow().str(),
+                            expected_type_name,
                             arg_position + 1,
                             arg_name,
                             actual_type
@@ -78,6 +79,18 @@ macro_rules! arg_check {
                 // None indicates that we have no type requirement (i.e. we accept any type)
                 None => {}
             }
+        }
+    };
+}
+
+macro_rules! no_kwargs {
+    ( $vm: ident, $args:ident ) => {
+        // Zero-arg case
+        if $args.kwargs.len() != 0 {
+            return Err($vm.new_type_error(format!(
+                "Expected no keyword arguments (got: {})",
+                $args.kwargs.len()
+            )));
         }
     };
 }

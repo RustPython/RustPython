@@ -1,12 +1,15 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objsequence::{get_item, seq_equal};
+use super::objsequence::{get_elements, get_item, seq_equal};
 use super::objstr;
 use super::objtype;
+use num_bigint::ToBigInt;
+use num_traits::ToPrimitive;
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -18,7 +21,7 @@ fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
-        seq_equal(vm, zelf, other)?
+        seq_equal(vm, &zelf, &other)?
     } else {
         false
     };
@@ -33,20 +36,60 @@ fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let len: usize = elements.len();
     let mut mult = 0xf4243;
 
-    for elem in &elements {
-        let y: usize = objint::get_value(&vm.call_method(elem, "__hash__", vec![])?) as usize;
+    for elem in elements.iter() {
+        let y: usize = objint::get_value(&vm.call_method(elem, "__hash__", vec![])?)
+            .to_usize()
+            .unwrap();
         x = (x ^ y) * mult;
         mult = mult + 82520 + len * 2;
     }
     x += 97531;
 
-    Ok(vm.ctx.new_int(x as i32))
+    Ok(vm.ctx.new_int(x.to_bigint().unwrap()))
+}
+
+fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(tuple, Some(vm.ctx.tuple_type()))]);
+
+    let iter_obj = PyObject::new(
+        PyObjectKind::Iterator {
+            position: 0,
+            iterated_obj: tuple.clone(),
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
 }
 
 fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
     let elements = get_elements(zelf);
-    Ok(vm.context().new_int(elements.len() as i32))
+    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+}
+
+fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(cls, None)],
+        optional = [(iterable, None)]
+    );
+
+    if !objtype::issubclass(cls, &vm.ctx.tuple_type()) {
+        return Err(vm.new_type_error(format!("{:?} is not a subtype of tuple", cls)));
+    }
+
+    let elements = if let Some(iterable) = iterable {
+        vm.extract_elements(iterable)?
+    } else {
+        vec![]
+    };
+
+    Ok(PyObject::new(
+        PyObjectKind::Sequence { elements: elements },
+        cls.clone(),
+    ))
 }
 
 fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -55,11 +98,9 @@ fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
 
     let mut str_parts = vec![];
-    for elem in elements {
-        match vm.to_repr(elem) {
-            Ok(s) => str_parts.push(objstr::get_value(&s)),
-            Err(err) => return Err(err),
-        }
+    for elem in elements.iter() {
+        let s = vm.to_repr(elem)?;
+        str_parts.push(objstr::get_value(&s));
     }
 
     let s = if str_parts.len() == 1 {
@@ -99,20 +140,14 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
-pub fn get_elements(obj: &PyObjectRef) -> Vec<PyObjectRef> {
-    if let PyObjectKind::Tuple { elements } = &obj.borrow().kind {
-        elements.to_vec()
-    } else {
-        panic!("Cannot extract elements from non-tuple");
-    }
-}
-
 pub fn init(context: &PyContext) {
     let ref tuple_type = context.tuple_type;
     tuple_type.set_attr("__eq__", context.new_rustfunc(tuple_eq));
     tuple_type.set_attr("__contains__", context.new_rustfunc(tuple_contains));
     tuple_type.set_attr("__getitem__", context.new_rustfunc(tuple_getitem));
     tuple_type.set_attr("__hash__", context.new_rustfunc(tuple_hash));
+    tuple_type.set_attr("__iter__", context.new_rustfunc(tuple_iter));
     tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
+    tuple_type.set_attr("__new__", context.new_rustfunc(tuple_new));
     tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
 }
