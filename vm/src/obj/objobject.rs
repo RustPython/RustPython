@@ -101,22 +101,10 @@ pub fn init(context: &PyContext) {
     object.set_attr("__hash__", context.new_rustfunc(object_hash));
     object.set_attr("__str__", context.new_rustfunc(object_str));
     object.set_attr("__repr__", context.new_rustfunc(object_repr));
-    object.set_attr("__and__", context.new_rustfunc(object_and));
 }
 
 fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.none())
-}
-
-fn object_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, None), (other, None)]);
-
-    let zelf_type = objtype::get_type_name(&zelf.typ());
-    let other_type = objtype::get_type_name(&other.typ());
-    Err(vm.new_type_error(format!(
-        "unsupported operand type(s) for &: {:?} and {:?}",
-        zelf_type, other_type
-    )))
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
