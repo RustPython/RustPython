@@ -109,6 +109,27 @@ fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+/// When iterating over a dictionary, we iterate over the keys of it.
+fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
+
+    let keys = get_elements(dict)
+        .keys()
+        .map(|k| vm.ctx.new_str(k.to_string()))
+        .collect();
+    let key_list = vm.ctx.new_list(keys);
+
+    let iter_obj = PyObject::new(
+        PyObjectKind::Iterator {
+            position: 0,
+            iterated_obj: key_list,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
+
 fn dict_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -165,6 +186,7 @@ pub fn init(context: &PyContext) {
     dict_type.set_attr("__contains__", context.new_rustfunc(dict_contains));
     dict_type.set_attr("__delitem__", context.new_rustfunc(dict_delitem));
     dict_type.set_attr("__getitem__", context.new_rustfunc(dict_getitem));
+    dict_type.set_attr("__iter__", context.new_rustfunc(dict_iter));
     dict_type.set_attr("__new__", context.new_rustfunc(dict_new));
     dict_type.set_attr("__repr__", context.new_rustfunc(dict_repr));
     dict_type.set_attr("__setitem__", context.new_rustfunc(dict_setitem));

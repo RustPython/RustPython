@@ -728,6 +728,15 @@ impl PyFuncArgs {
         }
         default.clone()
     }
+
+    pub fn get_optional_kwarg(&self, key: &str) -> Option<PyObjectRef> {
+        for (arg_name, arg_value) in self.kwargs.iter() {
+            if arg_name == key {
+                return Some(arg_value.clone());
+            }
+        }
+        None
+    }
 }
 
 type RustPyFunc = fn(vm: &mut VirtualMachine, PyFuncArgs) -> PyResult;

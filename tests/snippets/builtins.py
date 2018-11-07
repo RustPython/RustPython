@@ -17,3 +17,7 @@ assert list(zip(['a', 'b', 'c'], range(3), [9, 8, 7, 99])) == [('a', 0, 9), ('b'
 
 assert list(filter(lambda x: ((x % 2) == 0), [0, 1, 2])) == [0, 2]
 
+assert 3 == eval('1+2')
+
+code = compile('5+3', 'x.py', 'eval')
+assert eval(code) == 8

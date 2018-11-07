@@ -132,6 +132,8 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
     let source = objstr::get_value(source);
+    // TODO: fix this newline bug:
+    let source = format!("{}\n", source);
 
     let mode = {
         let mode = objstr::get_value(mode);
@@ -206,19 +208,36 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (source, None), // TODO: Use more specific type
+        required = [(source, None)],
+        optional = [
             (_globals, Some(vm.ctx.dict_type())),
             (locals, Some(vm.ctx.dict_type()))
         ]
     );
-    // TODO: handle optional global and locals
 
-    let code_obj = source; // if source.borrow().kind
+    // Determine code object:
+    let code_obj = if objtype::isinstance(source, &vm.ctx.code_type()) {
+        source.clone()
+    } else if objtype::isinstance(source, &vm.ctx.str_type()) {
+        let mode = compile::Mode::Eval;
+        let source = objstr::get_value(source);
+        // TODO: fix this newline bug:
+        let source = format!("{}\n", source);
+        compile::compile(vm, &source, mode, None)?
+    } else {
+        return Err(vm.new_type_error("code argument must be str or code object".to_string()));
+    };
 
+    let locals = if let Some(locals) = locals {
+        locals.clone()
+    } else {
+        vm.new_dict()
+    };
+
+    // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals.clone(),
+        locals: locals,
         parent: None,
     };
     let scope = PyObject {
@@ -235,26 +254,38 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (source, None),
+        required = [(source, None)],
+        optional = [
             (_globals, Some(vm.ctx.dict_type())),
             (locals, Some(vm.ctx.dict_type()))
         ]
     );
-    // TODO: handle optional global and locals
 
     // Determine code object:
     let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Exec;
         let source = objstr::get_value(source);
+        // TODO: fix this newline bug:
+        let source = format!("{}\n", source);
         compile::compile(vm, &source, mode, None)?
-    } else {
+    } else if objtype::isinstance(source, &vm.ctx.code_type()) {
         source.clone()
+    } else {
+        return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };
+
+    // handle optional global and locals
+    let locals = if let Some(locals) = locals {
+        locals.clone()
+    } else {
+        vm.new_dict()
+    };
+
+    // TODO: use globals
 
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals.clone(),
+        locals: locals,
         parent: None,
     };
     let scope = PyObject {
@@ -416,15 +447,56 @@ fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, None), (y, None)]);
+    // arg_check!(vm, args, required = [(x, None), (y, None)]);
 
-    let order = vm.call_method(x, "__gt__", vec![y.clone()])?;
-
-    if objbool::get_value(&order) {
-        Ok(x.clone())
+    let candidates = if args.args.len() > 1 {
+        args.args.clone()
+    } else if args.args.len() == 1 {
+        vm.extract_elements(&args.args[0])?
     } else {
-        Ok(y.clone())
+        // zero arguments means type error:
+        return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
+    };
+
+    if candidates.len() == 0 {
+        let default = args.get_optional_kwarg("default");
+        if default.is_none() {
+            return Err(vm.new_value_error("max() arg is an empty sequence".to_string()));
+        } else {
+            return Ok(default.unwrap());
+        }
     }
+
+    let key_func = args.get_optional_kwarg("key");
+
+    // Start with first assumption:
+    let mut candidates_iter = candidates.into_iter();
+    let mut x = candidates_iter.next().unwrap();
+    // TODO: this key function looks pretty duplicate. Maybe we can create
+    // a local function?
+    let mut x_key = if let Some(f) = &key_func {
+        let args = PyFuncArgs::new(vec![x.clone()], vec![]);
+        vm.invoke(f.clone(), args)?
+    } else {
+        x.clone()
+    };
+
+    for y in candidates_iter {
+        let y_key = if let Some(f) = &key_func {
+            let args = PyFuncArgs::new(vec![y.clone()], vec![]);
+            vm.invoke(f.clone(), args)?
+        } else {
+            y.clone()
+        };
+        let order = vm.call_method(&x_key, "__gt__", vec![y_key.clone()])?;
+
+        if !objbool::get_value(&order) {
+            x = y.clone();
+            x_key = y_key;
+        }
+    }
+
+    Ok(x)
 }
 
 // builtin_memoryview

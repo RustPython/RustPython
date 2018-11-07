@@ -183,6 +183,21 @@ fn list_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     get_item(vm, list, &get_elements(list), needle.clone())
 }
 
+fn list_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
+
+    let iter_obj = PyObject::new(
+        PyObjectKind::Iterator {
+            position: 0,
+            iterated_obj: list.clone(),
+        },
+        vm.ctx.iter_type(),
+    );
+
+    // We are all good here:
+    Ok(iter_obj)
+}
+
 fn list_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -199,6 +214,7 @@ pub fn init(context: &PyContext) {
     list_type.set_attr("__contains__", context.new_rustfunc(list_contains));
     list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
     list_type.set_attr("__getitem__", context.new_rustfunc(list_getitem));
+    list_type.set_attr("__iter__", context.new_rustfunc(list_iter));
     list_type.set_attr("__setitem__", context.new_rustfunc(list_setitem));
     list_type.set_attr("__len__", context.new_rustfunc(list_len));
     list_type.set_attr("__new__", context.new_rustfunc(list_new));

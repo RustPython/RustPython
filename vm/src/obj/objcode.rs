@@ -11,6 +11,7 @@ use super::objtype;
 
 pub fn init(context: &PyContext) {
     let ref code_type = context.code_type;
+    code_type.set_attr("__new__", context.new_rustfunc(code_new));
     code_type.set_attr("__repr__", context.new_rustfunc(code_repr));
 }
 
@@ -22,6 +23,11 @@ pub fn copy_code(code_obj: &PyObjectRef) -> bytecode::CodeObject {
     } else {
         panic!("Must be code obj");
     }
+}
+
+fn code_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(_cls, None)]);
+    Err(vm.new_type_error(format!("Cannot directly create code object")))
 }
 
 fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

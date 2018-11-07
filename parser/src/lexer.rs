@@ -197,6 +197,9 @@ where
                 // Skip backslash and newline
                 self.shift();
                 self.shift();
+            // Idea: insert trailing newline here:
+            // } else if self.chr0 != Some('\n') && self.chr1.is_none() {
+            //     self.chr1 = Some('\n');
             } else {
                 break;
             }

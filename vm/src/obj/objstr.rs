@@ -14,6 +14,7 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("__eq__", context.new_rustfunc(str_eq));
     str_type.set_attr("__contains__", context.new_rustfunc(str_contains));
     str_type.set_attr("__getitem__", context.new_rustfunc(str_getitem));
+    str_type.set_attr("__gt__", context.new_rustfunc(str_gt));
     str_type.set_attr("__len__", context.new_rustfunc(str_len));
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
@@ -50,6 +51,21 @@ fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         false
     };
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.str_type())),
+            (other, Some(vm.ctx.str_type()))
+        ]
+    );
+    let zelf = get_value(zelf);
+    let other = get_value(other);
+    let result = zelf > other;
     Ok(vm.ctx.new_bool(result))
 }
 

@@ -48,6 +48,20 @@ fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(x.to_bigint().unwrap()))
 }
 
+fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(tuple, Some(vm.ctx.tuple_type()))]);
+
+    let iter_obj = PyObject::new(
+        PyObjectKind::Iterator {
+            position: 0,
+            iterated_obj: tuple.clone(),
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
+
 fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
     let elements = get_elements(zelf);
@@ -132,6 +146,7 @@ pub fn init(context: &PyContext) {
     tuple_type.set_attr("__contains__", context.new_rustfunc(tuple_contains));
     tuple_type.set_attr("__getitem__", context.new_rustfunc(tuple_getitem));
     tuple_type.set_attr("__hash__", context.new_rustfunc(tuple_hash));
+    tuple_type.set_attr("__iter__", context.new_rustfunc(tuple_iter));
     tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
     tuple_type.set_attr("__new__", context.new_rustfunc(tuple_new));
     tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
