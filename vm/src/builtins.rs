@@ -447,8 +447,6 @@ fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    // arg_check!(vm, args, required = [(x, None), (y, None)]);
-
     let candidates = if args.args.len() > 1 {
         args.args.clone()
     } else if args.args.len() == 1 {
@@ -502,19 +500,53 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_memoryview
 
 fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(x, Some(vm.ctx.int_type())), (y, Some(vm.ctx.int_type()))]
-    );
-
-    let order = vm.call_method(x, "__gt__", vec![y.clone()])?;
-
-    if objbool::get_value(&order) {
-        Ok(y.clone())
+    let candidates = if args.args.len() > 1 {
+        args.args.clone()
+    } else if args.args.len() == 1 {
+        vm.extract_elements(&args.args[0])?
     } else {
-        Ok(x.clone())
+        // zero arguments means type error:
+        return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
+    };
+
+    if candidates.len() == 0 {
+        let default = args.get_optional_kwarg("default");
+        if default.is_none() {
+            return Err(vm.new_value_error("min() arg is an empty sequence".to_string()));
+        } else {
+            return Ok(default.unwrap());
+        }
     }
+
+    let key_func = args.get_optional_kwarg("key");
+
+    let mut candidates_iter = candidates.into_iter();
+    let mut x = candidates_iter.next().unwrap();
+    // TODO: this key function looks pretty duplicate. Maybe we can create
+    // a local function?
+    let mut x_key = if let Some(f) = &key_func {
+        let args = PyFuncArgs::new(vec![x.clone()], vec![]);
+        vm.invoke(f.clone(), args)?
+    } else {
+        x.clone()
+    };
+
+    for y in candidates_iter {
+        let y_key = if let Some(f) = &key_func {
+            let args = PyFuncArgs::new(vec![y.clone()], vec![]);
+            vm.invoke(f.clone(), args)?
+        } else {
+            y.clone()
+        };
+        let order = vm.call_method(&x_key, "__gt__", vec![y_key.clone()])?;
+
+        if objbool::get_value(&order) {
+            x = y.clone();
+            x_key = y_key;
+        }
+    }
+
+    Ok(x)
 }
 
 fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
