@@ -33,6 +33,7 @@ assert f.foo == 101
 
 
 class Bar:
+    """ W00t """
     def __init__(self, x):
         self.x = x
 
@@ -48,6 +49,9 @@ class Bar:
     def kungfu(x):
         assert x == 3
 
+
+# TODO:
+# assert Bar.__doc__ == " W00t "
 
 bar = Bar(42)
 

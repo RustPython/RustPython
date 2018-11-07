@@ -37,6 +37,22 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
+    /// Create a new `VirtualMachine` structure.
+    pub fn new() -> VirtualMachine {
+        let ctx = PyContext::new();
+        let builtins = builtins::make_module(&ctx);
+        let sysmod = sysmodule::mk_module(&ctx);
+        // Add builtins as builtins module:
+        // sysmod.get_attr("modules").unwrap().set_item("builtins", builtins.clone());
+        let stdlib_inits = stdlib::get_module_inits();
+        VirtualMachine {
+            builtins: builtins,
+            sys_module: sysmod,
+            stdlib_inits,
+            ctx: ctx,
+        }
+    }
+
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
         let mut frame = Frame::new(code, scope);
         frame.run_frame_full(self)
@@ -120,21 +136,6 @@ impl VirtualMachine {
 
     pub fn context(&self) -> &PyContext {
         &self.ctx
-    }
-
-    pub fn new() -> VirtualMachine {
-        let ctx = PyContext::new();
-        let builtins = builtins::make_module(&ctx);
-        let sysmod = sysmodule::mk_module(&ctx);
-        // Add builtins as builtins module:
-        // sysmod.get_attr("modules").unwrap().set_item("builtins", builtins.clone());
-        let stdlib_inits = stdlib::get_module_inits();
-        VirtualMachine {
-            builtins: builtins,
-            sys_module: sysmod,
-            stdlib_inits,
-            ctx: ctx,
-        }
     }
 
     pub fn get_builtin_scope(&mut self) -> PyObjectRef {

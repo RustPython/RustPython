@@ -82,3 +82,15 @@ macro_rules! arg_check {
         }
     };
 }
+
+macro_rules! no_kwargs {
+    ( $vm: ident, $args:ident ) => {
+        // Zero-arg case
+        if $args.kwargs.len() != 0 {
+            return Err($vm.new_type_error(format!(
+                "Expected no keyword arguments (got: {})",
+                $args.kwargs.len()
+            )));
+        }
+    };
+}

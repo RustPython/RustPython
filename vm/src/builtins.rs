@@ -267,7 +267,29 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.run_code_obj(code_obj, scope)
 }
 
-// builtin_filter
+fn builtin_filter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(function, None), (iterable, None)]);
+
+    // TODO: process one element at a time from iterators.
+    let iterable = vm.extract_elements(iterable)?;
+
+    let mut new_items = vec![];
+    for element in iterable {
+        // apply function:
+        let args = PyFuncArgs {
+            args: vec![element.clone()],
+            kwargs: vec![],
+        };
+        let result = vm.invoke(function.clone(), args)?;
+        let result = objbool::boolval(vm, result)?;
+        if result {
+            new_items.push(element);
+        }
+    }
+
+    Ok(vm.ctx.new_list(new_items))
+}
+
 // builtin_format
 
 fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -581,7 +603,32 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_vars
-// builtin_zip
+
+fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    no_kwargs!(vm, args);
+
+    // TODO: process one element at a time from iterators.
+    let mut iterables = vec![];
+    for iterable in args.args.iter() {
+        let iterable = vm.extract_elements(iterable)?;
+        iterables.push(iterable);
+    }
+
+    let minsize: usize = iterables.iter().map(|i| i.len()).min().unwrap_or(0);
+
+    let mut new_items = vec![];
+    for i in 0..minsize {
+        let items = iterables
+            .iter()
+            .map(|iterable| iterable[i].clone())
+            .collect();
+        let element = vm.ctx.new_tuple(items);
+        new_items.push(element);
+    }
+
+    Ok(vm.ctx.new_list(new_items))
+}
+
 // builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
@@ -616,6 +663,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("exec"), ctx.new_rustfunc(builtin_exec));
     dict.insert(String::from("float"), ctx.float_type());
     dict.insert(String::from("frozenset"), ctx.frozenset_type());
+    dict.insert(String::from("filter"), ctx.new_rustfunc(builtin_filter));
     dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
     dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
     dict.insert(String::from("hash"), ctx.new_rustfunc(builtin_hash));
@@ -654,6 +702,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     dict.insert(String::from("super"), ctx.super_type());
     dict.insert(String::from("tuple"), ctx.tuple_type());
     dict.insert(String::from("type"), ctx.type_type());
+    dict.insert(String::from("zip"), ctx.new_rustfunc(builtin_zip));
 
     // Exceptions:
     dict.insert(
