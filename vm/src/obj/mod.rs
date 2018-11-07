@@ -3,9 +3,11 @@
 pub mod objbool;
 pub mod objbytearray;
 pub mod objbytes;
+pub mod objcode;
 pub mod objcomplex;
 pub mod objdict;
 pub mod objfloat;
+pub mod objframe;
 pub mod objfunction;
 pub mod objgenerator;
 pub mod objint;

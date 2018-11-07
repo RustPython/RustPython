@@ -32,6 +32,8 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         // TODO: implement complex logic here....
         unimplemented!("TODO: get frame and determine instance and class?");
+        // let frame = vm.get_current_frame();
+        //
         // vm.get_none()
     };
 

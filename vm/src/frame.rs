@@ -9,6 +9,7 @@ use super::builtins;
 use super::bytecode;
 use super::import::import;
 use super::obj::objbool;
+use super::obj::objcode;
 use super::obj::objdict;
 use super::obj::objiter;
 use super::obj::objlist;
@@ -46,15 +47,6 @@ pub struct Frame {
     pub lasti: usize,        // index of last instruction ran
 }
 
-pub fn copy_code(code_obj: PyObjectRef) -> bytecode::CodeObject {
-    let code_obj = code_obj.borrow();
-    if let PyObjectKind::Code { ref code } = code_obj.kind {
-        code.clone()
-    } else {
-        panic!("Must be code obj");
-    }
-}
-
 // Running a frame can result in one of the below:
 pub enum ExecutionResult {
     Return(PyObjectRef),
@@ -78,7 +70,7 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: copy_code(code),
+            code: objcode::copy_code(&code),
             stack: vec![],
             blocks: vec![],
             // save the callargs as locals
@@ -302,8 +294,13 @@ impl Frame {
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                // TODO: objlist::list_append()
-                vm.call_method(&list_obj, "append", vec![item])?;
+                objlist::list_append(
+                    vm,
+                    PyFuncArgs {
+                        args: vec![list_obj.clone(), item],
+                        kwargs: vec![],
+                    },
+                )?;
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {

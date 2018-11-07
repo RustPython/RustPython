@@ -40,6 +40,8 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     py_mod.set_item("new_class", ctx.new_rustfunc(types_new_class));
     py_mod.set_item("FunctionType", ctx.function_type());
     py_mod.set_item("LambdaType", ctx.function_type());
+    py_mod.set_item("CodeType", ctx.code_type());
+    py_mod.set_item("FrameType", ctx.frame_type());
 
     py_mod
 }

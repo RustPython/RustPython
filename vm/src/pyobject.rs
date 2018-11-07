@@ -4,9 +4,11 @@ use super::frame::Frame;
 use super::obj::objbool;
 use super::obj::objbytearray;
 use super::obj::objbytes;
+use super::obj::objcode;
 use super::obj::objcomplex;
 use super::obj::objdict;
 use super::obj::objfloat;
+use super::obj::objframe;
 use super::obj::objfunction;
 use super::obj::objgenerator;
 use super::obj::objint;
@@ -70,31 +72,44 @@ impl fmt::Display for PyObjectRef {
     }
 }*/
 
+/*
+ // Idea: implement the iterator trait upon PyObjectRef
+impl Iterator for (VirtualMachine, PyObjectRef) {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // call method ("_next__")
+    }
+}
+*/
+
 #[derive(Debug)]
 pub struct PyContext {
-    pub type_type: PyObjectRef,
-    pub none: PyObjectRef,
-    pub classmethod_type: PyObjectRef,
-    pub staticmethod_type: PyObjectRef,
-    pub dict_type: PyObjectRef,
-    pub int_type: PyObjectRef,
-    pub float_type: PyObjectRef,
-    pub complex_type: PyObjectRef,
     pub bytes_type: PyObjectRef,
     pub bytearray_type: PyObjectRef,
     pub bool_type: PyObjectRef,
+    pub classmethod_type: PyObjectRef,
+    pub code_type: PyObjectRef,
+    pub dict_type: PyObjectRef,
+    pub float_type: PyObjectRef,
+    pub frame_type: PyObjectRef,
+    pub frozenset_type: PyObjectRef,
+    pub generator_type: PyObjectRef,
+    pub int_type: PyObjectRef,
+    pub iter_type: PyObjectRef,
+    pub complex_type: PyObjectRef,
     pub true_value: PyObjectRef,
     pub false_value: PyObjectRef,
     pub list_type: PyObjectRef,
+    pub none: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
-    pub frozenset_type: PyObjectRef,
-    pub iter_type: PyObjectRef,
+    pub staticmethod_type: PyObjectRef,
     pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
+    pub type_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub property_type: PyObjectRef,
-    pub generator_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
@@ -162,12 +177,14 @@ impl PyContext {
         let frozenset_type = create_type("frozenset", &type_type, &object_type, &dict_type);
         let int_type = create_type("int", &type_type, &object_type, &dict_type);
         let float_type = create_type("float", &type_type, &object_type, &dict_type);
+        let frame_type = create_type("frame", &type_type, &object_type, &dict_type);
         let complex_type = create_type("complex", &type_type, &object_type, &dict_type);
         let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
         let bytearray_type = create_type("bytearray", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
+        let code_type = create_type("code", &type_type, &int_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
@@ -186,17 +203,19 @@ impl PyContext {
             bool_type.clone(),
         );
         let context = PyContext {
-            int_type: int_type,
-            float_type: float_type,
+            bool_type: bool_type,
+            bytearray_type: bytearray_type,
+            bytes_type: bytes_type,
+            code_type: code_type,
             complex_type: complex_type,
             classmethod_type: classmethod_type,
+            int_type: int_type,
+            float_type: float_type,
+            frame_type: frame_type,
             staticmethod_type: staticmethod_type,
-            bytes_type: bytes_type,
-            bytearray_type: bytearray_type,
             list_type: list_type,
             set_type: set_type,
             frozenset_type: frozenset_type,
-            bool_type: bool_type,
             true_value: true_value,
             false_value: false_value,
             tuple_type: tuple_type,
@@ -234,28 +253,42 @@ impl PyContext {
         objtuple::init(&context);
         objiter::init(&context);
         objbool::init(&context);
+        objcode::init(&context);
+        objframe::init(&context);
         exceptions::init(&context);
         context
     }
 
-    pub fn int_type(&self) -> PyObjectRef {
-        self.int_type.clone()
-    }
-
-    pub fn float_type(&self) -> PyObjectRef {
-        self.float_type.clone()
-    }
-
-    pub fn complex_type(&self) -> PyObjectRef {
-        self.complex_type.clone()
+    pub fn bytearray_type(&self) -> PyObjectRef {
+        self.bytearray_type.clone()
     }
 
     pub fn bytes_type(&self) -> PyObjectRef {
         self.bytes_type.clone()
     }
 
-    pub fn bytearray_type(&self) -> PyObjectRef {
-        self.bytearray_type.clone()
+    pub fn code_type(&self) -> PyObjectRef {
+        self.code_type.clone()
+    }
+
+    pub fn complex_type(&self) -> PyObjectRef {
+        self.complex_type.clone()
+    }
+
+    pub fn dict_type(&self) -> PyObjectRef {
+        self.dict_type.clone()
+    }
+
+    pub fn float_type(&self) -> PyObjectRef {
+        self.float_type.clone()
+    }
+
+    pub fn frame_type(&self) -> PyObjectRef {
+        self.frame_type.clone()
+    }
+
+    pub fn int_type(&self) -> PyObjectRef {
+        self.int_type.clone()
     }
 
     pub fn list_type(&self) -> PyObjectRef {
@@ -280,10 +313,6 @@ impl PyContext {
 
     pub fn iter_type(&self) -> PyObjectRef {
         self.iter_type.clone()
-    }
-
-    pub fn dict_type(&self) -> PyObjectRef {
-        self.dict_type.clone()
     }
 
     pub fn str_type(&self) -> PyObjectRef {

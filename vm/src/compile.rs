@@ -54,7 +54,7 @@ pub fn compile(
     trace!("Compilation completed: {:?}", code);
     Ok(PyObject::new(
         PyObjectKind::Code { code: code },
-        vm.get_type(),
+        vm.ctx.code_type(),
     ))
 }
 
