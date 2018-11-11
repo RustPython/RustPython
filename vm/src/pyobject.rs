@@ -914,7 +914,7 @@ impl PyObject {
                 "{{ {} }}",
                 elements
                     .iter()
-                    .map(|elem| format!("{}: {}", elem.0, elem.1.borrow().str()))
+                    .map(|elem| format!("{}: ...", elem.0))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
