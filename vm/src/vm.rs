@@ -10,8 +10,9 @@ use std::collections::hash_map::HashMap;
 
 use super::builtins;
 use super::bytecode;
-use super::frame::Frame;
+use super::frame::{ExecutionResult, Frame};
 use super::obj::objcode::copy_code;
+use super::obj::objframe;
 use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objsequence;
@@ -35,7 +36,7 @@ pub struct VirtualMachine {
     pub sys_module: PyObjectRef,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub ctx: PyContext,
-    pub current_frame: Option<PyObjectRef>,
+    pub frames: Vec<PyObjectRef>,
 }
 
 impl VirtualMachine {
@@ -52,13 +53,28 @@ impl VirtualMachine {
             sys_module: sysmod,
             stdlib_inits,
             ctx: ctx,
-            current_frame: None,
+            frames: vec![],
         }
     }
 
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
-        let mut frame = Frame::new(code, scope);
-        frame.run_frame_full(self)
+        self.run_frame_full(Frame::new(code, scope))
+    }
+
+    pub fn run_frame_full(&mut self, frame: Frame) -> PyResult {
+        match self.run_frame(frame)? {
+            ExecutionResult::Return(value) => Ok(value),
+            _ => panic!("Got unexpected result from function"),
+        }
+    }
+
+    pub fn run_frame(&mut self, frame: Frame) -> Result<ExecutionResult, PyObjectRef> {
+        let frame = self.ctx.new_frame(frame);
+        self.frames.push(frame.clone());
+        let mut frame = objframe::get_value(&frame);
+        let result = frame.run(self);
+        self.frames.pop();
+        result
     }
 
     /// Create a new python string object.
@@ -260,13 +276,13 @@ impl VirtualMachine {
         self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
 
         // Construct frame:
-        let mut frame = Frame::new(code.clone(), scope);
+        let frame = Frame::new(code.clone(), scope);
 
         // If we have a generator, create a new generator
         if code_object.is_generator {
             objgenerator::new_generator(self, frame)
         } else {
-            frame.run_frame_full(self)
+            self.run_frame_full(frame)
         }
     }
 

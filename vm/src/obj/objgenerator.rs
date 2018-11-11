@@ -48,7 +48,7 @@ fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn send(vm: &mut VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
     if let PyObjectKind::Generator { ref mut frame } = gen.borrow_mut().kind {
         frame.push_value(value.clone());
-        match frame.run_frame(vm)? {
+        match vm.run_frame(frame.clone())? {
             ExecutionResult::Yield(value) => Ok(value),
             ExecutionResult::Return(_value) => {
                 // Stop iteration!

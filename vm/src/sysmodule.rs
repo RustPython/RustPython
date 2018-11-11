@@ -1,9 +1,11 @@
+use super::obj::objint;
+use super::obj::objtype;
+use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
-use obj::objtype;
-use pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use num_traits::ToPrimitive;
+use std::env;
 use std::rc::Rc;
-use std::{env, mem};
-use vm::VirtualMachine;
 
 /*
  * The magic sys module.
@@ -15,12 +17,31 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
     ctx.new_list(argv)
 }
 
-fn getframe(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    if let Some(frame) = &vm.current_frame {
-        Ok(frame.clone())
-    } else {
-        panic!("Current frame is undefined!")
-    }
+fn getframe(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [],
+        optional = [(offset, Some(vm.ctx.int_type()))]
+    );
+    let idx = match offset {
+        Some(int) => {
+            if let Some(offset) = objint::get_value(int).to_usize() {
+                if offset > vm.frames.len() - 1 {
+                    return Err(vm.new_value_error("call stack is not deep enough".to_string()));
+                }
+                offset
+            } else {
+                0
+            }
+        }
+        None => 0,
+    };
+
+    let idx = vm.frames.len() - idx - 1;
+
+    let frame = &vm.frames[idx];
+    Ok(frame.clone())
 }
 
 fn sys_getrefcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

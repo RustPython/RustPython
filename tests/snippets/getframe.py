@@ -9,7 +9,8 @@ assert locals_dict['foo'] == foo
 def test_function():
     x = 17
     assert sys._getframe().f_locals is not locals_dict
-    assert sys._getframe().f_locals['x'] == 17
+    assert sys._getframe(0).f_locals['x'] == 17
+    assert sys._getframe(1).f_locals['foo'] == 'bar'
 
 test_function()
 
@@ -18,3 +19,8 @@ class TestClass():
         assert sys._getframe().f_locals['self'] == self
 
 TestClass()
+
+try:
+    sys._getframe(100)
+except ValueError:
+    pass

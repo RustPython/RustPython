@@ -3,7 +3,6 @@ extern crate rustpython_parser;
 use self::rustpython_parser::ast;
 use std::collections::hash_map::HashMap;
 use std::fmt;
-use std::mem;
 use std::path::PathBuf;
 
 use super::builtins;
@@ -82,21 +81,12 @@ impl Frame {
         }
     }
 
-    pub fn run_frame_full(&mut self, vm: &mut VirtualMachine) -> PyResult {
-        match self.run_frame(vm)? {
-            ExecutionResult::Return(value) => Ok(value),
-            _ => panic!("Got unexpected result from function"),
-        }
-    }
-
-    pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
+    pub fn run(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
         let filename = if let Some(source_path) = &self.code.source_path {
             source_path.to_string()
         } else {
             "<unknown>".to_string()
         };
-
-        let prev_frame = mem::replace(&mut vm.current_frame, Some(vm.ctx.new_frame(self.clone())));
 
         // This is the name of the object being run:
         let run_obj_name = &self.code.obj_name.to_string();
@@ -146,7 +136,6 @@ impl Frame {
             }
         };
 
-        vm.current_frame = prev_frame;
         value
     }
 
