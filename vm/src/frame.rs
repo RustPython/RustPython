@@ -3,6 +3,7 @@ extern crate rustpython_parser;
 use self::rustpython_parser::ast;
 use std::collections::hash_map::HashMap;
 use std::fmt;
+use std::mem;
 use std::path::PathBuf;
 
 use super::builtins;
@@ -38,6 +39,7 @@ enum Block {
     },
 }
 
+#[derive(Clone)]
 pub struct Frame {
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame
@@ -94,6 +96,8 @@ impl Frame {
             "<unknown>".to_string()
         };
 
+        let prev_frame = mem::replace(&mut vm.current_frame, Some(vm.ctx.new_frame(self.clone())));
+
         // This is the name of the object being run:
         let run_obj_name = &self.code.obj_name.to_string();
 
@@ -142,6 +146,7 @@ impl Frame {
             }
         };
 
+        vm.current_frame = prev_frame;
         value
     }
 

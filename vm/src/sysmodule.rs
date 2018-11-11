@@ -1,4 +1,5 @@
-use super::pyobject::{DictProtocol, PyContext, PyObjectRef};
+use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult};
+use super::vm::VirtualMachine;
 use std::env;
 
 /*
@@ -9,6 +10,14 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
     let mut argv: Vec<PyObjectRef> = env::args().map(|x| ctx.new_str(x)).collect();
     argv.remove(0);
     ctx.new_list(argv)
+}
+
+fn getframe(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    if let Some(frame) = &vm.current_frame {
+        Ok(frame.clone())
+    } else {
+        panic!("Current frame is undefined!")
+    }
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
@@ -23,8 +32,9 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let sys_name = "sys".to_string();
     let sys_mod = ctx.new_module(&sys_name, ctx.new_scope(None));
     modules.set_item(&sys_name, sys_mod.clone());
-    sys_mod.set_item(&"modules".to_string(), modules);
-    sys_mod.set_item(&"argv".to_string(), argv(ctx));
-    sys_mod.set_item(&"path".to_string(), path);
+    sys_mod.set_item("modules", modules);
+    sys_mod.set_item("argv", argv(ctx));
+    sys_mod.set_item("path", path);
+    sys_mod.set_item("_getframe", ctx.new_rustfunc(getframe));
     sys_mod
 }

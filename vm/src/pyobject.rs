@@ -459,6 +459,22 @@ impl PyContext {
         )
     }
 
+    pub fn new_frame(&self, frame: Frame) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Frame { frame: frame }, self.frame_type())
+    }
+
+    pub fn new_property(&self, function: RustPyFunc) -> PyObjectRef {
+        let fget = self.new_rustfunc(function);
+        let py_obj = PyObject::new(
+            PyObjectKind::Instance {
+                dict: self.new_dict(),
+            },
+            self.property_type(),
+        );
+        py_obj.set_attr("fget", fget.clone());
+        py_obj
+    }
+
     pub fn new_function(
         &self,
         code_obj: PyObjectRef,
@@ -782,6 +798,9 @@ pub enum PyObjectKind {
     Code {
         code: bytecode::CodeObject,
     },
+    Frame {
+        frame: Frame,
+    },
     Function {
         code: PyObjectRef,
         scope: PyObjectRef,
@@ -856,6 +875,7 @@ impl fmt::Debug for PyObjectKind {
             } => write!(f, "class {:?}", name),
             &PyObjectKind::Instance { dict: _ } => write!(f, "instance"),
             &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
+            &PyObjectKind::Frame { .. } => write!(f, "frame"),
         }
     }
 }
@@ -913,6 +933,7 @@ impl PyObject {
             PyObjectKind::Code { code: _ } => format!("<code>"),
             PyObjectKind::Function { .. } => format!("<func>"),
             PyObjectKind::Generator { .. } => format!("<generator>"),
+            PyObjectKind::Frame { .. } => format!("<frame>"),
             PyObjectKind::BoundMethod { .. } => format!("<bound-method>"),
             PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
             PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
