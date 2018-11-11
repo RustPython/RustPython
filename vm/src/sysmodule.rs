@@ -1,6 +1,9 @@
-use super::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult};
-use super::vm::VirtualMachine;
-use std::env;
+use num_bigint::ToBigInt;
+use obj::objtype;
+use pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use std::rc::Rc;
+use std::{env, mem};
+use vm::VirtualMachine;
 
 /*
  * The magic sys module.
@@ -20,6 +23,19 @@ fn getframe(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn sys_getrefcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(object, None)]);
+    let size = Rc::strong_count(&object);
+    Ok(vm.ctx.new_int(size.to_bigint().unwrap()))
+}
+
+fn sys_getsizeof(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(object, None)]);
+    // TODO: implement default optional argument.
+    let size = mem::size_of_val(&object.borrow());
+    Ok(vm.ctx.new_int(size.to_bigint().unwrap()))
+}
+
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let path_list = match env::var_os("PYTHONPATH") {
         Some(paths) => env::split_paths(&paths)
@@ -34,7 +50,13 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     modules.set_item(&sys_name, sys_mod.clone());
     sys_mod.set_item("modules", modules);
     sys_mod.set_item("argv", argv(ctx));
+    sys_mod.set_item("getrefcount", ctx.new_rustfunc(sys_getrefcount));
+    sys_mod.set_item("getsizeof", ctx.new_rustfunc(sys_getsizeof));
+    let maxsize = ctx.new_int(std::usize::MAX.to_bigint().unwrap());
+    sys_mod.set_item("maxsize", maxsize);
     sys_mod.set_item("path", path);
+    sys_mod.set_item("ps1", ctx.new_str(">>>>> ".to_string()));
+    sys_mod.set_item("ps2", ctx.new_str("..... ".to_string()));
     sys_mod.set_item("_getframe", ctx.new_rustfunc(getframe));
     sys_mod
 }
