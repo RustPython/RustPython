@@ -13,7 +13,8 @@ pub fn init(context: &PyContext) {
     let ref frame_type = context.frame_type;
     frame_type.set_attr("__new__", context.new_rustfunc(frame_new));
     frame_type.set_attr("__repr__", context.new_rustfunc(frame_repr));
-    frame_type.set_attr("f_locals", context.new_property(frame_locals));
+    frame_type.set_attr("f_locals", context.new_property(frame_flocals));
+    frame_type.set_attr("f_code", context.new_property(frame_fcode));
 }
 
 fn frame_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -27,7 +28,7 @@ fn frame_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(repr))
 }
 
-fn frame_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
     let frame = get_value(frame);
     let py_scope = frame.locals.clone();
@@ -38,6 +39,11 @@ fn frame_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         panic!("The scope isn't a scope!");
     }
+}
+
+fn frame_fcode(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
+    Ok(vm.ctx.new_code_object(get_value(frame).code))
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Frame {

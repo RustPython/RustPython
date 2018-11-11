@@ -475,6 +475,10 @@ impl PyContext {
         py_obj
     }
 
+    pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
+        PyObject::new(PyObjectKind::Code { code }, self.code_type())
+    }
+
     pub fn new_function(
         &self,
         code_obj: PyObjectRef,
