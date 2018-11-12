@@ -5,8 +5,10 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
+use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 use std::cell::Ref;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 // Binary data support
 
@@ -14,6 +16,7 @@ use std::ops::Deref;
 pub fn init(context: &PyContext) {
     let ref bytes_type = context.bytes_type;
     bytes_type.set_attr("__eq__", context.new_rustfunc(bytes_eq));
+    bytes_type.set_attr("__hash__", context.new_rustfunc(bytes_hash));
     bytes_type.set_attr("__new__", context.new_rustfunc(bytes_new));
     bytes_type.set_attr("__repr__", context.new_rustfunc(bytes_repr));
 }
@@ -62,6 +65,15 @@ fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         false
     };
     Ok(vm.ctx.new_bool(result))
+}
+
+fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);
+    let data = get_value(zelf);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    let hash = hasher.finish();
+    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
 }
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {

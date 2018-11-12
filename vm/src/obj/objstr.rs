@@ -7,6 +7,7 @@ use super::objsequence::PySliceableSequence;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
+use std::hash::{Hash, Hasher};
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
@@ -15,6 +16,7 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("__contains__", context.new_rustfunc(str_contains));
     str_type.set_attr("__getitem__", context.new_rustfunc(str_getitem));
     str_type.set_attr("__gt__", context.new_rustfunc(str_gt));
+    str_type.set_attr("__hash__", context.new_rustfunc(str_hash));
     str_type.set_attr("__len__", context.new_rustfunc(str_len));
     str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
     str_type.set_attr("__new__", context.new_rustfunc(str_new));
@@ -122,6 +124,15 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", s, s2)))
     }
+}
+
+fn str_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.str_type()))]);
+    let value = get_value(zelf);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    let hash = hasher.finish();
+    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
 }
 
 fn str_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -9,7 +9,7 @@ use super::objsequence::{get_elements, get_item, seq_equal};
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
-use num_traits::ToPrimitive;
+use std::hash::{Hash, Hasher};
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -30,22 +30,14 @@ fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
-
-    let mut x: usize = 0x345678;
     let elements = get_elements(zelf);
-    let len: usize = elements.len();
-    let mut mult = 0xf4243;
-
-    for elem in elements.iter() {
-        let y: usize = objint::get_value(&vm.call_method(elem, "__hash__", vec![])?)
-            .to_usize()
-            .unwrap();
-        x = (x ^ y) * mult;
-        mult = mult + 82520 + len * 2;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for element in elements.iter() {
+        let element_hash = objint::get_value(&vm.call_method(element, "__hash__", vec![])?);
+        element_hash.hash(&mut hasher);
     }
-    x += 97531;
-
-    Ok(vm.ctx.new_int(x.to_bigint().unwrap()))
+    let hash = hasher.finish();
+    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
 }
 
 fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

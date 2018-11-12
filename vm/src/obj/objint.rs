@@ -8,10 +8,10 @@ use super::objstr;
 use super::objtype;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
+use std::hash::{Hash, Hasher};
 
 // This proxy allows for easy switching between types.
-// TODO: maybe this is a good idea:
-// type IntType = BigInt;
+type IntType = BigInt;
 
 fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
@@ -47,7 +47,7 @@ pub fn to_int(
     vm: &mut VirtualMachine,
     obj: &PyObjectRef,
     base: u32,
-) -> Result<BigInt, PyObjectRef> {
+) -> Result<IntType, PyObjectRef> {
     let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj)
     } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
@@ -75,7 +75,7 @@ pub fn to_int(
 }
 
 // Retrieve inner int value:
-pub fn get_value(obj: &PyObjectRef) -> BigInt {
+pub fn get_value(obj: &PyObjectRef) -> IntType {
     if let PyObjectKind::Integer { value } = &obj.borrow().kind {
         value.clone()
     } else {
@@ -171,9 +171,11 @@ fn int_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn int_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
-
-    // TODO: how to hash int?
-    Ok(zelf.clone())
+    let value = BigInt::from_pyobj(zelf);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    let hash = hasher.finish();
+    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
 }
 
 fn int_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
