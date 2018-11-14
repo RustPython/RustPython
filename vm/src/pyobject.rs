@@ -459,8 +459,13 @@ impl PyContext {
         )
     }
 
-    pub fn new_frame(&self, frame: Frame) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Frame { frame: frame }, self.frame_type())
+    pub fn new_frame(&self, code: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::Frame {
+                frame: Frame::new(code, scope),
+            },
+            self.frame_type(),
+        )
     }
 
     pub fn new_property(&self, function: RustPyFunc) -> PyObjectRef {
@@ -811,7 +816,7 @@ pub enum PyObjectKind {
         defaults: PyObjectRef,
     },
     Generator {
-        frame: Frame,
+        frame: PyObjectRef,
     },
     BoundMethod {
         function: PyObjectRef,

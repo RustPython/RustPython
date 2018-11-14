@@ -10,9 +10,8 @@ use std::collections::hash_map::HashMap;
 
 use super::builtins;
 use super::bytecode;
-use super::frame::{ExecutionResult, Frame};
+use super::frame::ExecutionResult;
 use super::obj::objcode::copy_code;
-use super::obj::objframe;
 use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objsequence;
@@ -58,21 +57,25 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
-        self.run_frame_full(Frame::new(code, scope))
+        let frame = self.ctx.new_frame(code, scope);
+        self.run_frame_full(frame)
     }
 
-    pub fn run_frame_full(&mut self, frame: Frame) -> PyResult {
+    pub fn run_frame_full(&mut self, frame: PyObjectRef) -> PyResult {
         match self.run_frame(frame)? {
             ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),
         }
     }
 
-    pub fn run_frame(&mut self, frame: Frame) -> Result<ExecutionResult, PyObjectRef> {
-        let frame = self.ctx.new_frame(frame);
+    pub fn run_frame(&mut self, frame: PyObjectRef) -> Result<ExecutionResult, PyObjectRef> {
+        let result;
         self.frames.push(frame.clone());
-        let mut frame = objframe::get_value(&frame);
-        let result = frame.run(self);
+        if let PyObjectKind::Frame { ref mut frame } = frame.borrow_mut().kind {
+            result = frame.run(self);
+        } else {
+            panic!("Frame doesn't contain a frame: {:?}", frame);
+        }
         self.frames.pop();
         result
     }
@@ -276,7 +279,7 @@ impl VirtualMachine {
         self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
 
         // Construct frame:
-        let frame = Frame::new(code.clone(), scope);
+        let frame = self.ctx.new_frame(code.clone(), scope);
 
         // If we have a generator, create a new generator
         if code_object.is_generator {

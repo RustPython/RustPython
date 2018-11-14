@@ -2,7 +2,6 @@
 
 */
 
-use super::super::frame::Frame;
 use super::super::pyobject::{
     AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
@@ -30,26 +29,25 @@ fn frame_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
-    let frame = get_value(frame);
-    let py_scope = frame.locals.clone();
-    let py_scope = py_scope.borrow();
+    if let PyObjectKind::Frame { ref frame } = frame.borrow().kind {
+        let py_scope = frame.locals.clone();
+        let py_scope = py_scope.borrow();
 
-    if let PyObjectKind::Scope { scope } = &py_scope.kind {
-        Ok(scope.locals.clone())
+        if let PyObjectKind::Scope { scope } = &py_scope.kind {
+            Ok(scope.locals.clone())
+        } else {
+            panic!("The scope isn't a scope!");
+        }
     } else {
-        panic!("The scope isn't a scope!");
+        panic!("Frame doesn't contain a frame: {:?}", frame);
     }
 }
 
 fn frame_fcode(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
-    Ok(vm.ctx.new_code_object(get_value(frame).code))
-}
-
-pub fn get_value(obj: &PyObjectRef) -> Frame {
-    if let PyObjectKind::Frame { frame } = &obj.borrow().kind {
-        frame.clone()
+    if let PyObjectKind::Frame { ref frame } = frame.borrow().kind {
+        Ok(vm.ctx.new_code_object(frame.code.clone()))
     } else {
-        panic!("Inner error getting int {:?}", obj);
+        panic!("Frame doesn't contain a frame: {:?}", frame);
     }
 }

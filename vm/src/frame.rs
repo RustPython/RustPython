@@ -38,7 +38,6 @@ enum Block {
     },
 }
 
-#[derive(Clone)]
 pub struct Frame {
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame

@@ -5,6 +5,7 @@ use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 use std::env;
+use std::mem;
 use std::rc::Rc;
 
 /*
