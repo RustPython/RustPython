@@ -526,50 +526,7 @@ impl VirtualMachine {
     }
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        // 1. Try __sub__, next __rsub__, next, give up
-        if let Ok(method) = self.get_method(a.clone(), "__sub__") {
-            match self.invoke(
-                method,
-                PyFuncArgs {
-                    args: vec![b.clone()],
-                    kwargs: vec![],
-                },
-            ) {
-                Ok(value) => return Ok(value),
-                Err(err) => {
-                    if !objtype::isinstance(&err, &self.ctx.exceptions.not_implemented_error) {
-                        return Err(err);
-                    }
-                }
-            }
-        }
-
-        // 2. try __rsub__
-        if let Ok(method) = self.get_method(b.clone(), "__rsub__") {
-            match self.invoke(
-                method,
-                PyFuncArgs {
-                    args: vec![a.clone()],
-                    kwargs: vec![],
-                },
-            ) {
-                Ok(value) => return Ok(value),
-                Err(err) => {
-                    if !objtype::isinstance(&err, &self.ctx.exceptions.not_implemented_error) {
-                        return Err(err);
-                    }
-                }
-            }
-        }
-
-        // 3. It all failed :(
-        // Cannot sub a and b
-        let a_type_name = objtype::get_type_name(&a.typ());
-        let b_type_name = objtype::get_type_name(&b.typ());
-        Err(self.new_type_error(format!(
-            "Unsupported operand types for '-': '{}' and '{}'",
-            a_type_name, b_type_name
-        )))
+        self.call_or_unsupported(a, b, "__sub__", "__rsub__", "-")
     }
 
     pub fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
