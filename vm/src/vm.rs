@@ -455,6 +455,76 @@ impl VirtualMachine {
         }
     }
 
+    /// Calls default method, reverse method or exception
+    ///
+    /// * `a` - First argument.
+    /// * `b` - Second argument.
+    /// * `d` - Default method to try and call (such as `__sub__`).
+    /// * `r` - Reverse method to try and call (such as `__rsub__`), in case first one fails.
+    /// * `op` - Operator for the exception text, for example `-`.
+    ///
+    /// Given the above example, it will
+    /// 1. Try to call `__sub__` with `a` and `b`
+    /// 2. If above fails try to call `__rsub__` with `a` and `b`
+    /// 3. If above fails throw an exception: 
+    ///    `Unsupported operand types for '-': 'int' and 'float'`
+    ///    if `a` is of type int and `b` of type float
+    ///
+    pub fn call_or_unsupported(
+        &mut self,
+        a: PyObjectRef,
+        b: PyObjectRef,
+        d: &str,
+        r: &str,
+        op: &str,
+    ) -> PyResult {
+        // Try to call the first method
+        if let Ok(method) = self.get_method(a.clone(), d) {
+            match self.invoke(
+                method,
+                PyFuncArgs {
+                    args: vec![b.clone()],
+                    kwargs: vec![],
+                },
+            ) {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    if !objtype::isinstance(&err, &self.ctx.exceptions.not_implemented_error) {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        // 2. Try to call reverse method
+        if let Ok(method) = self.get_method(b.clone(), r) {
+            match self.invoke(
+                method,
+                PyFuncArgs {
+                    args: vec![a.clone()],
+                    kwargs: vec![],
+                },
+            ) {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    if !objtype::isinstance(&err, &self.ctx.exceptions.not_implemented_error) {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        // 3. Both failed, throw an exception
+        // TODO: Move this chunk somewhere else, it should be
+        // called in other methods as well (for example objint.rs)
+        let a_type_name = objtype::get_type_name(&a.typ());
+        let b_type_name = objtype::get_type_name(&b.typ());
+        Err(self.new_type_error(format!(
+            "Unsupported operand types for '{}': '{}' and '{}'",
+            op, a_type_name, b_type_name
+        )))
+    }
+
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         // 1. Try __sub__, next __rsub__, next, give up
         if let Ok(method) = self.get_method(a.clone(), "__sub__") {
@@ -527,7 +597,7 @@ impl VirtualMachine {
     }
 
     pub fn _or(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__or__", vec![b])
+        self.call_or_unsupported(a, b, "__or__", "__ror__", "|")
     }
 
     pub fn _and(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
