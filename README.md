@@ -149,12 +149,13 @@ Finally, run:
 
 ```
 npm install
+npm link rustpython_wasm
 ```
 
 and you will be able to run the files with:
 
 ```
-webpack-dev-server
+node_modules/.bin/webpack-dev-server
 ```
 
 Open a browser console and see the output of rustpython_wasm. To verify this, modify the line in `app/index.js`
