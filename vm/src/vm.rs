@@ -459,16 +459,16 @@ impl VirtualMachine {
     ///
     /// * `a` - First argument.
     /// * `b` - Second argument.
-    /// * `d` - Default method to try and call (such as `__sub__`).
-    /// * `r` - Reverse method to try and call (such as `__rsub__`), in case first one fails.
-    /// * `op` - Operator for the exception text, for example `-`.
+    /// * `d` - Default method to try and call (such as `__and__`).
+    /// * `r` - Reverse method to try and call (such as `__rand__`), in case first one fails.
+    /// * `op` - Operator for the exception text, for example `&`.
     ///
     /// Given the above example, it will
-    /// 1. Try to call `__sub__` with `a` and `b`
-    /// 2. If above fails try to call `__rsub__` with `a` and `b`
+    /// 1. Try to call `__and__` with `a` and `b`
+    /// 2. If above fails try to call `__rand__` with `a` and `b`
     /// 3. If above fails throw an exception: 
-    ///    `Unsupported operand types for '-': 'int' and 'float'`
-    ///    if `a` is of type int and `b` of type float
+    ///    `TypeError: Unsupported operand types for '&': 'float' and 'int'`
+    ///    if `a` is of type float and `b` of type int
     ///
     pub fn call_or_unsupported(
         &mut self,
