@@ -466,7 +466,7 @@ impl VirtualMachine {
     /// Given the above example, it will
     /// 1. Try to call `__and__` with `a` and `b`
     /// 2. If above fails try to call `__rand__` with `a` and `b`
-    /// 3. If above fails throw an exception: 
+    /// 3. If above fails throw an exception:
     ///    `TypeError: Unsupported operand types for '&': 'float' and 'int'`
     ///    if `a` is of type float and `b` of type int
     ///
