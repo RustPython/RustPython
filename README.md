@@ -102,8 +102,8 @@ At this stage RustPython only has preliminary support for web assembly. The inst
 
 ## Setup
 
-To get started, install [wasm-bingden](https://rustwasm.github.io/wasm-bindgen/whirlwind-tour/basic-usage.html)
-and [wasm-webpack](https://rustwasm.github.io/wasm-pack/installer/). You will also need to have `npm` installed.
+To get started, install [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/whirlwind-tour/basic-usage.html)
+and [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/). You will also need to have `npm` installed.
 
 <!-- Using `rustup` add the compile target `wasm32-unknown-emscripten`. To do so you will need to have [rustup](https://rustup.rs/) installed.
 
