@@ -455,9 +455,31 @@ impl VirtualMachine {
         }
     }
 
-    pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        // 1. Try __sub__, next __rsub__, next, give up
-        if let Ok(method) = self.get_method(a.clone(), "__sub__") {
+    /// Calls default method, reverse method or exception
+    ///
+    /// * `a` - First argument.
+    /// * `b` - Second argument.
+    /// * `d` - Default method to try and call (such as `__and__`).
+    /// * `r` - Reverse method to try and call (such as `__rand__`), in case first one fails.
+    /// * `op` - Operator for the exception text, for example `&`.
+    ///
+    /// Given the above example, it will
+    /// 1. Try to call `__and__` with `a` and `b`
+    /// 2. If above fails try to call `__rand__` with `a` and `b`
+    /// 3. If above fails throw an exception:
+    ///    `TypeError: Unsupported operand types for '&': 'float' and 'int'`
+    ///    if `a` is of type float and `b` of type int
+    ///
+    pub fn call_or_unsupported(
+        &mut self,
+        a: PyObjectRef,
+        b: PyObjectRef,
+        d: &str,
+        r: &str,
+        op: &str,
+    ) -> PyResult {
+        // Try to call the first method
+        if let Ok(method) = self.get_method(a.clone(), d) {
             match self.invoke(
                 method,
                 PyFuncArgs {
@@ -474,8 +496,8 @@ impl VirtualMachine {
             }
         }
 
-        // 2. try __rsub__
-        if let Ok(method) = self.get_method(b.clone(), "__rsub__") {
+        // 2. Try to call reverse method
+        if let Ok(method) = self.get_method(b.clone(), r) {
             match self.invoke(
                 method,
                 PyFuncArgs {
@@ -492,14 +514,19 @@ impl VirtualMachine {
             }
         }
 
-        // 3. It all failed :(
-        // Cannot sub a and b
+        // 3. Both failed, throw an exception
+        // TODO: Move this chunk somewhere else, it should be
+        // called in other methods as well (for example objint.rs)
         let a_type_name = objtype::get_type_name(&a.typ());
         let b_type_name = objtype::get_type_name(&b.typ());
         Err(self.new_type_error(format!(
-            "Unsupported operand types for '-': '{}' and '{}'",
-            a_type_name, b_type_name
+            "Unsupported operand types for '{}': '{}' and '{}'",
+            op, a_type_name, b_type_name
         )))
+    }
+
+    pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__sub__", "__rsub__", "-")
     }
 
     pub fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
@@ -527,54 +554,11 @@ impl VirtualMachine {
     }
 
     pub fn _or(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__or__", vec![b])
+        self.call_or_unsupported(a, b, "__or__", "__ror__", "|")
     }
 
     pub fn _and(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        // 1. Try __and__, next __rand__, next, give up
-        if let Ok(method) = self.get_method(a.clone(), "__and__") {
-            match self.invoke(
-                method,
-                PyFuncArgs {
-                    args: vec![b.clone()],
-                    kwargs: vec![],
-                },
-            ) {
-                Ok(value) => return Ok(value),
-                Err(err) => {
-                    if !objtype::isinstance(&err, &self.ctx.exceptions.not_implemented_error) {
-                        return Err(err);
-                    }
-                }
-            }
-        }
-
-        // 2. try __rand__
-        if let Ok(method) = self.get_method(b.clone(), "__rand__") {
-            match self.invoke(
-                method,
-                PyFuncArgs {
-                    args: vec![a.clone()],
-                    kwargs: vec![],
-                },
-            ) {
-                Ok(value) => return Ok(value),
-                Err(err) => {
-                    if !objtype::isinstance(&err, &self.ctx.exceptions.not_implemented_error) {
-                        return Err(err);
-                    }
-                }
-            }
-        }
-
-        // 3. It all failed :(
-        // Cannot and a and b
-        let a_type_name = objtype::get_type_name(&a.typ());
-        let b_type_name = objtype::get_type_name(&b.typ());
-        Err(self.new_type_error(format!(
-            "Unsupported operand types for '&': '{}' and '{}'",
-            a_type_name, b_type_name
-        )))
+        self.call_or_unsupported(a, b, "__and__", "__rand__", "&")
     }
 
     pub fn _eq(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
