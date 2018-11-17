@@ -189,15 +189,15 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let i = BigInt::from_pyobj(i);
+    let i1 = BigInt::from_pyobj(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(i + get_value(i2)))
+        Ok(vm.ctx.new_int(i1 + get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm
             .ctx
-            .new_float(i.to_f64().unwrap() + objfloat::get_value(i2)))
+            .new_float(i1.to_f64().unwrap() + objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "+"))
     }
 }
 
@@ -220,15 +220,15 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let i = BigInt::from_pyobj(i);
+    let i1 = BigInt::from_pyobj(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(i - get_value(i2)))
+        Ok(vm.ctx.new_int(i1 - get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm
             .ctx
-            .new_float(i.to_f64().unwrap() - objfloat::get_value(i2)))
+            .new_float(i1.to_f64().unwrap() - objfloat::get_value(i2)))
     } else {
-        Err(vm.new_not_implemented_error(format!("Cannot substract {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "-"))
     }
 }
 
