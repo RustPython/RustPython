@@ -95,6 +95,21 @@ impl VirtualMachine {
         self.new_exception(type_error, msg)
     }
 
+    /// Returns formatted `Unsupported operand type(s)` exception
+    ///
+    /// * `a` - First argument.
+    /// * `b` - Second argument.
+    /// * `op` - Operator for the exception text, for example `&`.
+    ///
+    pub fn new_unsupported_operand_error(&mut self, a: PyObjectRef,b: PyObjectRef, op: &str,) -> PyObjectRef {
+        let a_type_name = objtype::get_type_name(&a.typ());
+        let b_type_name = objtype::get_type_name(&b.typ());
+        self.new_type_error(format!(
+            "unsupported operand type(s) for {}: '{}' and '{}'",
+            op, a_type_name, b_type_name
+        ))
+    }
+
     /// Create a new python ValueError object. Useful for raising errors from
     /// python functions implemented in rust.
     pub fn new_value_error(&mut self, msg: String) -> PyObjectRef {
@@ -457,8 +472,8 @@ impl VirtualMachine {
 
     /// Calls default method, reverse method or exception
     ///
-    /// * `a` - First argument.
-    /// * `b` - Second argument.
+    /// * `a` - First operand.
+    /// * `b` - Second operand.
     /// * `d` - Default method to try and call (such as `__and__`).
     /// * `r` - Reverse method to try and call (such as `__rand__`), in case first one fails.
     /// * `op` - Operator for the exception text, for example `&`.
@@ -515,14 +530,7 @@ impl VirtualMachine {
         }
 
         // 3. Both failed, throw an exception
-        // TODO: Move this chunk somewhere else, it should be
-        // called in other methods as well (for example objint.rs)
-        let a_type_name = objtype::get_type_name(&a.typ());
-        let b_type_name = objtype::get_type_name(&b.typ());
-        Err(self.new_type_error(format!(
-            "Unsupported operand types for '{}': '{}' and '{}'",
-            op, a_type_name, b_type_name
-        )))
+        Err(self.new_unsupported_operand_error(a, b, op))
     }
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

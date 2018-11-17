@@ -210,7 +210,7 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(i) / get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "//"))
     }
 }
 
@@ -245,7 +245,7 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(get_value(i).to_f64().unwrap() * objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot multiply {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "*"))
     }
 }
 
@@ -265,7 +265,7 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1.to_f64().unwrap() / objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot divide {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "/"))
     }
 }
 
@@ -279,7 +279,7 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(v1 % get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot modulo {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "%"))
     }
 }
 
@@ -308,7 +308,7 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot raise power {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "pow"))
     }
 }
 
@@ -324,7 +324,7 @@ fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let r2 = int_mod(vm, args.clone());
         Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
     } else {
-        Err(vm.new_type_error(format!("Cannot divmod power {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "divmod"))
     }
 }
 
@@ -339,7 +339,7 @@ fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 ^ v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot xor {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "^"))
     }
 }
 
@@ -354,7 +354,7 @@ fn int_or(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 | v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot or {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "|"))
     }
 }
 
@@ -369,7 +369,7 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 & v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot and {:?} and {:?}", i, i2)))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "&"))
     }
 }
 
