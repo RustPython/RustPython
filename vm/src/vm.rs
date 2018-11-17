@@ -97,8 +97,8 @@ impl VirtualMachine {
 
     /// Returns formatted `Unsupported operand type(s)` exception
     ///
-    /// * `a` - First argument.
-    /// * `b` - Second argument.
+    /// * `a` - First operand.
+    /// * `b` - Second operand.
     /// * `op` - Operator for the exception text, for example `&`.
     ///
     pub fn new_unsupported_operand_error(&mut self, a: PyObjectRef,b: PyObjectRef, op: &str,) -> PyObjectRef {
