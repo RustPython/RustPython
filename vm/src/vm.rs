@@ -101,7 +101,12 @@ impl VirtualMachine {
     /// * `b` - Second operand.
     /// * `op` - Operator for the exception text, for example `&`.
     ///
-    pub fn new_unsupported_operand_error(&mut self, a: PyObjectRef,b: PyObjectRef, op: &str,) -> PyObjectRef {
+    pub fn new_unsupported_operand_error(
+        &mut self,
+        a: PyObjectRef,
+        b: PyObjectRef,
+        op: &str,
+    ) -> PyObjectRef {
         let a_type_name = objtype::get_type_name(&a.typ());
         let b_type_name = objtype::get_type_name(&b.typ());
         self.new_type_error(format!(

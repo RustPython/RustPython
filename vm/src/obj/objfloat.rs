@@ -221,7 +221,7 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(get_value(i) % objint::get_value(i2).to_f64().unwrap()))
     } else {
-         Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "%"))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "%"))
     }
 }
 
@@ -247,7 +247,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let result = v1.powf(objint::get_value(i2).to_f64().unwrap());
         Ok(vm.ctx.new_float(result))
     } else {
-         Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "^"))
+        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "^"))
     }
 }
 
