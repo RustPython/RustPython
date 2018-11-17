@@ -642,6 +642,7 @@ impl AttributeProtocol for PyObjectRef {
 
     fn set_attr(&self, attr_name: &str, value: PyObjectRef) {
         match self.borrow().kind {
+            PyObjectKind::Module { name: _, ref dict } => dict.set_item(attr_name, value),
             PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
             PyObjectKind::Class {
                 name: _,

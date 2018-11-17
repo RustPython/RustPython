@@ -125,6 +125,23 @@ fn list_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (value, None)]
+    );
+    let elements = get_elements(zelf);
+    let mut count: usize = 0;
+    for element in elements.iter() {
+        let is_eq = vm._eq(element, value.clone())?;
+        if objbool::boolval(vm, is_eq)? {
+            count = count + 1;
+        }
+    }
+    Ok(vm.context().new_int(count.to_bigint().unwrap()))
+}
+
 pub fn list_extend(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -150,6 +167,14 @@ fn list_reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut elements = get_mut_elements(list);
     elements.reverse();
     Ok(vm.get_none())
+}
+
+fn list_sort(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
+    let mut _elements = get_mut_elements(list);
+    unimplemented!("TODO: figure out how to invoke `sort_by` on a Vec");
+    // elements.sort_by();
+    // Ok(vm.get_none())
 }
 
 fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -221,6 +246,8 @@ pub fn init(context: &PyContext) {
     list_type.set_attr("__repr__", context.new_rustfunc(list_repr));
     list_type.set_attr("append", context.new_rustfunc(list_append));
     list_type.set_attr("clear", context.new_rustfunc(list_clear));
+    list_type.set_attr("count", context.new_rustfunc(list_count));
     list_type.set_attr("extend", context.new_rustfunc(list_extend));
     list_type.set_attr("reverse", context.new_rustfunc(list_reverse));
+    list_type.set_attr("sort", context.new_rustfunc(list_sort));
 }

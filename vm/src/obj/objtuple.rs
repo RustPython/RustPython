@@ -11,6 +11,23 @@ use super::objtype;
 use num_bigint::ToBigInt;
 use std::hash::{Hash, Hasher};
 
+fn tuple_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (value, None)]
+    );
+    let elements = get_elements(zelf);
+    let mut count: usize = 0;
+    for element in elements.iter() {
+        let is_eq = vm._eq(element, value.clone())?;
+        if objbool::boolval(vm, is_eq)? {
+            count = count + 1;
+        }
+    }
+    Ok(vm.context().new_int(count.to_bigint().unwrap()))
+}
+
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -142,4 +159,5 @@ pub fn init(context: &PyContext) {
     tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
     tuple_type.set_attr("__new__", context.new_rustfunc(tuple_new));
     tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
+    tuple_type.set_attr("count", context.new_rustfunc(tuple_count));
 }

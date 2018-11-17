@@ -42,8 +42,11 @@ Documentation HTML files can then be found in the `target/doc` directory.
 
 # Code organization
 
-- `parser`: python lexing, parsing and ast
-- `vm`: python virtual machine
+- `parser/src`: python lexing, parsing and ast
+- `vm/src`: python virtual machine
+    - `builtins.rs`: Builtin functions
+    - `compile.rs`: the python compiler from ast to bytecode
+    - `obj`: python builtin types
 - `src`: using the other subcrates to bring rustpython to life.
 - `docs`: documentation (work in progress)
 - `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)
@@ -53,12 +56,15 @@ Documentation HTML files can then be found in the `target/doc` directory.
 # Contributing
 
 To start contributing, there are a lot of things that need to be done.
+
 Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustPython/issues).
+Check issues labeled with `good first issue` if you wish to start coding.
+
 Another approach is to checkout the sourcecode: builtin functions and object methods are often the simplest
 and easiest way to contribute. 
 
 You can also simply run
-`cargo run tests/snippets/todo.py` to assist in finding any
+`cargo run tests/snippets/whats_left_to_implement.py` to assist in finding any
 unimplemented method.
 
 # Testing
