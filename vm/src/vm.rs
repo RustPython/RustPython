@@ -95,26 +95,6 @@ impl VirtualMachine {
         self.new_exception(type_error, msg)
     }
 
-    /// Returns formatted `Unsupported operand type(s)` exception
-    ///
-    /// * `a` - First operand.
-    /// * `b` - Second operand.
-    /// * `op` - Operator for the exception text, for example `&`.
-    ///
-    pub fn new_unsupported_operand_error(
-        &mut self,
-        a: PyObjectRef,
-        b: PyObjectRef,
-        op: &str,
-    ) -> PyObjectRef {
-        let a_type_name = objtype::get_type_name(&a.typ());
-        let b_type_name = objtype::get_type_name(&b.typ());
-        self.new_type_error(format!(
-            "unsupported operand type(s) for {}: '{}' and '{}'",
-            op, a_type_name, b_type_name
-        ))
-    }
-
     /// Create a new python ValueError object. Useful for raising errors from
     /// python functions implemented in rust.
     pub fn new_value_error(&mut self, msg: String) -> PyObjectRef {
@@ -535,7 +515,13 @@ impl VirtualMachine {
         }
 
         // 3. Both failed, throw an exception
-        Err(self.new_unsupported_operand_error(a, b, op))
+        // Returns formatted `Unsupported operand type(s)` exception
+        let a_type_name = objtype::get_type_name(&a.typ());
+        let b_type_name = objtype::get_type_name(&b.typ());
+        Err(self.new_type_error(format!(
+            "Unsupported operand type(s) for {}: '{}' and '{}'",
+            op, a_type_name, b_type_name
+        )))
     }
 
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

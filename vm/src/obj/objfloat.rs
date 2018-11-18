@@ -152,7 +152,7 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 + objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "+"))
+        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
 }
 
@@ -169,7 +169,7 @@ fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let r2 = float_mod(vm, args.clone());
         Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
     } else {
-        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "divmod"))
+        Err(vm.new_type_error(format!("Cannot divmod power {:?} and {:?}", i, i2)))
     }
 }
 
@@ -186,7 +186,7 @@ fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float((get_value(i) / objint::get_value(i2).to_f64().unwrap()).floor()))
     } else {
-        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "//"))
+        Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
     }
 }
 
@@ -204,7 +204,7 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 - objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "-"))
+        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
 }
 
@@ -221,7 +221,7 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(get_value(i) % objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "%"))
+        Err(vm.new_type_error(format!("Cannot mod {:?} and {:?}", i, i2)))
     }
 }
 
@@ -247,7 +247,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let result = v1.powf(objint::get_value(i2).to_f64().unwrap());
         Ok(vm.ctx.new_float(result))
     } else {
-        Err(vm.new_unsupported_operand_error(i.clone(), i2.clone(), "^"))
+        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
     }
 }
 
