@@ -9,6 +9,7 @@ rust:
 script:
     - cargo build --verbose --all
     - cargo test --verbose --all
+    - cargo doc --no-deps --all
 
 env:
     # This is used to only capture the regular nightly test in allow_failures
@@ -64,3 +65,13 @@ matrix:
     allow_failures:
         - rust: nightly
           env: REGULAR_TEST=true
+
+deploy:
+  provider: pages
+  repo: RustPython/website
+  local-dir: target/doc
+  skip-cleanup: true
+  github-token: $WEBSITE_GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
+  keep-history: true
+  on:
+    branch: master
