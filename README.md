@@ -32,10 +32,13 @@ Or use the interactive shell:
 
 Currently the project is in an early phase, and so is the documentation.
 
-You can generate documentation by running:
+You can read the [online documentation](https://rustpython.github.io/website/rustpython/index.html) for the latest code on master.
+
+You can also generate documentation locally by running:
 
 ```shell
-$ cargo doc
+$ cargo doc # Including documentation for all dependencies
+$ cargo doc --no-deps --all # Excluding all dependencies
 ```
 
 Documentation HTML files can then be found in the `target/doc` directory.
