@@ -69,6 +69,7 @@ matrix:
 deploy:
   provider: pages
   repo: RustPython/website
+  target-branch: master
   local-dir: target/doc
   skip-cleanup: true
   github-token: $WEBSITE_GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
