@@ -9,6 +9,8 @@ use super::super::pyobject::{
 };
 use super::super::VirtualMachine;
 use std;
+use statrs::function::erf::{erf, erfc};
+use statrs::function::gamma::{gamma, ln_gamma};
 
 // Helper macro:
 macro_rules! make_math_func {
@@ -156,8 +158,7 @@ fn math_erf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if x.is_nan() {
         Ok(vm.ctx.new_float(x))
     } else {
-        // TODO: implement algorithm
-        unimplemented!("TODO");
+        Ok(vm.ctx.new_float(erf(x)))
     }
 }
 
@@ -168,8 +169,7 @@ fn math_erfc(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if x.is_nan() {
         Ok(vm.ctx.new_float(x))
     } else {
-        // TODO: implement algorithm
-        unimplemented!("TODO");
+        Ok(vm.ctx.new_float(erfc(x)))
     }
 }
 
@@ -178,8 +178,7 @@ fn math_gamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let x = objfloat::get_value(value);
 
     if x.is_finite() {
-        // TODO: implement algorithm
-        unimplemented!("TODO");
+        Ok(vm.ctx.new_float(gamma(x)))
     } else {
         if x.is_nan() || x.is_sign_positive() {
             Ok(vm.ctx.new_float(x))
@@ -194,8 +193,7 @@ fn math_lgamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let x = objfloat::get_value(value);
 
     if x.is_finite() {
-        // TODO: implement algorithm
-        unimplemented!("TODO");
+        Ok(vm.ctx.new_float(ln_gamma(x)))
     } else {
         if x.is_nan() {
             Ok(vm.ctx.new_float(x))
