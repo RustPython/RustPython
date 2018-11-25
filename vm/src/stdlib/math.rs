@@ -8,9 +8,9 @@ use super::super::pyobject::{
     DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
-use std;
 use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
+use std;
 
 // Helper macro:
 macro_rules! make_math_func {
