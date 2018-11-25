@@ -4,6 +4,7 @@ mod json;
 mod keyword;
 mod math;
 mod pystruct;
+mod random;
 mod re;
 mod time_module;
 mod tokenize;
@@ -23,6 +24,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("keyword".to_string(), keyword::mk_module as StdlibInitFunc);
     modules.insert("math".to_string(), math::mk_module as StdlibInitFunc);
     modules.insert("re".to_string(), re::mk_module as StdlibInitFunc);
+    modules.insert("random".to_string(), random::mk_module as StdlibInitFunc);
     modules.insert("struct".to_string(), pystruct::mk_module as StdlibInitFunc);
     modules.insert("time".to_string(), time_module::mk_module as StdlibInitFunc);
     modules.insert(
