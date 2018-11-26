@@ -9,7 +9,6 @@ rust:
 script:
     - cargo build --verbose --all
     - cargo test --verbose --all
-    - cargo doc --no-deps --all
 
 env:
     # This is used to only capture the regular nightly test in allow_failures
@@ -62,6 +61,15 @@ matrix:
               - cargo fmt --all -- --check
           env:
               - REGULAR_TEST=false
+        - name: publish documentation
+          language: rust
+          rust: nightly
+          cache: cargo
+          script: 
+              - cargo doc --no-deps --all
+          env:
+              - REGULAR_TEST=false
+              - PUBLISH_DOC=true
     allow_failures:
         - rust: nightly
           env: REGULAR_TEST=true
@@ -76,3 +84,4 @@ deploy:
   keep-history: true
   on:
     branch: master
+    condition: $PUBLISH_DOC = true
