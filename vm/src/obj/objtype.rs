@@ -81,7 +81,7 @@ pub fn get_type_name(typ: &PyObjectRef) -> String {
     {
         name.clone()
     } else {
-        panic!("Cannot get type_name of non-type type");
+        panic!("Cannot get type_name of non-type type {:?}", typ);
     }
 }
 

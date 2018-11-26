@@ -42,8 +42,15 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
 pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyObjectRef> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
-    } else if objtype::isinstance(obj, &vm.ctx.int_type()) {
-        Ok(objint::get_value(obj).to_f64().unwrap())
+    } else if let Ok(method) = vm.get_method(obj.clone(), "__float__") {
+        let res = vm.invoke(
+            method,
+            PyFuncArgs {
+                args: vec![],
+                kwargs: vec![],
+            },
+        )?;
+        Ok(get_value(&res))
     } else {
         Err(vm.new_type_error(format!("Cannot cast {:?} to float", obj)))
     }

@@ -850,14 +850,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         },
         ctx.type_type(),
     );
-    let obj = PyObject::new(
-        PyObjectKind::Module {
-            name: "__builtins__".to_string(),
-            dict: scope,
-        },
-        ctx.type_type(),
-    );
-    obj
+    let mod_name = "__builtins__".to_string();
+    let py_mod = ctx.new_module(&mod_name, scope);
+    py_mod
 }
 
 pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {

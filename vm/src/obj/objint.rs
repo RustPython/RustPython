@@ -201,6 +201,12 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_float(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    let i = get_value(i);
+    Ok(vm.ctx.new_float(i.to_f64().unwrap()))
+}
+
 fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -391,6 +397,7 @@ pub fn init(context: &PyContext) {
     int_type.set_attr("__add__", context.new_rustfunc(int_add));
     int_type.set_attr("__and__", context.new_rustfunc(int_and));
     int_type.set_attr("__divmod__", context.new_rustfunc(int_divmod));
+    int_type.set_attr("__float__", context.new_rustfunc(int_float));
     int_type.set_attr("__floordiv__", context.new_rustfunc(int_floordiv));
     int_type.set_attr("__hash__", context.new_rustfunc(int_hash));
     int_type.set_attr("__new__", context.new_rustfunc(int_new));
