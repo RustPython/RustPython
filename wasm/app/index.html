@@ -3,8 +3,27 @@
   <head>
     <meta charset="utf-8">
     <title>RustPython Starter Application</title>
+    <style type="text/css" media="screen">
+      #code {
+        height: 70vh;
+        width: 95vw;
+      }
+
+      #run-btn {
+        width: 10em;
+        height: 5em;
+      }
+    </style>
   </head>
   <body>
+    <h1>RustPython Demo</h1>
+    <p>Please input your python code below and click <kbd>Run</kbd>:</p>
+    <textarea id="code">x = 1
+y = 2
+print('Hello! x + y equals to ' + str(x+y))
+    </textarea>
+    <button id="run-btn">Run</button>
+    <h2>Open the browser console (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> or <kbd>F12</kbd>) to see the output</h2>
     <script src="./bootstrap.js"></script>
   </body>
 </html>
