@@ -31,7 +31,7 @@ use super::sysmodule;
 /// Top level container of a python virtual machine. In theory you could
 /// create more instances of this struct and have them operate fully isolated.
 pub struct VirtualMachine {
-    builtins: PyObjectRef,
+    pub builtins: PyObjectRef,
     pub sys_module: PyObjectRef,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub ctx: PyContext,
