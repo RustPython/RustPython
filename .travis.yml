@@ -67,21 +67,43 @@ matrix:
           cache: cargo
           script: 
               - cargo doc --no-deps --all
+          if: branch = release
           env:
               - REGULAR_TEST=false
               - PUBLISH_DOC=true
+        - name: WASM online demo
+          language: rust
+          rust: nightly
+          cache: cargo
+          script:
+              - cd wasm
+              - bash release.sh
+          if: branch = release
+          env:
+              - REGULAR_TEST=false
+              - PUBLISH_DEMO=true
     allow_failures:
         - rust: nightly
           env: REGULAR_TEST=true
 
 deploy:
-  provider: pages
-  repo: RustPython/website
-  target-branch: master
-  local-dir: target/doc
-  skip-cleanup: true
-  github-token: $WEBSITE_GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
-  keep-history: true
-  on:
-    branch: master
-    condition: $PUBLISH_DOC = true
+  - provider: pages
+    repo: RustPython/website
+    target-branch: master
+    local-dir: target/doc
+    skip-cleanup: true
+    github-token: $WEBSITE_GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
+    keep-history: true
+    on:
+      branch: release
+      condition: $PUBLISH_DOC = true
+  - provider: pages
+    repo: RustPython/demo
+    target-branch: master
+    local-dir: wasm/app/dist
+    skip-cleanup: true
+    github-token: $WEBSITE_GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
+    keep-history: true
+    on:
+      branch: release
+      condition: $PUBLISH_DEMO = true
