@@ -63,7 +63,7 @@ matrix:
               - REGULAR_TEST=false
         - name: publish documentation
           language: rust
-          rust: nightly
+          rust: stable
           cache: cargo
           script: 
               - cargo doc --no-deps --all
