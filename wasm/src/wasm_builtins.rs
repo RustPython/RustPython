@@ -10,7 +10,13 @@ extern crate web_sys;
 use rustpython_vm::obj::objstr;
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::pyobject::{ PyFuncArgs, PyResult };
+use wasm_bindgen::prelude::*;
 use web_sys::console;
+
+#[wasm_bindgen(module = "./html-console")]
+extern "C" {
+    fn htmlPrint(text: String);
+}
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut first = true;
@@ -18,11 +24,12 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         if first {
             first = false;
         } else {
-            console::log_1(&" ".into())
+            htmlPrint(" ".into())
+            //console::log_1(&" ".into())
         }
         let v = vm.to_str(&a)?;
         let s = objstr::get_value(&v);
-        console::log_1(&format!("{}", s).into())
+        htmlPrint(format!("{}\n", s).into())
     }
     Ok(vm.get_none())
 }
