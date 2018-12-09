@@ -16,7 +16,6 @@ pub fn run_code(source: &str) -> () {
     console::log_1(&"Running RustPython".into());
     console::log_1(&"Running code:".into());
     console::log_1(&source.to_string().into());
-    console::log_1(&"----- console -----".into());
 
     let mut vm = VirtualMachine::new();
     // We are monkey-patching the builtin print to use console.log
