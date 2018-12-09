@@ -2,29 +2,41 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>RustPython Starter Application</title>
+    <title>RustPython Demo</title>
     <style type="text/css" media="screen">
+      textarea {
+        font-family: monospace;
+      }
+
       #code {
-        height: 70vh;
+        height: 35vh;
+        width: 95vw;
+      }
+
+      #console {
+        height: 35vh;
         width: 95vw;
       }
 
       #run-btn {
-        width: 10em;
-        height: 5em;
+        width: 4em;
+        height: 2em;
+        font-size: 24px;
       }
     </style>
   </head>
   <body>
     <h1>RustPython Demo</h1>
+    <p>RustPython is a Python interpreter writter in Rust. This demo is compiled from Rust to WebAssembly so it runs in the browser</p>
     <p>Please input your python code below and click <kbd>Run</kbd>:</p>
     <textarea id="code">x = 1
 y = 2
 print('Hello! x + y equals to ' + str(x+y))
     </textarea>
-    <button id="run-btn">Run</button>
-    <h2>Open the browser console (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> or <kbd>F12</kbd>) to see the output</h2>
+    <button id="run-btn">Run &#9655;</button>
     <script src="./bootstrap.js"></script>
+    <h3>Standard Output</h3>
+    <textarea id="console">Loading...</textarea>
 
     <a href="https://github.com/RustPython/RustPython"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_right_green_007200.png" alt="Fork me on GitHub"></a>
   </body>
