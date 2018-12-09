@@ -1,5 +1,6 @@
+# The second cp is due to https://github.com/rustwasm/wasm-pack/issues/240
 wasm-pack build --debug && \
-cp app/html-console.js pkg
+cp app/html-console.js pkg \
 cd pkg && \
 npm link && \
 cd ../app && \
