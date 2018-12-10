@@ -48,7 +48,7 @@ matrix:
           script: tests/.travis-runner.sh
         - name: rustfmt
           language: rust
-          rust: nightly
+          rust: stable
           cache: cargo
           before_script:
               - rustup component add rustfmt-preview
