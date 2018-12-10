@@ -8,6 +8,8 @@ A Python-3  (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :met
 
 # Usage
 
+### Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.
+
 To test RustPython, do the following:
 
     $ git clone https://github.com/RustPython/RustPython
