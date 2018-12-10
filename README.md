@@ -8,6 +8,8 @@ A Python-3  (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :met
 
 # Usage
 
+### Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.
+
 To test RustPython, do the following:
 
     $ git clone https://github.com/RustPython/RustPython
@@ -42,6 +44,8 @@ $ cargo doc --no-deps --all # Excluding all dependencies
 ```
 
 Documentation HTML files can then be found in the `target/doc` directory.
+
+If you wish to update the online documentation. Push directly to the `release` branch (or ask a maintainer to do so), this will trigger a Travis build that updates the documentation and WebAssembly demo page.
 
 # Code organization
 
