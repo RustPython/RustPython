@@ -43,6 +43,8 @@ $ cargo doc --no-deps --all # Excluding all dependencies
 
 Documentation HTML files can then be found in the `target/doc` directory.
 
+If you wish to update the online documentation. Push directly to the `release` branch (or ask a maintainer to do so), this will trigger a Travis build that updates the documentation and WebAssembly demo page.
+
 # Code organization
 
 - `parser/src`: python lexing, parsing and ast
