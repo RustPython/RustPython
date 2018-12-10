@@ -113,8 +113,7 @@ At this stage RustPython only has preliminary support for web assembly. The inst
 
 ## Setup
 
-To get started, install [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/whirlwind-tour/basic-usage.html)
-and [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/). You will also need to have `npm` installed.
+To get started, install [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) and `npm`. ([wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/whirlwind-tour/basic-usage.html) should be installed by `wasm-pack`. if not, install it yourself)
 
 <!-- Using `rustup` add the compile target `wasm32-unknown-emscripten`. To do so you will need to have [rustup](https://rustup.rs/) installed.
 
@@ -132,8 +131,6 @@ cd emsdk-portable/
 ./emsdk activate sdk-incoming-64bit
 ``` -->
 
-
-
 ## Build
 
 Move into the `wasm` directory. This contains a custom library crate optimized for wasm build of RustPython.   
@@ -142,7 +139,11 @@ Move into the `wasm` directory. This contains a custom library crate optimized f
 cd wasm
 ```
 
-From here run the build. This can take several minutes depending on the machine.
+For testing on a development server, you can run the `build.sh` script. For release build which generates files for deploying to a HTTP server, run `release.sh`.
+
+If you don't want to use the above scripts, you can do it manually as follows:
+
+Run the build. This can take several minutes depending on the machine.
 
 ```
 wasm-pack build
@@ -169,19 +170,7 @@ and you will be able to run the files with:
 node_modules/.bin/webpack-dev-server
 ```
 
-Open a browser console and see the output of rustpython_wasm. To verify this, modify the line in `app/index.js`
-
-```js
-rp.run_code("print('Hello Python!')\n");
-```
-
-To the following:
-
-```js
-rp.run_code("assert(False)\n");
-```
-
-and you should observe: `Execution failed` in your console output, indicating that the execution of RustPython has failed.
+Now open the webpage on https://localhost:8080, you'll be able to run Python code in the text box.
 
 # Code style
 
