@@ -70,18 +70,19 @@ matrix:
           if: branch = release
           env:
               - REGULAR_TEST=false
-              - PUBLISH_DOC=true
         - name: WASM online demo
           language: rust
           rust: nightly
           cache: cargo
+          install:
+            - nvm install node
+            - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh # install wasm-pack
           script:
               - cd wasm
               - bash release.sh
           if: branch = release
           env:
               - REGULAR_TEST=false
-              - PUBLISH_DEMO=true
     allow_failures:
         - rust: nightly
           env: REGULAR_TEST=true
@@ -96,7 +97,6 @@ deploy:
     keep-history: true
     on:
       branch: release
-      condition: $PUBLISH_DOC = true
   - provider: pages
     repo: RustPython/demo
     target-branch: master
@@ -106,4 +106,3 @@ deploy:
     keep-history: true
     on:
       branch: release
-      condition: $PUBLISH_DEMO = true

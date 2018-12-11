@@ -4,5 +4,5 @@ npm link && \
 cd ../app && \
 npm install && \
 npm link rustpython_wasm && \
-webpack --mode production && \
+node_modules/.bin/webpack --mode production && \
 echo "Output saved to app/dist"
