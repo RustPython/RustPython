@@ -9,6 +9,12 @@ use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 
+// functions like isdigit also checks if exponents are digits
+// exponents from 0-9
+const VALID_UNICODES: &'static [&'static u16; 10] = &[
+    &0x2070, &0x00B9, &0x00B2, &0x00B3, &0x2074, &0x2075, &0x2076, &0x2077, &0x2078, &0x2079,
+];
+
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
     str_type.set_attr("__add__", context.new_rustfunc(str_add));
@@ -32,6 +38,10 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("endswith", context.new_rustfunc(str_endswith));
     str_type.set_attr("startswith", context.new_rustfunc(str_startswith));
     str_type.set_attr("title", context.new_rustfunc(str_title));
+    str_type.set_attr("swapcase", context.new_rustfunc(str_swapcase));
+    str_type.set_attr("isalnum", context.new_rustfunc(str_isalnum));
+    str_type.set_attr("isalpha", context.new_rustfunc(str_isalpha));
+    str_type.set_attr("isdigit", context.new_rustfunc(str_isdigit));
 
     // str_type.set_attr("center", context.new_rustfunc(str_center));
 }
@@ -229,6 +239,22 @@ fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(value.ends_with(pat.as_str())))
 }
 
+fn str_swapcase(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let mut swapped_str = String::with_capacity(value.len());
+    for c in value.chars() {
+        if c.is_lowercase() {
+            swapped_str.push(c.to_ascii_uppercase());
+        } else if c.is_uppercase() {
+            swapped_str.push(c.to_ascii_lowercase());
+        } else {
+            swapped_str.push(c);
+        }
+    }
+    Ok(vm.ctx.new_str(swapped_str))
+}
+
 fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
@@ -285,6 +311,51 @@ fn str_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     let needle = get_value(&needle);
     Ok(vm.ctx.new_bool(value.contains(needle.as_str())))
+}
+
+fn str_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let mut is_alnum: bool = true;
+    for c in value.chars() {
+        if !c.is_alphanumeric() {
+            is_alnum = false;
+            break;
+        }
+    }
+    Ok(vm.ctx.new_bool(is_alnum))
+}
+
+fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let mut is_alpha: bool = true;
+    for c in value.chars() {
+        if !c.is_alphabetic() {
+            is_alpha = false;
+            break;
+        }
+    }
+    Ok(vm.ctx.new_bool(is_alpha))
+}
+
+fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let mut is_digit: bool = true;
+    for c in value.chars() {
+        if !c.is_digit(10) {
+            // checking if char is exponent
+            let char_as_uni: u16 = c as u16;
+            if VALID_UNICODES.contains(&&char_as_uni) {
+                continue;
+            } else {
+                is_digit = false;
+                break;
+            }
+        }
+    }
+    Ok(vm.ctx.new_bool(is_digit))
 }
 
 fn str_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
