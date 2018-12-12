@@ -7,7 +7,7 @@ use serde_json;
 
 use super::super::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
 use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -170,7 +170,7 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
                         PyObjectKind::String { ref value } => value.clone(),
                         _ => unimplemented!("map keys must be strings"),
                     };
-                    dict.set_item(&key, value);
+                    self.ctx.set_item(&dict, &key, value);
                 }
                 Ok(dict)
             }

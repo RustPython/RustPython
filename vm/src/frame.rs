@@ -183,7 +183,7 @@ impl Frame {
                 ref symbol,
             } => self.import(vm, name, symbol),
             bytecode::Instruction::LoadName { ref name } => self.load_name(vm, name),
-            bytecode::Instruction::StoreName { ref name } => self.store_name(name),
+            bytecode::Instruction::StoreName { ref name } => self.store_name(vm, name),
             bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
@@ -796,9 +796,9 @@ impl Frame {
         vm.call_method(context_manager, "__exit__", args)
     }
 
-    fn store_name(&mut self, name: &str) -> FrameResult {
+    fn store_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
-        self.locals.set_item(name, obj);
+        vm.ctx.set_item(&self.locals, name, obj);
         Ok(None)
     }
 

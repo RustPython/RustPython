@@ -49,7 +49,7 @@ impl VirtualMachine {
 
         // Add builtins as builtins module:
         let modules = sysmod.get_attr("modules").unwrap();
-        modules.set_item("builtins", builtins.clone());
+        ctx.set_item(&modules, "builtins", builtins.clone());
 
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
@@ -301,7 +301,7 @@ impl VirtualMachine {
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
             let arg = &args.args[i];
-            scope.set_item(arg_name, arg.clone());
+            self.ctx.set_item(scope, arg_name, arg.clone());
         }
 
         // Pack other positional arguments in to *args:
@@ -315,7 +315,7 @@ impl VirtualMachine {
 
             // If we have a name (not '*' only) then store it:
             if let Some(vararg_name) = vararg {
-                scope.set_item(vararg_name, vararg_value);
+                self.ctx.set_item(scope, vararg_name, vararg_value);
             }
         } else {
             // Check the number of positional arguments
@@ -333,7 +333,7 @@ impl VirtualMachine {
 
             // Store when we have a name:
             if let Some(kwargs_name) = kwargs {
-                scope.set_item(&kwargs_name, d.clone());
+                self.ctx.set_item(scope, &kwargs_name, d.clone());
             }
 
             Some(d)
@@ -352,9 +352,9 @@ impl VirtualMachine {
                     );
                 }
 
-                scope.set_item(&name, value);
+                self.ctx.set_item(scope, &name, value);
             } else if let Some(d) = &kwargs {
-                d.set_item(&name, value);
+                self.ctx.set_item(d, &name, value);
             } else {
                 return Err(
                     self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
@@ -395,7 +395,8 @@ impl VirtualMachine {
             for i in required_args..nexpected_args {
                 let arg_name = &code_object.arg_names[i];
                 if !scope.contains_key(arg_name) {
-                    scope.set_item(arg_name, available_defaults[default_index].clone());
+                    self.ctx
+                        .set_item(scope, arg_name, available_defaults[default_index].clone());
                 }
                 default_index += 1;
             }

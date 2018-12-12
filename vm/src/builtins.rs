@@ -14,8 +14,8 @@ use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind,
-    PyObjectRef, PyResult, Scope, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    PyResult, Scope, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -730,8 +730,9 @@ fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let mod_name = "__builtins__".to_string();
     let py_mod = ctx.new_module(&mod_name, ctx.new_scope(None));
+
     //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
-    py_mod.set_item("__name__", ctx.new_str(String::from("__main__")));
+    ctx.set_attr(&py_mod, "__name__", ctx.new_str(String::from("__main__")));
 
     ctx.set_item(&py_mod, "abs", ctx.new_rustfunc(builtin_abs));
     ctx.set_attr(&py_mod, "all", ctx.new_rustfunc(builtin_all));
