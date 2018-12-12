@@ -23,13 +23,29 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
 
 pub fn init(context: &PyContext) {
     let ref type_type = context.type_type;
-    type_type.set_attr("__call__", context.new_rustfunc(type_call));
-    type_type.set_attr("__new__", context.new_rustfunc(type_new));
-    type_type.set_attr("__mro__", context.new_member_descriptor(type_mro));
-    type_type.set_attr("__class__", context.new_member_descriptor(type_new));
-    type_type.set_attr("__repr__", context.new_rustfunc(type_repr));
-    type_type.set_attr("__prepare__", context.new_rustfunc(type_prepare));
-    type_type.set_attr("__getattribute__", context.new_rustfunc(type_getattribute));
+    context.set_attr(&type_type, "__call__", context.new_rustfunc(type_call));
+    context.set_attr(&type_type, "__new__", context.new_rustfunc(type_new));
+    context.set_attr(
+        &type_type,
+        "__mro__",
+        context.new_member_descriptor(type_mro),
+    );
+    context.set_attr(
+        &type_type,
+        "__class__",
+        context.new_member_descriptor(type_new),
+    );
+    context.set_attr(&type_type, "__repr__", context.new_rustfunc(type_repr));
+    context.set_attr(
+        &type_type,
+        "__prepare__",
+        context.new_rustfunc(type_prepare),
+    );
+    context.set_attr(
+        &type_type,
+        "__getattribute__",
+        context.new_rustfunc(type_getattribute),
+    );
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

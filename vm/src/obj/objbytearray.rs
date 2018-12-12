@@ -1,8 +1,7 @@
 //! Implementation of the python bytearray object.
 
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbytes::get_value;
@@ -14,9 +13,21 @@ use num_traits::ToPrimitive;
 /// Fill bytearray class methods dictionary.
 pub fn init(context: &PyContext) {
     let ref bytearray_type = context.bytearray_type;
-    bytearray_type.set_attr("__eq__", context.new_rustfunc(bytearray_eq));
-    bytearray_type.set_attr("__new__", context.new_rustfunc(bytearray_new));
-    bytearray_type.set_attr("__repr__", context.new_rustfunc(bytearray_repr));
+    context.set_attr(
+        &bytearray_type,
+        "__eq__",
+        context.new_rustfunc(bytearray_eq),
+    );
+    context.set_attr(
+        &bytearray_type,
+        "__new__",
+        context.new_rustfunc(bytearray_new),
+    );
+    context.set_attr(
+        &bytearray_type,
+        "__repr__",
+        context.new_rustfunc(bytearray_repr),
+    );
 }
 
 fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

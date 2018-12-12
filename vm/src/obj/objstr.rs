@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -11,26 +11,38 @@ use std::hash::{Hash, Hasher};
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
-    str_type.set_attr("__add__", context.new_rustfunc(str_add));
-    str_type.set_attr("__eq__", context.new_rustfunc(str_eq));
-    str_type.set_attr("__contains__", context.new_rustfunc(str_contains));
-    str_type.set_attr("__getitem__", context.new_rustfunc(str_getitem));
-    str_type.set_attr("__gt__", context.new_rustfunc(str_gt));
-    str_type.set_attr("__hash__", context.new_rustfunc(str_hash));
-    str_type.set_attr("__len__", context.new_rustfunc(str_len));
-    str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
-    str_type.set_attr("__new__", context.new_rustfunc(str_new));
-    str_type.set_attr("__str__", context.new_rustfunc(str_str));
-    str_type.set_attr("__repr__", context.new_rustfunc(str_repr));
-    str_type.set_attr("lower", context.new_rustfunc(str_lower));
-    str_type.set_attr("upper", context.new_rustfunc(str_upper));
-    str_type.set_attr("capitalize", context.new_rustfunc(str_capitalize));
-    str_type.set_attr("split", context.new_rustfunc(str_split));
-    str_type.set_attr("strip", context.new_rustfunc(str_strip));
-    str_type.set_attr("lstrip", context.new_rustfunc(str_lstrip));
-    str_type.set_attr("rstrip", context.new_rustfunc(str_rstrip));
-    str_type.set_attr("endswith", context.new_rustfunc(str_endswith));
-    str_type.set_attr("startswith", context.new_rustfunc(str_startswith));
+    context.set_attr(&str_type, "__add__", context.new_rustfunc(str_add));
+    context.set_attr(&str_type, "__eq__", context.new_rustfunc(str_eq));
+    context.set_attr(
+        &str_type,
+        "__contains__",
+        context.new_rustfunc(str_contains),
+    );
+    context.set_attr(&str_type, "__getitem__", context.new_rustfunc(str_getitem));
+    context.set_attr(&str_type, "__gt__", context.new_rustfunc(str_gt));
+    context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
+    context.set_attr(&str_type, "__len__", context.new_rustfunc(str_len));
+    context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
+    context.set_attr(&str_type, "__new__", context.new_rustfunc(str_new));
+    context.set_attr(&str_type, "__str__", context.new_rustfunc(str_str));
+    context.set_attr(&str_type, "__repr__", context.new_rustfunc(str_repr));
+    context.set_attr(&str_type, "lower", context.new_rustfunc(str_lower));
+    context.set_attr(&str_type, "upper", context.new_rustfunc(str_upper));
+    context.set_attr(
+        &str_type,
+        "capitalize",
+        context.new_rustfunc(str_capitalize),
+    );
+    context.set_attr(&str_type, "split", context.new_rustfunc(str_split));
+    context.set_attr(&str_type, "strip", context.new_rustfunc(str_strip));
+    context.set_attr(&str_type, "lstrip", context.new_rustfunc(str_lstrip));
+    context.set_attr(&str_type, "rstrip", context.new_rustfunc(str_rstrip));
+    context.set_attr(&str_type, "endswith", context.new_rustfunc(str_endswith));
+    context.set_attr(
+        &str_type,
+        "startswith",
+        context.new_rustfunc(str_startswith),
+    );
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {

@@ -14,8 +14,8 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.new_str("No msg".to_string())
     };
     let traceback = vm.ctx.new_list(Vec::new());
-    zelf.set_attr("msg", msg);
-    zelf.set_attr("__traceback__", traceback);
+    vm.ctx.set_attr(&zelf, "msg", msg);
+    vm.ctx.set_attr(&zelf, "__traceback__", traceback);
     Ok(vm.get_none())
 }
 
@@ -198,7 +198,15 @@ impl ExceptionZoo {
 
 pub fn init(context: &PyContext) {
     let ref base_exception_type = context.exceptions.base_exception_type;
-    base_exception_type.set_attr("__init__", context.new_rustfunc(exception_init));
+    context.set_attr(
+        &base_exception_type,
+        "__init__",
+        context.new_rustfunc(exception_init),
+    );
     let ref exception_type = context.exceptions.exception_type;
-    exception_type.set_attr("__str__", context.new_rustfunc(exception_str));
+    context.set_attr(
+        &exception_type,
+        "__str__",
+        context.new_rustfunc(exception_str),
+    );
 }

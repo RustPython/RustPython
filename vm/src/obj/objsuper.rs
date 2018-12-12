@@ -6,15 +6,13 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
     let ref super_type = context.super_type;
-    super_type.set_attr("__init__", context.new_rustfunc(super_init));
+    context.set_attr(&super_type, "__init__", context.new_rustfunc(super_init));
 }
 
 fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -61,8 +59,8 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     // TODO: how to store those types?
-    inst.set_attr("type", py_type);
-    inst.set_attr("obj", py_obj);
+    vm.ctx.set_attr(inst, "type", py_type);
+    vm.ctx.set_attr(inst, "obj", py_obj);
 
     Ok(vm.get_none())
 }

@@ -7,9 +7,7 @@ extern crate rustpython_parser;
 
 use self::rustpython_parser::{ast, parser};
 use super::super::obj::{objstr, objtype};
-use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_complex::Complex64;
@@ -119,7 +117,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
         ast::Statement::Assert { test, msg } => {
             let node = create_node(ctx, "Pass");
 
-            node.set_attr("test", expression_to_ast(ctx, test));
+            ctx.set_attr(&node, "test", expression_to_ast(ctx, test));
 
             let py_msg = match msg {
                 Some(msg) => expression_to_ast(ctx, msg),
@@ -584,13 +582,13 @@ fn comprehension_to_ast(ctx: &PyContext, comprehension: &ast::Comprehension) -> 
     let node = create_node(ctx, "comprehension");
 
     let py_target = expression_to_ast(ctx, &comprehension.target);
-    node.set_attr("target", py_target);
+    ctx.set_attr(&node, "target", py_target);
 
     let py_iter = expression_to_ast(ctx, &comprehension.iter);
-    node.set_attr("iter", py_iter);
+    ctx.set_attr(&node, "iter", py_iter);
 
     let py_ifs = expressions_to_ast(ctx, &comprehension.ifs);
-    node.set_attr("ifs", py_ifs);
+    ctx.set_attr(&node, "ifs", py_ifs);
 
     node
 }

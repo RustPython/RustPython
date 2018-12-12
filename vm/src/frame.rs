@@ -16,8 +16,8 @@ use super::obj::objlist;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject,
-    PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -309,7 +309,7 @@ impl Frame {
             }
             bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(vm, op),
             bytecode::Instruction::LoadAttr { ref name } => self.load_attr(vm, name),
-            bytecode::Instruction::StoreAttr { ref name } => self.store_attr(name),
+            bytecode::Instruction::StoreAttr { ref name } => self.store_attr(vm, name),
             bytecode::Instruction::DeleteAttr { ref name } => self.delete_attr(vm, name),
             bytecode::Instruction::UnaryOperation { ref op } => self.execute_unop(vm, op),
             bytecode::Instruction::CompareOperation { ref op } => self.execute_compare(vm, op),
@@ -998,10 +998,10 @@ impl Frame {
         Ok(None)
     }
 
-    fn store_attr(&mut self, attr_name: &str) -> FrameResult {
+    fn store_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
-        parent.set_attr(attr_name, value);
+        vm.ctx.set_attr(&parent, attr_name, value);
         Ok(None)
     }
 

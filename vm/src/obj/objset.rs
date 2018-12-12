@@ -3,8 +3,7 @@
  */
 
 use super::super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
-    PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -152,14 +151,26 @@ fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref set_type = context.set_type;
-    set_type.set_attr("__contains__", context.new_rustfunc(set_contains));
-    set_type.set_attr("__len__", context.new_rustfunc(set_len));
-    set_type.set_attr("__new__", context.new_rustfunc(set_new));
-    set_type.set_attr("__repr__", context.new_rustfunc(set_repr));
-    set_type.set_attr("add", context.new_rustfunc(set_add));
+    context.set_attr(
+        &set_type,
+        "__contains__",
+        context.new_rustfunc(set_contains),
+    );
+    context.set_attr(&set_type, "__len__", context.new_rustfunc(set_len));
+    context.set_attr(&set_type, "__new__", context.new_rustfunc(set_new));
+    context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
+    context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
-    let ref frozenset_type = context.set_type;
-    frozenset_type.set_attr("__contains__", context.new_rustfunc(set_contains));
-    frozenset_type.set_attr("__len__", context.new_rustfunc(set_len));
-    frozenset_type.set_attr("__repr__", context.new_rustfunc(frozenset_repr));
+    let ref frozenset_type = context.frozenset_type;
+    context.set_attr(
+        &frozenset_type,
+        "__contains__",
+        context.new_rustfunc(set_contains),
+    );
+    context.set_attr(&frozenset_type, "__len__", context.new_rustfunc(set_len));
+    context.set_attr(
+        &frozenset_type,
+        "__repr__",
+        context.new_rustfunc(frozenset_repr),
+    );
 }

@@ -1,6 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -151,13 +150,21 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref tuple_type = context.tuple_type;
-    tuple_type.set_attr("__eq__", context.new_rustfunc(tuple_eq));
-    tuple_type.set_attr("__contains__", context.new_rustfunc(tuple_contains));
-    tuple_type.set_attr("__getitem__", context.new_rustfunc(tuple_getitem));
-    tuple_type.set_attr("__hash__", context.new_rustfunc(tuple_hash));
-    tuple_type.set_attr("__iter__", context.new_rustfunc(tuple_iter));
-    tuple_type.set_attr("__len__", context.new_rustfunc(tuple_len));
-    tuple_type.set_attr("__new__", context.new_rustfunc(tuple_new));
-    tuple_type.set_attr("__repr__", context.new_rustfunc(tuple_repr));
-    tuple_type.set_attr("count", context.new_rustfunc(tuple_count));
+    context.set_attr(&tuple_type, "__eq__", context.new_rustfunc(tuple_eq));
+    context.set_attr(
+        &tuple_type,
+        "__contains__",
+        context.new_rustfunc(tuple_contains),
+    );
+    context.set_attr(
+        &tuple_type,
+        "__getitem__",
+        context.new_rustfunc(tuple_getitem),
+    );
+    context.set_attr(&tuple_type, "__hash__", context.new_rustfunc(tuple_hash));
+    context.set_attr(&tuple_type, "__iter__", context.new_rustfunc(tuple_iter));
+    context.set_attr(&tuple_type, "__len__", context.new_rustfunc(tuple_len));
+    context.set_attr(&tuple_type, "__new__", context.new_rustfunc(tuple_new));
+    context.set_attr(&tuple_type, "__repr__", context.new_rustfunc(tuple_repr));
+    context.set_attr(&tuple_type, "count", context.new_rustfunc(tuple_count));
 }

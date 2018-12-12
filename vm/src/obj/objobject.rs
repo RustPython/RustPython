@@ -87,16 +87,21 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref object = context.object;
-    object.set_attr("__new__", context.new_rustfunc(new_instance));
-    object.set_attr("__init__", context.new_rustfunc(object_init));
-    object.set_attr("__eq__", context.new_rustfunc(object_eq));
-    object.set_attr("__ne__", context.new_rustfunc(object_ne));
-    object.set_attr("__delattr__", context.new_rustfunc(object_delattr));
-    object.set_attr("__dict__", context.new_member_descriptor(object_dict));
-    object.set_attr("__hash__", context.new_rustfunc(object_hash));
-    object.set_attr("__str__", context.new_rustfunc(object_str));
-    object.set_attr("__repr__", context.new_rustfunc(object_repr));
-    object.set_attr(
+    context.set_attr(&object, "__new__", context.new_rustfunc(new_instance));
+    context.set_attr(&object, "__init__", context.new_rustfunc(object_init));
+    context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
+    context.set_attr(&object, "__ne__", context.new_rustfunc(object_ne));
+    context.set_attr(&object, "__delattr__", context.new_rustfunc(object_delattr));
+    context.set_attr(
+        &object,
+        "__dict__",
+        context.new_member_descriptor(object_dict),
+    );
+    context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
+    context.set_attr(&object, "__str__", context.new_rustfunc(object_str));
+    context.set_attr(&object, "__repr__", context.new_rustfunc(object_repr));
+    context.set_attr(
+        &object,
         "__getattribute__",
         context.new_rustfunc(object_getattribute),
     );

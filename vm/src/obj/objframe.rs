@@ -4,17 +4,17 @@
 
 use super::super::frame::Frame;
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
     let ref frame_type = context.frame_type;
-    frame_type.set_attr("__new__", context.new_rustfunc(frame_new));
-    frame_type.set_attr("__repr__", context.new_rustfunc(frame_repr));
-    frame_type.set_attr("f_locals", context.new_property(frame_flocals));
-    frame_type.set_attr("f_code", context.new_property(frame_fcode));
+    context.set_attr(&frame_type, "__new__", context.new_rustfunc(frame_new));
+    context.set_attr(&frame_type, "__repr__", context.new_rustfunc(frame_repr));
+    context.set_attr(&frame_type, "f_locals", context.new_property(frame_flocals));
+    context.set_attr(&frame_type, "f_code", context.new_property(frame_fcode));
 }
 
 fn frame_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -1,6 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objfloat;
@@ -9,10 +8,18 @@ use num_complex::Complex64;
 
 pub fn init(context: &PyContext) {
     let ref complex_type = context.complex_type;
-    complex_type.set_attr("__add__", context.new_rustfunc(complex_add));
-    complex_type.set_attr("__new__", context.new_rustfunc(complex_new));
-    complex_type.set_attr("__repr__", context.new_rustfunc(complex_repr));
-    complex_type.set_attr("conjugate", context.new_rustfunc(complex_conjugate));
+    context.set_attr(&complex_type, "__add__", context.new_rustfunc(complex_add));
+    context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
+    context.set_attr(
+        &complex_type,
+        "__repr__",
+        context.new_rustfunc(complex_repr),
+    );
+    context.set_attr(
+        &complex_type,
+        "conjugate",
+        context.new_rustfunc(complex_conjugate),
+    );
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {

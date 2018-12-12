@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -260,19 +260,27 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref float_type = context.float_type;
-    float_type.set_attr("__eq__", context.new_rustfunc(float_eq));
-    float_type.set_attr("__lt__", context.new_rustfunc(float_lt));
-    float_type.set_attr("__le__", context.new_rustfunc(float_le));
-    float_type.set_attr("__gt__", context.new_rustfunc(float_gt));
-    float_type.set_attr("__ge__", context.new_rustfunc(float_ge));
-    float_type.set_attr("__abs__", context.new_rustfunc(float_abs));
-    float_type.set_attr("__add__", context.new_rustfunc(float_add));
-    float_type.set_attr("__divmod__", context.new_rustfunc(float_divmod));
-    float_type.set_attr("__floordiv__", context.new_rustfunc(float_floordiv));
-    float_type.set_attr("__init__", context.new_rustfunc(float_init));
-    float_type.set_attr("__mod__", context.new_rustfunc(float_mod));
-    float_type.set_attr("__neg__", context.new_rustfunc(float_neg));
-    float_type.set_attr("__pow__", context.new_rustfunc(float_pow));
-    float_type.set_attr("__sub__", context.new_rustfunc(float_sub));
-    float_type.set_attr("__repr__", context.new_rustfunc(float_repr));
+    context.set_attr(&float_type, "__eq__", context.new_rustfunc(float_eq));
+    context.set_attr(&float_type, "__lt__", context.new_rustfunc(float_lt));
+    context.set_attr(&float_type, "__le__", context.new_rustfunc(float_le));
+    context.set_attr(&float_type, "__gt__", context.new_rustfunc(float_gt));
+    context.set_attr(&float_type, "__ge__", context.new_rustfunc(float_ge));
+    context.set_attr(&float_type, "__abs__", context.new_rustfunc(float_abs));
+    context.set_attr(&float_type, "__add__", context.new_rustfunc(float_add));
+    context.set_attr(
+        &float_type,
+        "__divmod__",
+        context.new_rustfunc(float_divmod),
+    );
+    context.set_attr(
+        &float_type,
+        "__floordiv__",
+        context.new_rustfunc(float_floordiv),
+    );
+    context.set_attr(&float_type, "__init__", context.new_rustfunc(float_init));
+    context.set_attr(&float_type, "__mod__", context.new_rustfunc(float_mod));
+    context.set_attr(&float_type, "__neg__", context.new_rustfunc(float_neg));
+    context.set_attr(&float_type, "__pow__", context.new_rustfunc(float_pow));
+    context.set_attr(&float_type, "__sub__", context.new_rustfunc(float_sub));
+    context.set_attr(&float_type, "__repr__", context.new_rustfunc(float_repr));
 }

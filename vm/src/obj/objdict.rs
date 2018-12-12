@@ -1,6 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objstr;
@@ -212,12 +211,28 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
 
 pub fn init(context: &PyContext) {
     let ref dict_type = context.dict_type;
-    dict_type.set_attr("__len__", context.new_rustfunc(dict_len));
-    dict_type.set_attr("__contains__", context.new_rustfunc(dict_contains));
-    dict_type.set_attr("__delitem__", context.new_rustfunc(dict_delitem));
-    dict_type.set_attr("__getitem__", context.new_rustfunc(dict_getitem));
-    dict_type.set_attr("__iter__", context.new_rustfunc(dict_iter));
-    dict_type.set_attr("__new__", context.new_rustfunc(dict_new));
-    dict_type.set_attr("__repr__", context.new_rustfunc(dict_repr));
-    dict_type.set_attr("__setitem__", context.new_rustfunc(dict_setitem));
+    context.set_attr(&dict_type, "__len__", context.new_rustfunc(dict_len));
+    context.set_attr(
+        &dict_type,
+        "__contains__",
+        context.new_rustfunc(dict_contains),
+    );
+    context.set_attr(
+        &dict_type,
+        "__delitem__",
+        context.new_rustfunc(dict_delitem),
+    );
+    context.set_attr(
+        &dict_type,
+        "__getitem__",
+        context.new_rustfunc(dict_getitem),
+    );
+    context.set_attr(&dict_type, "__iter__", context.new_rustfunc(dict_iter));
+    context.set_attr(&dict_type, "__new__", context.new_rustfunc(dict_new));
+    context.set_attr(&dict_type, "__repr__", context.new_rustfunc(dict_repr));
+    context.set_attr(
+        &dict_type,
+        "__setitem__",
+        context.new_rustfunc(dict_setitem),
+    );
 }

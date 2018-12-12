@@ -3,7 +3,7 @@
  */
 
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -129,8 +129,12 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref iter_type = context.iter_type;
-    iter_type.set_attr("__contains__", context.new_rustfunc(iter_contains));
-    iter_type.set_attr("__iter__", context.new_rustfunc(iter_iter));
-    iter_type.set_attr("__new__", context.new_rustfunc(iter_new));
-    iter_type.set_attr("__next__", context.new_rustfunc(iter_next));
+    context.set_attr(
+        &iter_type,
+        "__contains__",
+        context.new_rustfunc(iter_contains),
+    );
+    context.set_attr(&iter_type, "__iter__", context.new_rustfunc(iter_iter));
+    context.set_attr(&iter_type, "__new__", context.new_rustfunc(iter_new));
+    context.set_attr(&iter_type, "__next__", context.new_rustfunc(iter_next));
 }

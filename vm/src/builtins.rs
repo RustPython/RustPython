@@ -679,7 +679,7 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(obj, None), (attr, Some(vm.ctx.str_type())), (value, None)]
     );
     let name = objstr::get_value(attr);
-    obj.clone().set_attr(&name, value.clone());
+    vm.ctx.set_attr(obj, &name, value.clone());
     Ok(vm.get_none())
 }
 

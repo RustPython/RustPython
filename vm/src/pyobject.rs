@@ -471,7 +471,7 @@ impl PyContext {
             },
             self.property_type(),
         );
-        py_obj.set_attr("fget", fget.clone());
+        self.set_attr(&py_obj, "fget", fget.clone());
         py_obj
     }
 
@@ -520,8 +520,24 @@ impl PyContext {
         obj.set_item(key, v);
     }
 
-    pub fn set_attr(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
-        obj.set_attr(key, v);
+    pub fn get_attr(&self, obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+        // This does not need to be on the PyContext.
+        // We do not require to make a new key as string for this function
+        // (yet)...
+        obj.get_attr(attr_name)
+    }
+
+    pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
+        match obj.borrow().kind {
+            PyObjectKind::Module { name: _, ref dict } => dict.set_item(attr_name, value),
+            PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
+            PyObjectKind::Class {
+                name: _,
+                ref dict,
+                mro: _,
+            } => dict.set_item(attr_name, value),
+            ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
+        };
     }
 }
 
@@ -595,7 +611,6 @@ impl ParentProtocol for PyObjectRef {
 
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
-    fn set_attr(&self, attr_name: &str, value: PyObjectRef);
     fn has_attr(&self, attr_name: &str) -> bool;
 }
 
@@ -647,19 +662,6 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectKind::Instance { ref dict } => dict.contains_key(attr_name),
             _ => false,
         }
-    }
-
-    fn set_attr(&self, attr_name: &str, value: PyObjectRef) {
-        match self.borrow().kind {
-            PyObjectKind::Module { name: _, ref dict } => dict.set_item(attr_name, value),
-            PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
-            PyObjectKind::Class {
-                name: _,
-                ref dict,
-                mro: _,
-            } => dict.set_item(attr_name, value),
-            ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
-        };
     }
 }
 

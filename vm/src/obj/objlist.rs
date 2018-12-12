@@ -1,6 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -235,19 +234,31 @@ fn list_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
-    list_type.set_attr("__add__", context.new_rustfunc(list_add));
-    list_type.set_attr("__contains__", context.new_rustfunc(list_contains));
-    list_type.set_attr("__eq__", context.new_rustfunc(list_eq));
-    list_type.set_attr("__getitem__", context.new_rustfunc(list_getitem));
-    list_type.set_attr("__iter__", context.new_rustfunc(list_iter));
-    list_type.set_attr("__setitem__", context.new_rustfunc(list_setitem));
-    list_type.set_attr("__len__", context.new_rustfunc(list_len));
-    list_type.set_attr("__new__", context.new_rustfunc(list_new));
-    list_type.set_attr("__repr__", context.new_rustfunc(list_repr));
-    list_type.set_attr("append", context.new_rustfunc(list_append));
-    list_type.set_attr("clear", context.new_rustfunc(list_clear));
-    list_type.set_attr("count", context.new_rustfunc(list_count));
-    list_type.set_attr("extend", context.new_rustfunc(list_extend));
-    list_type.set_attr("reverse", context.new_rustfunc(list_reverse));
-    list_type.set_attr("sort", context.new_rustfunc(list_sort));
+    context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
+    context.set_attr(
+        &list_type,
+        "__contains__",
+        context.new_rustfunc(list_contains),
+    );
+    context.set_attr(&list_type, "__eq__", context.new_rustfunc(list_eq));
+    context.set_attr(
+        &list_type,
+        "__getitem__",
+        context.new_rustfunc(list_getitem),
+    );
+    context.set_attr(&list_type, "__iter__", context.new_rustfunc(list_iter));
+    context.set_attr(
+        &list_type,
+        "__setitem__",
+        context.new_rustfunc(list_setitem),
+    );
+    context.set_attr(&list_type, "__len__", context.new_rustfunc(list_len));
+    context.set_attr(&list_type, "__new__", context.new_rustfunc(list_new));
+    context.set_attr(&list_type, "__repr__", context.new_rustfunc(list_repr));
+    context.set_attr(&list_type, "append", context.new_rustfunc(list_append));
+    context.set_attr(&list_type, "clear", context.new_rustfunc(list_clear));
+    context.set_attr(&list_type, "count", context.new_rustfunc(list_count));
+    context.set_attr(&list_type, "extend", context.new_rustfunc(list_extend));
+    context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
+    context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
 }
