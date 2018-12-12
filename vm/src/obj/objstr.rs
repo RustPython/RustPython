@@ -31,6 +31,9 @@ pub fn init(context: &PyContext) {
     str_type.set_attr("rstrip", context.new_rustfunc(str_rstrip));
     str_type.set_attr("endswith", context.new_rustfunc(str_endswith));
     str_type.set_attr("startswith", context.new_rustfunc(str_startswith));
+    str_type.set_attr("title", context.new_rustfunc(str_title));
+
+    // str_type.set_attr("center", context.new_rustfunc(str_center));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -225,6 +228,39 @@ fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let pat = get_value(&pat);
     Ok(vm.ctx.new_bool(value.ends_with(pat.as_str())))
 }
+
+fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let titled_str = value
+        .split(' ')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f
+                    .to_uppercase()
+                    .chain(c.flat_map(|t| t.to_lowercase()))
+                    .collect(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(vm.ctx.new_str(titled_str))
+}
+
+// fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+//     arg_check!(
+//         vm,
+//         args,
+//         required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))],
+//         optional = [(chars, None)]
+//     );
+//     let value = get_value(&s);
+//     let len = get_value(&len).parse::<usize>();
+//     let chars = args.get_kwargs
+//     Ok(vm.ctx.new_str(value))
+// }
 
 fn str_startswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
