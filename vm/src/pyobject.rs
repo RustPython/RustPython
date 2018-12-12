@@ -786,7 +786,7 @@ pub enum PyObjectKind {
         elements: Vec<PyObjectRef>,
     },
     Dict {
-        elements: HashMap<String, PyObjectRef>,
+        elements: objdict::DictContentType,
     },
     Set {
         elements: HashMap<usize, PyObjectRef>,

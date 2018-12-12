@@ -4,11 +4,11 @@
 
 // use std::ops::Deref;
 use std::char;
-use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::compile;
 use super::obj::objbool;
+use super::obj::objdict;
 use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objstr;
@@ -25,14 +25,10 @@ fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
     // TODO: implement dict_iter_items?
     let locals = vm.get_locals();
-    match locals.borrow().kind {
-        PyObjectKind::Dict { ref elements } => {
-            for l in elements {
-                d.set_item(l.0, l.1.clone());
-            }
-        }
-        _ => {}
-    };
+    let key_value_pairs = objdict::get_key_value_pairs(vm, &locals);
+    for (key, value) in key_value_pairs {
+        objdict::set_item(&d, &key, &value);
+    }
     d
 }
 
@@ -662,15 +658,11 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(range, Some(vm.ctx.int_type()))]);
-    match range.borrow().kind {
-        PyObjectKind::Integer { ref value } => {
-            let range_elements: Vec<PyObjectRef> = (0..value.to_i32().unwrap())
-                .map(|num| vm.context().new_int(num.to_bigint().unwrap()))
-                .collect();
-            Ok(vm.context().new_list(range_elements))
-        }
-        _ => panic!("argument checking failure: first argument to range must be an integer"),
-    }
+    let value = objint::get_value(range);
+    let range_elements: Vec<PyObjectRef> = (0..value.to_i32().unwrap())
+        .map(|num| vm.context().new_int(num.to_bigint().unwrap()))
+        .collect();
+    Ok(vm.context().new_list(range_elements))
 }
 
 fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -736,122 +728,81 @@ fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    // scope[String::from("print")] = print;
-    let mut dict = HashMap::new();
+    let mod_name = "__builtins__".to_string();
+    let py_mod = ctx.new_module(&mod_name, ctx.new_scope(None));
     //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
-    dict.insert(
-        String::from("__name__"),
-        ctx.new_str(String::from("__main__")),
-    );
-    dict.insert(String::from("abs"), ctx.new_rustfunc(builtin_abs));
-    dict.insert(String::from("all"), ctx.new_rustfunc(builtin_all));
-    dict.insert(String::from("any"), ctx.new_rustfunc(builtin_any));
-    dict.insert(String::from("bin"), ctx.new_rustfunc(builtin_bin));
-    dict.insert(String::from("bool"), ctx.bool_type());
-    dict.insert(String::from("bytearray"), ctx.bytearray_type());
-    dict.insert(String::from("bytes"), ctx.bytes_type());
-    dict.insert(String::from("callable"), ctx.new_rustfunc(builtin_callable));
-    dict.insert(String::from("chr"), ctx.new_rustfunc(builtin_chr));
-    dict.insert(String::from("classmethod"), ctx.classmethod_type());
-    dict.insert(String::from("compile"), ctx.new_rustfunc(builtin_compile));
-    dict.insert(String::from("complex"), ctx.complex_type());
-    dict.insert(String::from("delattr"), ctx.new_rustfunc(builtin_delattr));
-    dict.insert(String::from("dict"), ctx.dict_type());
-    dict.insert(String::from("divmod"), ctx.new_rustfunc(builtin_divmod));
-    dict.insert(String::from("dir"), ctx.new_rustfunc(builtin_dir));
-    dict.insert(
-        String::from("enumerate"),
-        ctx.new_rustfunc(builtin_enumerate),
-    );
-    dict.insert(String::from("eval"), ctx.new_rustfunc(builtin_eval));
-    dict.insert(String::from("exec"), ctx.new_rustfunc(builtin_exec));
-    dict.insert(String::from("float"), ctx.float_type());
-    dict.insert(String::from("frozenset"), ctx.frozenset_type());
-    dict.insert(String::from("filter"), ctx.new_rustfunc(builtin_filter));
-    dict.insert(String::from("getattr"), ctx.new_rustfunc(builtin_getattr));
-    dict.insert(String::from("hasattr"), ctx.new_rustfunc(builtin_hasattr));
-    dict.insert(String::from("hash"), ctx.new_rustfunc(builtin_hash));
-    dict.insert(String::from("hex"), ctx.new_rustfunc(builtin_hex));
-    dict.insert(String::from("id"), ctx.new_rustfunc(builtin_id));
-    dict.insert(String::from("int"), ctx.int_type());
-    dict.insert(
-        String::from("isinstance"),
-        ctx.new_rustfunc(builtin_isinstance),
-    );
-    dict.insert(
-        String::from("issubclass"),
-        ctx.new_rustfunc(builtin_issubclass),
-    );
-    dict.insert(String::from("iter"), ctx.new_rustfunc(builtin_iter));
-    dict.insert(String::from("len"), ctx.new_rustfunc(builtin_len));
-    dict.insert(String::from("list"), ctx.list_type());
-    dict.insert(String::from("locals"), ctx.new_rustfunc(builtin_locals));
-    dict.insert(String::from("map"), ctx.new_rustfunc(builtin_map));
-    dict.insert(String::from("max"), ctx.new_rustfunc(builtin_max));
-    dict.insert(String::from("min"), ctx.new_rustfunc(builtin_min));
-    dict.insert(String::from("object"), ctx.object());
-    dict.insert(String::from("oct"), ctx.new_rustfunc(builtin_oct));
-    dict.insert(String::from("ord"), ctx.new_rustfunc(builtin_ord));
-    dict.insert(String::from("next"), ctx.new_rustfunc(builtin_next));
-    dict.insert(String::from("pow"), ctx.new_rustfunc(builtin_pow));
-    dict.insert(String::from("print"), ctx.new_rustfunc(builtin_print));
-    dict.insert(String::from("property"), ctx.property_type());
-    dict.insert(String::from("range"), ctx.new_rustfunc(builtin_range));
-    dict.insert(String::from("repr"), ctx.new_rustfunc(builtin_repr));
-    dict.insert(String::from("set"), ctx.set_type());
-    dict.insert(String::from("setattr"), ctx.new_rustfunc(builtin_setattr));
-    dict.insert(String::from("staticmethod"), ctx.staticmethod_type());
-    dict.insert(String::from("str"), ctx.str_type());
-    dict.insert(String::from("sum"), ctx.new_rustfunc(builtin_sum));
-    dict.insert(String::from("super"), ctx.super_type());
-    dict.insert(String::from("tuple"), ctx.tuple_type());
-    dict.insert(String::from("type"), ctx.type_type());
-    dict.insert(String::from("zip"), ctx.new_rustfunc(builtin_zip));
+    py_mod.set_item("__name__", ctx.new_str(String::from("__main__")));
+
+    py_mod.set_item("abs", ctx.new_rustfunc(builtin_abs));
+    py_mod.set_item("all", ctx.new_rustfunc(builtin_all));
+    py_mod.set_item("any", ctx.new_rustfunc(builtin_any));
+    py_mod.set_item("bin", ctx.new_rustfunc(builtin_bin));
+    py_mod.set_item("bool", ctx.bool_type());
+    py_mod.set_item("bytearray", ctx.bytearray_type());
+    py_mod.set_item("bytes", ctx.bytes_type());
+    py_mod.set_item("callable", ctx.new_rustfunc(builtin_callable));
+    py_mod.set_item("chr", ctx.new_rustfunc(builtin_chr));
+    py_mod.set_item("classmethod", ctx.classmethod_type());
+    py_mod.set_item("compile", ctx.new_rustfunc(builtin_compile));
+    py_mod.set_item("complex", ctx.complex_type());
+    py_mod.set_item("delattr", ctx.new_rustfunc(builtin_delattr));
+    py_mod.set_item("dict", ctx.dict_type());
+    py_mod.set_item("divmod", ctx.new_rustfunc(builtin_divmod));
+    py_mod.set_item("dir", ctx.new_rustfunc(builtin_dir));
+    py_mod.set_item("enumerate", ctx.new_rustfunc(builtin_enumerate));
+    py_mod.set_item("eval", ctx.new_rustfunc(builtin_eval));
+    py_mod.set_item("exec", ctx.new_rustfunc(builtin_exec));
+    py_mod.set_item("float", ctx.float_type());
+    py_mod.set_item("frozenset", ctx.frozenset_type());
+    py_mod.set_item("filter", ctx.new_rustfunc(builtin_filter));
+    py_mod.set_item("getattr", ctx.new_rustfunc(builtin_getattr));
+    py_mod.set_item("hasattr", ctx.new_rustfunc(builtin_hasattr));
+    py_mod.set_item("hash", ctx.new_rustfunc(builtin_hash));
+    py_mod.set_item("hex", ctx.new_rustfunc(builtin_hex));
+    py_mod.set_item("id", ctx.new_rustfunc(builtin_id));
+    py_mod.set_item("int", ctx.int_type());
+    py_mod.set_item("isinstance", ctx.new_rustfunc(builtin_isinstance));
+    py_mod.set_item("issubclass", ctx.new_rustfunc(builtin_issubclass));
+    py_mod.set_item("iter", ctx.new_rustfunc(builtin_iter));
+    py_mod.set_item("len", ctx.new_rustfunc(builtin_len));
+    py_mod.set_item("list", ctx.list_type());
+    py_mod.set_item("locals", ctx.new_rustfunc(builtin_locals));
+    py_mod.set_item("map", ctx.new_rustfunc(builtin_map));
+    py_mod.set_item("max", ctx.new_rustfunc(builtin_max));
+    py_mod.set_item("min", ctx.new_rustfunc(builtin_min));
+    py_mod.set_item("object", ctx.object());
+    py_mod.set_item("oct", ctx.new_rustfunc(builtin_oct));
+    py_mod.set_item("ord", ctx.new_rustfunc(builtin_ord));
+    py_mod.set_item("next", ctx.new_rustfunc(builtin_next));
+    py_mod.set_item("pow", ctx.new_rustfunc(builtin_pow));
+    py_mod.set_item("print", ctx.new_rustfunc(builtin_print));
+    py_mod.set_item("property", ctx.property_type());
+    py_mod.set_item("range", ctx.new_rustfunc(builtin_range));
+    py_mod.set_item("repr", ctx.new_rustfunc(builtin_repr));
+    py_mod.set_item("set", ctx.set_type());
+    py_mod.set_item("setattr", ctx.new_rustfunc(builtin_setattr));
+    py_mod.set_item("staticmethod", ctx.staticmethod_type());
+    py_mod.set_item("str", ctx.str_type());
+    py_mod.set_item("sum", ctx.new_rustfunc(builtin_sum));
+    py_mod.set_item("super", ctx.super_type());
+    py_mod.set_item("tuple", ctx.tuple_type());
+    py_mod.set_item("type", ctx.type_type());
+    py_mod.set_item("zip", ctx.new_rustfunc(builtin_zip));
 
     // Exceptions:
-    dict.insert(
-        String::from("BaseException"),
-        ctx.exceptions.base_exception_type.clone(),
-    );
-    dict.insert(
-        String::from("Exception"),
-        ctx.exceptions.exception_type.clone(),
-    );
-    dict.insert(
-        String::from("AssertionError"),
-        ctx.exceptions.assertion_error.clone(),
-    );
-    dict.insert(
-        String::from("AttributeError"),
-        ctx.exceptions.attribute_error.clone(),
-    );
-    dict.insert(String::from("NameError"), ctx.exceptions.name_error.clone());
-    dict.insert(
-        String::from("RuntimeError"),
-        ctx.exceptions.runtime_error.clone(),
-    );
-    dict.insert(
-        String::from("NotImplementedError"),
+    py_mod.set_item("BaseException", ctx.exceptions.base_exception_type.clone());
+    py_mod.set_item("Exception", ctx.exceptions.exception_type.clone());
+    py_mod.set_item("AssertionError", ctx.exceptions.assertion_error.clone());
+    py_mod.set_item("AttributeError", ctx.exceptions.attribute_error.clone());
+    py_mod.set_item("NameError", ctx.exceptions.name_error.clone());
+    py_mod.set_item("RuntimeError", ctx.exceptions.runtime_error.clone());
+    py_mod.set_item(
+        "NotImplementedError",
         ctx.exceptions.not_implemented_error.clone(),
     );
-    dict.insert(String::from("TypeError"), ctx.exceptions.type_error.clone());
-    dict.insert(
-        String::from("ValueError"),
-        ctx.exceptions.value_error.clone(),
-    );
+    py_mod.set_item("TypeError", ctx.exceptions.type_error.clone());
+    py_mod.set_item("ValueError", ctx.exceptions.value_error.clone());
 
-    let d2 = PyObject::new(PyObjectKind::Dict { elements: dict }, ctx.type_type());
-    let scope = PyObject::new(
-        PyObjectKind::Scope {
-            scope: Scope {
-                locals: d2,
-                parent: None,
-            },
-        },
-        ctx.type_type(),
-    );
-    let mod_name = "__builtins__".to_string();
-    let py_mod = ctx.new_module(&mod_name, scope);
     py_mod
 }
 

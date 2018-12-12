@@ -10,6 +10,11 @@ use std::cell::{Ref, RefMut};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
+// This typedef abstracts the actual dict type used.
+// pub type DictContentType = HashMap<usize, Vec<(PyObjectRef, PyObjectRef)>>;
+pub type DictContentType = HashMap<String, PyObjectRef>;
+// pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
+
 pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     PyObject::new(
         PyObjectKind::Dict {
@@ -19,9 +24,7 @@ pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     )
 }
 
-pub fn get_elements<'a>(
-    obj: &'a PyObjectRef,
-) -> impl Deref<Target = HashMap<String, PyObjectRef>> + 'a {
+pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = DictContentType> + 'a {
     Ref::map(obj.borrow(), |py_obj| {
         if let PyObjectKind::Dict { ref elements } = py_obj.kind {
             elements
@@ -31,9 +34,7 @@ pub fn get_elements<'a>(
     })
 }
 
-fn get_mut_elements<'a>(
-    obj: &'a PyObjectRef,
-) -> impl DerefMut<Target = HashMap<String, PyObjectRef>> + 'a {
+fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictContentType> + 'a {
     RefMut::map(obj.borrow_mut(), |py_obj| {
         if let PyObjectKind::Dict { ref mut elements } = py_obj.kind {
             elements
@@ -41,6 +42,28 @@ fn get_mut_elements<'a>(
             panic!("Cannot extract dict elements");
         }
     })
+}
+
+pub fn set_item(dict: &PyObjectRef, needle: &PyObjectRef, value: &PyObjectRef) {
+    // XXX: Currently, we only support String keys, so we have to unwrap the
+    // PyObject (and ensure it is a String).
+    let needle = objstr::get_value(needle);
+
+    let mut elements = get_mut_elements(dict);
+    elements.insert(needle, value.clone());
+}
+
+pub fn get_key_value_pairs(
+    vm: &mut VirtualMachine,
+    dict: &PyObjectRef,
+) -> Vec<(PyObjectRef, PyObjectRef)> {
+    let dict_elements = get_elements(dict);
+    let mut pairs = Vec::new();
+    for (key, obj) in dict_elements.iter() {
+        let key = vm.ctx.new_str(key.to_string());
+        pairs.push((key, obj.clone()));
+    }
+    pairs
 }
 
 fn dict_new(_vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -141,12 +164,8 @@ fn dict_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    // What we are looking for:
-    let needle = objstr::get_value(&needle);
+    set_item(dict, needle, value);
 
-    // Delete the item:
-    let mut elements = get_mut_elements(dict);
-    elements.insert(needle, value.clone());
     Ok(vm.get_none())
 }
 

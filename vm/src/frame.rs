@@ -1,7 +1,6 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::ast;
-use std::collections::hash_map::HashMap;
 use std::fmt;
 use std::mem;
 use std::path::PathBuf;
@@ -242,33 +241,20 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let mut elements: HashMap<String, PyObjectRef> = HashMap::new();
+                let map_obj = vm.ctx.new_dict();
                 for _x in 0..*size {
                     let obj = self.pop_value();
                     if *unpack {
                         // Take all key-value pairs from the dict:
-                        let dict_elements = objdict::get_elements(&obj);
-                        for (key, obj) in dict_elements.iter() {
-                            elements.insert(key.clone(), obj.clone());
+                        let dict_elements = objdict::get_key_value_pairs(vm, &obj);
+                        for (key, value) in dict_elements.iter() {
+                            objdict::set_item(&map_obj, key, value);
                         }
                     } else {
-                        // XXX: Currently, we only support String keys, so we have to unwrap the
-                        // PyObject (and ensure it is a String).
-                        let key_pyobj = self.pop_value();
-                        let key = match key_pyobj.borrow().kind {
-                            PyObjectKind::String { ref value } => value.clone(),
-                            ref kind => unimplemented!(
-                                "Only strings can be used as dict keys, we saw: {:?}",
-                                kind
-                            ),
-                        };
-                        elements.insert(key, obj);
+                        let key = self.pop_value();
+                        objdict::set_item(&map_obj, &key, &obj);
                     }
                 }
-                let map_obj = PyObject::new(
-                    PyObjectKind::Dict { elements: elements },
-                    vm.ctx.dict_type(),
-                );
                 self.push_value(map_obj);
                 Ok(None)
             }
