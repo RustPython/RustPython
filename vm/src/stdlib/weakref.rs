@@ -7,8 +7,8 @@
 
 use super::super::obj::objtype;
 use super::super::pyobject::{
-    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
-    PyObjectWeakRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyObjectWeakRef, PyResult,
+    TypeProtocol,
 };
 use super::super::VirtualMachine;
 use std::rc::Rc;
@@ -17,9 +17,9 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"_weakref".to_string(), ctx.new_scope(None));
 
     let py_ref_class = ctx.new_class("ref", ctx.object());
-    py_ref_class.set_attr("__new__", ctx.new_rustfunc(ref_new));
-    py_ref_class.set_attr("__call__", ctx.new_rustfunc(ref_call));
-    py_mod.set_item("ref", py_ref_class);
+    ctx.set_attr(&py_ref_class, "__new__", ctx.new_rustfunc(ref_new));
+    ctx.set_attr(&py_ref_class, "__call__", ctx.new_rustfunc(ref_call));
+    ctx.set_attr(&py_mod, "ref", py_ref_class);
     py_mod
 }
 

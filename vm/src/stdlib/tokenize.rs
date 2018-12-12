@@ -8,9 +8,7 @@ use std::iter::FromIterator;
 use self::rustpython_parser::lexer;
 
 use super::super::obj::{objstr, objtype};
-use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
 
 fn tokenize_tokenize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -31,7 +29,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"tokenize".to_string(), ctx.new_scope(None));
 
     // Number theory functions:
-    py_mod.set_item("tokenize", ctx.new_rustfunc(tokenize_tokenize));
+    ctx.set_item(&py_mod, "tokenize", ctx.new_rustfunc(tokenize_tokenize));
 
     py_mod
 }

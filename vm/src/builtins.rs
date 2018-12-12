@@ -733,75 +733,92 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
     py_mod.set_item("__name__", ctx.new_str(String::from("__main__")));
 
-    py_mod.set_item("abs", ctx.new_rustfunc(builtin_abs));
-    py_mod.set_item("all", ctx.new_rustfunc(builtin_all));
-    py_mod.set_item("any", ctx.new_rustfunc(builtin_any));
-    py_mod.set_item("bin", ctx.new_rustfunc(builtin_bin));
-    py_mod.set_item("bool", ctx.bool_type());
-    py_mod.set_item("bytearray", ctx.bytearray_type());
-    py_mod.set_item("bytes", ctx.bytes_type());
-    py_mod.set_item("callable", ctx.new_rustfunc(builtin_callable));
-    py_mod.set_item("chr", ctx.new_rustfunc(builtin_chr));
-    py_mod.set_item("classmethod", ctx.classmethod_type());
-    py_mod.set_item("compile", ctx.new_rustfunc(builtin_compile));
-    py_mod.set_item("complex", ctx.complex_type());
-    py_mod.set_item("delattr", ctx.new_rustfunc(builtin_delattr));
-    py_mod.set_item("dict", ctx.dict_type());
-    py_mod.set_item("divmod", ctx.new_rustfunc(builtin_divmod));
-    py_mod.set_item("dir", ctx.new_rustfunc(builtin_dir));
-    py_mod.set_item("enumerate", ctx.new_rustfunc(builtin_enumerate));
-    py_mod.set_item("eval", ctx.new_rustfunc(builtin_eval));
-    py_mod.set_item("exec", ctx.new_rustfunc(builtin_exec));
-    py_mod.set_item("float", ctx.float_type());
-    py_mod.set_item("frozenset", ctx.frozenset_type());
-    py_mod.set_item("filter", ctx.new_rustfunc(builtin_filter));
-    py_mod.set_item("getattr", ctx.new_rustfunc(builtin_getattr));
-    py_mod.set_item("hasattr", ctx.new_rustfunc(builtin_hasattr));
-    py_mod.set_item("hash", ctx.new_rustfunc(builtin_hash));
-    py_mod.set_item("hex", ctx.new_rustfunc(builtin_hex));
-    py_mod.set_item("id", ctx.new_rustfunc(builtin_id));
-    py_mod.set_item("int", ctx.int_type());
-    py_mod.set_item("isinstance", ctx.new_rustfunc(builtin_isinstance));
-    py_mod.set_item("issubclass", ctx.new_rustfunc(builtin_issubclass));
-    py_mod.set_item("iter", ctx.new_rustfunc(builtin_iter));
-    py_mod.set_item("len", ctx.new_rustfunc(builtin_len));
-    py_mod.set_item("list", ctx.list_type());
-    py_mod.set_item("locals", ctx.new_rustfunc(builtin_locals));
-    py_mod.set_item("map", ctx.new_rustfunc(builtin_map));
-    py_mod.set_item("max", ctx.new_rustfunc(builtin_max));
-    py_mod.set_item("min", ctx.new_rustfunc(builtin_min));
-    py_mod.set_item("object", ctx.object());
-    py_mod.set_item("oct", ctx.new_rustfunc(builtin_oct));
-    py_mod.set_item("ord", ctx.new_rustfunc(builtin_ord));
-    py_mod.set_item("next", ctx.new_rustfunc(builtin_next));
-    py_mod.set_item("pow", ctx.new_rustfunc(builtin_pow));
-    py_mod.set_item("print", ctx.new_rustfunc(builtin_print));
-    py_mod.set_item("property", ctx.property_type());
-    py_mod.set_item("range", ctx.new_rustfunc(builtin_range));
-    py_mod.set_item("repr", ctx.new_rustfunc(builtin_repr));
-    py_mod.set_item("set", ctx.set_type());
-    py_mod.set_item("setattr", ctx.new_rustfunc(builtin_setattr));
-    py_mod.set_item("staticmethod", ctx.staticmethod_type());
-    py_mod.set_item("str", ctx.str_type());
-    py_mod.set_item("sum", ctx.new_rustfunc(builtin_sum));
-    py_mod.set_item("super", ctx.super_type());
-    py_mod.set_item("tuple", ctx.tuple_type());
-    py_mod.set_item("type", ctx.type_type());
-    py_mod.set_item("zip", ctx.new_rustfunc(builtin_zip));
+    ctx.set_item(&py_mod, "abs", ctx.new_rustfunc(builtin_abs));
+    ctx.set_attr(&py_mod, "all", ctx.new_rustfunc(builtin_all));
+    ctx.set_attr(&py_mod, "any", ctx.new_rustfunc(builtin_any));
+    ctx.set_attr(&py_mod, "bin", ctx.new_rustfunc(builtin_bin));
+    ctx.set_attr(&py_mod, "bool", ctx.bool_type());
+    ctx.set_attr(&py_mod, "bytearray", ctx.bytearray_type());
+    ctx.set_attr(&py_mod, "bytes", ctx.bytes_type());
+    ctx.set_attr(&py_mod, "callable", ctx.new_rustfunc(builtin_callable));
+    ctx.set_attr(&py_mod, "chr", ctx.new_rustfunc(builtin_chr));
+    ctx.set_attr(&py_mod, "classmethod", ctx.classmethod_type());
+    ctx.set_attr(&py_mod, "compile", ctx.new_rustfunc(builtin_compile));
+    ctx.set_attr(&py_mod, "complex", ctx.complex_type());
+    ctx.set_attr(&py_mod, "delattr", ctx.new_rustfunc(builtin_delattr));
+    ctx.set_attr(&py_mod, "dict", ctx.dict_type());
+    ctx.set_attr(&py_mod, "divmod", ctx.new_rustfunc(builtin_divmod));
+    ctx.set_attr(&py_mod, "dir", ctx.new_rustfunc(builtin_dir));
+    ctx.set_attr(&py_mod, "enumerate", ctx.new_rustfunc(builtin_enumerate));
+    ctx.set_attr(&py_mod, "eval", ctx.new_rustfunc(builtin_eval));
+    ctx.set_attr(&py_mod, "exec", ctx.new_rustfunc(builtin_exec));
+    ctx.set_attr(&py_mod, "float", ctx.float_type());
+    ctx.set_attr(&py_mod, "frozenset", ctx.frozenset_type());
+    ctx.set_attr(&py_mod, "filter", ctx.new_rustfunc(builtin_filter));
+    ctx.set_attr(&py_mod, "getattr", ctx.new_rustfunc(builtin_getattr));
+    ctx.set_attr(&py_mod, "hasattr", ctx.new_rustfunc(builtin_hasattr));
+    ctx.set_attr(&py_mod, "hash", ctx.new_rustfunc(builtin_hash));
+    ctx.set_attr(&py_mod, "hex", ctx.new_rustfunc(builtin_hex));
+    ctx.set_attr(&py_mod, "id", ctx.new_rustfunc(builtin_id));
+    ctx.set_attr(&py_mod, "int", ctx.int_type());
+    ctx.set_attr(&py_mod, "isinstance", ctx.new_rustfunc(builtin_isinstance));
+    ctx.set_attr(&py_mod, "issubclass", ctx.new_rustfunc(builtin_issubclass));
+    ctx.set_attr(&py_mod, "iter", ctx.new_rustfunc(builtin_iter));
+    ctx.set_attr(&py_mod, "len", ctx.new_rustfunc(builtin_len));
+    ctx.set_attr(&py_mod, "list", ctx.list_type());
+    ctx.set_attr(&py_mod, "locals", ctx.new_rustfunc(builtin_locals));
+    ctx.set_attr(&py_mod, "map", ctx.new_rustfunc(builtin_map));
+    ctx.set_attr(&py_mod, "max", ctx.new_rustfunc(builtin_max));
+    ctx.set_attr(&py_mod, "min", ctx.new_rustfunc(builtin_min));
+    ctx.set_attr(&py_mod, "object", ctx.object());
+    ctx.set_attr(&py_mod, "oct", ctx.new_rustfunc(builtin_oct));
+    ctx.set_attr(&py_mod, "ord", ctx.new_rustfunc(builtin_ord));
+    ctx.set_attr(&py_mod, "next", ctx.new_rustfunc(builtin_next));
+    ctx.set_attr(&py_mod, "pow", ctx.new_rustfunc(builtin_pow));
+    ctx.set_attr(&py_mod, "print", ctx.new_rustfunc(builtin_print));
+    ctx.set_attr(&py_mod, "property", ctx.property_type());
+    ctx.set_attr(&py_mod, "range", ctx.new_rustfunc(builtin_range));
+    ctx.set_attr(&py_mod, "repr", ctx.new_rustfunc(builtin_repr));
+    ctx.set_attr(&py_mod, "set", ctx.set_type());
+    ctx.set_attr(&py_mod, "setattr", ctx.new_rustfunc(builtin_setattr));
+    ctx.set_attr(&py_mod, "staticmethod", ctx.staticmethod_type());
+    ctx.set_attr(&py_mod, "str", ctx.str_type());
+    ctx.set_attr(&py_mod, "sum", ctx.new_rustfunc(builtin_sum));
+    ctx.set_attr(&py_mod, "super", ctx.super_type());
+    ctx.set_attr(&py_mod, "tuple", ctx.tuple_type());
+    ctx.set_attr(&py_mod, "type", ctx.type_type());
+    ctx.set_attr(&py_mod, "zip", ctx.new_rustfunc(builtin_zip));
 
     // Exceptions:
-    py_mod.set_item("BaseException", ctx.exceptions.base_exception_type.clone());
-    py_mod.set_item("Exception", ctx.exceptions.exception_type.clone());
-    py_mod.set_item("AssertionError", ctx.exceptions.assertion_error.clone());
-    py_mod.set_item("AttributeError", ctx.exceptions.attribute_error.clone());
-    py_mod.set_item("NameError", ctx.exceptions.name_error.clone());
-    py_mod.set_item("RuntimeError", ctx.exceptions.runtime_error.clone());
-    py_mod.set_item(
+    ctx.set_attr(
+        &py_mod,
+        "BaseException",
+        ctx.exceptions.base_exception_type.clone(),
+    );
+    ctx.set_attr(&py_mod, "Exception", ctx.exceptions.exception_type.clone());
+    ctx.set_attr(
+        &py_mod,
+        "AssertionError",
+        ctx.exceptions.assertion_error.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
+        "AttributeError",
+        ctx.exceptions.attribute_error.clone(),
+    );
+    ctx.set_attr(&py_mod, "NameError", ctx.exceptions.name_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "RuntimeError",
+        ctx.exceptions.runtime_error.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
         "NotImplementedError",
         ctx.exceptions.not_implemented_error.clone(),
     );
-    py_mod.set_item("TypeError", ctx.exceptions.type_error.clone());
-    py_mod.set_item("ValueError", ctx.exceptions.value_error.clone());
+    ctx.set_attr(&py_mod, "TypeError", ctx.exceptions.type_error.clone());
+    ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
 
     py_mod
 }

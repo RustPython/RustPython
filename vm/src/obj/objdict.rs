@@ -47,10 +47,19 @@ fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictCont
 pub fn set_item(dict: &PyObjectRef, needle: &PyObjectRef, value: &PyObjectRef) {
     // XXX: Currently, we only support String keys, so we have to unwrap the
     // PyObject (and ensure it is a String).
-    let needle = objstr::get_value(needle);
 
     let mut elements = get_mut_elements(dict);
-    elements.insert(needle, value.clone());
+    set_item_in_content(&mut elements, needle, value);
+}
+
+pub fn set_item_in_content(
+    elements: &mut DictContentType,
+    needle: &PyObjectRef,
+    value: &PyObjectRef,
+) {
+    let needle_str = objstr::get_value(needle);
+    // TODO: elements.insert(needle_str, (needle.clone(), value.clone()));
+    elements.insert(needle_str, value.clone());
 }
 
 pub fn get_key_value_pairs(
@@ -60,6 +69,7 @@ pub fn get_key_value_pairs(
     let dict_elements = get_elements(dict);
     let mut pairs = Vec::new();
     for (key, obj) in dict_elements.iter() {
+        // let (key, obj) = pair;
         let key = vm.ctx.new_str(key.to_string());
         pairs.push((key, obj.clone()));
     }
@@ -79,12 +89,13 @@ fn dict_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.dict_type()))]);
 
-    let elements = get_elements(o);
+    let elements = get_key_value_pairs(vm, o);
     let mut str_parts = vec![];
-    for elem in elements.iter() {
-        let s = vm.to_repr(&elem.1)?;
+    for (key, value) in elements {
+        let s = vm.to_repr(&value)?;
+        let key_str = objstr::get_value(&key);
         let value_str = objstr::get_value(&s);
-        str_parts.push(format!("{}: {}", elem.0, value_str));
+        str_parts.push(format!("{}: {}", key_str, value_str));
     }
 
     let s = format!("{{{}}}", str_parts.join(", "));

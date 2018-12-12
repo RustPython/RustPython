@@ -514,6 +514,15 @@ impl PyContext {
     pub fn new_instance(&self, dict: PyObjectRef, class: PyObjectRef) -> PyObjectRef {
         PyObject::new(PyObjectKind::Instance { dict: dict }, class)
     }
+
+    // Item set/get:
+    pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
+        obj.set_item(key, v);
+    }
+
+    pub fn set_attr(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
+        obj.set_attr(key, v);
+    }
 }
 
 /// This is an actual python object. It consists of a `typ` which is the
@@ -687,6 +696,7 @@ impl DictProtocol for PyObjectRef {
             PyObjectKind::Dict {
                 elements: ref mut el,
             } => {
+                // objdict::set_item_in_elements(elements, key, v);
                 el.insert(k.to_string(), v);
             }
             PyObjectKind::Module {

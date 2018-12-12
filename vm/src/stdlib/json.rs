@@ -60,9 +60,9 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             let elements = objsequence::get_elements(self.pyobject);
             serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.ctx.dict_type()) {
-            let elements = objdict::get_elements(self.pyobject);
-            let mut map = serializer.serialize_map(Some(elements.len()))?;
-            for (key, e) in elements.iter() {
+            let pairs = objdict::get_elements(self.pyobject);
+            let mut map = serializer.serialize_map(Some(pairs.len()))?;
+            for (key, e) in pairs.iter() {
                 map.serialize_entry(&key, &self.clone_with_object(&e))?;
             }
             map.end()
@@ -214,7 +214,7 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let json_mod = ctx.new_module(&"json".to_string(), ctx.new_scope(None));
-    json_mod.set_item("dumps", ctx.new_rustfunc(dumps));
-    json_mod.set_item("loads", ctx.new_rustfunc(loads));
+    ctx.set_attr(&json_mod, "dumps", ctx.new_rustfunc(dumps));
+    ctx.set_attr(&json_mod, "loads", ctx.new_rustfunc(loads));
     json_mod
 }

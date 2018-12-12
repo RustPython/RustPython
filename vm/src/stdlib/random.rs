@@ -3,18 +3,20 @@
 extern crate rand;
 
 use super::super::obj::{objfloat, objtype};
-use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
 use stdlib::random::rand::distributions::{Distribution, Normal};
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"random".to_string(), ctx.new_scope(None));
-    py_mod.set_item("gauss", ctx.new_rustfunc(random_gauss));
-    py_mod.set_item("normalvariate", ctx.new_rustfunc(random_normalvariate));
-    py_mod.set_item("random", ctx.new_rustfunc(random_random));
-    // py_mod.set_item("weibull", ctx.new_rustfunc(random_weibullvariate));
+    ctx.set_attr(&py_mod, "gauss", ctx.new_rustfunc(random_gauss));
+    ctx.set_attr(
+        &py_mod,
+        "normalvariate",
+        ctx.new_rustfunc(random_normalvariate),
+    );
+    ctx.set_attr(&py_mod, "random", ctx.new_rustfunc(random_random));
+    // py_mod.set_attr("weibull", ctx.new_rustfunc(random_weibullvariate));
     // TODO: implement more random functions.
     py_mod
 }
