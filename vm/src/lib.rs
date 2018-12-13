@@ -31,6 +31,7 @@ pub mod bytecode;
 pub mod compile;
 pub mod eval;
 mod exceptions;
+pub mod format;
 mod frame;
 pub mod import;
 pub mod obj;

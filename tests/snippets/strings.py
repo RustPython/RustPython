@@ -40,3 +40,9 @@ assert b.rstrip() == '  hallo'
 
 c = 'hallo'
 assert c.capitalize() == 'Hallo'
+
+# String Formatting
+assert "{} {}".format(1,2) == "1 2"
+assert "{0} {1}".format(2,3) == "2 3"
+assert "--{:s>4}--".format(1) == "--sss1--"
+assert "{keyword} {0}".format(1, keyword=2) == "2 1"
