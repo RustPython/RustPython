@@ -246,7 +246,7 @@ impl Frame {
                     let obj = self.pop_value();
                     if *unpack {
                         // Take all key-value pairs from the dict:
-                        let dict_elements = objdict::get_key_value_pairs(vm, &obj);
+                        let dict_elements = objdict::get_key_value_pairs(&obj);
                         for (key, value) in dict_elements.iter() {
                             objdict::set_item(&map_obj, key, value);
                         }
@@ -458,7 +458,10 @@ impl Frame {
                         let kwargs = if *has_kwargs {
                             let kw_dict = self.pop_value();
                             let dict_elements = objdict::get_elements(&kw_dict).clone();
-                            dict_elements.into_iter().collect()
+                            dict_elements
+                                .into_iter()
+                                .map(|elem| (elem.0, (elem.1).1))
+                                .collect()
                         } else {
                             vec![]
                         };
@@ -1089,7 +1092,7 @@ impl fmt::Debug for Frame {
             PyObjectKind::Scope { ref scope } => match scope.locals.borrow().kind {
                 PyObjectKind::Dict { ref elements } => elements
                     .iter()
-                    .map(|elem| format!("\n  {} = {}", elem.0, elem.1.borrow().str()))
+                    .map(|elem| format!("\n  {} = {}", elem.0, (elem.1).1.borrow().str()))
                     .collect::<Vec<_>>()
                     .join(""),
                 ref unexpected => panic!(

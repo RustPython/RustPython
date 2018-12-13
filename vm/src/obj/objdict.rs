@@ -11,8 +11,8 @@ use std::ops::{Deref, DerefMut};
 
 // This typedef abstracts the actual dict type used.
 // pub type DictContentType = HashMap<usize, Vec<(PyObjectRef, PyObjectRef)>>;
-pub type DictContentType = HashMap<String, PyObjectRef>;
-// pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
+// pub type DictContentType = HashMap<String, PyObjectRef>;
+pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
 
 pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     PyObject::new(
@@ -44,9 +44,6 @@ fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictCont
 }
 
 pub fn set_item(dict: &PyObjectRef, needle: &PyObjectRef, value: &PyObjectRef) {
-    // XXX: Currently, we only support String keys, so we have to unwrap the
-    // PyObject (and ensure it is a String).
-
     let mut elements = get_mut_elements(dict);
     set_item_in_content(&mut elements, needle, value);
 }
@@ -56,21 +53,19 @@ pub fn set_item_in_content(
     needle: &PyObjectRef,
     value: &PyObjectRef,
 ) {
+    // XXX: Currently, we only support String keys, so we have to unwrap the
+    // PyObject (and ensure it is a String).
+
     let needle_str = objstr::get_value(needle);
-    // TODO: elements.insert(needle_str, (needle.clone(), value.clone()));
-    elements.insert(needle_str, value.clone());
+    elements.insert(needle_str, (needle.clone(), value.clone()));
 }
 
-pub fn get_key_value_pairs(
-    vm: &mut VirtualMachine,
-    dict: &PyObjectRef,
-) -> Vec<(PyObjectRef, PyObjectRef)> {
+pub fn get_key_value_pairs(dict: &PyObjectRef) -> Vec<(PyObjectRef, PyObjectRef)> {
     let dict_elements = get_elements(dict);
-    let mut pairs = Vec::new();
-    for (key, obj) in dict_elements.iter() {
-        // let (key, obj) = pair;
-        let key = vm.ctx.new_str(key.to_string());
-        pairs.push((key, obj.clone()));
+    let mut pairs: Vec<(PyObjectRef, PyObjectRef)> = Vec::new();
+    for (_str_key, pair) in dict_elements.iter() {
+        let (key, obj) = pair;
+        pairs.push((key.clone(), obj.clone()));
     }
     pairs
 }
@@ -80,15 +75,15 @@ fn dict_new(_vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn dict_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(o, Some(vm.ctx.dict_type()))]);
-    let elements = get_elements(o);
+    arg_check!(vm, args, required = [(dict_obj, Some(vm.ctx.dict_type()))]);
+    let elements = get_elements(dict_obj);
     Ok(vm.ctx.new_int(elements.len().to_bigint().unwrap()))
 }
 
 fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(o, Some(vm.ctx.dict_type()))]);
+    arg_check!(vm, args, required = [(dict_obj, Some(vm.ctx.dict_type()))]);
 
-    let elements = get_key_value_pairs(vm, o);
+    let elements = get_key_value_pairs(dict_obj);
     let mut str_parts = vec![];
     for (key, value) in elements {
         let s = vm.to_repr(&value)?;
@@ -194,7 +189,7 @@ fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let elements = get_elements(dict);
     if elements.contains_key(&needle) {
-        Ok(elements[&needle].clone())
+        Ok(elements[&needle].1.clone())
     } else {
         Err(vm.new_value_error(format!("Key not found: {}", needle)))
     }

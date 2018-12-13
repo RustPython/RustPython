@@ -63,7 +63,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             let pairs = objdict::get_elements(self.pyobject);
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
             for (key, e) in pairs.iter() {
-                map.serialize_entry(&key, &self.clone_with_object(&e))?;
+                map.serialize_entry(&key, &self.clone_with_object(&e.1))?;
             }
             map.end()
         } else if let PyObjectKind::None = self.pyobject.borrow().kind {

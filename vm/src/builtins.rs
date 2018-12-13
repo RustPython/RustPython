@@ -25,7 +25,7 @@ fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
     // TODO: implement dict_iter_items?
     let locals = vm.get_locals();
-    let key_value_pairs = objdict::get_key_value_pairs(vm, &locals);
+    let key_value_pairs = objdict::get_key_value_pairs(&locals);
     for (key, value) in key_value_pairs {
         objdict::set_item(&d, &key, &value);
     }

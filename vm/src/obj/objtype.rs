@@ -227,7 +227,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
         {
             let elements = objdict::get_elements(dict);
             for (name, value) in elements.iter() {
-                attributes.insert(name.to_string(), value.clone());
+                attributes.insert(name.to_string(), value.1.clone());
             }
         }
     }
@@ -236,7 +236,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     if let PyObjectKind::Instance { dict } = &obj.borrow().kind {
         let elements = objdict::get_elements(dict);
         for (name, value) in elements.iter() {
-            attributes.insert(name.to_string(), value.clone());
+            attributes.insert(name.to_string(), value.1.clone());
         }
     }
     attributes

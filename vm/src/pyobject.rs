@@ -518,11 +518,9 @@ impl PyContext {
     // Item set/get:
     pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
         match obj.borrow_mut().kind {
-            PyObjectKind::Dict {
-                elements: ref mut el,
-            } => {
-                // objdict::set_item_in_elements(elements, key, v);
-                el.insert(key.to_string(), v);
+            PyObjectKind::Dict { ref mut elements } => {
+                let key = self.new_str(key.to_string());
+                objdict::set_item_in_content(elements, &key, &v);
             }
             PyObjectKind::Module {
                 name: _,
@@ -698,7 +696,7 @@ impl DictProtocol for PyObjectRef {
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         match self.borrow().kind {
             PyObjectKind::Dict { ref elements } => match elements.get(k) {
-                Some(v) => Some(v.clone()),
+                Some(v) => Some(v.1.clone()),
                 None => None,
             },
             PyObjectKind::Module { name: _, ref dict } => dict.get_item(k),
