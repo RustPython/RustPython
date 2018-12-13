@@ -7,6 +7,7 @@ use super::objsequence::PySliceableSequence;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 pub fn init(context: &PyContext) {
@@ -43,6 +44,14 @@ pub fn init(context: &PyContext) {
         "startswith",
         context.new_rustfunc(str_startswith),
     );
+    context.set_attr(&str_type, "isalnum", context.new_rustfunc(str_isalnum));
+    context.set_attr(&str_type, "isnumeric", context.new_rustfunc(str_isnumeric));
+    context.set_attr(&str_type, "isdigit", context.new_rustfunc(str_isdigit));
+    context.set_attr(&str_type, "title", context.new_rustfunc(str_title));
+    context.set_attr(&str_type, "swapcase", context.new_rustfunc(str_swapcase));
+    context.set_attr(&str_type, "isalpha", context.new_rustfunc(str_isalpha));
+    context.set_attr(&str_type, "replace", context.new_rustfunc(str_replace));
+    context.set_attr(&str_type, "center", context.new_rustfunc(str_center));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -238,6 +247,82 @@ fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(value.ends_with(pat.as_str())))
 }
 
+fn str_swapcase(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let mut swapped_str = String::with_capacity(value.len());
+    for c in value.chars() {
+        // to_uppercase returns an iterator, to_ascii_uppercase returns the char
+        if c.is_lowercase() {
+            swapped_str.push(c.to_ascii_uppercase());
+        } else if c.is_uppercase() {
+            swapped_str.push(c.to_ascii_lowercase());
+        } else {
+            swapped_str.push(c);
+        }
+    }
+    Ok(vm.ctx.new_str(swapped_str))
+}
+
+fn str_replace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (s, Some(vm.ctx.str_type())),
+            (old, Some(vm.ctx.str_type())),
+            (rep, Some(vm.ctx.str_type()))
+        ],
+        optional = [(n, None)]
+    );
+    let s = get_value(&s);
+    let old_str = get_value(&old);
+    let rep_str = get_value(&rep);
+    let num_rep: usize = match n {
+        Some(num) => objint::to_int(vm, num, 10)?.to_usize().unwrap(),
+        None => 1,
+    };
+    let new_str = s.replacen(&old_str, &rep_str, num_rep);
+    Ok(vm.ctx.new_str(new_str))
+}
+
+fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let titled_str = value
+        .split(' ')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f
+                    .to_uppercase()
+                    .chain(c.flat_map(|t| t.to_lowercase()))
+                    .collect(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    Ok(vm.ctx.new_str(titled_str))
+}
+
+// TODO: add ability to specify fill character, can't pass it to format!()
+fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))] // optional = [(chars, None)]
+    );
+    let value = get_value(&s);
+    let len = objint::get_value(&len).to_usize().unwrap();
+    // let rep_char = match chars {
+    //     Some(c) => get_value(&c),
+    //     None => " ".to_string(),
+    // };
+    let new_str = format!("{:^1$}", value, len);
+    Ok(vm.ctx.new_str(new_str))
+}
+
 fn str_startswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -261,6 +346,47 @@ fn str_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     let needle = get_value(&needle);
     Ok(vm.ctx.new_bool(value.contains(needle.as_str())))
+}
+
+fn str_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_alnum = get_value(&s).chars().all(|c| c.is_alphanumeric());
+    Ok(vm.ctx.new_bool(is_alnum))
+}
+
+fn str_isnumeric(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_numeric = get_value(&s).chars().all(|c| c.is_numeric());
+    Ok(vm.ctx.new_bool(is_numeric))
+}
+
+fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_alpha = get_value(&s).chars().all(|c| c.is_alphanumeric());
+    Ok(vm.ctx.new_bool(is_alpha))
+}
+
+fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    // python's isdigit also checks if exponents are digits, these are the unicodes for exponents
+    let valid_unicodes: [u16; 10] = [
+        0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
+    ];
+    let mut is_digit: bool = true;
+    for c in value.chars() {
+        if !c.is_digit(10) {
+            // checking if char is exponent
+            let char_as_uni: u16 = c as u16;
+            if valid_unicodes.contains(&char_as_uni) {
+                continue;
+            } else {
+                is_digit = false;
+                break;
+            }
+        }
+    }
+    Ok(vm.ctx.new_bool(is_digit))
 }
 
 fn str_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
