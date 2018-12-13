@@ -225,18 +225,20 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
             mro: _,
         } = &bc.borrow().kind
         {
-            let elements = objdict::get_elements(dict);
+            let elements = objdict::get_key_value_pairs(dict);
             for (name, value) in elements.iter() {
-                attributes.insert(name.to_string(), value.1.clone());
+                let name = objstr::get_value(name);
+                attributes.insert(name.to_string(), value.clone());
             }
         }
     }
 
     // Get instance attributes:
     if let PyObjectKind::Instance { dict } = &obj.borrow().kind {
-        let elements = objdict::get_elements(dict);
+        let elements = objdict::get_key_value_pairs(dict);
         for (name, value) in elements.iter() {
-            attributes.insert(name.to_string(), value.1.clone());
+            let name = objstr::get_value(name);
+            attributes.insert(name.to_string(), value.clone());
         }
     }
     attributes

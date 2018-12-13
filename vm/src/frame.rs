@@ -1090,11 +1090,15 @@ impl fmt::Debug for Frame {
             .join("");
         let local_str = match self.locals.borrow().kind {
             PyObjectKind::Scope { ref scope } => match scope.locals.borrow().kind {
-                PyObjectKind::Dict { ref elements } => elements
-                    .iter()
-                    .map(|elem| format!("\n  {} = {}", elem.0, (elem.1).1.borrow().str()))
-                    .collect::<Vec<_>>()
-                    .join(""),
+                PyObjectKind::Dict { ref elements } => {
+                    objdict::get_key_value_pairs_from_content(elements)
+                        .iter()
+                        .map(|elem| {
+                            format!("\n  {} = {}", elem.0.borrow().str(), elem.1.borrow().str())
+                        })
+                        .collect::<Vec<_>>()
+                        .join("")
+                }
                 ref unexpected => panic!(
                     "locals unexpectedly not wrapping a dict! instead: {:?}",
                     unexpected

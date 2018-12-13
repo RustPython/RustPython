@@ -686,7 +686,7 @@ pub trait DictProtocol {
 impl DictProtocol for PyObjectRef {
     fn contains_key(&self, k: &str) -> bool {
         match self.borrow().kind {
-            PyObjectKind::Dict { ref elements } => elements.contains_key(k),
+            PyObjectKind::Dict { ref elements } => objdict::content_contains_key_str(elements, k),
             PyObjectKind::Module { name: _, ref dict } => dict.contains_key(k),
             PyObjectKind::Scope { ref scope } => scope.locals.contains_key(k),
             ref kind => unimplemented!("TODO {:?}", kind),
@@ -695,10 +695,7 @@ impl DictProtocol for PyObjectRef {
 
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         match self.borrow().kind {
-            PyObjectKind::Dict { ref elements } => match elements.get(k) {
-                Some(v) => Some(v.1.clone()),
-                None => None,
-            },
+            PyObjectKind::Dict { ref elements } => objdict::content_get_key_str(elements, k),
             PyObjectKind::Module { name: _, ref dict } => dict.get_item(k),
             PyObjectKind::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),

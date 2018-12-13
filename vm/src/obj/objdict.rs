@@ -13,6 +13,7 @@ use std::ops::{Deref, DerefMut};
 // pub type DictContentType = HashMap<usize, Vec<(PyObjectRef, PyObjectRef)>>;
 // pub type DictContentType = HashMap<String, PyObjectRef>;
 pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
+// pub type DictContentType = HashMap<String, Vec<(PyObjectRef, PyObjectRef)>>;
 
 pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     PyObject::new(
@@ -56,19 +57,61 @@ pub fn set_item_in_content(
     // XXX: Currently, we only support String keys, so we have to unwrap the
     // PyObject (and ensure it is a String).
 
+    // TODO: invoke __hash__ function here!
     let needle_str = objstr::get_value(needle);
     elements.insert(needle_str, (needle.clone(), value.clone()));
 }
 
 pub fn get_key_value_pairs(dict: &PyObjectRef) -> Vec<(PyObjectRef, PyObjectRef)> {
     let dict_elements = get_elements(dict);
+    get_key_value_pairs_from_content(&dict_elements)
+}
+
+pub fn get_key_value_pairs_from_content(
+    dict_content: &DictContentType,
+) -> Vec<(PyObjectRef, PyObjectRef)> {
     let mut pairs: Vec<(PyObjectRef, PyObjectRef)> = Vec::new();
-    for (_str_key, pair) in dict_elements.iter() {
+    for (_str_key, pair) in dict_content.iter() {
         let (key, obj) = pair;
         pairs.push((key.clone(), obj.clone()));
     }
     pairs
 }
+
+pub fn get_item(dict: &PyObjectRef, key: &PyObjectRef) -> Option<PyObjectRef> {
+    let needle_str = objstr::get_value(key);
+    get_key_str(dict, &needle_str)
+}
+
+// Special case for the case when requesting a str key from a dict:
+pub fn get_key_str(dict: &PyObjectRef, key: &str) -> Option<PyObjectRef> {
+    let elements = get_elements(dict);
+    content_get_key_str(&elements, key)
+}
+
+/// Retrieve a key from dict contents:
+pub fn content_get_key_str(elements: &DictContentType, key: &str) -> Option<PyObjectRef> {
+    // TODO: let hash: usize = key;
+    match elements.get(key) {
+        Some(v) => Some(v.1.clone()),
+        None => None,
+    }
+}
+
+pub fn contains_key_str(dict: &PyObjectRef, key: &str) -> bool {
+    let elements = get_elements(dict);
+    content_contains_key_str(&elements, key)
+}
+
+pub fn content_contains_key_str(elements: &DictContentType, key: &str) -> bool {
+    // TODO: let hash: usize = key;
+    match elements.get(key) {
+        Some(_) => true,
+        None => false,
+    }
+}
+
+// Python dict methods:
 
 fn dict_new(_vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(new(args.args[0].clone()))
