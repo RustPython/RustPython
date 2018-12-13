@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -7,43 +7,51 @@ use super::objsequence::PySliceableSequence;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
+use std::fmt;
 use std::hash::{Hash, Hasher};
-
-// functions like isdigit also checks if exponents are digits
-// exponents from 0-9
-const VALID_UNICODES: &'static [&'static u16; 10] = &[
-    &0x2070, &0x00B9, &0x00B2, &0x00B3, &0x2074, &0x2075, &0x2076, &0x2077, &0x2078, &0x2079,
-];
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
-    str_type.set_attr("__add__", context.new_rustfunc(str_add));
-    str_type.set_attr("__eq__", context.new_rustfunc(str_eq));
-    str_type.set_attr("__contains__", context.new_rustfunc(str_contains));
-    str_type.set_attr("__getitem__", context.new_rustfunc(str_getitem));
-    str_type.set_attr("__gt__", context.new_rustfunc(str_gt));
-    str_type.set_attr("__hash__", context.new_rustfunc(str_hash));
-    str_type.set_attr("__len__", context.new_rustfunc(str_len));
-    str_type.set_attr("__mul__", context.new_rustfunc(str_mul));
-    str_type.set_attr("__new__", context.new_rustfunc(str_new));
-    str_type.set_attr("__str__", context.new_rustfunc(str_str));
-    str_type.set_attr("__repr__", context.new_rustfunc(str_repr));
-    str_type.set_attr("lower", context.new_rustfunc(str_lower));
-    str_type.set_attr("upper", context.new_rustfunc(str_upper));
-    str_type.set_attr("capitalize", context.new_rustfunc(str_capitalize));
-    str_type.set_attr("split", context.new_rustfunc(str_split));
-    str_type.set_attr("strip", context.new_rustfunc(str_strip));
-    str_type.set_attr("lstrip", context.new_rustfunc(str_lstrip));
-    str_type.set_attr("rstrip", context.new_rustfunc(str_rstrip));
-    str_type.set_attr("endswith", context.new_rustfunc(str_endswith));
-    str_type.set_attr("startswith", context.new_rustfunc(str_startswith));
-    str_type.set_attr("title", context.new_rustfunc(str_title));
-    str_type.set_attr("swapcase", context.new_rustfunc(str_swapcase));
-    str_type.set_attr("isalnum", context.new_rustfunc(str_isalnum));
-    str_type.set_attr("isalpha", context.new_rustfunc(str_isalpha));
-    str_type.set_attr("isdigit", context.new_rustfunc(str_isdigit));
-
-    // str_type.set_attr("center", context.new_rustfunc(str_center));
+    context.set_attr(&str_type, "__add__", context.new_rustfunc(str_add));
+    context.set_attr(&str_type, "__eq__", context.new_rustfunc(str_eq));
+    context.set_attr(
+        &str_type,
+        "__contains__",
+        context.new_rustfunc(str_contains),
+    );
+    context.set_attr(&str_type, "__getitem__", context.new_rustfunc(str_getitem));
+    context.set_attr(&str_type, "__gt__", context.new_rustfunc(str_gt));
+    context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
+    context.set_attr(&str_type, "__len__", context.new_rustfunc(str_len));
+    context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
+    context.set_attr(&str_type, "__new__", context.new_rustfunc(str_new));
+    context.set_attr(&str_type, "__str__", context.new_rustfunc(str_str));
+    context.set_attr(&str_type, "__repr__", context.new_rustfunc(str_repr));
+    context.set_attr(&str_type, "lower", context.new_rustfunc(str_lower));
+    context.set_attr(&str_type, "upper", context.new_rustfunc(str_upper));
+    context.set_attr(
+        &str_type,
+        "capitalize",
+        context.new_rustfunc(str_capitalize),
+    );
+    context.set_attr(&str_type, "split", context.new_rustfunc(str_split));
+    context.set_attr(&str_type, "strip", context.new_rustfunc(str_strip));
+    context.set_attr(&str_type, "lstrip", context.new_rustfunc(str_lstrip));
+    context.set_attr(&str_type, "rstrip", context.new_rustfunc(str_rstrip));
+    context.set_attr(&str_type, "endswith", context.new_rustfunc(str_endswith));
+    context.set_attr(
+        &str_type,
+        "startswith",
+        context.new_rustfunc(str_startswith),
+    );
+    context.set_attr(&str_type, "isalnum", context.new_rustfunc(str_isalnum));
+    context.set_attr(&str_type, "isnumeric", context.new_rustfunc(str_isnumeric));
+    context.set_attr(&str_type, "isdigit", context.new_rustfunc(str_isdigit));
+    context.set_attr(&str_type, "title", context.new_rustfunc(str_title));
+    context.set_attr(&str_type, "swapcase", context.new_rustfunc(str_swapcase));
+    context.set_attr(&str_type, "isalpha", context.new_rustfunc(str_isalpha));
+    context.set_attr(&str_type, "replace", context.new_rustfunc(str_replace));
+    context.set_attr(&str_type, "center", context.new_rustfunc(str_center));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -244,6 +252,7 @@ fn str_swapcase(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     let mut swapped_str = String::with_capacity(value.len());
     for c in value.chars() {
+        // to_uppercase returns an iterator, to_ascii_uppercase returns the char
         if c.is_lowercase() {
             swapped_str.push(c.to_ascii_uppercase());
         } else if c.is_uppercase() {
@@ -253,6 +262,28 @@ fn str_swapcase(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     }
     Ok(vm.ctx.new_str(swapped_str))
+}
+
+fn str_replace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (s, Some(vm.ctx.str_type())),
+            (old, Some(vm.ctx.str_type())),
+            (rep, Some(vm.ctx.str_type()))
+        ],
+        optional = [(n, None)]
+    );
+    let s = get_value(&s);
+    let old_str = get_value(&old);
+    let rep_str = get_value(&rep);
+    let num_rep: usize = match n {
+        Some(num) => objint::to_int(vm, num, 10)?.to_usize().unwrap(),
+        None => 1,
+    };
+    let new_str = s.replacen(&old_str, &rep_str, num_rep);
+    Ok(vm.ctx.new_str(new_str))
 }
 
 fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -275,18 +306,22 @@ fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_str(titled_str))
 }
 
-// fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-//     arg_check!(
-//         vm,
-//         args,
-//         required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))],
-//         optional = [(chars, None)]
-//     );
-//     let value = get_value(&s);
-//     let len = get_value(&len).parse::<usize>();
-//     let chars = args.get_kwargs
-//     Ok(vm.ctx.new_str(value))
-// }
+// TODO: add ability to specify fill character, can't pass it to format!()
+fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))] // optional = [(chars, None)]
+    );
+    let value = get_value(&s);
+    let len = objint::get_value(&len).to_usize().unwrap();
+    // let rep_char = match chars {
+    //     Some(c) => get_value(&c),
+    //     None => " ".to_string(),
+    // };
+    let new_str = format!("{:^1$}", value, len);
+    Ok(vm.ctx.new_str(new_str))
+}
 
 fn str_startswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -315,39 +350,35 @@ fn str_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn str_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let value = get_value(&s);
-    let mut is_alnum: bool = true;
-    for c in value.chars() {
-        if !c.is_alphanumeric() {
-            is_alnum = false;
-            break;
-        }
-    }
+    let is_alnum = get_value(&s).chars().all(|c| c.is_alphanumeric());
     Ok(vm.ctx.new_bool(is_alnum))
+}
+
+fn str_isnumeric(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_numeric = get_value(&s).chars().all(|c| c.is_numeric());
+    Ok(vm.ctx.new_bool(is_numeric))
 }
 
 fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let value = get_value(&s);
-    let mut is_alpha: bool = true;
-    for c in value.chars() {
-        if !c.is_alphabetic() {
-            is_alpha = false;
-            break;
-        }
-    }
+    let is_alpha = get_value(&s).chars().all(|c| c.is_alphanumeric());
     Ok(vm.ctx.new_bool(is_alpha))
 }
 
 fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
+    // python's isdigit also checks if exponents are digits, these are the unicodes for exponents
+    let valid_unicodes: [u16; 10] = [
+        0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
+    ];
     let mut is_digit: bool = true;
     for c in value.chars() {
         if !c.is_digit(10) {
             // checking if char is exponent
             let char_as_uni: u16 = c as u16;
-            if VALID_UNICODES.contains(&&char_as_uni) {
+            if valid_unicodes.contains(&char_as_uni) {
                 continue;
             } else {
                 is_digit = false;

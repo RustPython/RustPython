@@ -7,18 +7,38 @@ use super::objtype;
 
 pub fn init(context: &PyContext) {
     let ref function_type = context.function_type;
-    function_type.set_attr("__get__", context.new_rustfunc(bind_method));
+    context.set_attr(&function_type, "__get__", context.new_rustfunc(bind_method));
 
     let ref member_descriptor_type = context.member_descriptor_type;
-    member_descriptor_type.set_attr("__get__", context.new_rustfunc(member_get));
+    context.set_attr(
+        &member_descriptor_type,
+        "__get__",
+        context.new_rustfunc(member_get),
+    );
 
     let ref classmethod_type = context.classmethod_type;
-    classmethod_type.set_attr("__get__", context.new_rustfunc(classmethod_get));
-    classmethod_type.set_attr("__new__", context.new_rustfunc(classmethod_new));
+    context.set_attr(
+        &classmethod_type,
+        "__get__",
+        context.new_rustfunc(classmethod_get),
+    );
+    context.set_attr(
+        &classmethod_type,
+        "__new__",
+        context.new_rustfunc(classmethod_new),
+    );
 
     let ref staticmethod_type = context.staticmethod_type;
-    staticmethod_type.set_attr("__get__", context.new_rustfunc(staticmethod_get));
-    staticmethod_type.set_attr("__new__", context.new_rustfunc(staticmethod_new));
+    context.set_attr(
+        staticmethod_type,
+        "__get__",
+        context.new_rustfunc(staticmethod_get),
+    );
+    context.set_attr(
+        staticmethod_type,
+        "__new__",
+        context.new_rustfunc(staticmethod_new),
+    );
 }
 
 fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -83,7 +103,7 @@ fn classmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         },
         cls.clone(),
     );
-    py_obj.set_attr("function", callable.clone());
+    vm.ctx.set_attr(&py_obj, "function", callable.clone());
     Ok(py_obj)
 }
 
@@ -121,6 +141,6 @@ fn staticmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         },
         cls.clone(),
     );
-    py_obj.set_attr("function", callable.clone());
+    vm.ctx.set_attr(&py_obj, "function", callable.clone());
     Ok(py_obj)
 }

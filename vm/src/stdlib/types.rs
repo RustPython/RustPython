@@ -3,9 +3,7 @@
  */
 
 use super::super::obj::{objsequence, objstr, objtype};
-use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
 
 fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -37,11 +35,11 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"types".to_string(), ctx.new_scope(None));
 
     // Number theory functions:
-    py_mod.set_item("new_class", ctx.new_rustfunc(types_new_class));
-    py_mod.set_item("FunctionType", ctx.function_type());
-    py_mod.set_item("LambdaType", ctx.function_type());
-    py_mod.set_item("CodeType", ctx.code_type());
-    py_mod.set_item("FrameType", ctx.frame_type());
+    ctx.set_attr(&py_mod, "new_class", ctx.new_rustfunc(types_new_class));
+    ctx.set_attr(&py_mod, "FunctionType", ctx.function_type());
+    ctx.set_attr(&py_mod, "LambdaType", ctx.function_type());
+    ctx.set_attr(&py_mod, "CodeType", ctx.code_type());
+    ctx.set_attr(&py_mod, "FrameType", ctx.frame_type());
 
     py_mod
 }

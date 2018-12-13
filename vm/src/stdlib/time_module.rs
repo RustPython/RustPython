@@ -1,9 +1,7 @@
 //! The python `time` module.
 
 use super::super::obj::{objfloat, objtype};
-use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -34,7 +32,7 @@ fn time_time(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"time".to_string(), ctx.new_scope(None));
-    py_mod.set_item("sleep", ctx.new_rustfunc(time_sleep));
-    py_mod.set_item("time", ctx.new_rustfunc(time_time));
+    ctx.set_attr(&py_mod, "sleep", ctx.new_rustfunc(time_sleep));
+    ctx.set_attr(&py_mod, "time", ctx.new_rustfunc(time_time));
     py_mod
 }

@@ -11,9 +11,7 @@ extern crate byteorder;
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use super::super::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
-use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::ToPrimitive;
@@ -344,7 +342,7 @@ fn struct_unpack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"struct".to_string(), ctx.new_scope(None));
-    py_mod.set_item("pack", ctx.new_rustfunc(struct_pack));
-    py_mod.set_item("unpack", ctx.new_rustfunc(struct_unpack));
+    ctx.set_attr(&py_mod, "pack", ctx.new_rustfunc(struct_pack));
+    ctx.set_attr(&py_mod, "unpack", ctx.new_rustfunc(struct_unpack));
     py_mod
 }

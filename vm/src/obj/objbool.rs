@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
@@ -31,8 +31,8 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
 
 pub fn init(context: &PyContext) {
     let ref bool_type = context.bool_type;
-    bool_type.set_attr("__new__", context.new_rustfunc(bool_new));
-    bool_type.set_attr("__repr__", context.new_rustfunc(bool_repr));
+    context.set_attr(&bool_type, "__new__", context.new_rustfunc(bool_new));
+    context.set_attr(&bool_type, "__repr__", context.new_rustfunc(bool_repr));
 }
 
 pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {

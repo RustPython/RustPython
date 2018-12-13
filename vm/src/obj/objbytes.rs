@@ -1,6 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -15,10 +14,10 @@ use std::ops::Deref;
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
     let ref bytes_type = context.bytes_type;
-    bytes_type.set_attr("__eq__", context.new_rustfunc(bytes_eq));
-    bytes_type.set_attr("__hash__", context.new_rustfunc(bytes_hash));
-    bytes_type.set_attr("__new__", context.new_rustfunc(bytes_new));
-    bytes_type.set_attr("__repr__", context.new_rustfunc(bytes_repr));
+    context.set_attr(bytes_type, "__eq__", context.new_rustfunc(bytes_eq));
+    context.set_attr(bytes_type, "__hash__", context.new_rustfunc(bytes_hash));
+    context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
+    context.set_attr(bytes_type, "__repr__", context.new_rustfunc(bytes_repr));
 }
 
 fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

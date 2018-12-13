@@ -1,6 +1,6 @@
 use num_bigint::ToBigInt;
 use obj::objtype;
-use pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use std::rc::Rc;
 use std::{env, mem};
 use vm::VirtualMachine;
@@ -47,16 +47,16 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let modules = ctx.new_dict();
     let sys_name = "sys".to_string();
     let sys_mod = ctx.new_module(&sys_name, ctx.new_scope(None));
-    modules.set_item(&sys_name, sys_mod.clone());
-    sys_mod.set_item("modules", modules);
-    sys_mod.set_item("argv", argv(ctx));
-    sys_mod.set_item("getrefcount", ctx.new_rustfunc(sys_getrefcount));
-    sys_mod.set_item("getsizeof", ctx.new_rustfunc(sys_getsizeof));
+    ctx.set_item(&modules, &sys_name, sys_mod.clone());
+    ctx.set_item(&sys_mod, "modules", modules);
+    ctx.set_item(&sys_mod, "argv", argv(ctx));
+    ctx.set_item(&sys_mod, "getrefcount", ctx.new_rustfunc(sys_getrefcount));
+    ctx.set_item(&sys_mod, "getsizeof", ctx.new_rustfunc(sys_getsizeof));
     let maxsize = ctx.new_int(std::usize::MAX.to_bigint().unwrap());
-    sys_mod.set_item("maxsize", maxsize);
-    sys_mod.set_item("path", path);
-    sys_mod.set_item("ps1", ctx.new_str(">>>>> ".to_string()));
-    sys_mod.set_item("ps2", ctx.new_str("..... ".to_string()));
-    sys_mod.set_item("_getframe", ctx.new_rustfunc(getframe));
+    ctx.set_item(&sys_mod, "maxsize", maxsize);
+    ctx.set_item(&sys_mod, "path", path);
+    ctx.set_item(&sys_mod, "ps1", ctx.new_str(">>>>> ".to_string()));
+    ctx.set_item(&sys_mod, "ps2", ctx.new_str("..... ".to_string()));
+    ctx.set_item(&sys_mod, "_getframe", ctx.new_rustfunc(getframe));
     sys_mod
 }

@@ -471,7 +471,7 @@ impl PyContext {
             },
             self.property_type(),
         );
-        py_obj.set_attr("fget", fget.clone());
+        self.set_attr(&py_obj, "fget", fget.clone());
         py_obj
     }
 
@@ -507,12 +507,52 @@ impl PyContext {
 
     pub fn new_member_descriptor(&self, function: RustPyFunc) -> PyObjectRef {
         let dict = self.new_dict();
-        dict.set_item(&String::from("function"), self.new_rustfunc(function));
+        self.set_item(&dict, "function", self.new_rustfunc(function));
         self.new_instance(dict, self.member_descriptor_type())
     }
 
     pub fn new_instance(&self, dict: PyObjectRef, class: PyObjectRef) -> PyObjectRef {
         PyObject::new(PyObjectKind::Instance { dict: dict }, class)
+    }
+
+    // Item set/get:
+    pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
+        match obj.borrow_mut().kind {
+            PyObjectKind::Dict {
+                elements: ref mut el,
+            } => {
+                // objdict::set_item_in_elements(elements, key, v);
+                el.insert(key.to_string(), v);
+            }
+            PyObjectKind::Module {
+                name: _,
+                ref mut dict,
+            } => self.set_item(dict, key, v),
+            PyObjectKind::Scope { ref mut scope } => {
+                self.set_item(&scope.locals, key, v);
+            }
+            ref k => panic!("TODO {:?}", k),
+        };
+    }
+
+    pub fn get_attr(&self, obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+        // This does not need to be on the PyContext.
+        // We do not require to make a new key as string for this function
+        // (yet)...
+        obj.get_attr(attr_name)
+    }
+
+    pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
+        match obj.borrow().kind {
+            PyObjectKind::Module { name: _, ref dict } => self.set_item(dict, attr_name, value),
+            PyObjectKind::Instance { ref dict } => self.set_item(dict, attr_name, value),
+            PyObjectKind::Class {
+                name: _,
+                ref dict,
+                mro: _,
+            } => self.set_item(dict, attr_name, value),
+            ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
+        };
     }
 }
 
@@ -586,7 +626,6 @@ impl ParentProtocol for PyObjectRef {
 
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
-    fn set_attr(&self, attr_name: &str, value: PyObjectRef);
     fn has_attr(&self, attr_name: &str) -> bool;
 }
 
@@ -639,25 +678,11 @@ impl AttributeProtocol for PyObjectRef {
             _ => false,
         }
     }
-
-    fn set_attr(&self, attr_name: &str, value: PyObjectRef) {
-        match self.borrow().kind {
-            PyObjectKind::Module { name: _, ref dict } => dict.set_item(attr_name, value),
-            PyObjectKind::Instance { ref dict } => dict.set_item(attr_name, value),
-            PyObjectKind::Class {
-                name: _,
-                ref dict,
-                mro: _,
-            } => dict.set_item(attr_name, value),
-            ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
-        };
-    }
 }
 
 pub trait DictProtocol {
     fn contains_key(&self, k: &str) -> bool;
     fn get_item(&self, k: &str) -> Option<PyObjectRef>;
-    fn set_item(&self, k: &str, v: PyObjectRef);
 }
 
 impl DictProtocol for PyObjectRef {
@@ -680,24 +705,6 @@ impl DictProtocol for PyObjectRef {
             PyObjectKind::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }
-    }
-
-    fn set_item(&self, k: &str, v: PyObjectRef) {
-        match self.borrow_mut().kind {
-            PyObjectKind::Dict {
-                elements: ref mut el,
-            } => {
-                el.insert(k.to_string(), v);
-            }
-            PyObjectKind::Module {
-                name: _,
-                ref mut dict,
-            } => dict.set_item(k, v),
-            PyObjectKind::Scope { ref mut scope } => {
-                scope.locals.set_item(k, v);
-            }
-            ref k => panic!("TODO {:?}", k),
-        };
     }
 }
 
@@ -786,7 +793,7 @@ pub enum PyObjectKind {
         elements: Vec<PyObjectRef>,
     },
     Dict {
-        elements: HashMap<String, PyObjectRef>,
+        elements: objdict::DictContentType,
     },
     Set {
         elements: HashMap<usize, PyObjectRef>,

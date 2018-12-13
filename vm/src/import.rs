@@ -41,7 +41,8 @@ fn import_uncached_module(
 
     let builtins = vm.get_builtin_scope();
     let scope = vm.ctx.new_scope(Some(builtins));
-    scope.set_item(&"__name__".to_string(), vm.new_str(module.to_string()));
+    vm.ctx
+        .set_item(&scope, "__name__", vm.new_str(module.to_string()));
     vm.run_code_obj(code_obj, scope.clone())?;
     Ok(vm.ctx.new_module(module, scope))
 }
@@ -57,7 +58,7 @@ pub fn import_module(
         return Ok(module);
     }
     let module = import_uncached_module(vm, current_path, module_name)?;
-    sys_modules.set_item(module_name, module.clone());
+    vm.ctx.set_item(&sys_modules, module_name, module.clone());
     Ok(module)
 }
 

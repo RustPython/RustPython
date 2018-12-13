@@ -1,6 +1,6 @@
 use super::super::pyobject::{
-    AttributeProtocol, FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
-    PyResult, TypeProtocol,
+    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objfloat;
@@ -388,28 +388,36 @@ fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
-    int_type.set_attr("__eq__", context.new_rustfunc(int_eq));
-    int_type.set_attr("__lt__", context.new_rustfunc(int_lt));
-    int_type.set_attr("__le__", context.new_rustfunc(int_le));
-    int_type.set_attr("__gt__", context.new_rustfunc(int_gt));
-    int_type.set_attr("__ge__", context.new_rustfunc(int_ge));
-    int_type.set_attr("__abs__", context.new_rustfunc(int_abs));
-    int_type.set_attr("__add__", context.new_rustfunc(int_add));
-    int_type.set_attr("__and__", context.new_rustfunc(int_and));
-    int_type.set_attr("__divmod__", context.new_rustfunc(int_divmod));
-    int_type.set_attr("__float__", context.new_rustfunc(int_float));
-    int_type.set_attr("__floordiv__", context.new_rustfunc(int_floordiv));
-    int_type.set_attr("__hash__", context.new_rustfunc(int_hash));
-    int_type.set_attr("__new__", context.new_rustfunc(int_new));
-    int_type.set_attr("__mod__", context.new_rustfunc(int_mod));
-    int_type.set_attr("__mul__", context.new_rustfunc(int_mul));
-    int_type.set_attr("__neg__", context.new_rustfunc(int_neg));
-    int_type.set_attr("__or__", context.new_rustfunc(int_or));
-    int_type.set_attr("__pos__", context.new_rustfunc(int_pos));
-    int_type.set_attr("__pow__", context.new_rustfunc(int_pow));
-    int_type.set_attr("__repr__", context.new_rustfunc(int_repr));
-    int_type.set_attr("__sub__", context.new_rustfunc(int_sub));
-    int_type.set_attr("__truediv__", context.new_rustfunc(int_truediv));
-    int_type.set_attr("__xor__", context.new_rustfunc(int_xor));
-    int_type.set_attr("bit_length", context.new_rustfunc(int_bit_length));
+    context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
+    context.set_attr(&int_type, "__lt__", context.new_rustfunc(int_lt));
+    context.set_attr(&int_type, "__le__", context.new_rustfunc(int_le));
+    context.set_attr(&int_type, "__gt__", context.new_rustfunc(int_gt));
+    context.set_attr(&int_type, "__ge__", context.new_rustfunc(int_ge));
+    context.set_attr(&int_type, "__abs__", context.new_rustfunc(int_abs));
+    context.set_attr(&int_type, "__add__", context.new_rustfunc(int_add));
+    context.set_attr(&int_type, "__and__", context.new_rustfunc(int_and));
+    context.set_attr(&int_type, "__divmod__", context.new_rustfunc(int_divmod));
+    context.set_attr(&int_type, "__float__", context.new_rustfunc(int_float));
+    context.set_attr(
+        &int_type,
+        "__floordiv__",
+        context.new_rustfunc(int_floordiv),
+    );
+    context.set_attr(&int_type, "__hash__", context.new_rustfunc(int_hash));
+    context.set_attr(&int_type, "__new__", context.new_rustfunc(int_new));
+    context.set_attr(&int_type, "__mod__", context.new_rustfunc(int_mod));
+    context.set_attr(&int_type, "__mul__", context.new_rustfunc(int_mul));
+    context.set_attr(&int_type, "__neg__", context.new_rustfunc(int_neg));
+    context.set_attr(&int_type, "__or__", context.new_rustfunc(int_or));
+    context.set_attr(&int_type, "__pos__", context.new_rustfunc(int_pos));
+    context.set_attr(&int_type, "__pow__", context.new_rustfunc(int_pow));
+    context.set_attr(&int_type, "__repr__", context.new_rustfunc(int_repr));
+    context.set_attr(&int_type, "__sub__", context.new_rustfunc(int_sub));
+    context.set_attr(&int_type, "__truediv__", context.new_rustfunc(int_truediv));
+    context.set_attr(&int_type, "__xor__", context.new_rustfunc(int_xor));
+    context.set_attr(
+        &int_type,
+        "bit_length",
+        context.new_rustfunc(int_bit_length),
+    );
 }

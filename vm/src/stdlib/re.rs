@@ -9,9 +9,7 @@ extern crate regex;
 use self::regex::Regex;
 
 use super::super::obj::{objstr, objtype};
-use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
 
 fn re_match(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -54,8 +52,8 @@ fn re_search(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"re".to_string(), ctx.new_scope(None));
     let match_type = ctx.new_class(&"Match".to_string(), ctx.object());
-    py_mod.set_item("Match", match_type);
-    py_mod.set_item("match", ctx.new_rustfunc(re_match));
-    py_mod.set_item("search", ctx.new_rustfunc(re_search));
+    ctx.set_attr(&py_mod, "Match", match_type);
+    ctx.set_attr(&py_mod, "match", ctx.new_rustfunc(re_match));
+    ctx.set_attr(&py_mod, "search", ctx.new_rustfunc(re_search));
     py_mod
 }
