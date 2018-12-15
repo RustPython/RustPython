@@ -66,10 +66,17 @@ fn py_to_js(vm: &mut VirtualMachine, py_obj: &PyObjectRef) -> JsValue {
 }
 
 fn eval(vm: &mut VirtualMachine, source: &str) -> PyResult {
-    let code_obj = compile::compile(vm, &source.to_string(), compile::Mode::Exec, None)?;
+    // HACK: if the code doesn't end with newline it crashes.
+    let mut source = source.to_string();
+    if !source.ends_with('\n') {
+        source.push('\n');
+    }
+
+    let code_obj = compile::compile(vm, &source, compile::Mode::Exec, None)?;
 
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins));
+
     vm.run_code_obj(code_obj, vars)
 }
 
@@ -96,8 +103,9 @@ pub fn run_code(source: &str) -> Result<JsValue, JsValue> {
     console::log_1(&source.to_string().into());
 
     let mut vm = VirtualMachine::new();
+
     // We are monkey-patching the builtin print to use console.log
-    // TODO: moneky-patch sys.stdout instead, after print actually uses sys.stdout
+    // TODO: monkey-patch sys.stdout instead, after print actually uses sys.stdout
     vm.ctx.set_attr(
         &vm.builtins,
         "print",
