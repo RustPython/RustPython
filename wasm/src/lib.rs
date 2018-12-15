@@ -96,7 +96,7 @@ pub fn eval_py(source: &str) -> Result<JsValue, JsValue> {
 }
 
 #[wasm_bindgen]
-pub fn run_code(source: &str) -> Result<JsValue, JsValue> {
+pub fn run_from_textbox(source: &str) -> Result<JsValue, JsValue> {
     //add hash in here
     console::log_1(&"Running RustPython".into());
     console::log_1(&"Running code:".into());

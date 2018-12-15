@@ -11,7 +11,7 @@ function runCodeFromTextarea(_) {
 
     const code = document.getElementById('code').value;
     try {
-        rp.run_code(code);
+        rp.run_from_textbox(code);
     } catch (e) {
         errorElement.textContent = e;
         console.error(e);
