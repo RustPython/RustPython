@@ -2,12 +2,12 @@ use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objbool;
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
-use std::fmt;
 use std::hash::{Hash, Hasher};
 
 pub fn init(context: &PyContext) {
@@ -52,12 +52,24 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "isalpha", context.new_rustfunc(str_isalpha));
     context.set_attr(&str_type, "replace", context.new_rustfunc(str_replace));
     context.set_attr(&str_type, "center", context.new_rustfunc(str_center));
+    context.set_attr(&str_type, "isspace", context.new_rustfunc(str_isspace));
+    context.set_attr(&str_type, "isupper", context.new_rustfunc(str_isupper));
+    context.set_attr(&str_type, "islower", context.new_rustfunc(str_islower));
+    context.set_attr(
+        &str_type,
+        "splitlines",
+        context.new_rustfunc(str_splitlines),
+    );
+    context.set_attr(&str_type, "join", context.new_rustfunc(str_join));
+    context.set_attr(&str_type, "find", context.new_rustfunc(str_find));
+    context.set_attr(&str_type, "istitle", context.new_rustfunc(str_istitle));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
     if let PyObjectKind::String { value } = &obj.borrow().kind {
         value.to_string()
     } else {
+        // TODO: throw an exception
         panic!("Inner error getting str");
     }
 }
@@ -247,6 +259,93 @@ fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(value.ends_with(pat.as_str())))
 }
 
+fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let str_chars = value.chars();
+    let is_identifier: bool = true;
+    // a string is not an identifier if it has whitespace or starts with a number
+    if !value.chars().any(|c| c.is_ascii_whitespace())
+        && !value.chars().next().unwrap().is_digit(10)
+    {}
+    Ok(vm.ctx.new_bool(is_identifier))
+}
+
+// cpython's isspace ignores whitespace, including \t and \n, etc
+// which is why isspace is using is_ascii_whitespace. Same for isupper & islower
+fn str_isspace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_whitespace = get_value(&s).chars().all(|c| c.is_ascii_whitespace());
+    Ok(vm.ctx.new_bool(is_whitespace))
+}
+
+fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_upper = get_value(&s)
+        .chars()
+        .filter(|x| !x.is_ascii_whitespace())
+        .all(|c| c.is_uppercase());
+    Ok(vm.ctx.new_bool(is_upper))
+}
+
+fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_lower = get_value(&s)
+        .chars()
+        .filter(|x| !x.is_ascii_whitespace())
+        .all(|c| c.is_lowercase());
+    Ok(vm.ctx.new_bool(is_lower))
+}
+
+// doesn't implement keep new line delimeter just yet
+fn str_splitlines(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let elements = get_value(&s)
+        .split('\n')
+        .map(|e| vm.ctx.new_str(e.to_string()))
+        .collect();
+    Ok(vm.ctx.new_list(elements))
+}
+
+fn str_join(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (iterable, None)]
+    );
+    let value = get_value(&s);
+    let elements: Vec<String> = vm
+        .extract_elements(iterable)?
+        .iter()
+        .map(|w| get_value(&w))
+        .collect();
+    let joined = elements.join(&value);
+    Ok(vm.ctx.new_str(joined))
+}
+
+fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
+        optional = [
+            (start, Some(vm.ctx.int_type())),
+            (end, Some(vm.ctx.int_type()))
+        ]
+    );
+    let value = get_value(&s);
+    let sub = get_value(&sub);
+    let start: usize = objint::get_value(&start.unwrap()).to_usize().unwrap_or(0);
+    let end: usize = objint::get_value(&end.unwrap())
+        .to_usize()
+        .unwrap_or(value.len() - 1);
+    let ind: i128 = match value[start..end].find(&sub) {
+        Some(num) => num as i128,
+        None => -1 as i128,
+    };
+    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+}
+
 fn str_swapcase(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
@@ -288,22 +387,15 @@ fn str_replace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    Ok(vm.ctx.new_str(make_title(get_value(&s))))
+}
+
+fn str_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
-    let titled_str = value
-        .split(' ')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f
-                    .to_uppercase()
-                    .chain(c.flat_map(|t| t.to_lowercase()))
-                    .collect(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    Ok(vm.ctx.new_str(titled_str))
+    let titled_str = make_title(value.clone());
+    let is_titled: bool = titled_str == value;
+    Ok(vm.ctx.new_bool(is_titled))
 }
 
 // TODO: add ability to specify fill character, can't pass it to format!()
@@ -445,4 +537,21 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
             ),
         }
     }
+}
+
+// helper function to title strings
+fn make_title(s: String) -> String {
+    s.split(' ')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f
+                    .to_uppercase()
+                    .chain(c.flat_map(|t| t.to_lowercase()))
+                    .collect(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
