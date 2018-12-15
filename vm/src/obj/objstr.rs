@@ -2,7 +2,6 @@ use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
-use super::objbool;
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
@@ -63,6 +62,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "join", context.new_rustfunc(str_join));
     context.set_attr(&str_type, "find", context.new_rustfunc(str_find));
     context.set_attr(&str_type, "istitle", context.new_rustfunc(str_istitle));
+    context.set_attr(&str_type, "isidentifier", context.new_rustfunc(str_isidentifier));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -262,16 +262,23 @@ fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
-    let str_chars = value.chars();
-    let is_identifier: bool = true;
+    let mut is_identifier: bool = true;
     // a string is not an identifier if it has whitespace or starts with a number
-    if !value.chars().any(|c| c.is_ascii_whitespace())
-        && !value.chars().next().unwrap().is_digit(10)
-    {}
+    if value.chars().any(|c| c.is_ascii_whitespace())
+        && !value.chars().nth(0).unwrap().is_digit(10)
+    {
+        for c in value.chars() {
+            if c != "_".chars().nth(0).unwrap() && !c.is_alphabetic() && !c.is_digit(10) {
+                is_identifier = false;
+            }
+        }
+    } else {
+        is_identifier = false;
+    }
     Ok(vm.ctx.new_bool(is_identifier))
 }
 
-// cpython's isspace ignores whitespace, including \t and \n, etc
+// cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
 // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
 fn str_isspace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
@@ -281,10 +288,11 @@ fn str_isspace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_upper = get_value(&s)
-        .chars()
-        .filter(|x| !x.is_ascii_whitespace())
-        .all(|c| c.is_uppercase());
+    let value = get_value(&s);
+    let mut is_upper = false;
+    if value.chars().all(|c| !c.is_ascii_whitespace()) {
+        is_upper = value.chars().filter(|x| !x.is_ascii_whitespace()).all(|c| c.is_uppercase());
+    }
     Ok(vm.ctx.new_bool(is_upper))
 }
 
