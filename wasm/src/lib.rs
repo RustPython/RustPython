@@ -18,50 +18,20 @@ fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
         .unwrap_or_else(|_| "Error, and error getting error message".into())
 }
 
-fn py_to_js(vm: &mut VirtualMachine, py_obj: &PyObjectRef) -> JsValue {
-    use pyobject::PyObjectKind;
-    let py_obj = py_obj.borrow();
-    match py_obj.kind {
-        PyObjectKind::String { ref value } => value.into(),
-        PyObjectKind::Integer { ref value } => {
-            if let Some(ref typ) = py_obj.typ {
-                if typ.is(&vm.ctx.bool_type()) {
-                    let out_bool = value == &BigInt::new(num_bigint::Sign::Plus, vec![1]);
-                    return out_bool.into();
-                }
-            }
-            let int = vm.ctx.new_int(value.clone());
-            rustpython_vm::obj::objfloat::make_float(vm, &int)
-                .unwrap()
-                .into()
+fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
+    let dumps = rustpython_vm::import::import(
+        vm,
+        std::path::PathBuf::default(),
+        "json",
+        &Some("dumps".into()),
+    )
+    .expect("Couldn't get json.dumps function");
+    match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
+        Ok(value) => {
+            let json = vm.to_pystr(&value).unwrap();
+            js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED)
         }
-        PyObjectKind::Float { ref value } => JsValue::from_f64(*value),
-        PyObjectKind::Bytes { ref value } => {
-            let arr = js_sys::Uint8Array::new(&JsValue::from(value.len() as u32));
-            for (i, byte) in value.iter().enumerate() {
-                console::log_1(&JsValue::from(i as u32));
-                js_sys::Reflect::set(&arr, &JsValue::from(i as u32), &JsValue::from(*byte))
-                    .unwrap();
-            }
-            arr.into()
-        }
-        PyObjectKind::Sequence { ref elements } => {
-            let arr = js_sys::Array::new();
-            for val in elements {
-                arr.push(&py_to_js(vm, val));
-            }
-            arr.into()
-        }
-        PyObjectKind::Dict { ref elements } => {
-            let obj = js_sys::Object::new();
-            for (key, (_, val)) in elements {
-                js_sys::Reflect::set(&obj, &key.into(), &py_to_js(vm, val))
-                    .expect("couldn't set property of object");
-            }
-            obj.into()
-        }
-        PyObjectKind::None => JsValue::UNDEFINED,
-        _ => JsValue::UNDEFINED,
+        Err(_) => JsValue::UNDEFINED,
     }
 }
 
@@ -91,7 +61,7 @@ pub fn eval_py(source: &str) -> Result<JsValue, JsValue> {
     );
 
     eval(&mut vm, source)
-        .map(|value| py_to_js(&mut vm, &value))
+        .map(|value| py_to_js(&mut vm, value))
         .map_err(|err| py_str_err(&mut vm, &err).into())
 }
 
