@@ -23,6 +23,11 @@
         height: 2em;
         font-size: 24px;
       }
+
+      #error {
+        color: tomato;
+        margin-top: 10px;
+      }
     </style>
   </head>
   <body>
@@ -42,6 +47,7 @@ while count < until:
     count += 1
 </textarea>
     <button id="run-btn">Run &#9655;</button>
+    <div id="error"></div>
     <script src="./bootstrap.js"></script>
     <h3>Standard Output</h3>
     <textarea id="console">Loading...</textarea>

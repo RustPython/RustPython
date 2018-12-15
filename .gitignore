@@ -6,3 +6,4 @@ __pycache__
 **/*.pytest_cache
 .*sw*
 .repl_history.txt
+wasm-pack.log
