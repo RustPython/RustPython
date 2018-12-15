@@ -1,14 +1,12 @@
 mod wasm_builtins;
 
 extern crate js_sys;
-extern crate num_bigint;
 extern crate rustpython_vm;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use num_bigint::BigInt;
 use rustpython_vm::compile;
-use rustpython_vm::pyobject::{self, IdProtocol, PyObjectRef, PyResult};
+use rustpython_vm::pyobject::{self, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::prelude::*;
 use web_sys::console;
@@ -57,7 +55,8 @@ pub fn eval_py(source: &str) -> Result<JsValue, JsValue> {
     vm.ctx.set_attr(
         &vm.builtins,
         "print",
-        vm.context().new_rustfunc(wasm_builtins::builtin_print_console),
+        vm.context()
+            .new_rustfunc(wasm_builtins::builtin_print_console),
     );
 
     eval(&mut vm, source)
