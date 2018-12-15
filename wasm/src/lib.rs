@@ -57,7 +57,7 @@ pub fn eval_py(source: &str) -> Result<JsValue, JsValue> {
     vm.ctx.set_attr(
         &vm.builtins,
         "print",
-        vm.context().new_rustfunc(wasm_builtins::builtin_log),
+        vm.context().new_rustfunc(wasm_builtins::builtin_print_console),
     );
 
     eval(&mut vm, source)
@@ -79,7 +79,7 @@ pub fn run_from_textbox(source: &str) -> Result<JsValue, JsValue> {
     vm.ctx.set_attr(
         &vm.builtins,
         "print",
-        vm.context().new_rustfunc(wasm_builtins::builtin_print),
+        vm.context().new_rustfunc(wasm_builtins::builtin_print_html),
     );
 
     match eval(&mut vm, source) {

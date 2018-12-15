@@ -28,7 +28,7 @@ pub fn print_to_html(text: &str) {
     textarea.set_value(&format!("{}{}", value, text));
 }
 
-pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut first = true;
     for a in args.args {
         if first {
@@ -43,7 +43,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-pub fn builtin_log(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn builtin_print_console(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let arr = Array::new();
     for a in args.args {
         let v = vm.to_str(&a)?;
