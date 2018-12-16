@@ -4,9 +4,9 @@
 pub use super::token::Tok;
 use num_bigint::BigInt;
 use num_traits::Num;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
-use std::cmp::Ordering;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct IndentationLevel {
@@ -16,10 +16,7 @@ struct IndentationLevel {
 
 impl IndentationLevel {
     fn new() -> IndentationLevel {
-        IndentationLevel {
-            tabs: 0,
-            spaces: 0,
-        }
+        IndentationLevel { tabs: 0, spaces: 0 }
     }
     fn compare_strict(&self, other: &IndentationLevel) -> Option<Ordering> {
         // We only know for sure that we're smaller or bigger if tabs
@@ -37,7 +34,6 @@ impl IndentationLevel {
             } else {
                 None
             }
-
         } else {
             Some(self.spaces.cmp(&other.spaces))
         }
@@ -620,7 +616,7 @@ where
                         Some(' ') => {
                             self.next_char();
                             spaces += 1;
-                        },
+                        }
                         Some('\t') => {
                             if spaces != 0 {
                                 // Don't allow tabs after spaces as part of indentation.
@@ -630,7 +626,7 @@ where
                             }
                             self.next_char();
                             tabs += 1;
-                        },
+                        }
                         Some('#') => {
                             self.lex_comment();
                             self.at_begin_of_line = true;
@@ -649,10 +645,7 @@ where
                     }
                 }
 
-                let indentation_level = IndentationLevel {
-                    spaces,
-                    tabs,
-                };
+                let indentation_level = IndentationLevel { spaces, tabs };
 
                 if self.nesting == 0 {
                     // Determine indent or dedent:
@@ -661,7 +654,7 @@ where
                     match ordering {
                         Some(Ordering::Equal) => {
                             // Same same
-                        },
+                        }
                         Some(Ordering::Greater) => {
                             // New indentation level:
                             self.indentation_stack.push(indentation_level);
@@ -674,18 +667,21 @@ where
                             // Pop off other levels until col is found:
 
                             loop {
-                                let ordering = indentation_level.compare_strict(self.indentation_stack.last().unwrap());
+                                let ordering = indentation_level
+                                    .compare_strict(self.indentation_stack.last().unwrap());
                                 match ordering {
                                     Some(Ordering::Less) => {
                                         self.indentation_stack.pop();
                                         let tok_start = self.get_pos();
                                         let tok_end = tok_start.clone();
                                         self.pending.push(Ok((tok_start, Tok::Dedent, tok_end)));
-                                    },
-                                    None => panic!("inconsistent use of tabs and spaces in indentation"),
+                                    }
+                                    None => {
+                                        panic!("inconsistent use of tabs and spaces in indentation")
+                                    }
                                     _ => {
                                         break;
-                                    },
+                                    }
                                 };
                             }
 
