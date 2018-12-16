@@ -1,8 +1,6 @@
+use super::super::format::{FormatParseError, FormatPart, FormatString};
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
-};
-use super::super::format::{
-    FormatString, FormatParseError, FormatPart,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -152,7 +150,9 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.len() == 0 {
-        return Err(vm.new_type_error("descriptor 'format' of 'str' object needs an argument".to_string()));
+        return Err(
+            vm.new_type_error("descriptor 'format' of 'str' object needs an argument".to_string())
+        );
     }
 
     let zelf = &args.args[0];
@@ -168,30 +168,42 @@ fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match FormatString::from_str(format_string_text.as_str()) {
         Ok(format_string) => perform_format(vm, &format_string, &args),
         Err(err) => match err {
-            FormatParseError::UnmatchedBracket => Err(vm.new_value_error("expected '}' before end of string".to_string())),
+            FormatParseError::UnmatchedBracket => {
+                Err(vm.new_value_error("expected '}' before end of string".to_string()))
+            }
             _ => Err(vm.new_value_error("Unexpected error parsing format string".to_string())),
-        }
+        },
     }
 }
 
-fn call_object_format(vm: &mut VirtualMachine, argument: PyObjectRef, format_spec: &String) -> PyResult {
+fn call_object_format(
+    vm: &mut VirtualMachine,
+    argument: PyObjectRef,
+    format_spec: &String,
+) -> PyResult {
     let returned_type = vm.ctx.new_str(format_spec.clone());
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
         let result_type = result.typ();
         let actual_type = vm.to_pystr(&result_type)?;
-        return Err(vm.new_type_error(format!(
-            "__format__ must return a str, not {}",
-            actual_type
-        )));
+        return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
     }
     Ok(result)
 }
 
-fn perform_format ( vm: &mut VirtualMachine, format_string: &FormatString, arguments: &PyFuncArgs) -> PyResult {
+fn perform_format(
+    vm: &mut VirtualMachine,
+    format_string: &FormatString,
+    arguments: &PyFuncArgs,
+) -> PyResult {
     let mut final_string = String::new();
-    if format_string.format_parts.iter().any(FormatPart::is_auto) && format_string.format_parts.iter().any(FormatPart::is_index) {
-        return Err(vm.new_value_error("cannot switch from automatic field numbering to manual field specification".to_string()));
+    if format_string.format_parts.iter().any(FormatPart::is_auto)
+        && format_string.format_parts.iter().any(FormatPart::is_index)
+    {
+        return Err(vm.new_value_error(
+            "cannot switch from automatic field numbering to manual field specification"
+                .to_string(),
+        ));
     }
     let mut auto_argument_index: usize = 1;
     for part in &format_string.format_parts {
@@ -199,25 +211,31 @@ fn perform_format ( vm: &mut VirtualMachine, format_string: &FormatString, argum
             FormatPart::AutoSpec(format_spec) => {
                 let result = match arguments.args.get(auto_argument_index) {
                     Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => { return Err(vm.new_index_error("tuple index out of range".to_string())); },
+                    None => {
+                        return Err(vm.new_index_error("tuple index out of range".to_string()));
+                    }
                 };
                 auto_argument_index += 1;
                 get_value(&result)
-            },
+            }
             FormatPart::IndexSpec(index, format_spec) => {
                 let result = match arguments.args.get(*index + 1) {
                     Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => { return Err(vm.new_index_error("tuple index out of range".to_string())); },
+                    None => {
+                        return Err(vm.new_index_error("tuple index out of range".to_string()));
+                    }
                 };
                 get_value(&result)
-            },
+            }
             FormatPart::KeywordSpec(keyword, format_spec) => {
                 let result = match arguments.get_optional_kwarg(&keyword) {
                     Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
-                    None => { return Err(vm.new_key_error(format!("'{}'", keyword))); },
+                    None => {
+                        return Err(vm.new_key_error(format!("'{}'", keyword)));
+                    }
                 };
                 get_value(&result)
-            },
+            }
             FormatPart::Literal(literal) => literal.clone(),
         };
         final_string.push_str(&result_string);

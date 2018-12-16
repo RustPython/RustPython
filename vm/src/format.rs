@@ -18,7 +18,7 @@ impl FormatAlign {
             '>' => Some(FormatAlign::Right),
             '=' => Some(FormatAlign::AfterSign),
             '^' => Some(FormatAlign::Center),
-            _   => None,
+            _ => None,
         }
     }
 }
@@ -75,8 +75,7 @@ fn get_num_digits(text: &str) -> usize {
     text.len()
 }
 
-fn parse_align(text: &str) -> (Option<FormatAlign>, &str){
-
+fn parse_align(text: &str) -> (Option<FormatAlign>, &str) {
     let mut chars = text.chars();
     let maybe_align = chars.next().and_then(FormatAlign::from_char);
     if maybe_align.is_some() {
@@ -105,21 +104,24 @@ fn parse_fill_and_align(text: &str) -> (Option<char>, Option<FormatAlign>, &str)
 }
 
 fn parse_number(text: &str) -> (Option<usize>, &str) {
-    let num_digits: usize= get_num_digits(text);
+    let num_digits: usize = get_num_digits(text);
     if num_digits == 0 {
-        return (None, text)
+        return (None, text);
     }
     // This should never fail
-    (Some(text[..num_digits].parse::<usize>().unwrap()), &text[num_digits..])
+    (
+        Some(text[..num_digits].parse::<usize>().unwrap()),
+        &text[num_digits..],
+    )
 }
 
-fn parse_sign(text: &str) -> (Option<FormatSign>, &str){
+fn parse_sign(text: &str) -> (Option<FormatSign>, &str) {
     let mut chars = text.chars();
     match chars.next() {
         Some('-') => (Some(FormatSign::Minus), chars.as_str()),
         Some('+') => (Some(FormatSign::Plus), chars.as_str()),
         Some(' ') => (Some(FormatSign::MinusOrSpace), chars.as_str()),
-        _ => (None, text)
+        _ => (None, text),
     }
 }
 
@@ -149,7 +151,7 @@ fn parse_precision(text: &str) -> (Option<usize>, &str) {
             } else {
                 (None, text)
             }
-        },
+        }
         _ => (None, text),
     }
 }
@@ -211,10 +213,16 @@ impl FormatSpec {
     }
 
     fn compute_fill_string(fill_char: char, fill_chars_needed: i32) -> String {
-        (0..fill_chars_needed).map(|_| fill_char).collect::<String>()
+        (0..fill_chars_needed)
+            .map(|_| fill_char)
+            .collect::<String>()
     }
 
-    fn add_magnitude_separators_for_char(magnitude_string: String, interval: usize, separator: char) -> String {
+    fn add_magnitude_separators_for_char(
+        magnitude_string: String,
+        interval: usize,
+        separator: char,
+    ) -> String {
         let mut result = String::new();
         let mut remaining: usize = magnitude_string.len() % interval;
         if remaining == 0 {
@@ -245,13 +253,21 @@ impl FormatSpec {
 
     fn add_magnitude_separators(&self, magnitude_string: String) -> String {
         match self.grouping_option {
-            Some(FormatGrouping::Comma) => FormatSpec::add_magnitude_separators_for_char(magnitude_string, self.get_separator_interval(), ','),
-            Some(FormatGrouping::Underscore) => FormatSpec::add_magnitude_separators_for_char(magnitude_string, self.get_separator_interval(), '_'),
-            None => magnitude_string
+            Some(FormatGrouping::Comma) => FormatSpec::add_magnitude_separators_for_char(
+                magnitude_string,
+                self.get_separator_interval(),
+                ',',
+            ),
+            Some(FormatGrouping::Underscore) => FormatSpec::add_magnitude_separators_for_char(
+                magnitude_string,
+                self.get_separator_interval(),
+                '_',
+            ),
+            None => magnitude_string,
         }
     }
 
-    pub fn format_int(&self, num: &BigInt) -> Result<String, &'static str>  {
+    pub fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
         let fill_char = self.fill.unwrap_or(' ');
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
@@ -262,7 +278,9 @@ impl FormatSpec {
                 Some(FormatType::HexUpper) => "0x",
                 _ => "",
             }
-        } else { "" };
+        } else {
+            ""
+        };
         let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
             Some(FormatType::Binary) => Ok(magnitude.to_str_radix(2)),
             Some(FormatType::Decimal) => Ok(magnitude.to_str_radix(10)),
@@ -276,18 +294,34 @@ impl FormatSpec {
             Some(FormatType::Number) => Ok(magnitude.to_str_radix(10)),
             Some(FormatType::String) => Err("Unknown format code 's' for object of type 'int'"),
             Some(FormatType::Character) => Err("Unknown format code 'c' for object of type 'int'"),
-            Some(FormatType::GeneralFormatUpper) => Err("Unknown format code 'G' for object of type 'int'"),
-            Some(FormatType::GeneralFormatLower) => Err("Unknown format code 'g' for object of type 'int'"),
-            Some(FormatType::ExponentUpper) => Err("Unknown format code 'E' for object of type 'int'"),
-            Some(FormatType::ExponentLower) => Err("Unknown format code 'e' for object of type 'int'"),
-            Some(FormatType::FixedPointUpper) => Err("Unknown format code 'F' for object of type 'int'"),
-            Some(FormatType::FixedPointLower) => Err("Unknown format code 'f' for object of type 'int'"),
+            Some(FormatType::GeneralFormatUpper) => {
+                Err("Unknown format code 'G' for object of type 'int'")
+            }
+            Some(FormatType::GeneralFormatLower) => {
+                Err("Unknown format code 'g' for object of type 'int'")
+            }
+            Some(FormatType::ExponentUpper) => {
+                Err("Unknown format code 'E' for object of type 'int'")
+            }
+            Some(FormatType::ExponentLower) => {
+                Err("Unknown format code 'e' for object of type 'int'")
+            }
+            Some(FormatType::FixedPointUpper) => {
+                Err("Unknown format code 'F' for object of type 'int'")
+            }
+            Some(FormatType::FixedPointLower) => {
+                Err("Unknown format code 'f' for object of type 'int'")
+            }
             None => Ok(magnitude.to_str_radix(10)),
         };
         if !raw_magnitude_string_result.is_ok() {
             return raw_magnitude_string_result;
         }
-        let magnitude_string = format!("{}{}", prefix, self.add_magnitude_separators(raw_magnitude_string_result.unwrap()));
+        let magnitude_string = format!(
+            "{}{}",
+            prefix,
+            self.add_magnitude_separators(raw_magnitude_string_result.unwrap())
+        );
         let align = self.align.unwrap_or(FormatAlign::Right);
 
         // Use the byte length as the string length since we're in ascii
@@ -300,21 +334,43 @@ impl FormatSpec {
                 FormatSign::Plus => "+",
                 FormatSign::Minus => "",
                 FormatSign::MinusOrSpace => " ",
-            }
+            },
         };
 
-        let fill_chars_needed: i32 = self.width.map_or(0, |w| cmp::max(0, (w as i32) - (num_chars as i32)- (sign_str.len() as i32)));
+        let fill_chars_needed: i32 = self.width.map_or(0, |w| {
+            cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
+        });
         Ok(match align {
-            FormatAlign::Left => format!("{}{}{}", sign_str, magnitude_string, FormatSpec::compute_fill_string(fill_char, fill_chars_needed)),
-            FormatAlign::Right => format!("{}{}{}", FormatSpec::compute_fill_string(fill_char, fill_chars_needed), sign_str, magnitude_string),
-            FormatAlign::AfterSign => format!("{}{}{}", sign_str, FormatSpec::compute_fill_string(fill_char, fill_chars_needed), magnitude_string),
+            FormatAlign::Left => format!(
+                "{}{}{}",
+                sign_str,
+                magnitude_string,
+                FormatSpec::compute_fill_string(fill_char, fill_chars_needed)
+            ),
+            FormatAlign::Right => format!(
+                "{}{}{}",
+                FormatSpec::compute_fill_string(fill_char, fill_chars_needed),
+                sign_str,
+                magnitude_string
+            ),
+            FormatAlign::AfterSign => format!(
+                "{}{}{}",
+                sign_str,
+                FormatSpec::compute_fill_string(fill_char, fill_chars_needed),
+                magnitude_string
+            ),
             FormatAlign::Center => {
                 let left_fill_chars_needed = fill_chars_needed / 2;
                 let right_fill_chars_needed = fill_chars_needed - left_fill_chars_needed;
-                let left_fill_string = FormatSpec::compute_fill_string(fill_char, left_fill_chars_needed);
-                let right_fill_string = FormatSpec::compute_fill_string(fill_char, right_fill_chars_needed);
-                format!("{}{}{}{}", left_fill_string, sign_str, magnitude_string, right_fill_string)
-            },
+                let left_fill_string =
+                    FormatSpec::compute_fill_string(fill_char, left_fill_chars_needed);
+                let right_fill_string =
+                    FormatSpec::compute_fill_string(fill_char, right_fill_chars_needed);
+                format!(
+                    "{}{}{}{}",
+                    left_fill_string, sign_str, magnitude_string, right_fill_string
+                )
+            }
         })
     }
 }
@@ -345,14 +401,14 @@ impl FormatPart {
     pub fn is_auto(&self) -> bool {
         match self {
             FormatPart::AutoSpec(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_index(&self) -> bool {
         match self {
             FormatPart::IndexSpec(_, _) => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -387,14 +443,14 @@ impl FormatString {
                 Ok((next_char, remaining)) => {
                     result_string.push(next_char);
                     cur_text = remaining;
-                },
+                }
                 Err(err) => {
                     if result_string.len() > 0 {
                         return Ok((FormatPart::Literal(result_string.to_string()), cur_text));
                     } else {
                         return Err(err);
                     }
-                },
+                }
             }
         }
         Ok((FormatPart::Literal(result_string), ""))
@@ -413,7 +469,7 @@ impl FormatString {
 
         if arg_part.len() == 0 {
             return Ok(FormatPart::AutoSpec(format_spec));
-        } 
+        }
 
         if let Ok(index) = arg_part.parse::<usize>() {
             Ok(FormatPart::IndexSpec(index, format_spec))
@@ -421,7 +477,6 @@ impl FormatString {
             Ok(FormatPart::KeywordSpec(arg_part.to_string(), format_spec))
         }
     }
-
 
     fn parse_spec(text: &str) -> Result<(FormatPart, &str), FormatParseError> {
         let mut chars = text.chars();
@@ -467,11 +522,26 @@ mod tests {
 
     #[test]
     fn test_fill_and_align() {
-        assert_eq!(parse_fill_and_align(" <"), (Some(' '), Some(FormatAlign::Left), ""));
-        assert_eq!(parse_fill_and_align(" <22"), (Some(' '), Some(FormatAlign::Left), "22"));
-        assert_eq!(parse_fill_and_align("<22"), (None, Some(FormatAlign::Left), "22"));
-        assert_eq!(parse_fill_and_align(" ^^"), (Some(' '), Some(FormatAlign::Center), "^"));
-        assert_eq!(parse_fill_and_align("==="), (Some('='), Some(FormatAlign::AfterSign), "="));
+        assert_eq!(
+            parse_fill_and_align(" <"),
+            (Some(' '), Some(FormatAlign::Left), "")
+        );
+        assert_eq!(
+            parse_fill_and_align(" <22"),
+            (Some(' '), Some(FormatAlign::Left), "22")
+        );
+        assert_eq!(
+            parse_fill_and_align("<22"),
+            (None, Some(FormatAlign::Left), "22")
+        );
+        assert_eq!(
+            parse_fill_and_align(" ^^"),
+            (Some(' '), Some(FormatAlign::Center), "^")
+        );
+        assert_eq!(
+            parse_fill_and_align("==="),
+            (Some('='), Some(FormatAlign::AfterSign), "=")
+        );
     }
 
     #[test]
@@ -521,23 +591,45 @@ mod tests {
 
     #[test]
     fn test_format_int() {
-        assert_eq!(parse_format_spec("d").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")), Ok("16".to_string()));
-        assert_eq!(parse_format_spec("x").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")), Ok("10".to_string()));
-        assert_eq!(parse_format_spec("b").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")), Ok("10000".to_string()));
-        assert_eq!(parse_format_spec("o").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")), Ok("20".to_string()));
-        assert_eq!(parse_format_spec("+d").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")), Ok("+16".to_string()));
-        assert_eq!(parse_format_spec("^ 5d").format_int(&BigInt::from_bytes_be(Sign::Minus, b"\x10")), Ok(" -16 ".to_string()));
-        assert_eq!(parse_format_spec("0>+#10x").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")), Ok("00000+0x10".to_string()));
+        assert_eq!(
+            parse_format_spec("d").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            Ok("16".to_string())
+        );
+        assert_eq!(
+            parse_format_spec("x").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            Ok("10".to_string())
+        );
+        assert_eq!(
+            parse_format_spec("b").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            Ok("10000".to_string())
+        );
+        assert_eq!(
+            parse_format_spec("o").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            Ok("20".to_string())
+        );
+        assert_eq!(
+            parse_format_spec("+d").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            Ok("+16".to_string())
+        );
+        assert_eq!(
+            parse_format_spec("^ 5d").format_int(&BigInt::from_bytes_be(Sign::Minus, b"\x10")),
+            Ok(" -16 ".to_string())
+        );
+        assert_eq!(
+            parse_format_spec("0>+#10x").format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+            Ok("00000+0x10".to_string())
+        );
     }
 
     #[test]
     fn test_format_parse() {
         let expected = Ok(FormatString {
-            format_parts: vec!(
+            format_parts: vec![
                 FormatPart::Literal("abcd".to_string()),
                 FormatPart::IndexSpec(1, String::new()),
                 FormatPart::Literal(":".to_string()),
-                FormatPart::KeywordSpec("key".to_string(), String::new()))
+                FormatPart::KeywordSpec("key".to_string(), String::new()),
+            ],
         });
 
         assert_eq!(FormatString::from_str("abcd{1}:{key}"), expected);
@@ -545,16 +637,20 @@ mod tests {
 
     #[test]
     fn test_format_parse_fail() {
-        assert_eq!(FormatString::from_str("{s"), Err(FormatParseError::UnmatchedBracket));
+        assert_eq!(
+            FormatString::from_str("{s"),
+            Err(FormatParseError::UnmatchedBracket)
+        );
     }
 
     #[test]
     fn test_format_parse_escape() {
         let expected = Ok(FormatString {
-            format_parts: vec!(
+            format_parts: vec![
                 FormatPart::Literal("{".to_string()),
                 FormatPart::KeywordSpec("key".to_string(), String::new()),
-                FormatPart::Literal("}ddfe".to_string()))
+                FormatPart::Literal("}ddfe".to_string()),
+            ],
         });
 
         assert_eq!(FormatString::from_str("{{{key}}}ddfe"), expected);

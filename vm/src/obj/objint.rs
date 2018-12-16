@@ -1,9 +1,7 @@
+use super::super::format::FormatSpec;
 use super::super::pyobject::{
     FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
     TypeProtocol,
-};
-use super::super::format::{
-    FormatSpec,
 };
 use super::super::vm::VirtualMachine;
 use super::objfloat;
@@ -227,7 +225,10 @@ fn int_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.int_type())), (format_spec, Some(vm.ctx.str_type()))]
+        required = [
+            (i, Some(vm.ctx.int_type())),
+            (format_spec, Some(vm.ctx.str_type()))
+        ]
     );
     let string_value = objstr::get_value(format_spec);
     let format_spec = FormatSpec::parse(&string_value);
