@@ -107,6 +107,16 @@ impl VirtualMachine {
         self.new_exception(value_error, msg)
     }
 
+    pub fn new_key_error(&mut self, msg: String) -> PyObjectRef {
+        let key_error = self.ctx.exceptions.key_error.clone();
+        self.new_exception(key_error, msg)
+    }
+
+    pub fn new_index_error(&mut self, msg: String) -> PyObjectRef {
+        let index_error = self.ctx.exceptions.index_error.clone();
+        self.new_exception(index_error, msg)
+    }
+
     pub fn new_not_implemented_error(&mut self, msg: String) -> PyObjectRef {
         let value_error = self.ctx.exceptions.not_implemented_error.clone();
         self.new_exception(value_error, msg)

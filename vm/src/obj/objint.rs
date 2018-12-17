@@ -1,3 +1,4 @@
+use super::super::format::FormatSpec;
 use super::super::pyobject::{
     FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
     TypeProtocol,
@@ -220,6 +221,24 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (i, Some(vm.ctx.int_type())),
+            (format_spec, Some(vm.ctx.str_type()))
+        ]
+    );
+    let string_value = objstr::get_value(format_spec);
+    let format_spec = FormatSpec::parse(&string_value);
+    let int_value = get_value(i);
+    match format_spec.format_int(&int_value) {
+        Ok(string) => Ok(vm.ctx.new_str(string)),
+        Err(err) => Err(vm.new_value_error(err.to_string())),
+    }
+}
+
 fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -413,6 +432,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&int_type, "__pow__", context.new_rustfunc(int_pow));
     context.set_attr(&int_type, "__repr__", context.new_rustfunc(int_repr));
     context.set_attr(&int_type, "__sub__", context.new_rustfunc(int_sub));
+    context.set_attr(&int_type, "__format__", context.new_rustfunc(int_format));
     context.set_attr(&int_type, "__truediv__", context.new_rustfunc(int_truediv));
     context.set_attr(&int_type, "__xor__", context.new_rustfunc(int_xor));
     context.set_attr(
