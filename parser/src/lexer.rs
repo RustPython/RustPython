@@ -4,14 +4,47 @@
 pub use super::token::Tok;
 use num_bigint::BigInt;
 use num_traits::Num;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct IndentationLevel {
+    tabs: usize,
+    spaces: usize,
+}
+
+impl IndentationLevel {
+    fn new() -> IndentationLevel {
+        IndentationLevel { tabs: 0, spaces: 0 }
+    }
+    fn compare_strict(&self, other: &IndentationLevel) -> Option<Ordering> {
+        // We only know for sure that we're smaller or bigger if tabs
+        // and spaces both differ in the same direction. Otherwise we're
+        // dependent on the size of tabs.
+        if self.tabs < other.tabs {
+            if self.spaces <= other.spaces {
+                Some(Ordering::Less)
+            } else {
+                None
+            }
+        } else if self.tabs > other.tabs {
+            if self.spaces >= other.spaces {
+                Some(Ordering::Greater)
+            } else {
+                None
+            }
+        } else {
+            Some(self.spaces.cmp(&other.spaces))
+        }
+    }
+}
 
 pub struct Lexer<T: Iterator<Item = char>> {
     chars: T,
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
-    indentation_stack: Vec<usize>,
+    indentation_stack: Vec<IndentationLevel>,
     pending: Vec<Spanned<Tok>>,
     chr0: Option<char>,
     chr1: Option<char>,
@@ -218,7 +251,7 @@ where
             chars: input,
             at_begin_of_line: true,
             nesting: 0,
-            indentation_stack: vec![0],
+            indentation_stack: vec![IndentationLevel::new()],
             pending: Vec::new(),
             chr0: None,
             location: Location::new(0, 0),
@@ -576,12 +609,23 @@ where
                 self.at_begin_of_line = false;
 
                 // Determine indentation:
-                let mut col: usize = 0;
+                let mut spaces: usize = 0;
+                let mut tabs: usize = 0;
                 loop {
                     match self.chr0 {
                         Some(' ') => {
                             self.next_char();
-                            col += 1;
+                            spaces += 1;
+                        }
+                        Some('\t') => {
+                            if spaces != 0 {
+                                // Don't allow tabs after spaces as part of indentation.
+                                // This is technically stricter than python3 but spaces before
+                                // tabs is even more insane than mixing spaces and tabs.
+                                panic!("Tabs not allowed as part of indentation after spaces");
+                            }
+                            self.next_char();
+                            tabs += 1;
                         }
                         Some('#') => {
                             self.lex_comment();
@@ -601,34 +645,54 @@ where
                     }
                 }
 
+                let indentation_level = IndentationLevel { spaces, tabs };
+
                 if self.nesting == 0 {
                     // Determine indent or dedent:
                     let current_indentation = *self.indentation_stack.last().unwrap();
-                    if col == current_indentation {
-                        // Same same
-                    } else if col > current_indentation {
-                        // New indentation level:
-                        self.indentation_stack.push(col);
-                        let tok_start = self.get_pos();
-                        let tok_end = tok_start.clone();
-                        return Some(Ok((tok_start, Tok::Indent, tok_end)));
-                    } else if col < current_indentation {
-                        // One or more dedentations
-                        // Pop off other levels until col is found:
-
-                        while col < *self.indentation_stack.last().unwrap() {
-                            self.indentation_stack.pop().unwrap();
+                    let ordering = indentation_level.compare_strict(&current_indentation);
+                    match ordering {
+                        Some(Ordering::Equal) => {
+                            // Same same
+                        }
+                        Some(Ordering::Greater) => {
+                            // New indentation level:
+                            self.indentation_stack.push(indentation_level);
                             let tok_start = self.get_pos();
                             let tok_end = tok_start.clone();
-                            self.pending.push(Ok((tok_start, Tok::Dedent, tok_end)));
+                            return Some(Ok((tok_start, Tok::Indent, tok_end)));
                         }
+                        Some(Ordering::Less) => {
+                            // One or more dedentations
+                            // Pop off other levels until col is found:
 
-                        if col != *self.indentation_stack.last().unwrap() {
-                            // TODO: handle wrong indentations
-                            panic!("Non matching indentation levels!");
+                            loop {
+                                let ordering = indentation_level
+                                    .compare_strict(self.indentation_stack.last().unwrap());
+                                match ordering {
+                                    Some(Ordering::Less) => {
+                                        self.indentation_stack.pop();
+                                        let tok_start = self.get_pos();
+                                        let tok_end = tok_start.clone();
+                                        self.pending.push(Ok((tok_start, Tok::Dedent, tok_end)));
+                                    }
+                                    None => {
+                                        panic!("inconsistent use of tabs and spaces in indentation")
+                                    }
+                                    _ => {
+                                        break;
+                                    }
+                                };
+                            }
+
+                            if indentation_level != *self.indentation_stack.last().unwrap() {
+                                // TODO: handle wrong indentations
+                                panic!("Non matching indentation levels!");
+                            }
+
+                            return Some(self.pending.remove(0));
                         }
-
-                        return Some(self.pending.remove(0));
+                        None => panic!("inconsistent use of tabs and spaces in indentation"),
                     }
                 }
             }
@@ -1233,10 +1297,54 @@ mod tests {
         }
     }
 
+    macro_rules! test_double_dedent_with_tabs {
+        ($($name:ident: $eol:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let source = String::from(format!("def foo():{}\tif x:{}{}\t return 99{}{}", $eol, $eol, $eol, $eol, $eol));
+                let tokens = lex_source(&source);
+                assert_eq!(
+                    tokens,
+                    vec![
+                        Tok::Def,
+                        Tok::Name {
+                            name: String::from("foo"),
+                        },
+                        Tok::Lpar,
+                        Tok::Rpar,
+                        Tok::Colon,
+                        Tok::Newline,
+                        Tok::Indent,
+                        Tok::If,
+                        Tok::Name {
+                            name: String::from("x"),
+                        },
+                        Tok::Colon,
+                        Tok::Newline,
+                        Tok::Indent,
+                        Tok::Return,
+                        Tok::Int { value: BigInt::from(99) },
+                        Tok::Newline,
+                        Tok::Dedent,
+                        Tok::Dedent,
+                    ]
+                );
+            }
+        )*
+        }
+    }
+
     test_double_dedent_with_eol! {
         test_double_dedent_windows_eol: WINDOWS_EOL,
         test_double_dedent_mac_eol: MAC_EOL,
         test_double_dedent_unix_eol: UNIX_EOL,
+    }
+
+    test_double_dedent_with_tabs! {
+        test_double_dedent_tabs_windows_eol: WINDOWS_EOL,
+        test_double_dedent_tabs_mac_eol: MAC_EOL,
+        test_double_dedent_tabs_unix_eol: UNIX_EOL,
     }
 
     macro_rules! test_newline_in_brackets {
