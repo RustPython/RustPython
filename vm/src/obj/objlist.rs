@@ -252,12 +252,7 @@ fn list_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         new_elements.extend(elements.clone());
     }
 
-    Ok(PyObject::new(
-        PyObjectKind::Sequence {
-            elements: new_elements,
-        },
-        vm.ctx.list_type(),
-    ))
+    Ok(vm.ctx.new_list(new_elements))
 }
 
 pub fn init(context: &PyContext) {
