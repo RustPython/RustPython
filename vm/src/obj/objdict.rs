@@ -113,8 +113,12 @@ pub fn content_contains_key_str(elements: &DictContentType, key: &str) -> bool {
 
 // Python dict methods:
 
-fn dict_new(_vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    Ok(new(args.args[0].clone()))
+fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let dict = new(args.args[0].clone());
+    for (needle, value) in args.kwargs {
+        set_item(&dict, &vm.new_str(needle), &value);
+    }
+    Ok(dict)
 }
 
 fn dict_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
