@@ -6,9 +6,6 @@ authors = ["Ryan Liddle <ryan@rmliddle.com>"]
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[workspace]
-members = []
-
 [dependencies]
 rustpython_parser = {path = "../parser"}
 rustpython_vm = {path = "../vm"}
@@ -19,7 +16,3 @@ js-sys = "0.3"
 [dependencies.web-sys]
 version = "0.3"
 features = [ "console", "Document", "Element", "HtmlTextAreaElement", "Window" ]
-
-
-[profile.release]
-opt-level = "s"
