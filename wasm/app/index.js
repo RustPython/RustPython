@@ -6,8 +6,10 @@ window.rp = rp;
 function runCodeFromTextarea(_) {
     const consoleElement = document.getElementById('console');
     const errorElement = document.getElementById('error');
-    // Clean the console
+
+    // Clean the console and errors
     consoleElement.value = '';
+    errorElement.textContent = '';
 
     const code = document.getElementById('code').value;
     try {
