@@ -5,7 +5,6 @@ extern crate rustpython_vm;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use js_sys::Reflect;
 use rustpython_vm::compile;
 use rustpython_vm::pyobject::{self, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
@@ -77,6 +76,12 @@ where
 
 #[wasm_bindgen]
 pub fn eval_py(source: &str, js_injections: Option<js_sys::Object>) -> Result<JsValue, JsValue> {
+    if let Some(js_injections) = js_injections.clone() {
+        if !js_injections.is_object() {
+            return Err(js_sys::TypeError::new("The second argument must be an object").into());
+        }
+    }
+
     let mut vm = VirtualMachine::new();
 
     vm.ctx.set_attr(
@@ -87,24 +92,11 @@ pub fn eval_py(source: &str, js_injections: Option<js_sys::Object>) -> Result<Js
     );
 
     let res = eval(&mut vm, source, |vm, vars| {
-        let injections = vm.new_dict();
-
-        if let Some(js_injections) = js_injections.clone() {
-            for pair in js_sys::try_iter(&js_sys::Object::entries(&js_injections))
-                .unwrap()
-                .unwrap()
-            {
-                let pair = pair.unwrap();
-                let key = Reflect::get(&pair, &"0".into()).unwrap();
-                let val = Reflect::get(&pair, &"1".into()).unwrap();
-                let py_val = js_to_py(vm, val);
-                vm.ctx.set_item(
-                    &injections,
-                    &String::from(js_sys::JsString::from(key)),
-                    py_val,
-                );
-            }
-        }
+        let injections = if let Some(js_injections) = js_injections.clone() {
+            js_to_py(vm, js_injections.into())
+        } else {
+            vm.new_dict()
+        };
 
         vm.ctx.set_item(vars, "js_vars", injections);
     });
