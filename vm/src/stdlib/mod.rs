@@ -6,6 +6,7 @@ mod math;
 mod pystruct;
 mod random;
 mod re;
+mod string;
 mod time_module;
 mod tokenize;
 mod types;
@@ -25,6 +26,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("math".to_string(), math::mk_module as StdlibInitFunc);
     modules.insert("re".to_string(), re::mk_module as StdlibInitFunc);
     modules.insert("random".to_string(), random::mk_module as StdlibInitFunc);
+    modules.insert("string".to_string(), string::mk_module as StdlibInitFunc);
     modules.insert("struct".to_string(), pystruct::mk_module as StdlibInitFunc);
     modules.insert("time".to_string(), time_module::mk_module as StdlibInitFunc);
     modules.insert(
