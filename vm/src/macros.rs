@@ -94,3 +94,84 @@ macro_rules! no_kwargs {
         }
     };
 }
+
+macro_rules! __py_attr {
+    ($ctx:expr, $name:ident, func $func:expr) => {
+        $ctx.new_rustfunc($func)
+    };
+    ($ctx:expr, $name:ident, class { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }) => {
+        py_class!($ctx, $name {$($attr_name: ($($attr_val)*)),*})
+    };
+    (
+        $ctx:expr,
+        $name:ident,
+        class($parent:ident) { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }
+    ) => {
+        py_class!($ctx, $name($parent) {$($attr_name: ($($attr_val)*)),*})
+    };
+    ($ctx:expr, $name:ident, $attr:expr) => {
+        $attr
+    };
+}
+
+macro_rules! __py_module {
+    (
+        $ctx:expr,
+        $name:ident($parent:expr),
+        { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }
+    ) => {{
+        let __ctx: &PyContext = $ctx;
+        let __py_mod = __ctx.new_module(&stringify!(ident).to_string(), __ctx.new_scope($parent));
+        $(
+            #[allow(non_snake_case)]
+            let $attr_name = __py_attr!(__ctx, $attr_name, $($attr_val)*);
+            __ctx.set_attr(&__py_mod, stringify!($attr_name), $attr_name.clone());
+        )*
+        __py_mod
+    }};
+}
+
+#[macro_export]
+macro_rules! py_module {
+    (
+        $ctx:expr,
+        $name:ident($parent:expr) { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }
+    ) => {
+        __py_module!($ctx, $name(Some($parent)), { $($attr_name: ($($attr_val)*)),* })
+    };
+    ($ctx:expr, $name:ident {$($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }) => {
+        __py_module!($ctx, $name(None), {$($attr_name: ($($attr_val)*)),*})
+    }
+
+}
+
+macro_rules! __py_class {
+    (
+        $ctx:expr,
+        $name:ident($parent:expr),
+        { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }
+    ) => {{
+        let __ctx: &PyContext = $ctx;
+        let __py_class = __ctx.new_class(stringify!($name), $parent);
+        $(
+            #[allow(non_snake_case)]
+            let $attr_name = __py_attr!(__ctx, $attr_name, $($attr_val)*);
+            __ctx.set_attr(&__py_class, stringify!($attr_name), $attr_name.clone());
+        )*
+        __py_class
+    }};
+}
+
+#[macro_export]
+macro_rules! py_class {
+    (
+        $ctx:expr,
+        $name:ident($parent:ident) { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }
+    ) => {
+        __py_class!($ctx, $name($parent.clone()), {$($attr_name: ($($attr_val)*)),*})
+    };
+    ($ctx:expr, $name:ident { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }) => {{
+        let __ctx: &PyContext = $ctx;
+        __py_class!(__ctx, $name(__ctx.object()), {$($attr_name: ($($attr_val)*)),*})
+    }};
+}
