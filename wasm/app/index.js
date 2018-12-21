@@ -1,26 +1,27 @@
-import * as rp from "rustpython_wasm";
+import * as rp from 'rustpython_wasm';
+
+// so people can play around with it
+window.rp = rp;
 
 function runCodeFromTextarea(_) {
-  const consoleElement = document.getElementById('console');
-  // Clean the console
-  consoleElement.value = '';
+    const consoleElement = document.getElementById('console');
+    const errorElement = document.getElementById('error');
 
-  const code = document.getElementById('code').value;
-  try {
-    if (!code.endsWith('\n')) { // HACK: if the code doesn't end with newline it crashes.
-      rp.run_code(code + '\n');
-      return;
+    // Clean the console and errors
+    consoleElement.value = '';
+    errorElement.textContent = '';
+
+    const code = document.getElementById('code').value;
+    try {
+        rp.run_from_textbox(code);
+    } catch (e) {
+        errorElement.textContent = e;
+        console.error(e);
     }
-
-    rp.run_code(code);
-
-  } catch(e) {
-    consoleElement.value = 'Execution failed. Please check if your Python code has any syntax error.';
-    console.error(e);
-  }
-
 }
 
-document.getElementById('run-btn').addEventListener('click', runCodeFromTextarea);
+document
+    .getElementById('run-btn')
+    .addEventListener('click', runCodeFromTextarea);
 
 runCodeFromTextarea(); // Run once for demo
