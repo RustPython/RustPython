@@ -2,6 +2,7 @@ use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objiter;
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
@@ -114,7 +115,38 @@ pub fn content_contains_key_str(elements: &DictContentType, key: &str) -> bool {
 // Python dict methods:
 
 fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let dict = new(args.args[0].clone());
+    arg_check!(
+        vm,
+        args,
+        required = [(_ty, Some(vm.ctx.type_type()))],
+        optional = [(dict_obj, None)]
+    );
+    let dict = vm.ctx.new_dict();
+    if let Some(dict_obj) = dict_obj {
+        if objtype::isinstance(&dict_obj, &vm.ctx.dict_type()) {
+            for (needle, value) in get_key_value_pairs(&dict_obj) {
+                set_item(&dict, &needle, &value);
+            }
+        } else {
+            let iter = objiter::get_iter(vm, dict_obj)?;
+            loop {
+                fn err(vm: &mut VirtualMachine) -> PyObjectRef {
+                    vm.new_type_error("Iterator must have exactly two elements".to_string())
+                }
+                let element = match objiter::get_next_object(vm, &iter)? {
+                    Some(obj) => obj,
+                    None => break,
+                };
+                let elem_iter = objiter::get_iter(vm, &element)?;
+                let needle = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                if let Some(_) = objiter::get_next_object(vm, &elem_iter)? {
+                    return Err(err(vm));
+                }
+                set_item(&dict, &needle, &value);
+            }
+        }
+    }
     for (needle, value) in args.kwargs {
         set_item(&dict, &vm.new_str(needle), &value);
     }
