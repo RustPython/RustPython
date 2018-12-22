@@ -66,6 +66,9 @@ pub enum Instruction {
         name: String,
         symbol: Option<String>,
     },
+    ImportStar {
+        name: String,
+    },
     LoadName {
         name: String,
     },

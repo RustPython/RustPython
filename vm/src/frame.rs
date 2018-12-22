@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use super::builtins;
 use super::bytecode;
-use super::import::import;
+use super::import::{import, import_module};
 use super::obj::objbool;
 use super::obj::objcode;
 use super::obj::objdict;
@@ -182,6 +182,7 @@ impl Frame {
                 ref name,
                 ref symbol,
             } => self.import(vm, name, symbol),
+            bytecode::Instruction::ImportStar { ref name } => self.import_star(vm, name),
             bytecode::Instruction::LoadName { ref name } => self.load_name(vm, name),
             bytecode::Instruction::StoreName { ref name } => self.store_name(vm, name),
             bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
@@ -674,6 +675,26 @@ impl Frame {
 
         // Push module on stack:
         self.push_value(obj);
+        Ok(None)
+    }
+
+    fn import_star(&mut self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
+        let current_path = match &self.code.source_path {
+            Some(source_path) => {
+                let mut source_pathbuf = PathBuf::from(source_path);
+                source_pathbuf.pop();
+                source_pathbuf
+            }
+            None => PathBuf::from("."),
+        };
+
+        // Grab all the names from the module and put them in the context
+        let obj = import_module(vm, current_path, module)?;
+
+        for (k, v) in obj.get_key_value_pairs().iter() {
+            vm.ctx
+                .set_item(&self.locals, &objstr::get_value(k), v.clone());
+        }
         Ok(None)
     }
 
