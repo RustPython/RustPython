@@ -34,6 +34,21 @@ while count < until:
         <h3>Standard Output</h3>
         <textarea id="console">Loading...</textarea>
 
+        <p>Here's some info regarding the <code>rp.eval_py()</code> function</p>
+        <ul>
+            <li>
+                You can return variables from python and get them returned to
+                JS, with the only requirement being that they're serializable
+                with <code>json.dumps</code>.
+            </li>
+            <li>
+                You can pass an object as the second argument to the function,
+                and that will be available in python as the variable
+                <code>js_vars</code>. Again, only values that can be serialized
+                with <code>JSON.stringify()</code> will go through.
+            </li>
+        </ul>
+
         <a href="https://github.com/RustPython/RustPython">
             <img
                 style="position: absolute; top: 0; right: 0; border: 0;"

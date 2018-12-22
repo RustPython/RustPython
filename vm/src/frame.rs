@@ -559,7 +559,7 @@ impl Frame {
             bytecode::Instruction::LoadBuildClass => {
                 let rustfunc = PyObject::new(
                     PyObjectKind::RustFunction {
-                        function: builtins::builtin_build_class_,
+                        function: Box::new(builtins::builtin_build_class_),
                     },
                     vm.ctx.type_type(),
                 );

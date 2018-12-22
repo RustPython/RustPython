@@ -1,7 +1,3 @@
-wasm-pack build --debug && \
-cd pkg && \
-npm link && \
-cd ../app && \
-npm install && \
-npm link rustpython_wasm && \
-node_modules/.bin/webpack-dev-server
+set -e
+(cd lib; wasm-pack build --debug)
+(cd demo; npm install && node_modules/.bin/webpack-dev-server)

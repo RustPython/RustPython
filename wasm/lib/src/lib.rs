@@ -5,12 +5,11 @@ extern crate rustpython_vm;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use js_sys::Reflect;
+use js_sys::{Array, Object, Reflect, TypeError};
 use rustpython_vm::compile;
-use rustpython_vm::pyobject::{self, PyObjectRef, PyResult};
+use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::prelude::*;
-use web_sys::console;
 
 fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
     vm.to_pystr(&py_err)
@@ -76,21 +75,84 @@ where
 }
 
 #[wasm_bindgen]
-pub fn eval_py(source: &str, js_injections: Option<js_sys::Object>) -> Result<JsValue, JsValue> {
+pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
+    let options = options.unwrap_or_else(|| Object::new());
+    let js_vars = {
+        let prop = Reflect::get(&options, &"vars".into())?;
+        let prop = Object::from(prop);
+        if prop.is_undefined() {
+            None
+        } else if prop.is_object() {
+            Some(prop)
+        } else {
+            return Err(TypeError::new("vars must be an object").into());
+        }
+    };
+    let stdout = {
+        let prop = Reflect::get(&options, &"stdout".into())?;
+        if prop.is_undefined() {
+            None
+        } else {
+            Some(prop)
+        }
+    };
+    let string_stdout = {
+        let prop = Reflect::get(&options, &"stdoutString".into())?;
+        let prop = Object::from(prop);
+        if prop.is_undefined() {
+            true
+        } else if let Some(prop) = prop.as_bool() {
+            prop
+        } else {
+            return Err(TypeError::new("stdoutString must be a boolean").into());
+        }
+    };
     let mut vm = VirtualMachine::new();
+
+    let print_fn: Box<(Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult)> = match stdout {
+        Some(val) => {
+            if let Some(selector) = val.as_string() {
+                Box::new(
+                    move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
+                        wasm_builtins::builtin_print_html(vm, args, &selector)
+                    },
+                )
+            } else if val.is_function() {
+                let func = js_sys::Function::from(val);
+                Box::new(
+                    move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
+                        let arr = Array::new();
+                        for arg in args.args {
+                            let arg = if string_stdout {
+                                vm.to_pystr(&arg)?.into()
+                            } else {
+                                py_to_js(vm, arg)
+                            };
+                            arr.push(&arg);
+                        }
+                        func.apply(&JsValue::UNDEFINED, &arr)
+                            .map_err(|err| js_to_py(vm, err))?;
+                        Ok(vm.get_none())
+                    },
+                )
+            } else {
+                return Err(TypeError::new("stdout must be a function or a css selector").into());
+            }
+        }
+        None => Box::new(wasm_builtins::builtin_print_console),
+    };
 
     vm.ctx.set_attr(
         &vm.builtins,
         "print",
-        vm.context()
-            .new_rustfunc(wasm_builtins::builtin_print_console),
+        vm.ctx.new_rustfunc_from_box(print_fn),
     );
 
     let res = eval(&mut vm, source, |vm, vars| {
         let injections = vm.new_dict();
 
-        if let Some(js_injections) = js_injections.clone() {
-            for pair in js_sys::try_iter(&js_sys::Object::entries(&js_injections))
+        if let Some(js_vars) = js_vars.clone() {
+            for pair in js_sys::try_iter(&Object::entries(&js_vars))
                 .unwrap()
                 .unwrap()
             {
@@ -111,41 +173,4 @@ pub fn eval_py(source: &str, js_injections: Option<js_sys::Object>) -> Result<Js
 
     res.map(|value| py_to_js(&mut vm, value))
         .map_err(|err| py_str_err(&mut vm, &err).into())
-}
-
-#[wasm_bindgen]
-pub fn run_from_textbox(source: &str) -> Result<JsValue, JsValue> {
-    //add hash in here
-    console::log_1(&"Running RustPython".into());
-    console::log_1(&"Running code:".into());
-    console::log_1(&source.to_string().into());
-
-    let mut vm = VirtualMachine::new();
-
-    // We are monkey-patching the builtin print to use console.log
-    // TODO: monkey-patch sys.stdout instead, after print actually uses sys.stdout
-    vm.ctx.set_attr(
-        &vm.builtins,
-        "print",
-        vm.context().new_rustfunc(wasm_builtins::builtin_print_html),
-    );
-
-    match eval(&mut vm, source, |_, _| {}) {
-        Ok(value) => {
-            console::log_1(&"Execution successful".into());
-            match value.borrow().kind {
-                pyobject::PyObjectKind::None => {}
-                _ => {
-                    if let Ok(text) = vm.to_pystr(&value) {
-                        wasm_builtins::print_to_html(&text);
-                    }
-                }
-            }
-            Ok(JsValue::UNDEFINED)
-        }
-        Err(err) => {
-            console::log_1(&"Execution failed".into());
-            Err(py_str_err(&mut vm, &err).into())
-        }
-    }
 }

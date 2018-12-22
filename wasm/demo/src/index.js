@@ -1,4 +1,4 @@
-import * as rp from '../../pkg';
+import * as rp from '../../lib/pkg';
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/python/python';
 import 'codemirror/addon/comment/comment';
@@ -14,6 +14,7 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
         'Ctrl-/': 'toggleComment',
         'Cmd-/': 'toggleComment'
     },
+    lineNumbers: true,
     mode: 'text/x-python',
     indentUnit: 4,
     autofocus: true
@@ -29,7 +30,9 @@ function runCodeFromTextarea() {
 
     const code = editor.getValue();
     try {
-        rp.run_from_textbox(code);
+        rp.eval_py(code, {
+            stdout: '#console'
+        });
     } catch (e) {
         errorElement.textContent = e;
         console.error(e);
