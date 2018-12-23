@@ -4,17 +4,17 @@ textarea {
 }
 
 #code {
-    height: 35vh;
+    height: 30vh;
     width: calc(100% - 3px);
 }
 
 .CodeMirror {
     border: 1px solid #ddd;
-    height: 35vh !important;
+    height: 30vh !important;
 }
 
 #console {
-    height: 35vh;
+    height: 30vh;
     width: calc(100% - 3px);
 }
 

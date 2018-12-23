@@ -33,7 +33,9 @@ function runCodeFromTextarea() {
         const result = rp.pyEval(code, {
             stdout: '#console'
         });
-        consoleElement.value += `\n${result}\n`;
+        if (result !== null) {
+            consoleElement.value += `\n${result}\n`;
+        }
     } catch (e) {
         errorElement.textContent = e;
         console.error(e);
