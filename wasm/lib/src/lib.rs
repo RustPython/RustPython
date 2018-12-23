@@ -5,7 +5,7 @@ extern crate rustpython_vm;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use js_sys::{Array, Object, Reflect, TypeError};
+use js_sys::{Object, Reflect, TypeError};
 use rustpython_vm::compile;
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
@@ -74,7 +74,7 @@ where
     vm.run_code_obj(code_obj, vars)
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen(js_name = pyEval)]
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
     let options = options.unwrap_or_else(|| Object::new());
     let js_vars = {
@@ -96,17 +96,6 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
             Some(prop)
         }
     };
-    let string_stdout = {
-        let prop = Reflect::get(&options, &"stdoutString".into())?;
-        let prop = Object::from(prop);
-        if prop.is_undefined() {
-            true
-        } else if let Some(prop) = prop.as_bool() {
-            prop
-        } else {
-            return Err(TypeError::new("stdoutString must be a boolean").into());
-        }
-    };
     let mut vm = VirtualMachine::new();
 
     let print_fn: Box<(Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult)> = match stdout {
@@ -121,17 +110,11 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
                 let func = js_sys::Function::from(val);
                 Box::new(
                     move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
-                        let arr = Array::new();
-                        for arg in args.args {
-                            let arg = if string_stdout {
-                                vm.to_pystr(&arg)?.into()
-                            } else {
-                                py_to_js(vm, arg)
-                            };
-                            arr.push(&arg);
-                        }
-                        func.apply(&JsValue::UNDEFINED, &arr)
-                            .map_err(|err| js_to_py(vm, err))?;
+                        func.call1(
+                            &JsValue::UNDEFINED,
+                            &wasm_builtins::format_print_args(vm, args)?.into(),
+                        )
+                        .map_err(|err| js_to_py(vm, err))?;
                         Ok(vm.get_none())
                     },
                 )

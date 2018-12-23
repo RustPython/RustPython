@@ -3,10 +3,10 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const path = require('path');
 
 module.exports = {
-    entry: './src/bootstrap.js',
+    entry: './src/index.js',
     output: {
-        path: path.resolve(__dirname, 'dist'),
-        filename: 'bootstrap.js'
+        path: path.join(__dirname, 'dist'),
+        filename: 'index.js'
     },
     mode: 'development',
     module: {

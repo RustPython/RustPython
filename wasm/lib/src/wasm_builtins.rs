@@ -10,7 +10,7 @@ extern crate web_sys;
 
 use crate::js_to_py;
 use js_sys::Array;
-use rustpython_vm::pyobject::{PyFuncArgs, PyResult};
+use rustpython_vm::pyobject::{PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{console, window, HtmlTextAreaElement};
@@ -30,7 +30,7 @@ pub fn print_to_html(text: &str, selector: &str) -> Result<(), JsValue> {
     Ok(())
 }
 
-pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs, selector: &str) -> PyResult {
+pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
     let mut output = String::new();
     let mut first = true;
     for a in args.args {
@@ -42,6 +42,11 @@ pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs, selector: &
         output.push_str(&vm.to_pystr(&a)?);
         output.push('\n');
     }
+    Ok(output)
+}
+
+pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs, selector: &str) -> PyResult {
+    let output = format_print_args(vm, args)?;
     print_to_html(&output, selector).map_err(|err| js_to_py(vm, err))?;
     Ok(vm.get_none())
 }

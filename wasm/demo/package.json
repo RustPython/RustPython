@@ -1,7 +1,7 @@
 {
     "name": "app",
     "version": "1.0.0",
-    "description": "",
+    "description": "Bindings to the RustPython library for WebAssembly",
     "main": "index.js",
     "dependencies": {
         "codemirror": "^5.42.0"

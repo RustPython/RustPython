@@ -2,6 +2,7 @@
 name = "rustpython_wasm"
 version = "0.1.0"
 authors = ["Ryan Liddle <ryan@rmliddle.com>"]
+license = "MIT"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
