@@ -25,7 +25,7 @@ use super::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::{Rc, Weak};
@@ -681,6 +681,7 @@ impl AttributeProtocol for PyObjectRef {
 pub trait DictProtocol {
     fn contains_key(&self, k: &str) -> bool;
     fn get_item(&self, k: &str) -> Option<PyObjectRef>;
+    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
 }
 
 impl DictProtocol for PyObjectRef {
@@ -698,6 +699,15 @@ impl DictProtocol for PyObjectRef {
             PyObjectKind::Dict { ref elements } => objdict::content_get_key_str(elements, k),
             PyObjectKind::Module { name: _, ref dict } => dict.get_item(k),
             PyObjectKind::Scope { ref scope } => scope.locals.get_item(k),
+            _ => panic!("TODO"),
+        }
+    }
+
+    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
+        match self.borrow().kind {
+            PyObjectKind::Dict { elements: _ } => objdict::get_key_value_pairs(self),
+            PyObjectKind::Module { name: _, ref dict } => dict.get_key_value_pairs(),
+            PyObjectKind::Scope { ref scope } => scope.locals.get_key_value_pairs(),
             _ => panic!("TODO"),
         }
     }
