@@ -232,6 +232,29 @@ fn list_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_item(vm, &mut elements, key.clone(), value.clone())
 }
 
+fn list_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (list, Some(vm.ctx.list_type())),
+            (product, Some(vm.ctx.int_type()))
+        ]
+    );
+
+    let counter = objint::get_value(&product).to_usize().unwrap();
+
+    let elements = get_elements(list);
+    let current_len = elements.len();
+    let mut new_elements = Vec::with_capacity(counter * current_len);
+
+    for _ in 0..counter {
+        new_elements.extend(elements.clone());
+    }
+
+    Ok(vm.ctx.new_list(new_elements))
+}
+
 pub fn init(context: &PyContext) {
     let ref list_type = context.list_type;
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
@@ -252,6 +275,7 @@ pub fn init(context: &PyContext) {
         "__setitem__",
         context.new_rustfunc(list_setitem),
     );
+    context.set_attr(&list_type, "__mul__", context.new_rustfunc(list_mul));
     context.set_attr(&list_type, "__len__", context.new_rustfunc(list_len));
     context.set_attr(&list_type, "__new__", context.new_rustfunc(list_new));
     context.set_attr(&list_type, "__repr__", context.new_rustfunc(list_repr));

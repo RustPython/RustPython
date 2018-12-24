@@ -1,3 +1,4 @@
+use super::super::format::{FormatParseError, FormatPart, FormatString};
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
@@ -20,12 +21,14 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&str_type, "__getitem__", context.new_rustfunc(str_getitem));
     context.set_attr(&str_type, "__gt__", context.new_rustfunc(str_gt));
+    context.set_attr(&str_type, "__lt__", context.new_rustfunc(str_lt));
     context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
     context.set_attr(&str_type, "__len__", context.new_rustfunc(str_len));
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
     context.set_attr(&str_type, "__new__", context.new_rustfunc(str_new));
     context.set_attr(&str_type, "__str__", context.new_rustfunc(str_str));
     context.set_attr(&str_type, "__repr__", context.new_rustfunc(str_repr));
+    context.set_attr(&str_type, "format", context.new_rustfunc(str_format));
     context.set_attr(&str_type, "lower", context.new_rustfunc(str_lower));
     context.set_attr(&str_type, "upper", context.new_rustfunc(str_upper));
     context.set_attr(
@@ -63,6 +66,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "find", context.new_rustfunc(str_find));
     context.set_attr(&str_type, "istitle", context.new_rustfunc(str_istitle));
     context.set_attr(&str_type, "isidentifier", context.new_rustfunc(str_isidentifier));
+    // context.set_attr(&str_type, "expandtabs", context.new_rustfunc(str_expandtabs));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -103,6 +107,22 @@ fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = zelf > other;
     Ok(vm.ctx.new_bool(result))
 }
+
+fn str_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.str_type())),
+            (other, Some(vm.ctx.str_type()))
+        ]
+    );
+    let zelf = get_value(zelf);
+    let other = get_value(other);
+    let result = zelf < other;
+    Ok(vm.ctx.new_bool(result))
+}
+
 
 fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
@@ -157,6 +177,101 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", s, s2)))
     }
+}
+
+fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    if args.args.len() == 0 {
+        return Err(
+            vm.new_type_error("descriptor 'format' of 'str' object needs an argument".to_string())
+        );
+    }
+
+    let zelf = &args.args[0];
+    if !objtype::isinstance(&zelf, &vm.ctx.str_type()) {
+        let zelf_typ = zelf.typ();
+        let actual_type = vm.to_pystr(&zelf_typ)?;
+        return Err(vm.new_type_error(format!(
+            "descriptor 'format' requires a 'str' object but received a '{}'",
+            actual_type
+        )));
+    }
+    let format_string_text = get_value(zelf);
+    match FormatString::from_str(format_string_text.as_str()) {
+        Ok(format_string) => perform_format(vm, &format_string, &args),
+        Err(err) => match err {
+            FormatParseError::UnmatchedBracket => {
+                Err(vm.new_value_error("expected '}' before end of string".to_string()))
+            }
+            _ => Err(vm.new_value_error("Unexpected error parsing format string".to_string())),
+        },
+    }
+}
+
+fn call_object_format(
+    vm: &mut VirtualMachine,
+    argument: PyObjectRef,
+    format_spec: &String,
+) -> PyResult {
+    let returned_type = vm.ctx.new_str(format_spec.clone());
+    let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
+    if !objtype::isinstance(&result, &vm.ctx.str_type()) {
+        let result_type = result.typ();
+        let actual_type = vm.to_pystr(&result_type)?;
+        return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
+    }
+    Ok(result)
+}
+
+fn perform_format(
+    vm: &mut VirtualMachine,
+    format_string: &FormatString,
+    arguments: &PyFuncArgs,
+) -> PyResult {
+    let mut final_string = String::new();
+    if format_string.format_parts.iter().any(FormatPart::is_auto)
+        && format_string.format_parts.iter().any(FormatPart::is_index)
+    {
+        return Err(vm.new_value_error(
+            "cannot switch from automatic field numbering to manual field specification"
+                .to_string(),
+        ));
+    }
+    let mut auto_argument_index: usize = 1;
+    for part in &format_string.format_parts {
+        let result_string: String = match part {
+            FormatPart::AutoSpec(format_spec) => {
+                let result = match arguments.args.get(auto_argument_index) {
+                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
+                    None => {
+                        return Err(vm.new_index_error("tuple index out of range".to_string()));
+                    }
+                };
+                auto_argument_index += 1;
+                get_value(&result)
+            }
+            FormatPart::IndexSpec(index, format_spec) => {
+                let result = match arguments.args.get(*index + 1) {
+                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
+                    None => {
+                        return Err(vm.new_index_error("tuple index out of range".to_string()));
+                    }
+                };
+                get_value(&result)
+            }
+            FormatPart::KeywordSpec(keyword, format_spec) => {
+                let result = match arguments.get_optional_kwarg(&keyword) {
+                    Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
+                    None => {
+                        return Err(vm.new_key_error(format!("'{}'", keyword)));
+                    }
+                };
+                get_value(&result)
+            }
+            FormatPart::Literal(literal) => literal.clone(),
+        };
+        final_string.push_str(&result_string);
+    }
+    Ok(vm.ctx.new_str(final_string))
 }
 
 fn str_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -393,6 +508,17 @@ fn str_replace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_str(new_str))
 }
 
+// fn str_expandtabs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+//     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))], optional = [(size, None)]);
+//     let value = get_value(&s);
+//     let tab_size = match size {
+//         Some(num) => objint::get_value(&num).to_usize().unwrap(),
+//         None => 8 as usize
+//     };
+//     let new_str = value.replace("\t", &" ".repeat(tab_size));
+//     Ok(vm.ctx.new_str(new_str))
+// }
+
 fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     Ok(vm.ctx.new_str(make_title(get_value(&s))))
@@ -406,20 +532,22 @@ fn str_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(is_titled))
 }
 
-// TODO: add ability to specify fill character, can't pass it to format!()
 fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))] // optional = [(chars, None)]
+        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))],
+        optional = [(chars, None)]
     );
     let value = get_value(&s);
     let len = objint::get_value(&len).to_usize().unwrap();
-    // let rep_char = match chars {
-    //     Some(c) => get_value(&c),
-    //     None => " ".to_string(),
-    // };
-    let new_str = format!("{:^1$}", value, len);
+    let rep_char = match chars {
+        Some(c) => get_value(&c),
+        None => " ".to_string()
+    };
+    let left_buff: usize = (len - value.len()) / 2;
+    let right_buff = len - value.len() - left_buff;
+    let new_str = format!("{}{}{}", rep_char.repeat(left_buff), value, rep_char.repeat(right_buff));
     Ok(vm.ctx.new_str(new_str))
 }
 
@@ -547,19 +675,23 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
     }
 }
 
+
 // helper function to title strings
-fn make_title(s: String) -> String {
-    s.split(' ')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f
-                    .to_uppercase()
-                    .chain(c.flat_map(|t| t.to_lowercase()))
-                    .collect(),
+fn make_title(s: &str) -> String {
+    let mut titled_str = String::new();
+    let mut capitalize_char: bool = false;
+    for c in s.chars() {
+        if c.is_alphabetic() {
+            if !capitalize_char {
+                titled_str.push(c);
             }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+            else if capitalize_char {
+                titled_str.push(c.to_ascii_uppercase());
+            }
+        } else {
+            titled_str.push(c);
+            capitalize_char = true;
+        }
+    }
+    return titled_str;
 }

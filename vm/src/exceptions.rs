@@ -86,6 +86,8 @@ pub struct ExceptionZoo {
     pub syntax_error: PyObjectRef,
     pub assertion_error: PyObjectRef,
     pub attribute_error: PyObjectRef,
+    pub index_error: PyObjectRef,
+    pub key_error: PyObjectRef,
     pub name_error: PyObjectRef,
     pub runtime_error: PyObjectRef,
     pub not_implemented_error: PyObjectRef,
@@ -125,6 +127,18 @@ impl ExceptionZoo {
         );
         let attribute_error = create_type(
             &String::from("AttributeError"),
+            &type_type,
+            &exception_type.clone(),
+            &dict_type,
+        );
+        let index_error = create_type(
+            &String::from("IndexError"),
+            &type_type,
+            &exception_type.clone(),
+            &dict_type,
+        );
+        let key_error = create_type(
+            &String::from("KeyError"),
             &type_type,
             &exception_type.clone(),
             &dict_type,
@@ -184,6 +198,8 @@ impl ExceptionZoo {
             syntax_error: syntax_error,
             assertion_error: assertion_error,
             attribute_error: attribute_error,
+            index_error: index_error,
+            key_error: key_error,
             name_error: name_error,
             runtime_error: runtime_error,
             not_implemented_error: not_implemented_error,

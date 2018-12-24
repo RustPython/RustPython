@@ -317,7 +317,15 @@ fn builtin_filter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_list(new_items))
 }
 
-// builtin_format
+fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(obj, None), (format_spec, Some(vm.ctx.str_type()))]
+    );
+
+    vm.call_method(obj, "__format__", vec![format_spec.clone()])
+}
 
 fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -756,6 +764,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "float", ctx.float_type());
     ctx.set_attr(&py_mod, "frozenset", ctx.frozenset_type());
     ctx.set_attr(&py_mod, "filter", ctx.new_rustfunc(builtin_filter));
+    ctx.set_attr(&py_mod, "format", ctx.new_rustfunc(builtin_format));
     ctx.set_attr(&py_mod, "getattr", ctx.new_rustfunc(builtin_getattr));
     ctx.set_attr(&py_mod, "hasattr", ctx.new_rustfunc(builtin_hasattr));
     ctx.set_attr(&py_mod, "hash", ctx.new_rustfunc(builtin_hash));
