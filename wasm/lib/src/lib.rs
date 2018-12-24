@@ -98,7 +98,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
     };
     let mut vm = VirtualMachine::new();
 
-    let print_fn: Box<(Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult)> = match stdout {
+    let print_fn: Box<pyobject::RustPyFunc> = match stdout {
         Some(val) => {
             if let Some(selector) = val.as_string() {
                 Box::new(

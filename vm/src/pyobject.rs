@@ -452,7 +452,7 @@ impl PyContext {
         )
     }
 
-    pub fn new_rustfunc<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
+    pub fn new_rustfunc<F: 'static + RustPyFunc>(
         &self,
         function: F,
     ) -> PyObjectRef {
@@ -466,7 +466,7 @@ impl PyContext {
 
     pub fn new_rustfunc_from_box(
         &self,
-        function: Box<(Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult)>,
+        function: Box<RustPyFunc>,
     ) -> PyObjectRef {
         PyObject::new(
             PyObjectKind::RustFunction { function },
@@ -478,7 +478,7 @@ impl PyContext {
         PyObject::new(PyObjectKind::Frame { frame: frame }, self.frame_type())
     }
 
-    pub fn new_property<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
+    pub fn new_property<F: 'static + RustPyFunc>(
         &self,
         function: F,
     ) -> PyObjectRef {
@@ -523,7 +523,7 @@ impl PyContext {
         )
     }
 
-    pub fn new_member_descriptor<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
+    pub fn new_member_descriptor<F: 'static + RustPyFunc>(
         &self,
         function: F,
     ) -> PyObjectRef {
@@ -783,6 +783,9 @@ impl PyFuncArgs {
     }
 }
 
+pub trait RustPyFunc: (Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult) {}
+impl<T: (Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult)> for RustPyFunc {}
+
 /// Rather than determining the type of a python object, this enum is more
 /// a holder for the rust payload of a python object. It is more a carrier
 /// of rust data for a particular python object. Determine the python type
@@ -859,7 +862,7 @@ pub enum PyObjectKind {
         dict: PyObjectRef,
     },
     RustFunction {
-        function: Box<(Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult)>,
+        function: Box<RustPyFunc>,
     },
 }
 
