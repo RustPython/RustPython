@@ -784,7 +784,7 @@ impl PyFuncArgs {
 }
 
 pub trait RustPyFunc: (Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult) {}
-impl<T: (Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult)> for RustPyFunc {}
+impl<T: Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> RustPyFunc for T {}
 
 /// Rather than determining the type of a python object, this enum is more
 /// a holder for the rust payload of a python object. It is more a carrier
