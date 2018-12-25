@@ -365,11 +365,11 @@ fn str_rsplit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     let pat = match pat {
         Some(s) => get_value(&s),
-        None => " ".to_string()
+        None => " ".to_string(),
     };
     let num_splits = match num {
         Some(n) => objint::get_value(&n).to_usize().unwrap(),
-        None => value.split(&pat).count()
+        None => value.split(&pat).count(),
     };
     let elements = value
         .rsplitn(num_splits + 1, &pat)
@@ -377,7 +377,6 @@ fn str_rsplit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .collect();
     Ok(vm.ctx.new_list(elements))
 }
-
 
 fn str_split(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -392,11 +391,11 @@ fn str_split(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     let pat = match pat {
         Some(s) => get_value(&s),
-        None => " ".to_string()
+        None => " ".to_string(),
     };
     let num_splits = match num {
         Some(n) => objint::get_value(&n).to_usize().unwrap(),
-        None => value.split(&pat).count()
+        None => value.split(&pat).count(),
     };
     let elements = value
         .splitn(num_splits + 1, &pat)
@@ -439,11 +438,16 @@ fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     let mut is_identifier: bool = true;
     // a string is not an identifier if it has whitespace or starts with a number
-    if value.chars().any(|c| c.is_ascii_whitespace()) && !value.chars().nth(0).unwrap().is_digit(10)
+    if !value.chars().any(|c| c.is_ascii_whitespace())
+        && !value.chars().nth(0).unwrap().is_digit(10)
     {
         for c in value.chars() {
-            if c != "_".chars().nth(0).unwrap() && !c.is_alphabetic() && !c.is_digit(10) {
-                is_identifier = false;
+            if c != "_".chars().nth(0).unwrap() {
+                if !c.is_digit(10) {
+                    if !c.is_alphabetic() {
+                        is_identifier = false;
+                    }
+                }
             }
         }
     } else {
@@ -462,14 +466,10 @@ fn str_isspace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let value = get_value(&s);
-    let mut is_upper = false;
-    if value.chars().all(|c| !c.is_ascii_whitespace()) {
-        is_upper = value
-            .chars()
-            .filter(|x| !x.is_ascii_whitespace())
-            .all(|c| c.is_uppercase());
-    }
+    let is_upper = get_value(&s)
+        .chars()
+        .filter(|x| !x.is_ascii_whitespace())
+        .all(|c| c.is_uppercase());
     Ok(vm.ctx.new_bool(is_upper))
 }
 
@@ -595,7 +595,6 @@ fn str_casefold(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let folded_str: String = caseless::default_case_fold_str(&value);
     Ok(vm.ctx.new_str(folded_str))
 }
-
 
 fn str_swapcase(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
@@ -790,7 +789,7 @@ fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))],
-        optional = [(chars, None)]
+        optional = [(chars, Some(vm.ctx.str_type()))]
     );
     let value = get_value(&s);
     let len = objint::get_value(&len).to_usize().unwrap();
