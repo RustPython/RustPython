@@ -51,11 +51,16 @@ while count < until:
                     </li>
                     <li>
                         <code>vars</code>: an object that will be available in
-                        python as the variable <code>js_vars</code>. Again, only
-                        values that can be serialized with
+                        python as the variable <code>js_vars</code>. Only
+                        functions and values that can be serialized with
                         <code>JSON.stringify()</code> will go through.
                     </li>
                 </ul>
+            </li>
+            <li>
+                JS functions that get passed to python will recieve positional
+                args as positional args and kwargs as the
+                <code>this</code> argument
             </li>
         </ul>
 
