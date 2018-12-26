@@ -9,7 +9,7 @@ use js_sys::{Array, Object, Reflect, TypeError};
 use rustpython_vm::compile;
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{prelude::*, JsCast};
 
 fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
     vm.to_pystr(&py_err)
@@ -74,7 +74,15 @@ fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
                     .map_err(|err| js_to_py(vm, err))
             },
         )
-    // TODO: Check if exception, convert to python exception
+    } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {
+        let exc_type = match String::from(err.name()).as_str() {
+            "TypeError" => &vm.ctx.exceptions.type_error,
+            "ReferenceError" => &vm.ctx.exceptions.name_error,
+            "SyntaxError" => &vm.ctx.exceptions.syntax_error,
+            _ => &vm.ctx.exceptions.exception_type,
+        }
+        .clone();
+        vm.new_exception(exc_type, err.message().into())
     } else {
         let loads = rustpython_vm::import::import(
             vm,
