@@ -7,7 +7,8 @@ use serde_json;
 
 use super::super::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    create_type, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -69,10 +70,10 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if let PyObjectKind::None = self.pyobject.borrow().kind {
             serializer.serialize_none()
         } else {
-            unimplemented!(
+            Err(serde::ser::Error::custom(format!(
                 "Object of type '{:?}' is not serializable",
                 self.pyobject.typ()
-            );
+            )))
         }
     }
 }
@@ -190,31 +191,55 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
 fn dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial serialisation case
     arg_check!(vm, args, required = [(obj, None)]);
-    // TODO: Raise an exception for serialisation errors
-    let serializer = PyObjectSerializer {
-        pyobject: obj,
-        ctx: &vm.ctx,
+    let res = {
+        let serializer = PyObjectSerializer {
+            pyobject: obj,
+            ctx: &vm.ctx,
+        };
+        serde_json::to_string(&serializer)
     };
-    let string = serde_json::to_string(&serializer).unwrap();
+    let string = res.map_err(|err| vm.new_type_error(format!("{}", err)))?;
     Ok(vm.context().new_str(string))
 }
 
 fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial deserialisation case
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
-    // TODO: Raise an exception for deserialisation errors
-    let de = PyObjectDeserializer { ctx: &vm.ctx };
-    // TODO: Support deserializing string sub-classes
-    Ok(de
-        .deserialize(&mut serde_json::Deserializer::from_str(&objstr::get_value(
+    let res = {
+        let de = PyObjectDeserializer { ctx: &vm.ctx };
+        // TODO: Support deserializing string sub-classes
+        de.deserialize(&mut serde_json::Deserializer::from_str(&objstr::get_value(
             &string,
         )))
-        .unwrap())
+    };
+
+    res.map_err(|err| {
+        let json_decode_error = vm
+            .sys_module
+            .get_item("modules")
+            .unwrap()
+            .get_item("json")
+            .unwrap()
+            .get_item("JSONDecodeError")
+            .unwrap();
+        let exc = vm.new_exception(json_decode_error, format!("{}", err));
+        vm.ctx.set_item(&exc, "lineno", vm.ctx.new_int(err.line().into()));
+        vm.ctx.set_item(&exc, "colno", vm.ctx.new_int(err.column().into()));
+        exc
+    })
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let json_mod = ctx.new_module(&"json".to_string(), ctx.new_scope(None));
     ctx.set_attr(&json_mod, "dumps", ctx.new_rustfunc(dumps));
     ctx.set_attr(&json_mod, "loads", ctx.new_rustfunc(loads));
+    // TODO: Make this a proper type with a constructor
+    let json_decode_error = create_type(
+        "JSONDecodeError",
+        &ctx.type_type,
+        &ctx.exceptions.exception_type,
+        &ctx.dict_type,
+    );
+    ctx.set_attr(&json_mod, "JSONDecodeError", json_decode_error);
     json_mod
 }
