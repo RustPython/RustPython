@@ -83,6 +83,9 @@ fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
         }
         .clone();
         vm.new_exception(exc_type, err.message().into())
+    } else if js_val.is_undefined() {
+        // Because `JSON.stringify(undefined)` returns undefined
+        vm.get_none()
     } else {
         let loads = rustpython_vm::import::import(
             vm,
