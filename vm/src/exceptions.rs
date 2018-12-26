@@ -107,90 +107,37 @@ impl ExceptionZoo {
         let base_exception_type =
             create_type("BaseException", &type_type, &object_type, &dict_type);
 
-        let exception_type = create_type(
-            &String::from("Exception"),
-            &type_type,
-            &base_exception_type,
-            &dict_type,
-        );
-        let syntax_error = create_type(
-            &String::from("SyntaxError"),
-            &type_type,
-            &exception_type,
-            &dict_type,
-        );
-        let assertion_error = create_type(
-            &String::from("AssertionError"),
-            &type_type,
-            &exception_type,
-            &dict_type,
-        );
+        let exception_type = create_type("Exception", &type_type, &base_exception_type, &dict_type);
+        let syntax_error = create_type("SyntaxError", &type_type, &exception_type, &dict_type);
+        let assertion_error =
+            create_type("AssertionError", &type_type, &exception_type, &dict_type);
         let attribute_error = create_type(
-            &String::from("AttributeError"),
+            "AttributeError",
             &type_type,
             &exception_type.clone(),
             &dict_type,
         );
         let index_error = create_type(
-            &String::from("IndexError"),
+            "IndexError",
             &type_type,
             &exception_type.clone(),
             &dict_type,
         );
-        let key_error = create_type(
-            &String::from("KeyError"),
-            &type_type,
-            &exception_type.clone(),
-            &dict_type,
-        );
-        let name_error = create_type(
-            &String::from("NameError"),
-            &type_type,
-            &exception_type.clone(),
-            &dict_type,
-        );
-        let runtime_error = create_type(
-            &String::from("RuntimeError"),
-            &type_type,
-            &exception_type,
-            &dict_type,
-        );
+        let key_error = create_type("KeyError", &type_type, &exception_type.clone(), &dict_type);
+        let name_error = create_type("NameError", &type_type, &exception_type.clone(), &dict_type);
+        let runtime_error = create_type("RuntimeError", &type_type, &exception_type, &dict_type);
         let not_implemented_error = create_type(
-            &String::from("NotImplementedError"),
+            "NotImplementedError",
             &type_type,
             &runtime_error,
             &dict_type,
         );
-        let stop_iteration = create_type(
-            &String::from("StopIteration"),
-            &type_type,
-            &exception_type,
-            &dict_type,
-        );
-        let type_error = create_type(
-            &String::from("TypeError"),
-            &type_type,
-            &exception_type,
-            &dict_type,
-        );
-        let value_error = create_type(
-            &String::from("ValueError"),
-            &type_type,
-            &exception_type,
-            &dict_type,
-        );
-        let import_error = create_type(
-            &String::from("ImportError"),
-            &type_type,
-            &exception_type,
-            &dict_type,
-        );
-        let module_not_found_error = create_type(
-            &String::from("ModuleNotFoundError"),
-            &type_type,
-            &import_error,
-            &dict_type,
-        );
+        let stop_iteration = create_type("StopIteration", &type_type, &exception_type, &dict_type);
+        let type_error = create_type("TypeError", &type_type, &exception_type, &dict_type);
+        let value_error = create_type("ValueError", &type_type, &exception_type, &dict_type);
+        let import_error = create_type("ImportError", &type_type, &exception_type, &dict_type);
+        let module_not_found_error =
+            create_type("ModuleNotFoundError", &type_type, &import_error, &dict_type);
 
         ExceptionZoo {
             base_exception_type: base_exception_type,
