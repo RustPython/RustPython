@@ -511,8 +511,8 @@ impl Frame {
                     Err(exception)
                 } else {
                     let msg = format!(
-                        "Can only raise BaseException derived types, not {:?}",
-                        exception
+                        "Can only raise BaseException derived types, not {}",
+                        exception.borrow()
                     );
                     let type_error_type = vm.ctx.exceptions.type_error.clone();
                     let type_error = vm.new_exception(type_error_type, msg);
@@ -850,7 +850,7 @@ impl Frame {
                 scope = scope.get_parent();
             } else {
                 let name_error_type = vm.ctx.exceptions.name_error.clone();
-                let msg = format!("Has not attribute '{}'", name);
+                let msg = format!("name '{}' is not defined", name);
                 let name_error = vm.new_exception(name_error_type, msg);
                 break Err(name_error);
             }

@@ -188,9 +188,9 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+        required = [(_i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let i = BigInt::from_pyobj(i);
+    let i = BigInt::from_pyobj(_i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(i + get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
@@ -198,7 +198,7 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(i.to_f64().unwrap() + objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", _i.borrow(), i2.borrow())))
     }
 }
 
@@ -217,7 +217,11 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(i) / get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!(
+            "Cannot floordiv {} and {}",
+            i.borrow(),
+            i2.borrow()
+        )))
     }
 }
 
@@ -243,9 +247,9 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+        required = [(_i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let i = BigInt::from_pyobj(i);
+    let i = BigInt::from_pyobj(_i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(i - get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
@@ -253,7 +257,11 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(i.to_f64().unwrap() - objfloat::get_value(i2)))
     } else {
-        Err(vm.new_not_implemented_error(format!("Cannot substract {:?} and {:?}", i, i2)))
+        Err(vm.new_not_implemented_error(format!(
+            "Cannot substract {} and {}",
+            _i.borrow(),
+            i2.borrow()
+        )))
     }
 }
 
@@ -270,7 +278,11 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(get_value(i).to_f64().unwrap() * objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot multiply {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!(
+            "Cannot multiply {} and {}",
+            i.borrow(),
+            i2.borrow()
+        )))
     }
 }
 
@@ -290,7 +302,7 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1.to_f64().unwrap() / objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot divide {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -304,7 +316,7 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(v1 % get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot modulo {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot modulo {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -333,7 +345,11 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot raise power {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!(
+            "Cannot raise power {} and {}",
+            i.borrow(),
+            i2.borrow()
+        )))
     }
 }
 
@@ -349,7 +365,11 @@ fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let r2 = int_mod(vm, args.clone());
         Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
     } else {
-        Err(vm.new_type_error(format!("Cannot divmod power {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!(
+            "Cannot divmod power {} and {}",
+            i.borrow(),
+            i2.borrow()
+        )))
     }
 }
 
@@ -364,7 +384,7 @@ fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 ^ v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot xor {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot xor {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -379,7 +399,7 @@ fn int_or(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 | v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot or {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot or {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -394,7 +414,7 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 & v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot and {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot and {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
