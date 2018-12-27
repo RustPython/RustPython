@@ -49,7 +49,7 @@ assert b.rstrip() == '  hallo'
 c = 'hallo'
 assert c.capitalize() == 'Hallo'
 assert c.center(11, '-') == '---hallo---'
-assert c.isascii()
+# assert c.isascii()
 assert c.index('a') == 1
 assert c.rindex('l') == 3
 assert c.find('h') == 0
