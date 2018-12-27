@@ -500,7 +500,12 @@ fn str_zfill(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let value = get_value(&s);
     let len = objint::get_value(&len).to_usize().unwrap();
-    let new_str = "0".repeat(len) + &value;
+    let new_str: String;
+    if len <= value.len() {
+        new_str = value;
+    } else {
+        new_str = format!("{}{}", "0".repeat(len - value.len()), value);
+    }
     Ok(vm.ctx.new_str(new_str))
 }
 
@@ -682,6 +687,7 @@ fn str_rpartition(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .rsplitn(2, &sub)
             .map(|s| vm.ctx.new_str(s.to_string()))
             .collect();
+        new_tup.swap(0, 1); // so it's in the right order
         new_tup.insert(1, vm.ctx.new_str(sub));
     } else {
         new_tup.push(vm.ctx.new_str(value));
@@ -1010,13 +1016,14 @@ fn get_slice(
 // helper function to title strings
 fn make_title(s: &str) -> String {
     let mut titled_str = String::new();
-    let mut capitalize_char: bool = false;
+    let mut capitalize_char: bool = true;
     for c in s.chars() {
         if c.is_alphabetic() {
             if !capitalize_char {
                 titled_str.push(c);
             } else if capitalize_char {
                 titled_str.push(c.to_ascii_uppercase());
+                capitalize_char = false;
             }
         } else {
             titled_str.push(c);

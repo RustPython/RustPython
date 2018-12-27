@@ -32,7 +32,7 @@ assert a.startswith('H')
 assert not a.startswith('f')
 assert a.endswith('llo')
 assert not a.endswith('on')
-assert a.zfill(3) == '000Hallo'
+assert a.zfill(8) == '000Hallo'
 assert a.isalnum()
 assert not a.isdigit()
 assert not a.isnumeric()
@@ -58,13 +58,11 @@ assert c.islower()
 assert c.title() == 'Hallo'
 assert c.count('l') == 2
 
-
 assert '   '.isspace()
-assert 'hello\nhallo\nHallo' == ['hello', 'hallo', 'Hallo']
+assert 'hello\nhallo\nHallo'.splitlines() == ['hello', 'hallo', 'Hallo']
 assert 'abc\t12345\txyz'.expandtabs() == 'abc     12345   xyz'
 assert '-'.join(['1', '2', '3']) == '1-2-3'
 assert 'HALLO'.isupper()
-# assert 'der Fluﬂ'.casefold() == 'der fluss'
 assert "hello, my name is".partition("my ") == ('hello, ', 'my ', 'name is')
 assert "hello, my name is".rpartition("is") == ('hello, my name ', 'is', '')
 
