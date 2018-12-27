@@ -70,7 +70,7 @@ impl fmt::Display for PyObject {
         use self::TypeProtocol;
         match &self.kind {
             PyObjectKind::Module { name, .. } => write!(f, "module '{}'", name),
-            PyObjectKind::Class { name, dict,.. } => {
+            PyObjectKind::Class { name, .. } => {
                 let type_name = objtype::get_type_name(&self.typ());
                 // We don't have access to a vm, so just assume that if its parent's name
                 // is type, it's a type
