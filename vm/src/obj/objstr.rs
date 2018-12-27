@@ -1,6 +1,6 @@
 use super::super::format::{FormatParseError, FormatPart, FormatString};
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -9,6 +9,8 @@ use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
+// rust's builtin to_lowercase isn't sufficient for casefold
+extern crate caseless;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
@@ -21,6 +23,7 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&str_type, "__getitem__", context.new_rustfunc(str_getitem));
     context.set_attr(&str_type, "__gt__", context.new_rustfunc(str_gt));
+    context.set_attr(&str_type, "__lt__", context.new_rustfunc(str_lt));
     context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
     context.set_attr(&str_type, "__len__", context.new_rustfunc(str_len));
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
@@ -29,6 +32,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "__repr__", context.new_rustfunc(str_repr));
     context.set_attr(&str_type, "format", context.new_rustfunc(str_format));
     context.set_attr(&str_type, "lower", context.new_rustfunc(str_lower));
+    context.set_attr(&str_type, "casefold", context.new_rustfunc(str_casefold));
     context.set_attr(&str_type, "upper", context.new_rustfunc(str_upper));
     context.set_attr(
         &str_type,
@@ -36,6 +40,7 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(str_capitalize),
     );
     context.set_attr(&str_type, "split", context.new_rustfunc(str_split));
+    context.set_attr(&str_type, "rsplit", context.new_rustfunc(str_rsplit));
     context.set_attr(&str_type, "strip", context.new_rustfunc(str_strip));
     context.set_attr(&str_type, "lstrip", context.new_rustfunc(str_lstrip));
     context.set_attr(&str_type, "rstrip", context.new_rustfunc(str_rstrip));
@@ -53,6 +58,41 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "isalpha", context.new_rustfunc(str_isalpha));
     context.set_attr(&str_type, "replace", context.new_rustfunc(str_replace));
     context.set_attr(&str_type, "center", context.new_rustfunc(str_center));
+    context.set_attr(&str_type, "isspace", context.new_rustfunc(str_isspace));
+    context.set_attr(&str_type, "isupper", context.new_rustfunc(str_isupper));
+    context.set_attr(&str_type, "islower", context.new_rustfunc(str_islower));
+    context.set_attr(&str_type, "isascii", context.new_rustfunc(str_isascii));
+    context.set_attr(
+        &str_type,
+        "splitlines",
+        context.new_rustfunc(str_splitlines),
+    );
+    context.set_attr(&str_type, "join", context.new_rustfunc(str_join));
+    context.set_attr(&str_type, "find", context.new_rustfunc(str_find));
+    context.set_attr(&str_type, "rfind", context.new_rustfunc(str_rfind));
+    context.set_attr(&str_type, "index", context.new_rustfunc(str_index));
+    context.set_attr(&str_type, "rindex", context.new_rustfunc(str_rindex));
+    context.set_attr(&str_type, "partition", context.new_rustfunc(str_partition));
+    context.set_attr(
+        &str_type,
+        "rpartition",
+        context.new_rustfunc(str_rpartition),
+    );
+    context.set_attr(&str_type, "istitle", context.new_rustfunc(str_istitle));
+    context.set_attr(&str_type, "count", context.new_rustfunc(str_count));
+    context.set_attr(&str_type, "zfill", context.new_rustfunc(str_zfill));
+    context.set_attr(&str_type, "ljust", context.new_rustfunc(str_ljust));
+    context.set_attr(&str_type, "rjust", context.new_rustfunc(str_rjust));
+    context.set_attr(
+        &str_type,
+        "expandtabs",
+        context.new_rustfunc(str_expandtabs),
+    );
+    context.set_attr(
+        &str_type,
+        "isidentifier",
+        context.new_rustfunc(str_isidentifier),
+    );
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
@@ -90,6 +130,21 @@ fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let zelf = get_value(zelf);
     let other = get_value(other);
     let result = zelf > other;
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn str_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.str_type())),
+            (other, Some(vm.ctx.str_type()))
+        ]
+    );
+    let zelf = get_value(zelf);
+    let other = get_value(other);
+    let result = zelf < other;
     Ok(vm.ctx.new_bool(result))
 }
 
@@ -301,18 +356,53 @@ fn str_capitalize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_str(capitalized))
 }
 
+fn str_rsplit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type()))],
+        optional = [
+            (pat, Some(vm.ctx.str_type())),
+            (num, Some(vm.ctx.int_type()))
+        ]
+    );
+    let value = get_value(&s);
+    let pat = match pat {
+        Some(s) => get_value(&s),
+        None => " ".to_string(),
+    };
+    let num_splits = match num {
+        Some(n) => objint::get_value(&n).to_usize().unwrap(),
+        None => value.split(&pat).count(),
+    };
+    let elements = value
+        .rsplitn(num_splits + 1, &pat)
+        .map(|o| vm.ctx.new_str(o.to_string()))
+        .collect();
+    Ok(vm.ctx.new_list(elements))
+}
+
 fn str_split(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(s, Some(vm.ctx.str_type())), (pat, Some(vm.ctx.str_type()))]
+        required = [(s, Some(vm.ctx.str_type()))],
+        optional = [
+            (pat, Some(vm.ctx.str_type())),
+            (num, Some(vm.ctx.int_type()))
+        ]
     );
     let value = get_value(&s);
-    // if some
-    let pat = get_value(&pat);
-    let str_pat = pat.as_str();
+    let pat = match pat {
+        Some(s) => get_value(&s),
+        None => " ".to_string(),
+    };
+    let num_splits = match num {
+        Some(n) => objint::get_value(&n).to_usize().unwrap(),
+        None => value.split(&pat).count(),
+    };
     let elements = value
-        .split(str_pat)
+        .splitn(num_splits + 1, &pat)
         .map(|o| vm.ctx.new_str(o.to_string()))
         .collect();
     Ok(vm.ctx.new_list(elements))
@@ -347,6 +437,174 @@ fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(value.ends_with(pat.as_str())))
 }
 
+fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let mut is_identifier: bool = true;
+    // a string is not an identifier if it has whitespace or starts with a number
+    if !value.chars().any(|c| c.is_ascii_whitespace())
+        && !value.chars().nth(0).unwrap().is_digit(10)
+    {
+        for c in value.chars() {
+            if c != "_".chars().nth(0).unwrap() {
+                if !c.is_digit(10) {
+                    if !c.is_alphabetic() {
+                        is_identifier = false;
+                    }
+                }
+            }
+        }
+    } else {
+        is_identifier = false;
+    }
+    Ok(vm.ctx.new_bool(is_identifier))
+}
+
+// cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
+// which is why isspace is using is_ascii_whitespace. Same for isupper & islower
+fn str_isspace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_whitespace = get_value(&s).chars().all(|c| c.is_ascii_whitespace());
+    Ok(vm.ctx.new_bool(is_whitespace))
+}
+
+fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_upper = get_value(&s)
+        .chars()
+        .filter(|x| !x.is_ascii_whitespace())
+        .all(|c| c.is_uppercase());
+    Ok(vm.ctx.new_bool(is_upper))
+}
+
+fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_lower = get_value(&s)
+        .chars()
+        .filter(|x| !x.is_ascii_whitespace())
+        .all(|c| c.is_lowercase());
+    Ok(vm.ctx.new_bool(is_lower))
+}
+
+// doesn't implement keep new line delimeter just yet
+fn str_splitlines(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let elements = get_value(&s)
+        .split('\n')
+        .map(|e| vm.ctx.new_str(e.to_string()))
+        .collect();
+    Ok(vm.ctx.new_list(elements))
+}
+
+fn str_zfill(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))]
+    );
+    let value = get_value(&s);
+    let len = objint::get_value(&len).to_usize().unwrap();
+    let new_str: String;
+    if len <= value.len() {
+        new_str = value;
+    } else {
+        new_str = format!("{}{}", "0".repeat(len - value.len()), value);
+    }
+    Ok(vm.ctx.new_str(new_str))
+}
+
+fn str_join(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (iterable, None)]
+    );
+    let value = get_value(&s);
+    let elements: Vec<String> = vm
+        .extract_elements(iterable)?
+        .iter()
+        .map(|w| get_value(&w))
+        .collect();
+    let joined = elements.join(&value);
+    Ok(vm.ctx.new_str(joined))
+}
+
+fn str_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
+        optional = [
+            (start, Some(vm.ctx.int_type())),
+            (end, Some(vm.ctx.int_type()))
+        ]
+    );
+    let value = get_value(&s);
+    let sub = get_value(&sub);
+    let (start, end) = match get_slice(start, end, value.len()) {
+        Ok((start, end)) => (start, end),
+        Err(e) => return Err(vm.new_index_error(e)),
+    };
+    let num_occur: usize = value[start..end].matches(&sub).count();
+    Ok(vm.ctx.new_int(num_occur.to_bigint().unwrap()))
+}
+
+fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
+        optional = [
+            (start, Some(vm.ctx.int_type())),
+            (end, Some(vm.ctx.int_type()))
+        ]
+    );
+    let value = get_value(&s);
+    let sub = get_value(&sub);
+    let (start, end) = match get_slice(start, end, value.len()) {
+        Ok((start, end)) => (start, end),
+        Err(e) => return Err(vm.new_index_error(e)),
+    };
+    let ind: usize = match value[start..end + 1].find(&sub) {
+        Some(num) => num,
+        None => {
+            return Err(vm.new_value_error("substring not found".to_string()));
+        }
+    };
+    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+}
+
+fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
+        optional = [
+            (start, Some(vm.ctx.int_type())),
+            (end, Some(vm.ctx.int_type()))
+        ]
+    );
+    let value = get_value(&s);
+    let sub = get_value(&sub);
+    let (start, end) = match get_slice(start, end, value.len()) {
+        Ok((start, end)) => (start, end),
+        Err(e) => return Err(vm.new_index_error(e)),
+    };
+    let ind: i128 = match value[start..end + 1].find(&sub) {
+        Some(num) => num as i128,
+        None => -1 as i128,
+    };
+    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+}
+
+// casefold is much more aggresive than lower
+fn str_casefold(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let folded_str: String = caseless::default_case_fold_str(&value);
+    Ok(vm.ctx.new_str(folded_str))
+}
+
 fn str_swapcase(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
@@ -373,53 +631,190 @@ fn str_replace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (old, Some(vm.ctx.str_type())),
             (rep, Some(vm.ctx.str_type()))
         ],
-        optional = [(n, None)]
+        optional = [(n, Some(vm.ctx.int_type()))]
     );
     let s = get_value(&s);
     let old_str = get_value(&old);
     let rep_str = get_value(&rep);
     let num_rep: usize = match n {
-        Some(num) => objint::to_int(vm, num, 10)?.to_usize().unwrap(),
+        Some(num) => objint::get_value(&num).to_usize().unwrap(),
         None => 1,
     };
     let new_str = s.replacen(&old_str, &rep_str, num_rep);
     Ok(vm.ctx.new_str(new_str))
 }
 
-fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+fn str_expandtabs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type()))],
+        optional = [(size, Some(vm.ctx.int_type()))]
+    );
     let value = get_value(&s);
-    let titled_str = value
-        .split(' ')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f
-                    .to_uppercase()
-                    .chain(c.flat_map(|t| t.to_lowercase()))
-                    .collect(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    Ok(vm.ctx.new_str(titled_str))
+    let tab_stop = match size {
+        Some(num) => objint::get_value(&num).to_usize().unwrap(),
+        None => 8 as usize,
+    };
+    let mut expanded_str = String::new();
+    let mut tab_size = tab_stop;
+    let mut col_count = 0 as usize;
+    for ch in value.chars() {
+        // 0x0009 is tab
+        if ch == 0x0009 as char {
+            let num_spaces = tab_size - col_count;
+            col_count += num_spaces;
+            let expand = " ".repeat(num_spaces);
+            expanded_str.push_str(&expand);
+        } else {
+            expanded_str.push(ch);
+            col_count += 1;
+        }
+        if col_count >= tab_size {
+            tab_size += tab_stop;
+        }
+    }
+    Ok(vm.ctx.new_str(expanded_str))
 }
 
-// TODO: add ability to specify fill character, can't pass it to format!()
+fn str_rpartition(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))]
+    );
+    let value = get_value(&s);
+    let sub = get_value(&sub);
+    let mut new_tup = Vec::new();
+    if value.contains(&sub) {
+        new_tup = value
+            .rsplitn(2, &sub)
+            .map(|s| vm.ctx.new_str(s.to_string()))
+            .collect();
+        new_tup.swap(0, 1); // so it's in the right order
+        new_tup.insert(1, vm.ctx.new_str(sub));
+    } else {
+        new_tup.push(vm.ctx.new_str(value));
+        new_tup.push(vm.ctx.new_str("".to_string()));
+        new_tup.push(vm.ctx.new_str("".to_string()));
+    }
+    Ok(vm.ctx.new_tuple(new_tup))
+}
+
+fn str_partition(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))]
+    );
+    let value = get_value(&s);
+    let sub = get_value(&sub);
+    let mut new_tup = Vec::new();
+    if value.contains(&sub) {
+        new_tup = value
+            .splitn(2, &sub)
+            .map(|s| vm.ctx.new_str(s.to_string()))
+            .collect();
+        new_tup.insert(1, vm.ctx.new_str(sub));
+    } else {
+        new_tup.push(vm.ctx.new_str(value));
+        new_tup.push(vm.ctx.new_str("".to_string()));
+        new_tup.push(vm.ctx.new_str("".to_string()));
+    }
+    Ok(vm.ctx.new_tuple(new_tup))
+}
+
+fn str_title(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    Ok(vm.ctx.new_str(make_title(&get_value(&s))))
+}
+
+fn str_rjust(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (num, Some(vm.ctx.int_type()))],
+        optional = [(rep, Some(vm.ctx.str_type()))]
+    );
+    let value = get_value(&s);
+    let num = objint::get_value(&num).to_usize().unwrap();
+    let rep = match rep {
+        Some(st) => {
+            let rep_str = get_value(&st);
+            if rep_str.len() == 1 {
+                rep_str
+            } else {
+                return Err(vm.new_type_error(
+                    "The fill character must be exactly one character long".to_string(),
+                ));
+            }
+        }
+        None => " ".to_string(),
+    };
+    let new_str = format!("{}{}", rep.repeat(num), value);
+    Ok(vm.ctx.new_str(new_str))
+}
+
+fn str_ljust(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (num, Some(vm.ctx.int_type()))],
+        optional = [(rep, Some(vm.ctx.str_type()))]
+    );
+    let value = get_value(&s);
+    let num = objint::get_value(&num).to_usize().unwrap();
+    let rep = match rep {
+        Some(st) => {
+            let rep_str = get_value(&st);
+            if rep_str.len() == 1 {
+                rep_str
+            } else {
+                return Err(vm.new_type_error(
+                    "The fill character must be exactly one character long".to_string(),
+                ));
+            }
+        }
+        None => " ".to_string(),
+    };
+    let new_str = format!("{}{}", value, rep.repeat(num));
+    Ok(vm.ctx.new_str(new_str))
+}
+
+fn str_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let value = get_value(&s);
+    let mut is_titled = true;
+    for word in value.split(" ") {
+        if word != make_title(&word) {
+            is_titled = false;
+            break;
+        }
+    }
+    Ok(vm.ctx.new_bool(is_titled))
+}
+
 fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))] // optional = [(chars, None)]
+        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))],
+        optional = [(chars, Some(vm.ctx.str_type()))]
     );
     let value = get_value(&s);
     let len = objint::get_value(&len).to_usize().unwrap();
-    // let rep_char = match chars {
-    //     Some(c) => get_value(&c),
-    //     None => " ".to_string(),
-    // };
-    let new_str = format!("{:^1$}", value, len);
+    let rep_char = match chars {
+        Some(c) => get_value(&c),
+        None => " ".to_string(),
+    };
+    let left_buff: usize = (len - value.len()) / 2;
+    let right_buff = len - value.len() - left_buff;
+    let new_str = format!(
+        "{}{}{}",
+        rep_char.repeat(left_buff),
+        value,
+        rep_char.repeat(right_buff)
+    );
     Ok(vm.ctx.new_str(new_str))
 }
 
@@ -452,6 +847,60 @@ fn str_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let is_alnum = get_value(&s).chars().all(|c| c.is_alphanumeric());
     Ok(vm.ctx.new_bool(is_alnum))
+}
+
+fn str_isascii(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+    let is_ascii = get_value(&s).chars().all(|c| c.is_ascii());
+    Ok(vm.ctx.new_bool(is_ascii))
+}
+
+fn str_rindex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
+        optional = [
+            (start, Some(vm.ctx.int_type())),
+            (end, Some(vm.ctx.int_type()))
+        ]
+    );
+    let value = get_value(&s);
+    let sub = get_value(&sub);
+    let (start, end) = match get_slice(start, end, value.len()) {
+        Ok((start, end)) => (start, end),
+        Err(e) => return Err(vm.new_index_error(e)),
+    };
+    let ind: i64 = match value[start..end + 1].rfind(&sub) {
+        Some(num) => num as i64,
+        None => {
+            return Err(vm.new_value_error("substring not found".to_string()));
+        }
+    };
+    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+}
+
+fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
+        optional = [
+            (start, Some(vm.ctx.int_type())),
+            (end, Some(vm.ctx.int_type()))
+        ]
+    );
+    let value = get_value(&s);
+    let sub = get_value(&sub);
+    let (start, end) = match get_slice(start, end, value.len()) {
+        Ok((start, end)) => (start, end),
+        Err(e) => return Err(vm.new_index_error(e)),
+    };
+    let ind = match value[start..end + 1].rfind(&sub) {
+        Some(num) => num as i128,
+        None => -1 as i128,
+    };
+    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
 }
 
 fn str_isnumeric(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -545,4 +994,45 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
             ),
         }
     }
+}
+
+// help get optional string indices
+fn get_slice(
+    start: Option<&std::rc::Rc<std::cell::RefCell<PyObject>>>,
+    end: Option<&std::rc::Rc<std::cell::RefCell<PyObject>>>,
+    len: usize,
+) -> Result<(usize, usize), String> {
+    let start_idx = match start {
+        Some(int) => objint::get_value(&int).to_usize().unwrap(),
+        None => 0 as usize,
+    };
+    let end_idx = match end {
+        Some(int) => objint::get_value(&int).to_usize().unwrap(),
+        None => len - 1,
+    };
+    if start_idx >= usize::min_value() && start_idx < end_idx && end_idx < len {
+        Ok((start_idx, end_idx))
+    } else {
+        Err("provided index is not valid".to_string())
+    }
+}
+
+// helper function to title strings
+fn make_title(s: &str) -> String {
+    let mut titled_str = String::new();
+    let mut capitalize_char: bool = true;
+    for c in s.chars() {
+        if c.is_alphabetic() {
+            if !capitalize_char {
+                titled_str.push(c);
+            } else if capitalize_char {
+                titled_str.push(c.to_ascii_uppercase());
+                capitalize_char = false;
+            }
+        } else {
+            titled_str.push(c);
+            capitalize_char = true;
+        }
+    }
+    return titled_str;
 }
