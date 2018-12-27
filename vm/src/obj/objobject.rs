@@ -164,7 +164,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             let attribute_error = vm.context().exceptions.attribute_error.clone();
             Err(vm.new_exception(
                 attribute_error,
-                format!("{:?} object has no attribute {}", cls, name),
+                format!("{} has no attribute '{}'", obj.borrow(), name),
             ))
         }
     }

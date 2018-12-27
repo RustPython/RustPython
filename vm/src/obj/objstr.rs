@@ -144,7 +144,7 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_str(format!("{}{}", get_value(&s), get_value(&s2))))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", s, s2)))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", s.borrow(), s2.borrow())))
     }
 }
 
@@ -273,7 +273,11 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
         Ok(vm.ctx.new_str(result))
     } else {
-        Err(vm.new_type_error(format!("Cannot multiply {:?} and {:?}", s, s2)))
+        Err(vm.new_type_error(format!(
+            "Cannot multiply {} and {}",
+            s.borrow(),
+            s2.borrow()
+        )))
     }
 }
 

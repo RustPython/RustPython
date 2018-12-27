@@ -25,7 +25,7 @@ use super::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::{Rc, Weak};
@@ -65,12 +65,25 @@ pub type PyObjectWeakRef = Weak<RefCell<PyObject>>;
 /// since exceptions are also python objects.
 pub type PyResult = Result<PyObjectRef, PyObjectRef>; // A valid value, or an exception
 
-/*
-impl fmt::Display for PyObjectRef {
+impl fmt::Display for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Obj {:?}", self)
+        use self::TypeProtocol;
+        match &self.kind {
+            PyObjectKind::Module { name, .. } => write!(f, "module '{}'", name),
+            PyObjectKind::Class { name, .. } => {
+                let type_name = objtype::get_type_name(&self.typ());
+                // We don't have access to a vm, so just assume that if its parent's name
+                // is type, it's a type
+                if type_name == "type" {
+                    write!(f, "type object '{}'", name)
+                } else {
+                    write!(f, "'{}' object", type_name)
+                }
+            }
+            _ => write!(f, "'{}' object", objtype::get_type_name(&self.typ())),
+        }
     }
-}*/
+}
 
 /*
  // Idea: implement the iterator trait upon PyObjectRef
@@ -588,7 +601,13 @@ pub trait TypeProtocol {
 
 impl TypeProtocol for PyObjectRef {
     fn typ(&self) -> PyObjectRef {
-        match self.borrow().typ {
+        self.borrow().typ()
+    }
+}
+
+impl TypeProtocol for PyObject {
+    fn typ(&self) -> PyObjectRef {
+        match self.typ {
             Some(ref typ) => typ.clone(),
             None => panic!("Object {:?} doesn't have a type!", self),
         }

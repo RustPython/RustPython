@@ -86,7 +86,7 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();
         Ok(vm.ctx.new_list(elements))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", o, o2)))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", o.borrow(), o2.borrow())))
     }
 }
 

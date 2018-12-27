@@ -464,10 +464,11 @@ impl VirtualMachine {
         let cls = obj.typ();
         match cls.get_attr(method_name) {
             Some(method) => self.call_get_descriptor(method, obj.clone()),
-            None => {
-                Err(self
-                    .new_type_error(format!("{:?} object has no method {:?}", obj, method_name)))
-            }
+            None => Err(self.new_type_error(format!(
+                "{} has no method {:?}",
+                obj.borrow(),
+                method_name
+            ))),
         }
     }
 

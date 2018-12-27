@@ -408,13 +408,11 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let len_method_name = "__len__".to_string();
     match vm.get_method(obj.clone(), &len_method_name) {
         Ok(value) => vm.invoke(value, PyFuncArgs::default()),
-        Err(..) => Err(vm.context().new_str(
-            format!(
-                "TypeError: object of this {:?} type has no method {:?}",
-                obj, len_method_name
-            )
-            .to_string(),
-        )),
+        Err(..) => Err(vm.new_type_error(format!(
+            "object of type '{}' has no method {:?}",
+            objtype::get_type_name(&obj.typ()),
+            len_method_name
+        ))),
     }
 }
 
@@ -596,13 +594,10 @@ fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let string = objstr::get_value(string);
     let string_len = string.chars().count();
     if string_len > 1 {
-        return Err(vm.new_type_error(
-            format!(
-                "ord() expected a character, but string of length {} found",
-                string_len
-            )
-            .to_string(),
-        ));
+        return Err(vm.new_type_error(format!(
+            "ord() expected a character, but string of length {} found",
+            string_len
+        )));
     }
     match string.chars().next() {
         Some(character) => Ok(vm

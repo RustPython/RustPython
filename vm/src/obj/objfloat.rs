@@ -52,7 +52,7 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyO
         )?;
         Ok(get_value(&res))
     } else {
-        Err(vm.new_type_error(format!("Cannot cast {:?} to float", obj)))
+        Err(vm.new_type_error(format!("Cannot cast {} to float", obj.borrow())))
     }
 }
 
@@ -159,7 +159,7 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 + objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -176,7 +176,11 @@ fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let r2 = float_mod(vm, args.clone());
         Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
     } else {
-        Err(vm.new_type_error(format!("Cannot divmod power {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!(
+            "Cannot divmod power {} and {}",
+            i.borrow(),
+            i2.borrow()
+        )))
     }
 }
 
@@ -193,7 +197,11 @@ fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float((get_value(i) / objint::get_value(i2).to_f64().unwrap()).floor()))
     } else {
-        Err(vm.new_type_error(format!("Cannot floordiv {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!(
+            "Cannot floordiv {} and {}",
+            i.borrow(),
+            i2.borrow()
+        )))
     }
 }
 
@@ -211,7 +219,7 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 - objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -228,7 +236,7 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(get_value(i) % objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot mod {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot mod {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -254,7 +262,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let result = v1.powf(objint::get_value(i2).to_f64().unwrap());
         Ok(vm.ctx.new_float(result))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", i, i2)))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
     }
 }
 

@@ -58,7 +58,7 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     if !objtype::issubclass(cls, &vm.ctx.set_type()) {
-        return Err(vm.new_type_error(format!("{:?} is not a subtype of set", cls)));
+        return Err(vm.new_type_error(format!("{} is not a subtype of set", cls.borrow())));
     }
 
     let elements = match iterable {
