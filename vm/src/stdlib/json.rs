@@ -223,8 +223,10 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .get_item("JSONDecodeError")
             .unwrap();
         let exc = vm.new_exception(json_decode_error, format!("{}", err));
-        vm.ctx.set_item(&exc, "lineno", vm.ctx.new_int(err.line().into()));
-        vm.ctx.set_item(&exc, "colno", vm.ctx.new_int(err.column().into()));
+        vm.ctx
+            .set_item(&exc, "lineno", vm.ctx.new_int(err.line().into()));
+        vm.ctx
+            .set_item(&exc, "colno", vm.ctx.new_int(err.column().into()));
         exc
     })
 }
