@@ -239,7 +239,7 @@ impl VirtualMachine {
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         trace!("Invoke: {:?} {:?}", func_ref, args);
         match func_ref.borrow().kind {
-            PyObjectKind::RustFunction { function } => function(self, args),
+            PyObjectKind::RustFunction { ref function } => function(self, args),
             PyObjectKind::Function {
                 ref code,
                 ref scope,

@@ -465,9 +465,24 @@ impl PyContext {
         )
     }
 
-    pub fn new_rustfunc(&self, function: RustPyFunc) -> PyObjectRef {
+    pub fn new_rustfunc<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
+        &self,
+        function: F,
+    ) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::RustFunction { function: function },
+            PyObjectKind::RustFunction {
+                function: Box::new(function),
+            },
+            self.function_type(),
+        )
+    }
+
+    pub fn new_rustfunc_from_box(
+        &self,
+        function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
+    ) -> PyObjectRef {
+        PyObject::new(
+            PyObjectKind::RustFunction { function },
             self.function_type(),
         )
     }
@@ -476,7 +491,10 @@ impl PyContext {
         PyObject::new(PyObjectKind::Frame { frame: frame }, self.frame_type())
     }
 
-    pub fn new_property(&self, function: RustPyFunc) -> PyObjectRef {
+    pub fn new_property<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
+        &self,
+        function: F,
+    ) -> PyObjectRef {
         let fget = self.new_rustfunc(function);
         let py_obj = PyObject::new(
             PyObjectKind::Instance {
@@ -518,7 +536,10 @@ impl PyContext {
         )
     }
 
-    pub fn new_member_descriptor(&self, function: RustPyFunc) -> PyObjectRef {
+    pub fn new_member_descriptor<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
+        &self,
+        function: F,
+    ) -> PyObjectRef {
         let dict = self.new_dict();
         self.set_item(&dict, "function", self.new_rustfunc(function));
         self.new_instance(dict, self.member_descriptor_type())
@@ -791,8 +812,6 @@ impl PyFuncArgs {
     }
 }
 
-type RustPyFunc = fn(vm: &mut VirtualMachine, PyFuncArgs) -> PyResult;
-
 /// Rather than determining the type of a python object, this enum is more
 /// a holder for the rust payload of a python object. It is more a carrier
 /// of rust data for a particular python object. Determine the python type
@@ -869,7 +888,7 @@ pub enum PyObjectKind {
         dict: PyObjectRef,
     },
     RustFunction {
-        function: RustPyFunc,
+        function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
     },
 }
 
