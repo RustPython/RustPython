@@ -1,4 +1,3 @@
-
 language: rust
 
 rust:
@@ -7,85 +6,87 @@ rust:
   - nightly
 
 script:
-    - cargo build --verbose --all
-    - cargo test --verbose --all
+  - cargo build --verbose --all
+  - cargo test --verbose --all
 
 env:
-    # This is used to only capture the regular nightly test in allow_failures
-    - REGULAR_TEST=true
+  # This is used to only capture the regular nightly test in allow_failures
+  - REGULAR_TEST=true
 
 cache: cargo
 
 matrix:
-    include:
-        # To test the snippets, we use Travis' Python environment (because
-        # installing rust ourselves is a lot easier than installing Python)
-        - language: python
-          python: 3.6
-          cache:
-              pip: true
-              # Because we're using the Python Travis environment, we can't use
-              # the built-in cargo cacher
-              directories:
-                  - /home/travis/.cargo
-                  - target
-          env:
-              - TRAVIS_RUST_VERSION=stable
-              - REGULAR_TEST=false
-          script: tests/.travis-runner.sh
-        - language: python
-          python: 3.6
-          cache:
-              pip: true
-              # Because we're using the Python Travis environment, we can't use
-              # the built-in cargo cacher
-              directories:
-                  - /home/travis/.cargo
-                  - target
-          env:
-              - TRAVIS_RUST_VERSION=beta
-              - REGULAR_TEST=false
-          script: tests/.travis-runner.sh
-        - name: rustfmt
-          language: rust
-          rust: stable
-          cache: cargo
-          before_script:
-              - rustup component add rustfmt-preview
-          script:
-              # Code references the generated python.rs, so put something in
-              # place to make `cargo fmt` happy.  (We use `echo` rather than
-              # `touch` because rustfmt complains about the empty file touch
-              # creates.)
-              - echo > parser/src/python.rs
-              - cargo fmt --all -- --check
-          env:
-              - REGULAR_TEST=false
-        - name: publish documentation
-          language: rust
-          rust: stable
-          cache: cargo
-          script: 
-              - cargo doc --no-deps --all
-          if: branch = release
-          env:
-              - REGULAR_TEST=false
-        - name: WASM online demo
-          language: rust
-          rust: nightly
-          cache: cargo
-          install:
-            - nvm install node
-            - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh # install wasm-pack
-          script:
-              - cd wasm
-              - bash release.sh
-          if: branch = release
-          env:
-              - REGULAR_TEST=false
-    allow_failures:
-        - rust: nightly
-          env: REGULAR_TEST=true
+  include:
+    # To test the snippets, we use Travis' Python environment (because
+    # installing rust ourselves is a lot easier than installing Python)
+    - language: python
+      python: 3.6
+      cache:
+        pip: true
+        # Because we're using the Python Travis environment, we can't use
+        # the built-in cargo cacher
+        directories:
+          - /home/travis/.cargo
+          - target
+      env:
+        - TRAVIS_RUST_VERSION=stable
+        - REGULAR_TEST=false
+      script: tests/.travis-runner.sh
+    - language: python
+      python: 3.6
+      cache:
+        pip: true
+        # Because we're using the Python Travis environment, we can't use
+        # the built-in cargo cacher
+        directories:
+          - /home/travis/.cargo
+          - target
+      env:
+        - TRAVIS_RUST_VERSION=beta
+        - REGULAR_TEST=false
+      script: tests/.travis-runner.sh
+    - name: rustfmt
+      language: rust
+      rust: stable
+      cache: cargo
+      before_script:
+        - rustup component add rustfmt-preview
+      script:
+        # Code references the generated python.rs, so put something in
+        # place to make `cargo fmt` happy.  (We use `echo` rather than
+        # `touch` because rustfmt complains about the empty file touch
+        # creates.)
+        - echo > parser/src/python.rs
+        - cargo fmt --all -- --check
+      env:
+        - REGULAR_TEST=false
+    - name: publish documentation
+      language: rust
+      rust: stable
+      cache: cargo
+      script:
+        - cargo doc --no-deps --all
+      if: branch = release
+      env:
+        - REGULAR_TEST=false
+    - name: WASM online demo
+      language: rust
+      rust: nightly
+      cache: cargo
+      install:
+        - nvm install node
+        # install wasm-pack
+        - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      script:
+        - cd wasm/demo
+        - npm install
+        - npm run dist
+      if: branch = release
+      env:
+        - REGULAR_TEST=false
+  allow_failures:
+    - rust: nightly
+      env: REGULAR_TEST=true
 
 deploy:
   - provider: pages
@@ -93,16 +94,18 @@ deploy:
     target-branch: master
     local-dir: target/doc
     skip-cleanup: true
-    github-token: $WEBSITE_GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
+    # Set in the settings page of your repository, as a secure variable
+    github-token: $WEBSITE_GITHUB_TOKEN
     keep-history: true
     on:
       branch: release
   - provider: pages
     repo: RustPython/demo
     target-branch: master
-    local-dir: wasm/app/dist
+    local-dir: wasm/demo/dist
     skip-cleanup: true
-    github-token: $WEBSITE_GITHUB_TOKEN  # Set in the settings page of your repository, as a secure variable
+    # Set in the settings page of your repository, as a secure variable
+    github-token: $WEBSITE_GITHUB_TOKEN
     keep-history: true
     on:
       branch: release
