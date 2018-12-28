@@ -11,6 +11,9 @@ use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 
+// Hack to comment out wasm-bindgen's typescript definitons
+const TS_CMT_START: &'static str = "/*";
+
 fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
     vm.to_pystr(&py_err)
         .unwrap_or_else(|_| "Error, and error getting error message".into())
@@ -221,7 +224,8 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
 }
 
 #[wasm_bindgen(typescript_custom_section)]
-const TYPESCRIPT_APPEND: &'static str = r#"
+const TYPESCRIPT_DEFS: &'static str = r#"
+*/
 interface PyEvalOptions {
     stdout: (out: string) => void;
     vars: { [key: string]: any };
