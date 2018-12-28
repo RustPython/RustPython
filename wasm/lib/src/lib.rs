@@ -12,6 +12,7 @@ use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 
 // Hack to comment out wasm-bindgen's typescript definitons
+#[wasm_bindgen(typescript_custom_section)]
 const TS_CMT_START: &'static str = "/*";
 
 fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
