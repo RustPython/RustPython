@@ -3,7 +3,8 @@ textarea {
     resize: none;
 }
 
-#code {
+#code,
+#console {
     height: 30vh;
     width: calc(100% - 3px);
 }
@@ -11,11 +12,6 @@ textarea {
 .CodeMirror {
     border: 1px solid #ddd;
     height: 30vh !important;
-}
-
-#console {
-    height: 30vh;
-    width: calc(100% - 3px);
 }
 
 #run-btn {
