@@ -19,17 +19,17 @@ A Python-3 (CPython >= 3.5.0) Interpreter written in Rust.
 ## Quick Documentation
 
 ```js
-pyEval(code, options);
+pyEval(code, options?);
 ```
 
 `code`: `string`: The Python code to run
 
 `options`:
 
--   `vars`: `{ [key: string]: any }`: Variables passed to the VM that can be
+-   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
     accessed in Python with the variable `js_vars`. Functions do work, and
     recieve the Python kwargs as the `this` argument.
--   `print`: `(out: string) => void`: A function to replace the native print
+-   `stdout?`: `(out: string) => void`: A function to replace the native print
     function, by default `console.log`.
 
 ## License

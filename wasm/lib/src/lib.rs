@@ -125,15 +125,29 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
 }
 
 #[wasm_bindgen(js_name = pyEval)]
+/// Evaluate Python code
+///
+/// ```js
+/// pyEval(code, options?);
+/// ```
+///
+/// `code`: `string`: The Python code to run
+///
+/// `options`:
+///
+/// -   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
+///     accessed in Python with the variable `js_vars`. Functions do work, and
+///     recieve the Python kwargs as the `this` argument.
+/// -   `stdout?`: `(out: string) => void`: A function to replace the native print
+///     function, by default `console.log`.
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
     let options = options.unwrap_or_else(|| Object::new());
     let js_vars = {
         let prop = Reflect::get(&options, &"vars".into())?;
-        let prop = Object::from(prop);
         if prop.is_undefined() {
             None
         } else if prop.is_object() {
-            Some(prop)
+            Some(Object::from(prop))
         } else {
             return Err(TypeError::new("vars must be an object").into());
         }
@@ -205,3 +219,13 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
         .map(|value| py_to_js(&mut vm, value))
         .map_err(|err| py_str_err(&mut vm, &err).into())
 }
+
+#[wasm_bindgen(typescript_custom_section)]
+const TYPESCRIPT_APPEND: &'static str = r#"
+interface PyEvalOptions {
+    stdout: (out: string) => void;
+    vars: { [key: string]: any };
+}
+
+export function pyEval(code: string, options?: PyEvalOptions): any;
+"#;
