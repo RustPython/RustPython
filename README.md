@@ -1,5 +1,6 @@
 # RustPython
-A Python-3  (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :metal:.
+
+A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :metal:.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -23,7 +24,6 @@ Or use the interactive shell:
     Welcome to rustpython
     >>>>> 2+2
     4
-
 
 # Goals
 
@@ -51,13 +51,13 @@ If you wish to update the online documentation. Push directly to the `release` b
 
 - `parser/src`: python lexing, parsing and ast
 - `vm/src`: python virtual machine
-    - `builtins.rs`: Builtin functions
-    - `compile.rs`: the python compiler from ast to bytecode
-    - `obj`: python builtin types
+  - `builtins.rs`: Builtin functions
+  - `compile.rs`: the python compiler from ast to bytecode
+  - `obj`: python builtin types
 - `src`: using the other subcrates to bring rustpython to life.
 - `docs`: documentation (work in progress)
 - `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)
-- `wasm`: Binary crate and resources for WebAssembly build 
+- `wasm`: Binary crate and resources for WebAssembly build
 - `tests`: integration test snippets
 
 # Contributing
@@ -68,7 +68,7 @@ Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustP
 Check issues labeled with `good first issue` if you wish to start coding.
 
 Another approach is to checkout the sourcecode: builtin functions and object methods are often the simplest
-and easiest way to contribute. 
+and easiest way to contribute.
 
 You can also simply run
 `cargo run tests/snippets/whats_left_to_implement.py` to assist in finding any
@@ -135,44 +135,51 @@ cd emsdk-portable/
 
 ## Build
 
-Move into the `wasm` directory. This contains a custom library crate optimized for wasm build of RustPython.   
+Move into the `wasm` directory. This directory contains a library crate for interop
+with python to rust to js and back in `wasm/lib`, the demo website found at
+https://rustpython.github.io/demo in `wasm/demo`, and an example of how to use
+the crate as a library in one's own JS app in `wasm/example`.
 
-```bash
+```sh
 cd wasm
 ```
 
-For testing on a development server, you can run the `build.sh` script. For release build which generates files for deploying to a HTTP server, run `release.sh`.
+Go to the demo directory. This is the best way of seeing the changes made to either
+the library or the JS demo, as the `rustpython_wasm` module is set to the global
+JS variable `rp` on the website.
 
-If you don't want to use the above scripts, you can do it manually as follows:
-
-Run the build. This can take several minutes depending on the machine.
-
-```
-wasm-pack build
+```sh
+cd demo
 ```
 
-Upon successful build, cd in the the `/pkg` directory and run:
+Now, start the webpack development server. It'll compile the crate and then
+the demo app. This will likely take a long time, both the wasm-pack portion and
+the webpack portion (from after it says "Your crate has been correctly compiled"),
+so be patient.
 
-```
-npm link
-```
-
-Now move back out into the `/app` directory. The files here have been adapted from [wasm-pack-template](https://github.com/rustwasm/wasm-pack-template).
-
-Finally, run:
-
-```
-npm install
-npm link rustpython_wasm
+```sh
+npm run dev
 ```
 
-and you will be able to run the files with:
+You can now open the webpage on https://localhost:8080 and Python code in either
+the text box or browser devtools with:
 
-```
-node_modules/.bin/webpack-dev-server
+```js
+rp.pyEval(
+  `
+print(js_vars['a'] * 9)
+`,
+  {
+    vars: {
+      a: 9
+    }
+  }
+);
 ```
 
-Now open the webpage on https://localhost:8080, you'll be able to run Python code in the text box.
+Alternatively, you can run `npm run build` to build the app once, without watching
+for changes, or `npm run dist` to build the app in release mode, both for the
+crate and webpack.
 
 # Code style
 
@@ -195,4 +202,3 @@ These are some useful links to related projects:
 - https://github.com/ProgVal/pythonvm-rust
 - https://github.com/shinglyu/RustPython
 - https://github.com/windelbouwman/rspython
-

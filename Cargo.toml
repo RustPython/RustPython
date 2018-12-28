@@ -4,6 +4,7 @@ version = "0.0.1"
 authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
 
 [workspace]
+members = [".", "vm", "wasm/lib", "parser"]
 
 [dependencies]
 log="0.4.1"
@@ -12,3 +13,6 @@ clap = "2.31.2"
 rustpython_parser = {path = "parser"}
 rustpython_vm = {path = "vm"}
 rustyline = "2.1.0"
+
+[profile.release]
+opt-level = "s"

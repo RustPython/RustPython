@@ -1,0 +1,18 @@
+{
+    "name": "rustpython-wasm-example",
+    "version": "1.0.0",
+    "//1": "`dependencies.rustpython_wasm` would be the version of the npm",
+    "//2": "library in a real app",
+    "dependencies": {
+        "rustpython_wasm": "file:../lib/pkg/"
+    },
+    "devDependencies": {
+        "raw-loader": "1.0.0",
+        "webpack": "4.28.2",
+        "webpack-cli": "^3.1.2"
+    },
+    "scripts": {
+        "build": "webpack"
+    },
+    "license": "MIT"
+}
