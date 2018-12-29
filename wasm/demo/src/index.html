@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>RustPython Demo</title>
+    </head>
+    <body>
+        <h1>RustPython Demo</h1>
+        <p>
+            RustPython is a Python interpreter writter in Rust. This demo is
+            compiled from Rust to WebAssembly so it runs in the browser. <br />
+            Please input your python code below and click <kbd>Run</kbd>, or you
+            can open up your browser's devtools and play with
+            <code>rp.pyEval('print("a")')</code>
+        </p>
+        <textarea id="code">
+n1 = 0
+n2 = 1
+count = 0
+until = 10
+
+print("These are the first {} numbers in a Fibonacci sequence:".format(until))
+
+while count < until:
+    print(n1)
+    n1, n2 = n2, n1 + n2
+    count += 1
+</textarea
+        >
+        <button id="run-btn">Run &#9655;</button>
+        <div id="error"></div>
+        <h3>Standard Output</h3>
+        <textarea id="console" readonly>Loading...</textarea>
+
+        <p>Here's some info regarding the <code>rp.pyEval()</code> function</p>
+        <ul>
+            <li>
+                You can return variables from python and get them returned to
+                JS, with the only requirement being that they're serializable
+                with <code>json.dumps</code>.
+            </li>
+            <li>
+                You can pass an options object as the second argument to the
+                function:
+                <ul>
+                    <li>
+                        <code>stdout</code>: either a string with a css selector
+                        to a textarea element or a function that recieves a
+                        string when the <code>print</code> function is called in
+                        python. The default value is <code>console.log</code>.
+                    </li>
+                    <li>
+                        <code>vars</code>: an object that will be available in
+                        python as the variable <code>js_vars</code>. Only
+                        functions and values that can be serialized with
+                        <code>JSON.stringify()</code> will go through.
+                    </li>
+                </ul>
+            </li>
+            <li>
+                JS functions that get passed to python will recieve positional
+                args as positional args and kwargs as the
+                <code>this</code> argument
+            </li>
+        </ul>
+
+        <a href="https://github.com/RustPython/RustPython">
+            <img
+                style="position: absolute; top: 0; right: 0; border: 0;"
+                src="https://s3.amazonaws.com/github/ribbons/forkme_right_green_007200.png"
+                alt="Fork me on GitHub"
+            />
+        </a>
+    </body>
+</html>

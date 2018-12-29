@@ -1,0 +1,27 @@
+textarea {
+    font-family: monospace;
+    resize: none;
+}
+
+#code,
+#console {
+    height: 30vh;
+    width: calc(100% - 3px);
+}
+
+.CodeMirror {
+    border: 1px solid #ddd;
+    height: 30vh !important;
+}
+
+#run-btn {
+    width: 6em;
+    height: 2em;
+    font-size: 24px;
+}
+
+#error {
+    color: tomato;
+    margin-top: 10px;
+    font-family: monospace;
+}
