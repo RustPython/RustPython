@@ -227,7 +227,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
 #[wasm_bindgen(typescript_custom_section)]
 const TYPESCRIPT_DEFS: &'static str = r#"
 */
-interface PyEvalOptions {
+export interface PyEvalOptions {
     stdout: (out: string) => void;
     vars: { [key: string]: any };
 }
