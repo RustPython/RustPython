@@ -14,6 +14,7 @@ use super::obj::objgenerator;
 use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objlist;
+use super::obj::objmemory;
 use super::obj::objobject;
 use super::obj::objproperty;
 use super::obj::objset;
@@ -114,6 +115,7 @@ pub struct PyContext {
     pub true_value: PyObjectRef,
     pub false_value: PyObjectRef,
     pub list_type: PyObjectRef,
+    pub memoryview_type: PyObjectRef,
     pub none: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
@@ -197,6 +199,7 @@ impl PyContext {
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
+        let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
         let code_type = create_type("code", &type_type, &int_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
@@ -217,6 +220,7 @@ impl PyContext {
         );
         let context = PyContext {
             bool_type: bool_type,
+            memoryview_type : memoryview_type,
             bytearray_type: bytearray_type,
             bytes_type: bytes_type,
             code_type: code_type,
@@ -261,6 +265,7 @@ impl PyContext {
         objbytes::init(&context);
         objbytearray::init(&context);
         objproperty::init(&context);
+        objmemory::init(&context);
         objstr::init(&context);
         objsuper::init(&context);
         objtuple::init(&context);
@@ -318,6 +323,10 @@ impl PyContext {
 
     pub fn bool_type(&self) -> PyObjectRef {
         self.bool_type.clone()
+    }
+
+    pub fn memoryview_type(&self) -> PyObjectRef {
+        self.memoryview_type.clone()
     }
 
     pub fn tuple_type(&self) -> PyObjectRef {
@@ -831,6 +840,9 @@ pub enum PyObjectKind {
         stop: Option<i32>,
         step: Option<i32>,
     },
+    MemoryView {
+        obj : PyObjectRef
+    },
     Code {
         code: bytecode::CodeObject,
     },
@@ -881,6 +893,7 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
             &PyObjectKind::Complex { ref value } => write!(f, "complex {}", value),
             &PyObjectKind::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
+            &PyObjectKind::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             &PyObjectKind::Sequence { elements: _ } => write!(f, "list or tuple"),
             &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
             &PyObjectKind::Set { elements: _ } => write!(f, "set"),
@@ -934,6 +947,7 @@ impl PyObject {
             PyObjectKind::Float { ref value } => format!("{:?}", value),
             PyObjectKind::Complex { ref value } => format!("{:?}", value),
             PyObjectKind::Bytes { ref value } => format!("b'{:?}'", value),
+            PyObjectKind::MemoryView { ref obj } => format!("b'{:?}'", obj),
             PyObjectKind::Sequence { ref elements } => format!(
                 "(/[{}]/)",
                 elements
