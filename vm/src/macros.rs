@@ -261,3 +261,22 @@ macro_rules! py_class {
         __py_class!(__ctx, $name(__ctx.object()), {$($attr_name: ($($attr_val)*)),*})
     }};
 }
+
+#[macro_export]
+macro_rules! py_get_item {
+    ($val:ident.$($attr:ident).*) => {
+        py_get_item!(($val).$($attr).*)
+    };
+    (($val:expr).$attr:ident.$($rest:ident).*) => {
+        match $val.get_item(stringify!($attr)) {
+            Some(val) => py_get_item!((val).$($rest).*),
+            None => None,
+        }
+    };
+    (($val:expr).$attr:ident) => {
+        py_get_item!(($val).$attr.)
+    };
+    (($val:expr).) => {
+        Some($val)
+    };
+}

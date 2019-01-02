@@ -7,8 +7,7 @@ use serde_json;
 
 use super::super::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
 use super::super::pyobject::{
-    create_type, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -214,28 +213,23 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     res.map_err(|err| {
-        let json_decode_error = vm
-            .sys_module
-            .get_item("modules")
-            .unwrap()
-            .get_item("json")
-            .unwrap()
-            .get_item("JSONDecodeError")
-            .unwrap();
+        let json_decode_error = py_get_item!((vm.sys_module).modules.json.JSONDecodeError)
+            .expect("Couldn't get JSONDecodeError");
         let exc = vm.new_exception(json_decode_error, format!("{}", err));
         vm.ctx
-            .set_item(&exc, "lineno", vm.ctx.new_int(err.line().into()));
+            .set_attr(&exc, "lineno", vm.ctx.new_int(err.line().into()));
         vm.ctx
-            .set_item(&exc, "colno", vm.ctx.new_int(err.column().into()));
+            .set_attr(&exc, "colno", vm.ctx.new_int(err.column().into()));
         exc
     })
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+    let exception_type = &ctx.exceptions.exception_type;
     py_item!(ctx, mod json {
         fn dumps;
         fn loads;
         // TODO: Make this a proper type with a constructor
-        struct JSONDecodeError {}
+        struct JSONDecodeError(exception_type) {}
     })
 }

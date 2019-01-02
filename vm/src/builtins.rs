@@ -731,7 +731,6 @@ fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin___import__
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let mod_name = "__builtins__".to_string();
     let py_mod = py_item!(ctx, mod __builtins__ {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         let __name__ = ctx.new_str(String::from("__main__"));
