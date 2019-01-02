@@ -30,15 +30,15 @@ fn bytes_io_getvalue(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, io {
-        IOBase: (class {}),
-        StringIO: (class(IOBase) {
-            __init__: (func string_io_init),
-            getvalue: (func string_io_getvalue),
-        }),
-        BytesIO: (class(IOBase) {
-            __init__: (func bytes_io_init),
-            getvalue: (func bytes_io_getvalue)
-        })
+    py_item!(ctx, mod io {
+        struct IOBase {}
+        struct StringIO(IOBase) {
+            fn __init__ = string_io_init;
+            fn getvalue = string_io_getvalue;
+        }
+        struct BytesIO(IOBase) {
+            fn __init__ = bytes_io_init;
+            fn getvalue = bytes_io_getvalue;
+        }
     })
 }
