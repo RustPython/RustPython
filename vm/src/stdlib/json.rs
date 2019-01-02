@@ -7,7 +7,7 @@ use serde_json;
 
 use super::super::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
 use super::super::pyobject::{
-    DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -225,11 +225,10 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let exception_type = &ctx.exceptions.exception_type;
     py_item!(ctx, mod json {
         fn dumps;
         fn loads;
         // TODO: Make this a proper type with a constructor
-        struct JSONDecodeError(exception_type) {}
+        struct JSONDecodeError(&ctx.exceptions.exception_type) {}
     })
 }

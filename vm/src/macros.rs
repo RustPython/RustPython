@@ -97,6 +97,8 @@ macro_rules! no_kwargs {
 
 // TODO: Allow passing a module name, so you could have a module's name be, e.g. `_ast.FunctionDef`
 
+#[macro_export]
+#[doc(hidden)]
 macro_rules! py_items {
     ($ctx:ident, $mac:ident, $thru:tt,) => {};
     ($ctx:ident, $mac:ident, $thru:tt, struct $name:ident {$($inner:tt)*} $($rest:tt)*) => {
@@ -112,7 +114,7 @@ macro_rules! py_items {
         $ctx:ident,
         $mac:ident,
         $thru:tt,
-        struct $name:ident($parent:ident) { $($inner:tt)* }
+        struct $name:ident($parent:expr) { $($inner:tt)* }
         $($rest:tt)*
     ) => {
         $mac!(
@@ -154,7 +156,7 @@ macro_rules! py_items {
         $ctx:ident,
         $mac:ident,
         $thru:tt,
-        mod $name:ident($parent:ident) { $($inner:tt)* }
+        mod $name:ident($parent:expr) { $($inner:tt)* }
         $($rest:tt)*
     ) => {
         $mac!(
@@ -183,12 +185,49 @@ macro_rules! py_items {
 }
 
 #[allow(unused)]
+#[macro_export]
+#[doc(hidden)]
 macro_rules! __py_item {
     (@py_item $ctx:ident, ($name:ident, $item:expr), $var:ident) => {
         let $var = $item;
     };
 }
 
+/// Constructs a Python type.
+///
+/// ```rust,ignore
+/// py_item!(ctx, $py_item)
+/// ```
+///
+/// Possible `$py_item` values:
+/// ```rust,ignore
+/// mod $mod_name { $items }
+/// struct $class_name { $items }
+/// struct $class_name($parent_class) { $items }
+/// // $rustfunc is of type `Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult`
+/// fn $func_name = $rustfunc;
+/// // $item_value is a PyObjectRef
+/// let $item_name = $item_value;
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// # #[macro_use] extern crate rustpython_vm;
+/// # use rustpython_vm::{VirtualMachine, pyobject::{PyContext, PyResult}};
+/// # fn test_new(vm: &mut VirtualMachine, args: rustpython_vm::pyobject::PyFuncArgs) -> PyResult {
+///     Ok(vm.get_none())
+/// # }
+/// # fn main() {
+/// # let mut vm = VirtualMachine::new();
+/// let ctx: PyContext = vm.ctx;
+/// let py_mod = py_item!(&ctx, mod test {
+///     struct TestClass {
+///         fn __new__ = test_new;
+///     }
+/// });
+/// # }
+/// ```
 #[macro_export]
 macro_rules! py_item {
     ($ctx:expr, $($item:tt)*) => {{
@@ -198,6 +237,8 @@ macro_rules! py_item {
     }};
 }
 
+#[macro_export]
+#[doc(hidden)]
 macro_rules! __py_module {
     (
         $ctx:ident,
@@ -231,6 +272,8 @@ macro_rules! py_module {
 
 }
 
+#[macro_export]
+#[doc(hidden)]
 macro_rules! __py_class {
     (
         $ctx:ident,
@@ -252,7 +295,7 @@ macro_rules! __py_class {
 macro_rules! py_class {
     (
         $ctx:expr,
-        $name:ident($parent:ident) { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }
+        $name:ident($parent:expr) { $($attr_name:ident: ($($attr_val:tt)*)),*$(,)* }
     ) => {
         __py_class!($ctx, $name($parent.clone()), {$($attr_name: ($($attr_val)*)),*})
     };
@@ -262,17 +305,36 @@ macro_rules! py_class {
     }};
 }
 
+/// Attempts to get the chain of attributes, returning an option that contains the value of
+/// the last one.
+///
+/// ```rust,ignore
+/// py_get_item!(($val).$attr1.$attr2.$...)
+/// ```
+///
+/// # Examples
+///
+/// ```
+/// # #[macro_use] extern crate rustpython_vm;
+/// # fn main() {
+/// # let mut vm = rustpython_vm::VirtualMachine::new();
+/// let abs_func = py_get_item!((vm.sys_module).modules.__builtins__.abs);
+/// # }
+/// ```
 #[macro_export]
 macro_rules! py_get_item {
     ($val:ident.$($attr:ident).*) => {
         py_get_item!(($val).$($attr).*)
     };
-    (($val:expr).$attr:ident.$($rest:ident).*) => {
+    (($val:expr).$attr:ident.$($rest:ident).*) => {{
+        use $crate::pyobject::DictProtocol;
         match $val.get_item(stringify!($attr)) {
-            Some(val) => py_get_item!((val).$($rest).*),
+            Some(val) => {
+                py_get_item!((val).$($rest).*)
+            },
             None => None,
         }
-    };
+    }};
     (($val:expr).$attr:ident) => {
         py_get_item!(($val).$attr.)
     };
