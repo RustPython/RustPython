@@ -28,6 +28,11 @@ pub fn init(context: &PyContext) {
         "__repr__",
         context.new_rustfunc(bytearray_repr),
     );
+    context.set_attr(
+        &bytearray_type,
+        "__len__",
+        context.new_rustfunc(bytearray_type),
+    );
 }
 
 fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -60,6 +65,18 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         cls.clone(),
     ))
 }
+
+fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(a, Some(vm.ctx.bytearray_type()))]
+    );
+
+    let byte_vec = get_value(a).to_vec();
+    Ok(vm.ctx.new_int(byte_vec.len()))
+}
+
 
 fn bytearray_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(

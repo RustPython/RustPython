@@ -18,6 +18,8 @@ pub fn init(context: &PyContext) {
     context.set_attr(bytes_type, "__hash__", context.new_rustfunc(bytes_hash));
     context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
     context.set_attr(bytes_type, "__repr__", context.new_rustfunc(bytes_repr));
+    context.set_attr(bytes_type, "__len__", context.new_rustfunc(bytes_len));
+
 }
 
 fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -66,6 +68,18 @@ fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn bytes_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(a, Some(vm.ctx.bytes_type()))]
+    );
+
+    let byte_vec = get_value(a).to_vec();
+    Ok(vm.ctx.new_int(byte_vec.len()))
+}
+
+
 fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);
     let data = get_value(zelf);
@@ -87,8 +101,7 @@ pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a 
 
 fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
-    let data = get_value(obj);
-    let data: Vec<String> = data.iter().map(|b| format!("\\x{:02x}", b)).collect();
-    let data = data.join("");
+    let value = get_value(obj);
+    let data = String::from_utf8(value.to_vec()).unwrap();
     Ok(vm.new_str(format!("b'{}'", data)))
 }
