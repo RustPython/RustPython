@@ -46,17 +46,17 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let path = ctx.new_list(path_list);
     let modules = ctx.new_dict();
     let sys_name = "sys".to_string();
-    let sys_mod = ctx.new_module(&sys_name, ctx.new_scope(None));
+    let sys_mod = py_item!(ctx, mod sys {
+        let modules = modules.clone();
+        let argv = argv(ctx);
+        fn getrefcount = sys_getrefcount;
+        fn getsizeof = sys_getsizeof;
+        let maxsize = ctx.new_int(std::usize::MAX.to_bigint().unwrap());
+        let path = path;
+        let ps1 = ctx.new_str(">>>>> ".to_string());
+        let ps2 = ctx.new_str("..... ".to_string());
+        fn _getframe = getframe;
+    });
     ctx.set_item(&modules, &sys_name, sys_mod.clone());
-    ctx.set_item(&sys_mod, "modules", modules);
-    ctx.set_item(&sys_mod, "argv", argv(ctx));
-    ctx.set_item(&sys_mod, "getrefcount", ctx.new_rustfunc(sys_getrefcount));
-    ctx.set_item(&sys_mod, "getsizeof", ctx.new_rustfunc(sys_getsizeof));
-    let maxsize = ctx.new_int(std::usize::MAX.to_bigint().unwrap());
-    ctx.set_item(&sys_mod, "maxsize", maxsize);
-    ctx.set_item(&sys_mod, "path", path);
-    ctx.set_item(&sys_mod, "ps1", ctx.new_str(">>>>> ".to_string()));
-    ctx.set_item(&sys_mod, "ps2", ctx.new_str("..... ".to_string()));
-    ctx.set_item(&sys_mod, "_getframe", ctx.new_rustfunc(getframe));
     sys_mod
 }

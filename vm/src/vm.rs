@@ -44,7 +44,7 @@ impl VirtualMachine {
         let ctx = PyContext::new();
 
         // Hard-core modules:
-        let builtins = builtins::make_module(&ctx);
+        let builtins = builtins::mk_module(&ctx);
         let sysmod = sysmodule::mk_module(&ctx);
 
         // Add builtins as builtins module:
