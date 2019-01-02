@@ -15,7 +15,7 @@ use std::rc::Rc;
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     // Don't use py_item! because `ref` is a reserved word
-    let py_mod = ctx.new_module(&"_weakref".to_string(), ctx.new_scope(None));
+    let py_mod = py_item!(ctx, mod _weakref {});
     let py_ref_class = ctx.new_class("ref", ctx.object());
     ctx.set_attr(&py_ref_class, "__new__", ctx.new_rustfunc(ref_new));
     ctx.set_attr(&py_ref_class, "__call__", ctx.new_rustfunc(ref_call));
