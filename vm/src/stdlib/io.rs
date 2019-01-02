@@ -89,7 +89,7 @@ fn file_io_read_into(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(file_io, None), (view, Some(vm.ctx.bytes_type()))]
+        required = [(file_io, None), (view, Some(vm.ctx.bytearray_type()))]
     );
     let py_name = file_io.get_attr("name").unwrap();
     let f = match File::open(get_value(& py_name)) {
@@ -117,6 +117,8 @@ fn file_io_read_into(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
+
+    //simple calls read on the read class!
     // TODO
     Ok(vm.get_none())
 }
@@ -130,6 +132,7 @@ fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 
     Ok(vm.get_none())
+
     //mode is optional: 'rt' is the default mode (open from reading text)
     //To start we construct a FileIO (subclass of RawIOBase)
     //This is subsequently consumed by a Buffered_class of type depending
@@ -139,6 +142,7 @@ fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // reading => BufferedReader
     // If the mode is binary this Buffered class is returned directly at
     // this point.
+    //For Buffered class construct "raw" IO class e.g. FileIO and pass this into corresponding field
 
     //If the mode is text this buffer type is consumed on construction of 
     //a TextIOWrapper which is subsequently returned.
@@ -168,7 +172,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&file_io, "__init__", ctx.new_rustfunc(file_io_init));
     ctx.set_attr(&file_io, "name", ctx.str_type());
     ctx.set_attr(&file_io, "read", ctx.new_rustfunc(file_io_read));
-    ctx.set_attr(&file_io, "read_into", ctx.new_rustfunc(file_io_read_into));
+    ctx.set_attr(&file_io, "readinto", ctx.new_rustfunc(file_io_read_into));
     ctx.set_attr(&py_mod, "FileIO", file_io.clone());
 
     // BufferedIOBase Subclasses
