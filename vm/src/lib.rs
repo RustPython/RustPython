@@ -5,7 +5,7 @@
 //! - Import mechanics
 //! - Base objects
 
-#![recursion_limit="128"]
+#![recursion_limit = "128"]
 
 #[macro_use]
 extern crate bitflags;
