@@ -87,8 +87,7 @@ pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a 
 
 fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
-    let data = get_value(obj);
-    let data: Vec<String> = data.iter().map(|b| format!("\\x{:02x}", b)).collect();
-    let data = data.join("");
+    let value = get_value(obj);
+    let data = String::from_utf8(value.to_vec()).unwrap();
     Ok(vm.new_str(format!("b'{}'", data)))
 }
