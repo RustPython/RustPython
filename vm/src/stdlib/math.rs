@@ -202,57 +202,54 @@ fn math_lgamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"math".to_string(), ctx.new_scope(None));
+    py_item!(ctx, mod math {
+        // Number theory functions:
+        fn fabs = math_fabs;
+        fn isfinite = math_isfinite;
+        fn isinf = math_isinf;
+        fn isnan = math_isnan;
 
-    // Number theory functions:
-    ctx.set_attr(&py_mod, "fabs", ctx.new_rustfunc(math_fabs));
-    ctx.set_attr(&py_mod, "isfinite", ctx.new_rustfunc(math_isfinite));
-    ctx.set_attr(&py_mod, "isinf", ctx.new_rustfunc(math_isinf));
-    ctx.set_attr(&py_mod, "isnan", ctx.new_rustfunc(math_isnan));
+        // Power and logarithmic functions:
+        fn exp = math_exp;
+        fn expm1 = math_expm1;
+        fn log = math_log;
+        fn log1p = math_log1p;
+        fn log2 = math_log2;
+        fn log10 = math_log10;
+        fn pow = math_pow;
+        fn sqrt = math_sqrt;
 
-    // Power and logarithmic functions:
-    ctx.set_attr(&py_mod, "exp", ctx.new_rustfunc(math_exp));
-    ctx.set_attr(&py_mod, "expm1", ctx.new_rustfunc(math_expm1));
-    ctx.set_attr(&py_mod, "log", ctx.new_rustfunc(math_log));
-    ctx.set_attr(&py_mod, "log1p", ctx.new_rustfunc(math_log1p));
-    ctx.set_attr(&py_mod, "log2", ctx.new_rustfunc(math_log2));
-    ctx.set_attr(&py_mod, "log10", ctx.new_rustfunc(math_log10));
-    ctx.set_attr(&py_mod, "pow", ctx.new_rustfunc(math_pow));
-    ctx.set_attr(&py_mod, "sqrt", ctx.new_rustfunc(math_sqrt));
+        // Trigonometric functions:
+        fn acos = math_acos;
+        fn asin = math_asin;
+        fn atan = math_atan;
+        fn atan2 = math_atan2;
+        fn cos = math_cos;
+        fn hypot = math_hypot;
+        fn sin = math_sin;
+        fn tan = math_tan;
 
-    // Trigonometric functions:
-    ctx.set_attr(&py_mod, "acos", ctx.new_rustfunc(math_acos));
-    ctx.set_attr(&py_mod, "asin", ctx.new_rustfunc(math_asin));
-    ctx.set_attr(&py_mod, "atan", ctx.new_rustfunc(math_atan));
-    ctx.set_attr(&py_mod, "atan2", ctx.new_rustfunc(math_atan2));
-    ctx.set_attr(&py_mod, "cos", ctx.new_rustfunc(math_cos));
-    ctx.set_attr(&py_mod, "hypot", ctx.new_rustfunc(math_hypot));
-    ctx.set_attr(&py_mod, "sin", ctx.new_rustfunc(math_sin));
-    ctx.set_attr(&py_mod, "tan", ctx.new_rustfunc(math_tan));
+        fn degrees = math_degrees;
+        fn radians = math_radians;
 
-    ctx.set_attr(&py_mod, "degrees", ctx.new_rustfunc(math_degrees));
-    ctx.set_attr(&py_mod, "radians", ctx.new_rustfunc(math_radians));
+        // Hyperbolic functions:
+        fn acosh = math_acosh;
+        fn asinh = math_asinh;
+        fn atanh = math_atanh;
+        fn cosh = math_cosh;
+        fn sinh = math_sinh;
+        fn tanh = math_tanh;
 
-    // Hyperbolic functions:
-    ctx.set_attr(&py_mod, "acosh", ctx.new_rustfunc(math_acosh));
-    ctx.set_attr(&py_mod, "asinh", ctx.new_rustfunc(math_asinh));
-    ctx.set_attr(&py_mod, "atanh", ctx.new_rustfunc(math_atanh));
-    ctx.set_attr(&py_mod, "cosh", ctx.new_rustfunc(math_cosh));
-    ctx.set_attr(&py_mod, "sinh", ctx.new_rustfunc(math_sinh));
-    ctx.set_attr(&py_mod, "tanh", ctx.new_rustfunc(math_tanh));
-
-    // Special functions:
-    ctx.set_attr(&py_mod, "erf", ctx.new_rustfunc(math_erf));
-    ctx.set_attr(&py_mod, "erfc", ctx.new_rustfunc(math_erfc));
-    ctx.set_attr(&py_mod, "gamma", ctx.new_rustfunc(math_gamma));
-    ctx.set_attr(&py_mod, "lgamma", ctx.new_rustfunc(math_lgamma));
-
-    // Constants:
-    ctx.set_attr(&py_mod, "pi", ctx.new_float(std::f64::consts::PI)); // 3.14159...
-    ctx.set_attr(&py_mod, "e", ctx.new_float(std::f64::consts::E)); // 2.71..
-    ctx.set_attr(&py_mod, "tau", ctx.new_float(2.0 * std::f64::consts::PI));
-    ctx.set_attr(&py_mod, "inf", ctx.new_float(std::f64::INFINITY));
-    ctx.set_attr(&py_mod, "nan", ctx.new_float(std::f64::NAN));
-
-    py_mod
+        // Special functions:
+        fn erf = math_erf;
+        fn erfc = math_erfc;
+        fn gamma = math_gamma;
+        fn lgamma = math_lgamma;
+        // Constants:
+        let pi = ctx.new_float(std::f64::consts::PI); // 3.14159...
+        let e = ctx.new_float(std::f64::consts::E); // 2.71..
+        let tau = ctx.new_float(2.0 * std::f64::consts::PI);
+        let inf = ctx.new_float(std::f64::INFINITY);
+        let nan = ctx.new_float(std::f64::NAN);
+    })
 }

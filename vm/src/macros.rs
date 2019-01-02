@@ -95,6 +95,8 @@ macro_rules! no_kwargs {
     };
 }
 
+// TODO: Allow passing a module name, so you could have a module's name be, e.g. `_ast.FunctionDef`
+
 macro_rules! py_items {
     ($ctx:ident, $mac:ident, $thru:tt,) => {};
     ($ctx:ident, $mac:ident, $thru:tt, struct $name:ident {$($inner:tt)*} $($rest:tt)*) => {
@@ -163,6 +165,21 @@ macro_rules! py_items {
         );
         py_items!($ctx, $mac, $thru, $($rest)*)
     };
+    (
+        $ctx:ident,
+        $mac:ident,
+        $thru:tt,
+        let $name:ident = $value:expr;
+        $($rest:tt)*
+    ) => {
+        $mac!(
+            @py_item
+            $ctx,
+            ($name, $value),
+            $thru
+        );
+        py_items!($ctx, $mac, $thru, $($rest)*)
+    };
 }
 
 #[allow(unused)]
@@ -194,7 +211,7 @@ macro_rules! __py_module {
     (@py_item $ctx:ident, ($name:ident, $value:expr), $py_mod:ident) => {
         #[allow(non_snake_case)]
         let $name = $value;
-        $ctx.set_attr(&$py_mod, stringify!($attr_name), $name.clone());
+        $ctx.set_attr(&$py_mod, stringify!($name), $name.clone());
     }
 }
 
