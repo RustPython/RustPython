@@ -102,9 +102,9 @@ macro_rules! no_kwargs {
 macro_rules! py_items {
     ($ctx:ident, $mac:ident, $thru:tt,) => {};
     ($ctx:ident, $mac:ident, $thru:tt, struct $name:ident {$($inner:tt)*} $($rest:tt)*) => {
-        $mac!(
-            @py_item
+        __item_mac!(
             $ctx,
+            $mac,
             ($name, __py_class!($ctx, $name($ctx.object()), { $($inner)* })),
             $thru
         );
@@ -117,36 +117,36 @@ macro_rules! py_items {
         struct $name:ident($parent:expr) { $($inner:tt)* }
         $($rest:tt)*
     ) => {
-        $mac!(
-            @py_item
+        __item_mac!(
             $ctx,
+            $mac,
             ($name, __py_class!($ctx, $name($parent.clone()), { $($inner)* })),
             $thru
         );
         py_items!($ctx, $mac, $thru, $($rest)*)
     };
     ($ctx:ident, $mac:ident, $thru:tt, fn $func:ident; $($rest:tt)*) => {
-        $mac!(
-            @py_item
+        __item_mac!(
             $ctx,
+            $mac,
             ($func, $ctx.new_rustfunc($func)),
             $thru
         );
         py_items!($ctx, $mac, $thru, $($rest)*)
     };
     ($ctx:ident, $mac:ident, $thru:tt, fn $name:ident = $func:expr; $($rest:tt)*) => {
-        $mac!(
-            @py_item
+        __item_mac!(
             $ctx,
+            $mac,
             ($name, $ctx.new_rustfunc($func)),
             $thru
         );
         py_items!($ctx, $mac, $thru, $($rest)*)
     };
     ($ctx:ident, $mac:ident, $thru:tt, mod $name:ident { $($inner:tt)* } $($rest:tt)*) => {
-        $mac!(
-            @py_item
+        __item_mac!(
             $ctx,
+            $mac,
             ($name, py_module!($ctx, $name { $($inner)* })),
             $thru
         );
@@ -159,9 +159,9 @@ macro_rules! py_items {
         mod $name:ident($parent:expr) { $($inner:tt)* }
         $($rest:tt)*
     ) => {
-        $mac!(
-            @py_item
+        __item_mac!(
             $ctx,
+            $mac,
             ($name, py_module!($ctx, $name($parent) { $($inner)* })),
             $thru
         );
@@ -174,13 +174,187 @@ macro_rules! py_items {
         let $name:ident = $value:expr;
         $($rest:tt)*
     ) => {
-        $mac!(
-            @py_item
+        __item_mac!(
             $ctx,
+            $mac,
             ($name, $value),
             $thru
         );
         py_items!($ctx, $mac, $thru, $($rest)*)
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __item_mac {
+    // To catch keywords like type or ref
+    ($ctx:ident, $mac:ident, (as, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (as, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (use, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (use, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (extern, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (extern, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (break, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (break, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (const, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (const, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (continue, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (continue, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (crate, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (crate, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (dyn, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (dyn, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (else, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (else, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (if, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (if, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (enum, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (enum, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (extern, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (extern, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (false, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (false, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (fn, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (fn, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (for, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (for, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (if, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (if, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (impl, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (impl, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (in, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (in, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (for, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (for, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (let, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (let, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (loop, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (loop, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (match, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (match, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (mod, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (mod, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (move, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (move, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (mut, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (mut, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (pub, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (pub, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (impl, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (impl, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (ref, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (ref, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (return, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (return, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (Self, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (Self, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (self, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (self, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (static, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (static, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (struct, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (struct, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (super, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (super, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (trait, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (trait, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (true, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (true, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (type, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (type, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (unsafe, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (unsafe, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (use, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (use, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (where, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (where, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (while, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (while, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (abstract, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (abstract, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (async, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (async, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (become, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (become, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (box, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (box, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (do, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (do, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (final, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (final, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (macro, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (macro, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (override, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (override, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (priv, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (priv, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (try, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (try, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (typeof, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (typeof, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (unsized, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (unsized, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (virtual, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (virtual, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, (yield, $value:expr), $thru:tt) => {
+        $mac!(@py_item_kw $ctx, (yield, $value), $thru)
+    };
+    ($ctx:ident, $mac:ident, ($name:ident, $value:expr), $thru:tt) => {
+        $mac!(@py_item $ctx, ($name, $value), $thru)
     };
 }
 
@@ -189,6 +363,9 @@ macro_rules! py_items {
 #[doc(hidden)]
 macro_rules! __py_item {
     (@py_item $ctx:ident, ($name:ident, $item:expr), $var:ident) => {
+        let $var = $item;
+    };
+    (@py_item_kw $ctx:ident, ($name:ident, $item:expr), $var:ident) => {
         let $var = $item;
     };
 }
@@ -253,6 +430,9 @@ macro_rules! __py_module {
         #[allow(non_snake_case)]
         let $name = $value;
         $ctx.set_attr(&$py_mod, stringify!($name), $name.clone());
+    };
+    (@py_item_kw $ctx:ident, ($name:ident, $value:expr), $py_mod:ident) => {
+        $ctx.set_attr(&$py_mod, stringify!($name), $value);
     }
 }
 
@@ -288,6 +468,9 @@ macro_rules! __py_class {
         #[allow(non_snake_case)]
         let $name = $value;
         $ctx.set_attr(&$py_class, stringify!($name), $name.clone());
+    };
+    (@py_item_kw $ctx:ident, ($name:ident, $value:expr), $py_class:ident) => {
+        $ctx.set_attr(&$py_class, stringify!($name), $value);
     }
 }
 

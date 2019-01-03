@@ -731,7 +731,7 @@ fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin___import__
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = py_item!(ctx, mod __builtins__ {
+    py_item!(ctx, mod __builtins__ {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         let __name__ = ctx.new_str(String::from("__main__"));
 
@@ -787,7 +787,9 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
         let staticmethod = ctx.staticmethod_type();
         let str = ctx.str_type();
         fn sum = builtin_sum;
+        let super = ctx.super_type();
         let tuple = ctx.tuple_type();
+        let type = ctx.type_type();
         fn zip = builtin_zip;
 
         // Exceptions:
@@ -800,12 +802,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
         let NotImplementedError = ctx.exceptions.not_implemented_error.clone();
         let TypeError = ctx.exceptions.type_error.clone();
         let ValueError = ctx.exceptions.value_error.clone();
-    });
-    // because `super` and `type` are reserved words
-    ctx.set_attr(&py_mod, "super", ctx.super_type());
-    ctx.set_attr(&py_mod, "type", ctx.type_type());
-
-    py_mod
+    })
 }
 
 pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
