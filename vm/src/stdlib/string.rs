@@ -6,7 +6,7 @@
 use super::super::pyobject::{PyContext, PyObjectRef};
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let ascii_uppercase_str = "abcdefghijklmnopqrstuvwxyz";
+    let ascii_uppercase_str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let ascii_lowercase_str = "abcdefghijklmnopqrstuvwxyz";
     py_item!(ctx, mod string {
         // Constants:
