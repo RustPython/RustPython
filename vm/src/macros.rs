@@ -422,7 +422,7 @@ macro_rules! __py_module {
         $name:ident($parent:expr),
         { $($item:tt)* }
     ) => {{
-        let __py_mod = $ctx.new_module(&stringify!(ident).to_string(), $ctx.new_scope($parent));
+        let __py_mod = $ctx.new_module(stringify!($name), $ctx.new_scope($parent));
         py_items!($ctx, __py_module, __py_mod, $($item)*);
         __py_mod
     }};
