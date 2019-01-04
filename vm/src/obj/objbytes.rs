@@ -9,6 +9,7 @@ use num_traits::ToPrimitive;
 use std::cell::Ref;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+
 // Binary data support
 
 // Fill bytes class methods:
@@ -76,7 +77,8 @@ fn bytes_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let byte_vec = get_value(a).to_vec();
-    Ok(vm.ctx.new_int(byte_vec.len()))
+    let value = byte_vec.len().to_bigint();
+    Ok(vm.ctx.new_int(value.unwrap()))
 }
 
 

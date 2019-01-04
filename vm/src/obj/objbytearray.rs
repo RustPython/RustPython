@@ -8,6 +8,8 @@ use super::objbytes::get_value;
 use super::objint;
 use super::objtype;
 use num_traits::ToPrimitive;
+use num_bigint::{BigInt, ToBigInt};
+
 // Binary data support
 
 /// Fill bytearray class methods dictionary.
@@ -31,7 +33,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(
         &bytearray_type,
         "__len__",
-        context.new_rustfunc(bytearray_type),
+        context.new_rustfunc(bytesarray_len),
     );
 }
 
@@ -74,7 +76,8 @@ fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let byte_vec = get_value(a).to_vec();
-    Ok(vm.ctx.new_int(byte_vec.len()))
+    let value = byte_vec.len().to_bigint();
+    Ok(vm.ctx.new_int(value.unwrap()))
 }
 
 
@@ -112,8 +115,7 @@ fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
 
 fn bytearray_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
-    let data = get_value(obj);
-    let data: Vec<String> = data.iter().map(|b| format!("\\x{:02x}", b)).collect();
-    let data = data.join("");
+    let value = get_value(obj);
+    let data = String::from_utf8(value.to_vec()).unwrap();
     Ok(vm.new_str(format!("bytearray(b'{}')", data)))
 }
