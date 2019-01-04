@@ -7,7 +7,9 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::{BufReader,BufWriter};
 
-use super::super::obj::objstr::get_value;
+use super::super::obj::objstr;
+use super::super::obj::objint;
+
 
 use super::super::obj::objtype;
 
@@ -17,6 +19,7 @@ use super::super::pyobject::{
 
 use super::super::vm::VirtualMachine;
 
+use num_traits::ToPrimitive;
 
 fn string_io_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     // arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
@@ -66,7 +69,7 @@ fn file_io_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(file_io, None)]
     );
     let py_name = file_io.get_attr("name").unwrap();
-    let f = match File::open(get_value(& py_name)) {
+    let f = match File::open(objstr::get_value(& py_name)) {
         Ok(v) => Ok(v),
         Err(v) => Err(vm.new_type_error("Error opening file".to_string())),
     }; 
@@ -85,32 +88,32 @@ fn file_io_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 
-fn file_io_read_into(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(file_io, None), (view, Some(vm.ctx.bytearray_type()))]
+        required = [(file_io, None), (obj, Some(vm.ctx.bytearray_type()))]
     );
     let py_name = file_io.get_attr("name").unwrap();
-    let f = match File::open(get_value(& py_name)) {
-        Ok(v) => Ok(v),
+
+    let len_method = vm.get_method(obj.clone(), &"__len__".to_string());
+    let py_length = vm.invoke(len_method.unwrap(), PyFuncArgs::default());
+    let length = objint::get_value(&py_length.unwrap()).to_u64().unwrap();
+
+
+    let handle = match File::open(objstr::get_value(&py_name)) {
+        Ok(v) => Ok(v.take(length)),
         Err(v) => Err(vm.new_type_error("Error opening file".to_string())),
     }; 
-
-    let buffer = match f {
-        Ok(v) =>  Ok(BufReader::new(v)),
-        Err(v) => Err(vm.new_type_error("Error reading from file".to_string()))
-    };
-
-
-    match view.borrow_mut().kind {
-        PyObjectKind::Bytes { ref mut value } => {
-            if let Ok(mut buff) = buffer {
-                buff.read_to_end(&mut *value);
-            };   
-        },
-        _ => {}
-    };
+    
+    if let Ok(mut f) = handle {
+        match obj.borrow_mut().kind {
+            PyObjectKind::Bytes { ref mut value } => {
+                f.read_to_end(&mut *value);
+            },
+            _ => {}
+        };
+    }
 
     Ok(vm.get_none())
 }
@@ -172,7 +175,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&file_io, "__init__", ctx.new_rustfunc(file_io_init));
     ctx.set_attr(&file_io, "name", ctx.str_type());
     ctx.set_attr(&file_io, "read", ctx.new_rustfunc(file_io_read));
-    ctx.set_attr(&file_io, "readinto", ctx.new_rustfunc(file_io_read_into));
+    ctx.set_attr(&file_io, "readinto", ctx.new_rustfunc(file_io_readinto));
     ctx.set_attr(&py_mod, "FileIO", file_io.clone());
 
     // BufferedIOBase Subclasses
