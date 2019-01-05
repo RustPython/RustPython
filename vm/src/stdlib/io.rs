@@ -9,7 +9,7 @@ use std::io::{BufReader,BufWriter};
 
 use super::super::obj::objstr;
 use super::super::obj::objint;
-
+use num_bigint::{BigInt, ToBigInt};
 
 use super::super::obj::objtype;
 
@@ -59,6 +59,7 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     vm.ctx.set_attr(&file_io, "name", name.clone());
+    vm.ctx.set_attr(&file_io, "__offset__", vm.ctx.new_int(0.to_bigint().unwrap()));
     Ok(vm.get_none())
 }
 
@@ -94,26 +95,35 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(file_io, None), (obj, Some(vm.ctx.bytearray_type()))]
     );
-    let py_name = file_io.get_attr("name").unwrap();
 
+    //extract length of buffer
     let len_method = vm.get_method(obj.clone(), &"__len__".to_string());
     let py_length = vm.invoke(len_method.unwrap(), PyFuncArgs::default());
     let length = objint::get_value(&py_length.unwrap()).to_u64().unwrap();
 
+    let py_offset = vm.ctx.get_attr(&file_io, &"__offset__".to_string());
+    let offset = objint::get_value(&py_offset.unwrap()).to_u64().unwrap();
+
+    //extract file name and open a file handle, taking length many bytes
+    let py_name = file_io.get_attr("name").unwrap();
 
     let handle = match File::open(objstr::get_value(&py_name)) {
-        Ok(v) => Ok(v.take(length)),
+        Ok(v) => Ok(v.take(offset + length)),
         Err(v) => Err(vm.new_type_error("Error opening file".to_string())),
     }; 
     
     if let Ok(mut f) = handle {
         match obj.borrow_mut().kind {
             PyObjectKind::Bytes { ref mut value } => {
+                value.clear();
                 f.read_to_end(&mut *value);
+                *value = value.iter().skip(offset as usize).cloned().collect();
             },
             _ => {}
         };
     }
+
+    vm.ctx.set_attr(&file_io, "__offset__", vm.ctx.new_int(offset+length.to_bigint().unwrap()));
 
     Ok(vm.get_none())
 }
