@@ -15,7 +15,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 
 
-fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

@@ -4,6 +4,9 @@
 
 
 use std::fs::File;
+use std::io::Take;
+use std::os::unix::io::{FromRawFd,IntoRawFd};
+
 use std::io::prelude::*;
 use std::io::{BufReader,BufWriter};
 
@@ -12,6 +15,7 @@ use super::super::obj::objint;
 use num_bigint::{BigInt, ToBigInt};
 
 use super::super::obj::objtype;
+use super::os::os_open;
 
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol, AttributeProtocol
@@ -57,9 +61,9 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(file_io, None), (name, Some(vm.ctx.str_type()))]
     );
-
+    let fileno = os_open(vm, PyFuncArgs::new(vec![name.clone()], vec![]));
     vm.ctx.set_attr(&file_io, "name", name.clone());
-    vm.ctx.set_attr(&file_io, "__offset__", vm.ctx.new_int(0.to_bigint().unwrap()));
+    vm.ctx.set_attr(&file_io, "fileno", fileno.unwrap());
     Ok(vm.get_none())
 }
 
@@ -101,30 +105,24 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_length = vm.invoke(len_method.unwrap(), PyFuncArgs::default());
     let length = objint::get_value(&py_length.unwrap()).to_u64().unwrap();
 
-    let py_offset = vm.ctx.get_attr(&file_io, &"__offset__".to_string());
-    let offset = objint::get_value(&py_offset.unwrap()).to_u64().unwrap();
+    let fileno = file_io.get_attr("fileno").unwrap();
+    let raw_fd = objint::get_value(&fileno).to_i32().unwrap();
 
-    //extract file name and open a file handle, taking length many bytes
-    let py_name = file_io.get_attr("name").unwrap();
+   let handle = unsafe {
+        File::from_raw_fd(raw_fd)
+   };
 
-    let handle = match File::open(objstr::get_value(&py_name)) {
-        Ok(v) => Ok(v.take(offset + length)),
-        Err(v) => Err(vm.new_type_error("Error opening file".to_string())),
-    }; 
+   let mut f = handle.take(length);
     
-    if let Ok(mut f) = handle {
-        match obj.borrow_mut().kind {
-            PyObjectKind::Bytes { ref mut value } => {
-                value.clear();
-                f.read_to_end(&mut *value);
-                *value = value.iter().skip(offset as usize).cloned().collect();
-            },
-            _ => {}
-        };
-    }
-
-    vm.ctx.set_attr(&file_io, "__offset__", vm.ctx.new_int(offset+length.to_bigint().unwrap()));
-
+    match obj.borrow_mut().kind {
+        PyObjectKind::Bytes { ref mut value } => {
+            value.clear();
+            f.read_to_end(&mut *value);
+        },
+        _ => {}
+    };
+    let new_handle = f.into_inner().into_raw_fd().to_bigint();
+    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
     Ok(vm.get_none())
 }
 
@@ -140,11 +138,29 @@ fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm, 
         args, 
-        required = [(file, None), (mode, None)]
+        required = [(file, Some(vm.ctx.str_type())), (mode, Some(vm.ctx.str_type()))]
     );
 
+    let module = mk_module(&vm.ctx);
 
-    Ok(vm.get_none())
+    let rust_mode = objstr::get_value(mode);
+    if rust_mode.contains("w") {
+        vm.new_not_implemented_error("Writes are not yet implemented".to_string());
+    }
+
+    let file_io_class = vm.ctx.get_attr(&module, "FileIO").unwrap();
+    vm.invoke(file_io_class, PyFuncArgs::new(vec![file.clone()], vec![]))
+
+
+
+    // vm.get_method(fi.clone(), &"__new__".to_string());
+
+    // let buffer = vm.ctx.new_bytearray(vec![]);
+    // vm.invoke(new_file_io.unwrap(), PyFuncArgs {
+    //     args: vec![fi.clone(), file.clone()],
+    //     kwargs: vec![]
+    // });
+    // Ok(fi)
 
     //mode is optional: 'rt' is the default mode (open from reading text)
     //To start we construct a FileIO (subclass of RawIOBase)
@@ -159,6 +175,7 @@ fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     //If the mode is text this buffer type is consumed on construction of 
     //a TextIOWrapper which is subsequently returned.
+    // Ok(vm.get_none())
 }
 
 
