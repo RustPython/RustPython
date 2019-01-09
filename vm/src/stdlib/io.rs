@@ -4,15 +4,15 @@
 
 
 use std::fs::File;
-use std::io::Take;
+use std::io::BufReader;
+
 use std::os::unix::io::{FromRawFd,IntoRawFd};
 
 use std::io::prelude::*;
-use std::io::{BufReader,BufWriter};
 
 use super::super::obj::objstr;
 use super::super::obj::objint;
-use num_bigint::{BigInt, ToBigInt};
+use num_bigint::{ToBigInt};
 
 use super::super::obj::objtype;
 use super::os::os_open;
@@ -49,7 +49,7 @@ fn bytes_io_getvalue(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn buffered_io_base_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    // arg_check!(vm, args);
+    arg_check!(vm, args);
 
     // TODO
     Ok(vm.get_none())
@@ -59,9 +59,25 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(file_io, None), (name, Some(vm.ctx.str_type()))]
-    );
-    let fileno = os_open(vm, PyFuncArgs::new(vec![name.clone()], vec![]));
+        required = [(file_io, None), (name, Some(vm.ctx.str_type()))],
+        optional = [(mode, Some(vm.ctx.str_type()))] 
+    );//mode is an optional string argument
+    //if mode is NOT defined we redefine it as 'w'
+
+    let mode = if let Some(m) = mode {
+        objstr::get_value(m)
+    } else {
+        "r".to_string()
+    };
+
+    let os_mode = match mode.as_ref() {
+        "r" => 0.to_bigint(),
+        _ => 1.to_bigint()
+    };
+    let args = vec![name.clone(), vm.ctx.new_int(os_mode.unwrap())];
+    let fileno = os_open(vm, PyFuncArgs::new(args, vec![]));
+
+
     vm.ctx.set_attr(&file_io, "name", name.clone());
     vm.ctx.set_attr(&file_io, "fileno", fileno.unwrap());
     Ok(vm.get_none())
@@ -76,12 +92,12 @@ fn file_io_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_name = file_io.get_attr("name").unwrap();
     let f = match File::open(objstr::get_value(& py_name)) {
         Ok(v) => Ok(v),
-        Err(v) => Err(vm.new_type_error("Error opening file".to_string())),
+        Err(_) => Err(vm.new_type_error("Error opening file".to_string())),
     }; 
 
     let buffer = match f {
         Ok(v) =>  Ok(BufReader::new(v)),
-        Err(v) => Err(vm.new_type_error("Error reading from file".to_string()))
+        Err(_) => Err(vm.new_type_error("Error reading from file".to_string()))
     };
 
     let mut bytes = vec![];
@@ -108,6 +124,8 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fileno = file_io.get_attr("fileno").unwrap();
     let raw_fd = objint::get_value(&fileno).to_i32().unwrap();
 
+    //raw_fd is supported on UNIX only. This will need to be extended
+    //to support windows - i.e. raw file_handles 
    let handle = unsafe {
         File::from_raw_fd(raw_fd)
    };
@@ -121,13 +139,52 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         },
         _ => {}
     };
+
+
     let new_handle = f.into_inner().into_raw_fd().to_bigint();
     vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
     Ok(vm.get_none())
 }
 
-fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
+fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(file_io, None), (obj, Some(vm.ctx.bytes_type()))]
+    );
+
+    let fileno = file_io.get_attr("fileno").unwrap();
+    let raw_fd = objint::get_value(&fileno).to_i32().unwrap();
+
+    //raw_fd is supported on UNIX only. This will need to be extended
+    //to support windows - i.e. raw file_handles 
+   let mut handle = unsafe {
+        File::from_raw_fd(raw_fd)
+   };
+
+    match obj.borrow_mut().kind {
+        PyObjectKind::Bytes { ref mut value } => {
+            println!("Match!");
+            match handle.write(&value[..]) {
+                Ok(k) => { println!("{}", k); },
+                Err(_) => {}
+            }
+        },
+        _ => {}
+    };
+
+    let len_method = vm.get_method(obj.clone(), &"__len__".to_string());
+    vm.invoke(len_method.unwrap(), PyFuncArgs::default())
+
+}
+
+fn buffered_reader_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm, 
+        args, 
+        required = [(buffed_reader, None), (raw, None)]
+    );
+
 
     //simple calls read on the read class!
     // TODO
@@ -203,11 +260,13 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&file_io, "name", ctx.str_type());
     ctx.set_attr(&file_io, "read", ctx.new_rustfunc(file_io_read));
     ctx.set_attr(&file_io, "readinto", ctx.new_rustfunc(file_io_readinto));
+    ctx.set_attr(&file_io, "write", ctx.new_rustfunc(file_io_write));
     ctx.set_attr(&py_mod, "FileIO", file_io.clone());
 
     // BufferedIOBase Subclasses
     let buffered_reader = ctx.new_class("BufferedReader", buffered_io_base.clone());
     ctx.set_attr(&py_mod, "BufferedReader", buffered_reader.clone());
+
 
     let buffered_reader = ctx.new_class("BufferedWriter", buffered_io_base.clone());
     ctx.set_attr(&py_mod, "BufferedWriter", buffered_reader.clone());

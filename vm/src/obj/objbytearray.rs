@@ -3,12 +3,14 @@
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
+
+use super::objint;
+
 use super::super::vm::VirtualMachine;
 use super::objbytes::get_value;
-use super::objint;
 use super::objtype;
 use num_traits::ToPrimitive;
-use num_bigint::{BigInt, ToBigInt};
+use num_bigint::{ToBigInt};
 
 // Binary data support
 
