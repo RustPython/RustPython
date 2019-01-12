@@ -49,11 +49,50 @@ fn bytes_io_getvalue(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn buffered_io_base_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-
-    // TODO
+    arg_check!(
+        vm,
+        args,
+        required = [(buffered, None), (raw, None)]
+    );
+    vm.ctx.set_attr(&buffered, "raw", raw.clone());
     Ok(vm.get_none())
 }
+
+fn buffered_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(buffered, None)]
+    );
+    let buff_size = 8;
+    let mut buffer = vm.ctx.new_bytes(vec![0; buff_size]);
+
+    //buffer method
+    let mut result = vec![];
+    let mut length = buff_size;
+
+    let raw = vm.ctx.get_attr(&buffered, "raw").unwrap();
+
+    while length == buff_size {
+        let raw_read = vm.get_method(raw.clone(), &"readinto".to_string()).unwrap();
+        vm.invoke(raw_read, PyFuncArgs::new(vec![buffer.clone()], vec![]));
+
+
+        match buffer.borrow_mut().kind {
+            PyObjectKind::Bytes { ref mut value } => {
+                result.extend(value.iter().cloned());
+            },
+            _ => {}
+        };
+        
+        let len = vm.get_method(buffer.clone(), &"__len__".to_string());
+        let py_len  = vm.invoke(len.unwrap(), PyFuncArgs::default());
+        length = objint::get_value(&py_len.unwrap()).to_usize().unwrap();
+    }
+
+    Ok(vm.ctx.new_bytes(result))
+}
+
 
 fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -61,8 +100,7 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(file_io, None), (name, Some(vm.ctx.str_type()))],
         optional = [(mode, Some(vm.ctx.str_type()))] 
-    );//mode is an optional string argument
-    //if mode is NOT defined we redefine it as 'w'
+    );
 
     let mode = if let Some(m) = mode {
         objstr::get_value(m)
@@ -113,7 +151,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(file_io, None), (obj, Some(vm.ctx.bytearray_type()))]
+        required = [(file_io, None), (obj, Some(vm.ctx.bytes_type()))]
     );
 
     //extract length of buffer
@@ -131,11 +169,11 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
    };
 
    let mut f = handle.take(length);
-    
     match obj.borrow_mut().kind {
         PyObjectKind::Bytes { ref mut value } => {
             value.clear();
             f.read_to_end(&mut *value);
+
         },
         _ => {}
     };
@@ -164,7 +202,6 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match obj.borrow_mut().kind {
         PyObjectKind::Bytes { ref mut value } => {
-            println!("Match!");
             match handle.write(&value[..]) {
                 Ok(k) => { println!("{}", k); },
                 Err(_) => {}
@@ -175,6 +212,8 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let len_method = vm.get_method(obj.clone(), &"__len__".to_string());
     vm.invoke(len_method.unwrap(), PyFuncArgs::default())
+
+    //TODO: reset fileno
 
 }
 
@@ -249,6 +288,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
 
     let buffered_io_base = ctx.new_class("BufferedIOBase", io_base.clone());
     ctx.set_attr(&buffered_io_base, "__init__", ctx.new_rustfunc(buffered_io_base_init));
+    ctx.set_attr(&buffered_io_base, "read", ctx.new_rustfunc(buffered_io_base_read));
     ctx.set_attr(&py_mod, "BufferedIOBase", buffered_io_base.clone());
 
     let text_io_base = ctx.new_class("TextIOBase", io_base.clone());
@@ -266,7 +306,6 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     // BufferedIOBase Subclasses
     let buffered_reader = ctx.new_class("BufferedReader", buffered_io_base.clone());
     ctx.set_attr(&py_mod, "BufferedReader", buffered_reader.clone());
-
 
     let buffered_reader = ctx.new_class("BufferedWriter", buffered_io_base.clone());
     ctx.set_attr(&py_mod, "BufferedWriter", buffered_reader.clone());
