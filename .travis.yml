@@ -101,7 +101,7 @@ deploy:
     keep-history: true
     on:
       branch: release
-      condition: $DEPLOY_DOC=true
+      condition: $DEPLOY_DOC = true
   - provider: pages
     repo: RustPython/demo
     target-branch: master
@@ -112,4 +112,4 @@ deploy:
     keep-history: true
     on:
       branch: release
-      condition: $DEPLOY_DEMO=true
+      condition: $DEPLOY_DEMO = true
