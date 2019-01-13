@@ -10,7 +10,8 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use num_traits::ToPrimitive;
+use num_bigint::ToBigInt;
+use num_traits::{Signed, ToPrimitive};
 
 // set_item:
 fn set_item(
@@ -265,6 +266,28 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
 }
 
+fn list_insert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.insert called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (list, Some(vm.ctx.list_type())), 
+            (insert_position, Some(vm.ctx.int_type())),
+            (element, None)
+        ]
+    );
+    let mut vec = get_mut_elements(list);
+    let position = match objint::get_value(insert_position) {
+        ref i if (*i).is_negative() => {
+            (num_bigint::BigInt::from(vec.len()) - i.abs()).max(0.into())
+        }
+        i => i.min(num_bigint::BigInt::from(vec.len()).into()),
+    };
+    vec.insert(position.to_usize().unwrap(), element.clone());
+    Ok(vm.get_none())
+}
+
 fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
@@ -409,6 +432,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "count", context.new_rustfunc(list_count));
     context.set_attr(&list_type, "extend", context.new_rustfunc(list_extend));
     context.set_attr(&list_type, "index", context.new_rustfunc(list_index));
+    context.set_attr(&list_type, "insert", context.new_rustfunc(list_insert));
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
     context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));
