@@ -153,6 +153,11 @@ impl VirtualMachine {
         self.new_exception(zero_division_error, msg)
     }
 
+    pub fn new_overflow_error (&mut self, msg: String) -> PyObjectRef {
+        let overflow_error = self.ctx.exceptions.overflow_error.clone();
+        self.new_exception(overflow_error, msg)
+    }
+
     pub fn new_scope(&mut self, parent_scope: Option<PyObjectRef>) -> PyObjectRef {
         // let parent_scope = self.current_frame_mut().locals.clone();
         self.ctx.new_scope(parent_scope)

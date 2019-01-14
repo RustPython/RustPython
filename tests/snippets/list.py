@@ -60,3 +60,10 @@ assert x == ['a', 'b', 'z', 'c']
 x = ['a', 'b', 'c']
 x.insert(-100, 'z')
 assert x == ['z', 'a', 'b', 'c']
+
+try:
+    x.insert(100000000000000000000, 'z')
+except OverflowError:
+    pass
+else:
+    assert False, "OverflowError was not raised"
