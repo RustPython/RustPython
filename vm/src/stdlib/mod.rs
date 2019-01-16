@@ -1,5 +1,5 @@
 mod ast;
-mod io;
+pub mod io;
 mod json;
 mod keyword;
 mod math;

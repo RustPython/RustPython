@@ -243,7 +243,7 @@ fn buffered_writer_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
 
 }
 
-fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm, 
         args, 
@@ -259,7 +259,7 @@ fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let buffered_reader_class = vm.ctx.get_attr(&module, "BufferedReader").unwrap();
 
     //instantiate raw fileio
-    let file_io = vm.invoke(file_io_class, PyFuncArgs::new(vec![file.clone()], vec![])).unwrap();
+    let file_io = vm.invoke(file_io_class, args.clone()).unwrap();
 
     //This is subsequently consumed by a Buffered_class of type depending
     //operation in the mode. i.e:
@@ -269,7 +269,6 @@ fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // creating || writing || appending => BufferedWriter
     let buffered = if rust_mode.contains("w") {
         // vm.new_not_implemented_error("Writes are not yet implemented".to_string());
-        println!("writer class");
         vm.invoke(buffered_writer_class, PyFuncArgs::new(vec![file_io.clone()], vec![]))
     // reading => BufferedReader
     } else {
