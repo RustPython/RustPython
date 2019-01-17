@@ -243,48 +243,86 @@ fn buffered_writer_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
 
 }
 
+fn text_io_wrapper_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(text_io_wrapper, None), (buffer, None)]
+    );
+    
+    vm.ctx.set_attr(&text_io_wrapper, "buffer", buffer.clone());
+    Ok(vm.get_none())
+}
+
+
+fn text_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(text_io_base, None)]
+    );
+    
+    let raw = vm.ctx.get_attr(&text_io_base, "buffer").unwrap();
+    let read = vm.get_method(raw.clone(), &"read".to_string());
+
+    //TODO: bytes to string
+    vm.invoke(read.unwrap(), PyFuncArgs::default())
+}
+
+
 pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm, 
         args, 
-        required = [(file, Some(vm.ctx.str_type())), (mode, Some(vm.ctx.str_type()))]
+        required = [(_file, Some(vm.ctx.str_type()))],
+        optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
     let module = mk_module(&vm.ctx);
 
     //mode is optional: 'rt' is the default mode (open from reading text)
-    //To start we construct a FileIO (subclass of RawIOBase)
+    let rust_mode = if let Some(m) = mode {
+        objstr::get_value(m)
+    } else {
+        "rt".to_string()
+    };
+
+    //Class objects (potentially) consumed by io.open
+    //RawIO: FileIO
+    //Buffered: BufferedWriter, BufferedReader
+    //Text: TextIOWrapper
     let file_io_class = vm.ctx.get_attr(&module, "FileIO").unwrap();
     let buffered_writer_class = vm.ctx.get_attr(&module, "BufferedWriter").unwrap();
     let buffered_reader_class = vm.ctx.get_attr(&module, "BufferedReader").unwrap();
+    let text_io_wrapper_class = vm.ctx.get_attr(&module, "TextIOWrapper").unwrap();
 
-    //instantiate raw fileio
+    //Construct a FileIO (subclass of RawIOBase)
+    //This is subsequently consumed by a Buffered Class.
     let file_io = vm.invoke(file_io_class, args.clone()).unwrap();
 
-    //This is subsequently consumed by a Buffered_class of type depending
-    //operation in the mode. i.e:
-    let rust_mode = objstr::get_value(mode);
-
-    // updating => PyBufferedRandom
+    //Create Buffered class to consume FileIO. The type of buffered class depends on
+    //the operation in the mode.
+    //There are 3 possible classes here, each inheriting from the RawBaseIO
     // creating || writing || appending => BufferedWriter
     let buffered = if rust_mode.contains("w") {
-        // vm.new_not_implemented_error("Writes are not yet implemented".to_string());
         vm.invoke(buffered_writer_class, PyFuncArgs::new(vec![file_io.clone()], vec![]))
     // reading => BufferedReader
     } else {
         vm.invoke(buffered_reader_class, PyFuncArgs::new(vec![file_io.clone()], vec![]))
+    //TODO: updating => PyBufferedRandom
     };
 
-    buffered
+    if rust_mode.contains("t") {
+    //If the mode is text this buffer type is consumed on construction of 
+    //a TextIOWrapper which is subsequently returned.
+        vm.invoke(text_io_wrapper_class, PyFuncArgs::new(vec![buffered.unwrap()], vec![]))
+    } else {
     // If the mode is binary this Buffered class is returned directly at
     // this point.
     //For Buffered class construct "raw" IO class e.g. FileIO and pass this into corresponding field
-
-    //If the mode is text this buffer type is consumed on construction of 
-    //a TextIOWrapper which is subsequently returned.
-    // Ok(vm.get_none())
+        buffered
+    }
 }
-
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"io".to_string(), ctx.new_scope(None));
@@ -301,7 +339,9 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&buffered_io_base, "__init__", ctx.new_rustfunc(buffered_io_base_init));
     ctx.set_attr(&py_mod, "BufferedIOBase", buffered_io_base.clone());
 
+    //TextIO Base has no public constructor
     let text_io_base = ctx.new_class("TextIOBase", io_base.clone());
+    ctx.set_attr(&text_io_base, "read", ctx.new_rustfunc(text_io_base_read));
     ctx.set_attr(&py_mod, "TextIOBase", text_io_base.clone());
 
     // RawBaseIO Subclasses
@@ -323,7 +363,8 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "BufferedWriter", buffered_writer.clone());
 
     //TextIOBase Subclass
-    let text_io_wrapper = ctx.new_class("TextIOWrapper", ctx.object());
+    let text_io_wrapper = ctx.new_class("TextIOWrapper", text_io_base.clone());
+    ctx.set_attr(&text_io_wrapper, "__init__", ctx.new_rustfunc(text_io_wrapper_init));
     ctx.set_attr(&py_mod, "TextIOWrapper", text_io_wrapper.clone());
 
     // BytesIO: in-memory bytes
