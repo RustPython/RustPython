@@ -272,13 +272,15 @@ fn list_insert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [
-            (list, Some(vm.ctx.list_type())), 
+            (list, Some(vm.ctx.list_type())),
             (insert_position, Some(vm.ctx.int_type())),
             (element, None)
         ]
     );
     if objint::get_value(insert_position) > std::usize::MAX.into() {
-        return Err(vm.new_overflow_error("Python int too large to convert to Rust usize".to_string()));
+        return Err(
+            vm.new_overflow_error("Python int too large to convert to Rust usize".to_string())
+        );
     }
     let mut vec = get_mut_elements(list);
     let position = match objint::get_value(insert_position) {
