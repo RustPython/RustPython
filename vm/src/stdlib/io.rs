@@ -2,28 +2,26 @@
  * I/O core tools.
  */
 
+use std::io::prelude::*;
+use std::os::unix::io::{FromRawFd,IntoRawFd};
 
 use std::fs::File;
 use std::io::BufReader;
 
-use std::os::unix::io::{FromRawFd,IntoRawFd};
-
-use std::io::prelude::*;
-
 use super::super::obj::objstr;
 use super::super::obj::objint;
-use num_bigint::{ToBigInt};
-
+use super::super::obj::objbytes;
 use super::super::obj::objtype;
 use super::os::os_open;
+
+use num_bigint::{ToBigInt};
+use num_traits::ToPrimitive;
 
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol, AttributeProtocol
 };
 
 use super::super::vm::VirtualMachine;
-
-use num_traits::ToPrimitive;
 
 fn string_io_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     // arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
@@ -97,7 +95,6 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(result))
 }
 
-
 fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -169,6 +166,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fileno = file_io.get_attr("fileno").unwrap();
     let raw_fd = objint::get_value(&fileno).to_i32().unwrap();
 
+    //unsafe block - creates file handle from the UNIX file descriptor
     //raw_fd is supported on UNIX only. This will need to be extended
     //to support windows - i.e. raw file_handles 
    let handle = unsafe {
@@ -188,7 +186,6 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         _ => {}
     };
 
-
     let new_handle = f.into_inner().into_raw_fd().to_bigint();
     vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
     Ok(vm.get_none())
@@ -204,6 +201,7 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let fileno = file_io.get_attr("fileno").unwrap();
     let raw_fd = objint::get_value(&fileno).to_i32().unwrap();
 
+    //unsafe block - creates file handle from the UNIX file descriptor
     //raw_fd is supported on UNIX only. This will need to be extended
     //to support windows - i.e. raw file_handles 
    let mut handle = unsafe {
@@ -213,19 +211,12 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match obj.borrow_mut().kind {
         PyObjectKind::Bytes { ref mut value } => {
             match handle.write(&value[..]) {
-                Ok(k) => { println!("{}", k); },//set result to py_int and return
-                Err(_) => {}
+                Ok(len) => Ok(vm.ctx.new_int(len.to_bigint().unwrap())),
+                Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string()))
             }
         },
-        _ => {}
-    };
-
-    let new_handle = handle.into_raw_fd().to_bigint();
-    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
-
-    let len_method = vm.get_method(obj.clone(), &"__len__".to_string());
-    vm.invoke(len_method.unwrap(), PyFuncArgs::default())
-
+        _ => Err(vm.new_value_error("Expected Bytes Object".to_string()))
+    }
 }
 
 fn buffered_writer_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -265,8 +256,15 @@ fn text_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let raw = vm.ctx.get_attr(&text_io_base, "buffer").unwrap();
     let read = vm.get_method(raw.clone(), &"read".to_string());
 
-    //TODO: bytes to string
-    vm.invoke(read.unwrap(), PyFuncArgs::default())
+    if let Ok(bytes) = vm.invoke(read.unwrap(), PyFuncArgs::default()) {
+        let value = objbytes::get_value(&bytes).to_vec();
+
+        //format bytes into string
+        let rust_string = String::from_utf8(value).unwrap();
+        Ok(vm.ctx.new_str(rust_string))
+    } else {
+        Err(vm.new_value_error("Error unpacking Bytes".to_string()))
+    }
 }
 
 
