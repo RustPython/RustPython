@@ -111,7 +111,7 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let os_mode = match mode.as_ref() {
         "r" => 0.to_bigint(),
-        _ => 1.to_bigint()
+        _ => 512.to_bigint()
     };
     let args = vec![name.clone(), vm.ctx.new_int(os_mode.unwrap())];
     let fileno = os_open(vm, PyFuncArgs::new(args, vec![]));
@@ -211,7 +211,14 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match obj.borrow_mut().kind {
         PyObjectKind::Bytes { ref mut value } => {
             match handle.write(&value[..]) {
-                Ok(len) => Ok(vm.ctx.new_int(len.to_bigint().unwrap())),
+                Ok(len) => {
+                    //reset raw fd on the FileIO object
+                    let new_handle = handle.into_raw_fd().to_bigint();
+                    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
+
+                    //return number of bytes written
+                    Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
+                }
                 Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string()))
             }
         },
@@ -266,7 +273,6 @@ fn text_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Err(vm.new_value_error("Error unpacking Bytes".to_string()))
     }
 }
-
 
 pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(

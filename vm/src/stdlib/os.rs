@@ -12,9 +12,7 @@ use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol
 };
 
-
 use super::super::vm::VirtualMachine;
-
 
 pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -42,7 +40,7 @@ pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Ok(f) = handle {
         Ok(vm.ctx.new_int(f.into_raw_fd().to_bigint().unwrap()))
     } else {
-        Err(vm.get_none())
+        Err(vm.new_value_error("Bad file descriptor".to_string()))
     }
 }
 
@@ -53,6 +51,6 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "O_WRONLY", ctx.new_int(1.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_RDWR", ctx.new_int(2.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_NONBLOCK", ctx.new_int(3.to_bigint().unwrap()));
-
+    ctx.set_attr(&py_mod, "O_CREAT", ctx.new_int(512.to_bigint().unwrap()));
     py_mod
 }
