@@ -51,6 +51,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "O_WRONLY", ctx.new_int(1.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_RDWR", ctx.new_int(2.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_NONBLOCK", ctx.new_int(3.to_bigint().unwrap()));
+    ctx.set_attr(&py_mod, "O_APPEND", ctx.new_int(8.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_CREAT", ctx.new_int(512.to_bigint().unwrap()));
     py_mod
 }

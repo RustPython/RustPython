@@ -2,6 +2,8 @@
  * I/O core tools.
  */
 
+use std::collections::HashSet;
+
 use std::io::prelude::*;
 use std::os::unix::io::{FromRawFd,IntoRawFd};
 
@@ -12,7 +14,7 @@ use super::super::obj::objstr;
 use super::super::obj::objint;
 use super::super::obj::objbytes;
 use super::super::obj::objtype;
-use super::os::os_open;
+use super::os;
 
 use num_bigint::{ToBigInt};
 use num_traits::ToPrimitive;
@@ -22,6 +24,16 @@ use super::super::pyobject::{
 };
 
 use super::super::vm::VirtualMachine;
+
+fn compute_c_flag(mode : &String) -> u16 {
+    match mode.as_ref() {
+        "w" => 512,
+        "x" => 512,
+        "a" => 8,
+        "+" => 2,
+        _ => 0
+    }
+}
 
 fn string_io_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     // arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
@@ -71,6 +83,9 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let raw = vm.ctx.get_attr(&buffered, "raw").unwrap();
 
+    //Iterates through the raw class, invoking the readinto method 
+    //to obtain buff_size many bytes. Exit when less than buff_size many 
+    //bytes are returned (when the end of the file is reached).
     while length == buff_size {
         let raw_read = vm.get_method(raw.clone(), &"readinto".to_string()).unwrap();
         match vm.invoke(raw_read, PyFuncArgs::new(vec![buffer.clone()], vec![])) {
@@ -80,6 +95,7 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             }
         }
 
+        //Copy bytes from the buffer vector into the results vector
         match buffer.borrow_mut().kind {
             PyObjectKind::Bytes { ref mut value } => {
                 result.extend(value.iter().cloned());
@@ -103,23 +119,22 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(mode, Some(vm.ctx.str_type()))] 
     );
 
-    let mode = if let Some(m) = mode {
-        objstr::get_value(m)
-    } else {
-        "r".to_string()
+    let rust_mode = match mode  {
+        Some(m) => objstr::get_value(m),
+        None => "r".to_string()        
     };
 
-    let os_mode = match mode.as_ref() {
-        "r" => 0.to_bigint(),
-        _ => 512.to_bigint()
-    };
-    let args = vec![name.clone(), vm.ctx.new_int(os_mode.unwrap())];
-    let fileno = os_open(vm, PyFuncArgs::new(args, vec![]));
+    match compute_c_flag(&rust_mode).to_bigint() {
+        Some(os_mode) => {
+            let args = vec![name.clone(), vm.ctx.new_int(os_mode)];
+            let fileno = os::os_open(vm, PyFuncArgs::new(args, vec![]));
 
-
-    vm.ctx.set_attr(&file_io, "name", name.clone());
-    vm.ctx.set_attr(&file_io, "fileno", fileno.unwrap());
-    Ok(vm.get_none())
+            vm.ctx.set_attr(&file_io, "name", name.clone());
+            vm.ctx.set_attr(&file_io, "fileno", fileno.unwrap());
+            Ok(vm.get_none())
+        },
+        None => Err(vm.new_type_error(format!("invalid mode {}", rust_mode)))
+    }
 }
 
 fn file_io_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -174,7 +189,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
    };
 
    let mut f = handle.take(length);
-    match obj.borrow_mut().kind {
+    match obj.borrow_mut().kind {  
         PyObjectKind::Bytes { ref mut value } => {
             value.clear();
             match f.read_to_end(&mut *value) {
@@ -252,7 +267,6 @@ fn text_io_wrapper_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-
 fn text_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -278,7 +292,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm, 
         args, 
-        required = [(_file, Some(vm.ctx.str_type()))],
+        required = [(file, Some(vm.ctx.str_type()))],
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
@@ -291,6 +305,24 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         "rt".to_string()
     };
 
+    let mut raw_modes = HashSet::new();
+
+    // Add some books.
+    raw_modes.insert("a".to_string());
+    raw_modes.insert("r".to_string());
+    raw_modes.insert("x".to_string());
+    raw_modes.insert("w".to_string());
+
+    //This is not a terribly elegant way to separate the file mode from
+    //the "type" flag - this should be improved. The intention here is to 
+    //match a valid flag for the file_io_init call:
+    //https://docs.python.org/3/library/io.html#io.FileIO
+    let modes: Vec<char> = rust_mode.chars().filter(|a| raw_modes.contains(&a.to_string())).collect();
+
+    if modes.len() == 0 || modes.len() > 1 {
+        return Err(vm.new_value_error("Invalid Mode".to_string()))
+    }
+
     //Class objects (potentially) consumed by io.open
     //RawIO: FileIO
     //Buffered: BufferedWriter, BufferedReader
@@ -302,7 +334,8 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     //Construct a FileIO (subclass of RawIOBase)
     //This is subsequently consumed by a Buffered Class.
-    let file_io = vm.invoke(file_io_class, args.clone()).unwrap();
+    let file_args = PyFuncArgs::new(vec![file.clone(), vm.ctx.new_str(modes[0].to_string())] , vec![]);
+    let file_io = vm.invoke(file_io_class, file_args).unwrap();
 
     //Create Buffered class to consume FileIO. The type of buffered class depends on
     //the operation in the mode.
