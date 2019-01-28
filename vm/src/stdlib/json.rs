@@ -7,7 +7,8 @@ use serde_json;
 
 use super::super::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    create_type, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -213,22 +214,34 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     res.map_err(|err| {
-        let json_decode_error = py_get_item!((vm.sys_module).modules.json.JSONDecodeError)
-            .expect("Couldn't get JSONDecodeError");
+        let json_decode_error = vm
+            .sys_module
+            .get_item("modules")
+            .unwrap()
+            .get_item("json")
+            .unwrap()
+            .get_item("JSONDecodeError")
+            .unwrap();
         let exc = vm.new_exception(json_decode_error, format!("{}", err));
         vm.ctx
-            .set_attr(&exc, "lineno", vm.ctx.new_int(err.line().into()));
+            .set_item(&exc, "lineno", vm.ctx.new_int(err.line().into()));
         vm.ctx
-            .set_attr(&exc, "colno", vm.ctx.new_int(err.column().into()));
+            .set_item(&exc, "colno", vm.ctx.new_int(err.column().into()));
         exc
     })
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    py_item!(ctx, mod json {
-        fn dumps;
-        fn loads;
-        // TODO: Make this a proper type with a constructor
-        struct JSONDecodeError(&ctx.exceptions.exception_type) {}
-    })
+    let json_mod = ctx.new_module(&"json".to_string(), ctx.new_scope(None));
+    ctx.set_attr(&json_mod, "dumps", ctx.new_rustfunc(dumps));
+    ctx.set_attr(&json_mod, "loads", ctx.new_rustfunc(loads));
+    // TODO: Make this a proper type with a constructor
+    let json_decode_error = create_type(
+        "JSONDecodeError",
+        &ctx.type_type,
+        &ctx.exceptions.exception_type,
+        &ctx.dict_type,
+    );
+    ctx.set_attr(&json_mod, "JSONDecodeError", json_decode_error);
+    json_mod
 }

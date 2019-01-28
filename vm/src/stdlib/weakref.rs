@@ -14,12 +14,13 @@ use super::super::VirtualMachine;
 use std::rc::Rc;
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    py_item!(ctx, mod _weakref {
-        struct ref {
-            fn __new__ = ref_new;
-            fn __call__ = ref_call;
-        }
-    })
+    let py_mod = ctx.new_module(&"_weakref".to_string(), ctx.new_scope(None));
+
+    let py_ref_class = ctx.new_class("ref", ctx.object());
+    ctx.set_attr(&py_ref_class, "__new__", ctx.new_rustfunc(ref_new));
+    ctx.set_attr(&py_ref_class, "__call__", ctx.new_rustfunc(ref_call));
+    ctx.set_attr(&py_mod, "ref", py_ref_class);
+    py_mod
 }
 
 fn ref_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

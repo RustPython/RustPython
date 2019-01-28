@@ -31,8 +31,8 @@ fn time_time(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    py_item!(ctx, mod time {
-        fn sleep = time_sleep;
-        fn time = time_time;
-    })
+    let py_mod = ctx.new_module(&"time".to_string(), ctx.new_scope(None));
+    ctx.set_attr(&py_mod, "sleep", ctx.new_rustfunc(time_sleep));
+    ctx.set_attr(&py_mod, "time", ctx.new_rustfunc(time_time));
+    py_mod
 }
