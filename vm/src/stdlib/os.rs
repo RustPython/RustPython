@@ -16,17 +16,13 @@ pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(name, Some(vm.ctx.str_type()))],
-        optional = [(mode, Some(vm.ctx.int_type()))]
+        required = [
+            (name, Some(vm.ctx.str_type())),
+            (mode, Some(vm.ctx.int_type()))
+        ]
     );
 
-    let mode = if let Some(m) = mode {
-        objint::get_value(m)
-    } else {
-        0.to_bigint().unwrap()
-    };
-
-    let handle = match mode.to_u16().unwrap() {
+    let handle = match objint::get_value(mode).to_u16().unwrap() {
         0 => OpenOptions::new().read(true).open(objstr::get_value(&name)),
         1 => OpenOptions::new()
             .write(true)
@@ -53,7 +49,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "O_RDONLY", ctx.new_int(0.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_WRONLY", ctx.new_int(1.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_RDWR", ctx.new_int(2.to_bigint().unwrap()));
-    ctx.set_attr(&py_mod, "O_NONBLOCK", ctx.new_int(3.to_bigint().unwrap()));
+    ctx.set_attr(&py_mod, "O_NONBLOCK", ctx.new_int(4.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_APPEND", ctx.new_int(8.to_bigint().unwrap()));
     ctx.set_attr(&py_mod, "O_CREAT", ctx.new_int(512.to_bigint().unwrap()));
     py_mod
