@@ -1,27 +1,26 @@
-
 use super::objtype;
 
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol
+    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 
-
 pub fn new_memory_view(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None), (bytes_object, None)]
-    );
+    arg_check!(vm, args, required = [(cls, None), (bytes_object, None)]);
     vm.ctx.set_attr(&cls, "obj", bytes_object.clone());
     Ok(PyObject::new(
-        PyObjectKind::MemoryView { obj: bytes_object.clone() },
-        cls.clone()
+        PyObjectKind::MemoryView {
+            obj: bytes_object.clone(),
+        },
+        cls.clone(),
     ))
-
 }
 
 pub fn init(ctx: &PyContext) {
     let ref memoryview_type = ctx.memoryview_type;
-    ctx.set_attr(&memoryview_type, "__new__", ctx.new_rustfunc(new_memory_view));
+    ctx.set_attr(
+        &memoryview_type,
+        "__new__",
+        ctx.new_rustfunc(new_memory_view),
+    );
 }

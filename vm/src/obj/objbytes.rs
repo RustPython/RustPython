@@ -20,7 +20,6 @@ pub fn init(context: &PyContext) {
     context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
     context.set_attr(bytes_type, "__repr__", context.new_rustfunc(bytes_repr));
     context.set_attr(bytes_type, "__len__", context.new_rustfunc(bytes_len));
-
 }
 
 fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -70,17 +69,12 @@ fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn bytes_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type()))]
-    );
+    arg_check!(vm, args, required = [(a, Some(vm.ctx.bytes_type()))]);
 
     let byte_vec = get_value(a).to_vec();
     let value = byte_vec.len().to_bigint();
     Ok(vm.ctx.new_int(value.unwrap()))
 }
-
 
 fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);

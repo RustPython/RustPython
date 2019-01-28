@@ -5,33 +5,34 @@
 use std::collections::HashSet;
 
 use std::io::prelude::*;
-use std::os::unix::io::{FromRawFd,IntoRawFd};
+use std::os::unix::io::{FromRawFd, IntoRawFd};
 
 use std::fs::File;
 use std::io::BufReader;
 
-use super::super::obj::objstr;
-use super::super::obj::objint;
 use super::super::obj::objbytes;
+use super::super::obj::objint;
+use super::super::obj::objstr;
 use super::super::obj::objtype;
 use super::os;
 
-use num_bigint::{ToBigInt};
+use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol, AttributeProtocol
+    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 
 use super::super::vm::VirtualMachine;
 
-fn compute_c_flag(mode : &String) -> u16 {
+fn compute_c_flag(mode: &String) -> u16 {
     match mode.as_ref() {
         "w" => 512,
         "x" => 512,
         "a" => 8,
         "+" => 2,
-        _ => 0
+        _ => 0,
     }
 }
 
@@ -59,23 +60,15 @@ fn bytes_io_getvalue(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn buffered_io_base_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(buffered, None), (raw, None)]
-    );
+    arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
     vm.ctx.set_attr(&buffered, "raw", raw.clone());
     Ok(vm.get_none())
 }
 
 fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(buffered, None)]
-    );
-    let buff_size = 8*1024;
-    let buffer = vm.ctx.new_bytes(vec![0; buff_size]);
+    arg_check!(vm, args, required = [(buffered, None)]);
+    let buff_size = 8 * 1024;
+    let buffer = vm.ctx.new_bytearray(vec![0; buff_size]);
 
     //buffer method
     let mut result = vec![];
@@ -83,28 +76,26 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let raw = vm.ctx.get_attr(&buffered, "raw").unwrap();
 
-    //Iterates through the raw class, invoking the readinto method 
-    //to obtain buff_size many bytes. Exit when less than buff_size many 
+    //Iterates through the raw class, invoking the readinto method
+    //to obtain buff_size many bytes. Exit when less than buff_size many
     //bytes are returned (when the end of the file is reached).
     while length == buff_size {
         let raw_read = vm.get_method(raw.clone(), &"readinto".to_string()).unwrap();
         match vm.invoke(raw_read, PyFuncArgs::new(vec![buffer.clone()], vec![])) {
-            Ok(_) => {},
-            Err(_) => {
-                return Err(vm.new_value_error("IO Error".to_string()))
-            }
+            Ok(_) => {}
+            Err(_) => return Err(vm.new_value_error("IO Error".to_string())),
         }
 
         //Copy bytes from the buffer vector into the results vector
         match buffer.borrow_mut().kind {
-            PyObjectKind::Bytes { ref mut value } => {
+            PyObjectKind::ByteArray { ref mut value } => {
                 result.extend(value.iter().cloned());
-            },
+            }
             _ => {}
         };
-        
+
         let len = vm.get_method(buffer.clone(), &"__len__".to_string());
-        let py_len  = vm.invoke(len.unwrap(), PyFuncArgs::default());
+        let py_len = vm.invoke(len.unwrap(), PyFuncArgs::default());
         length = objint::get_value(&py_len.unwrap()).to_usize().unwrap();
     }
 
@@ -116,12 +107,12 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [(file_io, None), (name, Some(vm.ctx.str_type()))],
-        optional = [(mode, Some(vm.ctx.str_type()))] 
+        optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
-    let rust_mode = match mode  {
+    let rust_mode = match mode {
         Some(m) => objstr::get_value(m),
-        None => "r".to_string()        
+        None => "r".to_string(),
     };
 
     match compute_c_flag(&rust_mode).to_bigint() {
@@ -132,46 +123,43 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             vm.ctx.set_attr(&file_io, "name", name.clone());
             vm.ctx.set_attr(&file_io, "fileno", fileno.unwrap());
             Ok(vm.get_none())
-        },
-        None => Err(vm.new_type_error(format!("invalid mode {}", rust_mode)))
+        }
+        None => Err(vm.new_type_error(format!("invalid mode {}", rust_mode))),
     }
 }
 
 fn file_io_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(file_io, None)]
-    );
+    arg_check!(vm, args, required = [(file_io, None)]);
     let py_name = file_io.get_attr("name").unwrap();
-    let f = match File::open(objstr::get_value(& py_name)) {
+    let f = match File::open(objstr::get_value(&py_name)) {
         Ok(v) => Ok(v),
         Err(_) => Err(vm.new_type_error("Error opening file".to_string())),
-    }; 
+    };
 
     let buffer = match f {
-        Ok(v) =>  Ok(BufReader::new(v)),
-        Err(_) => Err(vm.new_type_error("Error reading from file".to_string()))
+        Ok(v) => Ok(BufReader::new(v)),
+        Err(_) => Err(vm.new_type_error("Error reading from file".to_string())),
     };
 
     let mut bytes = vec![];
     if let Ok(mut buff) = buffer {
         match buff.read_to_end(&mut bytes) {
-            Ok(_) => {},
-            Err(_) => return Err(vm.new_value_error("Error reading from Buffer".to_string()))
+            Ok(_) => {}
+            Err(_) => return Err(vm.new_value_error("Error reading from Buffer".to_string())),
         }
-    }    
+    }
 
     Ok(vm.ctx.new_bytes(bytes))
 }
 
-
 fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(file_io, None), (obj, Some(vm.ctx.bytes_type()))]
-    );
+    arg_check!(vm, args, required = [(file_io, None), (obj, None)]);
+
+    if !obj.readonly() {
+        return Ok(vm.new_type_error(
+            "readinto() argument must be read-write bytes-like object".to_string(),
+        ));
+    }
 
     //extract length of buffer
     let len_method = vm.get_method(obj.clone(), &"__len__".to_string());
@@ -183,26 +171,25 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     //unsafe block - creates file handle from the UNIX file descriptor
     //raw_fd is supported on UNIX only. This will need to be extended
-    //to support windows - i.e. raw file_handles 
-   let handle = unsafe {
-        File::from_raw_fd(raw_fd)
-   };
+    //to support windows - i.e. raw file_handles
+    let handle = unsafe { File::from_raw_fd(raw_fd) };
 
-   let mut f = handle.take(length);
-    match obj.borrow_mut().kind {  
-        PyObjectKind::Bytes { ref mut value } => {
+    let mut f = handle.take(length);
+    match obj.borrow_mut().kind {
+        //TODO: Implement for MemoryView
+        PyObjectKind::ByteArray { ref mut value } => {
             value.clear();
             match f.read_to_end(&mut *value) {
-                Ok(_) => {},
-                Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string()))
+                Ok(_) => {}
+                Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string())),
             }
-
-        },
+        }
         _ => {}
     };
 
     let new_handle = f.into_inner().into_raw_fd().to_bigint();
-    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
+    vm.ctx
+        .set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
     Ok(vm.get_none())
 }
 
@@ -218,10 +205,8 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     //unsafe block - creates file handle from the UNIX file descriptor
     //raw_fd is supported on UNIX only. This will need to be extended
-    //to support windows - i.e. raw file_handles 
-   let mut handle = unsafe {
-        File::from_raw_fd(raw_fd)
-   };
+    //to support windows - i.e. raw file_handles
+    let mut handle = unsafe { File::from_raw_fd(raw_fd) };
 
     match obj.borrow_mut().kind {
         PyObjectKind::Bytes { ref mut value } => {
@@ -229,15 +214,16 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 Ok(len) => {
                     //reset raw fd on the FileIO object
                     let new_handle = handle.into_raw_fd().to_bigint();
-                    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
+                    vm.ctx
+                        .set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
 
                     //return number of bytes written
                     Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
                 }
-                Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string()))
+                Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string())),
             }
-        },
-        _ => Err(vm.new_value_error("Expected Bytes Object".to_string()))
+        }
+        _ => Err(vm.new_value_error("Expected Bytes Object".to_string())),
     }
 }
 
@@ -253,7 +239,6 @@ fn buffered_writer_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
 
     //This should be replaced with a more appropriate chunking implementation
     vm.invoke(raw_write, PyFuncArgs::new(vec![obj.clone()], vec![]))
-
 }
 
 fn text_io_wrapper_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -262,18 +247,14 @@ fn text_io_wrapper_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(text_io_wrapper, None), (buffer, None)]
     );
-    
+
     vm.ctx.set_attr(&text_io_wrapper, "buffer", buffer.clone());
     Ok(vm.get_none())
 }
 
 fn text_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(text_io_base, None)]
-    );
-    
+    arg_check!(vm, args, required = [(text_io_base, None)]);
+
     let raw = vm.ctx.get_attr(&text_io_base, "buffer").unwrap();
     let read = vm.get_method(raw.clone(), &"read".to_string());
 
@@ -290,8 +271,8 @@ fn text_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
-        vm, 
-        args, 
+        vm,
+        args,
         required = [(file, Some(vm.ctx.str_type()))],
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
@@ -314,13 +295,16 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     raw_modes.insert("w".to_string());
 
     //This is not a terribly elegant way to separate the file mode from
-    //the "type" flag - this should be improved. The intention here is to 
+    //the "type" flag - this should be improved. The intention here is to
     //match a valid flag for the file_io_init call:
     //https://docs.python.org/3/library/io.html#io.FileIO
-    let modes: Vec<char> = rust_mode.chars().filter(|a| raw_modes.contains(&a.to_string())).collect();
+    let modes: Vec<char> = rust_mode
+        .chars()
+        .filter(|a| raw_modes.contains(&a.to_string()))
+        .collect();
 
     if modes.len() == 0 || modes.len() > 1 {
-        return Err(vm.new_value_error("Invalid Mode".to_string()))
+        return Err(vm.new_value_error("Invalid Mode".to_string()));
     }
 
     //Class objects (potentially) consumed by io.open
@@ -334,7 +318,10 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     //Construct a FileIO (subclass of RawIOBase)
     //This is subsequently consumed by a Buffered Class.
-    let file_args = PyFuncArgs::new(vec![file.clone(), vm.ctx.new_str(modes[0].to_string())] , vec![]);
+    let file_args = PyFuncArgs::new(
+        vec![file.clone(), vm.ctx.new_str(modes[0].to_string())],
+        vec![],
+    );
     let file_io = vm.invoke(file_io_class, file_args).unwrap();
 
     //Create Buffered class to consume FileIO. The type of buffered class depends on
@@ -342,21 +329,30 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     //There are 3 possible classes here, each inheriting from the RawBaseIO
     // creating || writing || appending => BufferedWriter
     let buffered = if rust_mode.contains("w") {
-        vm.invoke(buffered_writer_class, PyFuncArgs::new(vec![file_io.clone()], vec![]))
+        vm.invoke(
+            buffered_writer_class,
+            PyFuncArgs::new(vec![file_io.clone()], vec![]),
+        )
     // reading => BufferedReader
     } else {
-        vm.invoke(buffered_reader_class, PyFuncArgs::new(vec![file_io.clone()], vec![]))
-    //TODO: updating => PyBufferedRandom
+        vm.invoke(
+            buffered_reader_class,
+            PyFuncArgs::new(vec![file_io.clone()], vec![]),
+        )
+        //TODO: updating => PyBufferedRandom
     };
 
     if rust_mode.contains("t") {
-    //If the mode is text this buffer type is consumed on construction of 
-    //a TextIOWrapper which is subsequently returned.
-        vm.invoke(text_io_wrapper_class, PyFuncArgs::new(vec![buffered.unwrap()], vec![]))
+        //If the mode is text this buffer type is consumed on construction of
+        //a TextIOWrapper which is subsequently returned.
+        vm.invoke(
+            text_io_wrapper_class,
+            PyFuncArgs::new(vec![buffered.unwrap()], vec![]),
+        )
     } else {
-    // If the mode is binary this Buffered class is returned directly at
-    // this point.
-    //For Buffered class construct "raw" IO class e.g. FileIO and pass this into corresponding field
+        // If the mode is binary this Buffered class is returned directly at
+        // this point.
+        //For Buffered class construct "raw" IO class e.g. FileIO and pass this into corresponding field
         buffered
     }
 }
@@ -364,7 +360,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"io".to_string(), ctx.new_scope(None));
     ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(io_open));
-     //IOBase the abstract base class of the IO Module
+    //IOBase the abstract base class of the IO Module
     let io_base = ctx.new_class("IOBase", ctx.object());
     ctx.set_attr(&py_mod, "IOBase", io_base.clone());
 
@@ -373,7 +369,11 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "RawIOBase", raw_io_base.clone());
 
     let buffered_io_base = ctx.new_class("BufferedIOBase", io_base.clone());
-    ctx.set_attr(&buffered_io_base, "__init__", ctx.new_rustfunc(buffered_io_base_init));
+    ctx.set_attr(
+        &buffered_io_base,
+        "__init__",
+        ctx.new_rustfunc(buffered_io_base_init),
+    );
     ctx.set_attr(&py_mod, "BufferedIOBase", buffered_io_base.clone());
 
     //TextIO Base has no public constructor
@@ -392,16 +392,28 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
 
     // BufferedIOBase Subclasses
     let buffered_reader = ctx.new_class("BufferedReader", buffered_io_base.clone());
-    ctx.set_attr(&buffered_reader, "read", ctx.new_rustfunc(buffered_reader_read));
+    ctx.set_attr(
+        &buffered_reader,
+        "read",
+        ctx.new_rustfunc(buffered_reader_read),
+    );
     ctx.set_attr(&py_mod, "BufferedReader", buffered_reader.clone());
 
     let buffered_writer = ctx.new_class("BufferedWriter", buffered_io_base.clone());
-    ctx.set_attr(&buffered_writer, "write", ctx.new_rustfunc(buffered_writer_write));
+    ctx.set_attr(
+        &buffered_writer,
+        "write",
+        ctx.new_rustfunc(buffered_writer_write),
+    );
     ctx.set_attr(&py_mod, "BufferedWriter", buffered_writer.clone());
 
     //TextIOBase Subclass
     let text_io_wrapper = ctx.new_class("TextIOWrapper", text_io_base.clone());
-    ctx.set_attr(&text_io_wrapper, "__init__", ctx.new_rustfunc(text_io_wrapper_init));
+    ctx.set_attr(
+        &text_io_wrapper,
+        "__init__",
+        ctx.new_rustfunc(text_io_wrapper_init),
+    );
     ctx.set_attr(&py_mod, "TextIOWrapper", text_io_wrapper.clone());
 
     // BytesIO: in-memory bytes
