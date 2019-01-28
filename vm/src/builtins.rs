@@ -14,11 +14,11 @@ use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
 
-use super::stdlib::io::io_open;
 use super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
-    PyResult, Scope, TypeProtocol
+    PyResult, Scope, TypeProtocol,
 };
+use super::stdlib::io::io_open;
 
 use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -242,8 +242,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let scope = PyObject {
         kind: PyObjectKind::Scope { scope: scope_inner },
         typ: None,
-    }
-    .into_ref();
+    }.into_ref();
 
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
@@ -290,8 +289,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let scope = PyObject {
         kind: PyObjectKind::Scope { scope: scope_inner },
         typ: None,
-    }
-    .into_ref();
+    }.into_ref();
 
     // Run the code:
     vm.run_code_obj(code_obj, scope)

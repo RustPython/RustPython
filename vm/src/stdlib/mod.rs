@@ -3,6 +3,7 @@ pub mod io;
 mod json;
 mod keyword;
 mod math;
+mod os;
 mod pystruct;
 mod random;
 mod re;
@@ -10,7 +11,6 @@ mod time_module;
 mod tokenize;
 mod types;
 mod weakref;
-mod os;
 use std::collections::HashMap;
 
 use super::pyobject::{PyContext, PyObjectRef};

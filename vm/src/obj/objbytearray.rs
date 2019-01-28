@@ -7,10 +7,13 @@ use super::super::pyobject::{
 use super::objint;
 
 use super::super::vm::VirtualMachine;
-use super::objbytes::get_value;
+// use super::objbytes::get_value;
 use super::objtype;
+use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
-use num_bigint::{ToBigInt};
+
+use std::cell::Ref;
+use std::ops::Deref;
 
 // Binary data support
 
@@ -63,25 +66,19 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         vec![]
     };
-
     Ok(PyObject::new(
-        PyObjectKind::Bytes { value: value },
+        PyObjectKind::ByteArray { value: value },
         cls.clone(),
     ))
 }
 
 fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytearray_type()))]
-    );
+    arg_check!(vm, args, required = [(a, Some(vm.ctx.bytearray_type()))]);
 
     let byte_vec = get_value(a).to_vec();
     let value = byte_vec.len().to_bigint();
     Ok(vm.ctx.new_int(value.unwrap()))
 }
-
 
 fn bytearray_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -98,6 +95,15 @@ fn bytearray_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
+    Ref::map(obj.borrow(), |py_obj| {
+        if let PyObjectKind::ByteArray { ref value } = py_obj.kind {
+            value
+        } else {
+            panic!("Inner error getting int {:?}", obj);
+        }
+    })
+}
 /*
 fn bytearray_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
