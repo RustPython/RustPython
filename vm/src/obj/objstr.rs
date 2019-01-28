@@ -352,7 +352,7 @@ fn str_capitalize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
     let (first_part, lower_str) = value.split_at(1);
-    let capitalized = format!("{}{}", first_part.to_uppercase().to_string(), lower_str);
+    let capitalized = format!("{}{}", first_part.to_uppercase(), lower_str);
     Ok(vm.ctx.new_str(capitalized))
 }
 
