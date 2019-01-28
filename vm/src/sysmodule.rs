@@ -45,9 +45,9 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     };
     let path = ctx.new_list(path_list);
     let modules = ctx.new_dict();
-    let sys_name = "sys".to_string();
+    let sys_name = "sys";
     let sys_mod = ctx.new_module(&sys_name, ctx.new_scope(None));
-    ctx.set_item(&modules, &sys_name, sys_mod.clone());
+    ctx.set_item(&modules, sys_name, sys_mod.clone());
     ctx.set_item(&sys_mod, "modules", modules);
     ctx.set_item(&sys_mod, "argv", argv(ctx));
     ctx.set_item(&sys_mod, "getrefcount", ctx.new_rustfunc(sys_getrefcount));

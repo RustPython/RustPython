@@ -671,7 +671,7 @@ impl Frame {
             None => PathBuf::from("."),
         };
 
-        let obj = import(vm, current_path, &module.to_string(), symbol)?;
+        let obj = import(vm, current_path, module, symbol)?;
 
         // Push module on stack:
         self.push_value(obj);

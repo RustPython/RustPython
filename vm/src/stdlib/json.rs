@@ -232,7 +232,7 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let json_mod = ctx.new_module(&"json".to_string(), ctx.new_scope(None));
+    let json_mod = ctx.new_module("json", ctx.new_scope(None));
     ctx.set_attr(&json_mod, "dumps", ctx.new_rustfunc(dumps));
     ctx.set_attr(&json_mod, "loads", ctx.new_rustfunc(loads));
     // TODO: Make this a proper type with a constructor

@@ -14,7 +14,7 @@ use super::super::VirtualMachine;
 use std::rc::Rc;
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"_weakref".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module("_weakref", ctx.new_scope(None));
 
     let py_ref_class = ctx.new_class("ref", ctx.object());
     ctx.set_attr(&py_ref_class, "__new__", ctx.new_rustfunc(ref_new));
