@@ -146,7 +146,8 @@ fn _nothing() -> PyObjectRef {
     PyObject {
         kind: PyObjectKind::None,
         typ: None,
-    }.into_ref()
+    }
+    .into_ref()
 }
 
 pub fn create_type(
@@ -466,7 +467,8 @@ impl PyContext {
         PyObject {
             kind: PyObjectKind::Scope { scope: scope },
             typ: None,
-        }.into_ref()
+        }
+        .into_ref()
     }
 
     pub fn new_module(&self, name: &str, scope: PyObjectRef) -> PyObjectRef {
@@ -959,7 +961,8 @@ impl PyObject {
             kind: kind,
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
-        }.into_ref()
+        }
+        .into_ref()
     }
 
     /// Deprecated method, please call `vm.to_pystr`

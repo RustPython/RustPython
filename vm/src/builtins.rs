@@ -242,7 +242,8 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let scope = PyObject {
         kind: PyObjectKind::Scope { scope: scope_inner },
         typ: None,
-    }.into_ref();
+    }
+    .into_ref();
 
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
@@ -289,7 +290,8 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let scope = PyObject {
         kind: PyObjectKind::Scope { scope: scope_inner },
         typ: None,
-    }.into_ref();
+    }
+    .into_ref();
 
     // Run the code:
     vm.run_code_obj(code_obj, scope)
