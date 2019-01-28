@@ -416,13 +416,13 @@ fn str_strip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn str_lstrip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let value = get_value(&s).trim_left().to_string();
+    let value = get_value(&s).trim_start().to_string();
     Ok(vm.ctx.new_str(value))
 }
 
 fn str_rstrip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let value = get_value(&s).trim_right().to_string();
+    let value = get_value(&s).trim_end().to_string();
     Ok(vm.ctx.new_str(value))
 }
 
