@@ -32,7 +32,7 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"types".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module("types", ctx.new_scope(None));
 
     // Number theory functions:
     ctx.set_attr(&py_mod, "new_class", ctx.new_rustfunc(types_new_class));

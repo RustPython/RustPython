@@ -26,7 +26,7 @@ fn tokenize_tokenize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // TODO: create main function when called with -m
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"tokenize".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module("tokenize", ctx.new_scope(None));
 
     // Number theory functions:
     ctx.set_item(&py_mod, "tokenize", ctx.new_rustfunc(tokenize_tokenize));

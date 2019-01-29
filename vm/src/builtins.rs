@@ -405,8 +405,8 @@ fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    let len_method_name = "__len__".to_string();
-    match vm.get_method(obj.clone(), &len_method_name) {
+    let len_method_name = "__len__";
+    match vm.get_method(obj.clone(), len_method_name) {
         Ok(value) => vm.invoke(value, PyFuncArgs::default()),
         Err(..) => Err(vm.new_type_error(format!(
             "object of type '{}' has no method {:?}",
@@ -616,8 +616,8 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(x, None), (y, None)],
         optional = [(mod_value, Some(vm.ctx.int_type()))]
     );
-    let pow_method_name = "__pow__".to_string();
-    let result = match vm.get_method(x.clone(), &pow_method_name) {
+    let pow_method_name = "__pow__";
+    let result = match vm.get_method(x.clone(), pow_method_name) {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
         Err(..) => Err(vm.new_type_error("unsupported operand type(s) for pow".to_string())),
     };
@@ -626,11 +626,8 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     //order to improve performance
     match mod_value {
         Some(mod_value) => {
-            let mod_method_name = "__mod__".to_string();
-            match vm.get_method(
-                result.expect("result not defined").clone(),
-                &mod_method_name,
-            ) {
+            let mod_method_name = "__mod__";
+            match vm.get_method(result.expect("result not defined").clone(), mod_method_name) {
                 Ok(value) => vm.invoke(value, PyFuncArgs::new(vec![mod_value.clone()], vec![])),
                 Err(..) => {
                     Err(vm.new_type_error("unsupported operand type(s) for mod".to_string()))

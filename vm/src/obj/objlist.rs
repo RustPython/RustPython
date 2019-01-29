@@ -153,6 +153,23 @@ pub fn list_extend(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.index called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type())), (needle, None)]
+    );
+    for (index, element) in get_elements(list).iter().enumerate() {
+        let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+        if objbool::get_value(&py_equal) {
+            return Ok(vm.context().new_int(index.to_bigint().unwrap()));
+        }
+    }
+    let needle_str = objstr::get_value(&vm.to_str(needle).unwrap());
+    Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
+}
+
 fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
@@ -283,6 +300,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "clear", context.new_rustfunc(list_clear));
     context.set_attr(&list_type, "count", context.new_rustfunc(list_count));
     context.set_attr(&list_type, "extend", context.new_rustfunc(list_extend));
+    context.set_attr(&list_type, "index", context.new_rustfunc(list_index));
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
 }

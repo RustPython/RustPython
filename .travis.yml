@@ -69,6 +69,7 @@ matrix:
       if: branch = release
       env:
         - REGULAR_TEST=false
+        - DEPLOY_DOC=true
     - name: WASM online demo
       language: rust
       rust: nightly
@@ -84,6 +85,7 @@ matrix:
       if: branch = release
       env:
         - REGULAR_TEST=false
+        - DEPLOY_DEMO=true
   allow_failures:
     - rust: nightly
       env: REGULAR_TEST=true
@@ -99,6 +101,7 @@ deploy:
     keep-history: true
     on:
       branch: release
+      condition: $DEPLOY_DOC = true
   - provider: pages
     repo: RustPython/demo
     target-branch: master
@@ -109,3 +112,4 @@ deploy:
     keep-history: true
     on:
       branch: release
+      condition: $DEPLOY_DEMO = true
