@@ -412,10 +412,7 @@ impl PyContext {
     }
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectKind::ByteArray { value: data },
-            self.bytearray_type(),
-        )
+        PyObject::new(PyObjectKind::Bytes { value: data }, self.bytearray_type())
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
@@ -754,10 +751,9 @@ pub trait BufferProtocol {
 
 impl BufferProtocol for PyObjectRef {
     fn readonly(&self) -> bool {
-        match self.borrow().kind {
-            PyObjectKind::Bytes { value: _ } => false,
-            PyObjectKind::ByteArray { value: _ } => true,
-            PyObjectKind::MemoryView { obj: _ } => true,
+        match objtype::get_type_name(&self.typ()).as_ref() {
+            "bytes" => false,
+            "bytearray" | "memoryview" => true,
             _ => panic!("Bytes-Like type expected not {:?}", self),
         }
     }
@@ -844,9 +840,6 @@ pub enum PyObjectKind {
     Bytes {
         value: Vec<u8>,
     },
-    ByteArray {
-        value: Vec<u8>,
-    },
     Sequence {
         elements: Vec<PyObjectRef>,
     },
@@ -918,7 +911,6 @@ impl fmt::Debug for PyObjectKind {
             &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
             &PyObjectKind::Complex { ref value } => write!(f, "complex {}", value),
             &PyObjectKind::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
-            &PyObjectKind::ByteArray { ref value } => write!(f, "bytes/bytearray {:?}", value),
             &PyObjectKind::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             &PyObjectKind::Sequence { elements: _ } => write!(f, "list or tuple"),
             &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
@@ -973,7 +965,6 @@ impl PyObject {
             PyObjectKind::Float { ref value } => format!("{:?}", value),
             PyObjectKind::Complex { ref value } => format!("{:?}", value),
             PyObjectKind::Bytes { ref value } => format!("b'{:?}'", value),
-            PyObjectKind::ByteArray { ref value } => format!("b'{:?}'", value),
             PyObjectKind::MemoryView { ref obj } => format!("b'{:?}'", obj),
             PyObjectKind::Sequence { ref elements } => format!(
                 "(/[{}]/)",

@@ -88,7 +88,7 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
         //Copy bytes from the buffer vector into the results vector
         match buffer.borrow_mut().kind {
-            PyObjectKind::ByteArray { ref mut value } => {
+            PyObjectKind::Bytes { ref mut value } => {
                 result.extend(value.iter().cloned());
             }
             _ => {}
@@ -177,7 +177,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut f = handle.take(length);
     match obj.borrow_mut().kind {
         //TODO: Implement for MemoryView
-        PyObjectKind::ByteArray { ref mut value } => {
+        PyObjectKind::Bytes { ref mut value } => {
             value.clear();
             match f.read_to_end(&mut *value) {
                 Ok(_) => {}

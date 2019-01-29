@@ -7,13 +7,10 @@ use super::super::pyobject::{
 use super::objint;
 
 use super::super::vm::VirtualMachine;
-// use super::objbytes::get_value;
+use super::objbytes::get_value;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
-
-use std::cell::Ref;
-use std::ops::Deref;
 
 // Binary data support
 
@@ -67,7 +64,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
     Ok(PyObject::new(
-        PyObjectKind::ByteArray { value: value },
+        PyObjectKind::Bytes { value: value },
         cls.clone(),
     ))
 }
@@ -95,15 +92,6 @@ fn bytearray_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
-    Ref::map(obj.borrow(), |py_obj| {
-        if let PyObjectKind::ByteArray { ref value } = py_obj.kind {
-            value
-        } else {
-            panic!("Inner error getting int {:?}", obj);
-        }
-    })
-}
 /*
 fn bytearray_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
