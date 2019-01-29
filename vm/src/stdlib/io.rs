@@ -35,14 +35,20 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let io_base = ctx.new_class("IOBase", ctx.object());
     ctx.set_attr(&py_mod, "IOBase", io_base.clone());
 
-    let string_io = ctx.new_class("StringIO", io_base.clone());
-    ctx.set_attr(&string_io, "__init__", ctx.new_rustfunc(string_io_init));
-    ctx.set_attr(&string_io, "getvalue", ctx.new_rustfunc(string_io_getvalue));
+    let string_io = {
+        let string_io = ctx.new_class("StringIO", io_base.clone());
+        ctx.set_attr(&string_io, "__init__", ctx.new_rustfunc(string_io_init));
+        ctx.set_attr(&string_io, "getvalue", ctx.new_rustfunc(string_io_getvalue));
+        string_io
+    };
     ctx.set_attr(&py_mod, "StringIO", string_io);
 
-    let bytes_io = ctx.new_class("BytesIO", io_base.clone());
-    ctx.set_attr(&bytes_io, "__init__", ctx.new_rustfunc(bytes_io_init));
-    ctx.set_attr(&bytes_io, "getvalue", ctx.new_rustfunc(bytes_io_getvalue));
+    let bytes_io = {
+        let bytes_io = ctx.new_class("BytesIO", io_base.clone());
+        ctx.set_attr(&bytes_io, "__init__", ctx.new_rustfunc(bytes_io_init));
+        ctx.set_attr(&bytes_io, "getvalue", ctx.new_rustfunc(bytes_io_getvalue));
+        bytes_io
+    };
     ctx.set_attr(&py_mod, "BytesIO", bytes_io);
 
     py_mod
