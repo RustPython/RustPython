@@ -13,10 +13,13 @@ use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
+
 use super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
     PyResult, Scope, TypeProtocol,
 };
+use super::stdlib::io::io_open;
+
 use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_traits::{Signed, ToPrimitive, Zero};
@@ -499,8 +502,6 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(x)
 }
 
-// builtin_memoryview
-
 fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let candidates = if args.args.len() > 1 {
         args.args.clone()
@@ -586,8 +587,6 @@ fn builtin_oct(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     Ok(vm.new_str(s))
 }
-
-// builtin_open
 
 fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
@@ -771,9 +770,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "locals", ctx.new_rustfunc(builtin_locals));
     ctx.set_attr(&py_mod, "map", ctx.new_rustfunc(builtin_map));
     ctx.set_attr(&py_mod, "max", ctx.new_rustfunc(builtin_max));
+    ctx.set_attr(&py_mod, "memoryview", ctx.memoryview_type());
     ctx.set_attr(&py_mod, "min", ctx.new_rustfunc(builtin_min));
     ctx.set_attr(&py_mod, "object", ctx.object());
     ctx.set_attr(&py_mod, "oct", ctx.new_rustfunc(builtin_oct));
+    ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(io_open));
     ctx.set_attr(&py_mod, "ord", ctx.new_rustfunc(builtin_ord));
     ctx.set_attr(&py_mod, "next", ctx.new_rustfunc(builtin_next));
     ctx.set_attr(&py_mod, "pow", ctx.new_rustfunc(builtin_pow));
