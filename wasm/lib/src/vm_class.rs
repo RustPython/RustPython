@@ -70,8 +70,8 @@ impl WASMVirtualMachine {
         }
     }
 
-    fn destroy(self) {
-        VMStore::destroy(self.id)
+    pub fn destroy(self) {
+        VMStore::destroy(self.id);
     }
 
     // TODO: Add actually useful methods
