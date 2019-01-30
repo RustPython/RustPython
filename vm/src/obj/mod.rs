@@ -13,6 +13,7 @@ pub mod objgenerator;
 pub mod objint;
 pub mod objiter;
 pub mod objlist;
+pub mod objmemory;
 pub mod objobject;
 pub mod objproperty;
 pub mod objsequence;
