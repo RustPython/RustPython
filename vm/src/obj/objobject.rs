@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
@@ -12,12 +12,12 @@ pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
     let type_ref = args.shift();
     let dict = vm.new_dict();
-    let obj = PyObject::new(PyObjectKind::Instance { dict: dict }, type_ref.clone());
+    let obj = PyObject::new(PyObjectPayload::Instance { dict: dict }, type_ref.clone());
     Ok(obj)
 }
 
 pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
-    (*object_type.borrow_mut()).kind = PyObjectKind::Class {
+    (*object_type.borrow_mut()).payload = PyObjectPayload::Class {
         name: String::from("object"),
         dict: objdict::new(dict_type),
         mro: vec![],
@@ -63,9 +63,9 @@ fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     // Get dict:
-    let dict = match zelf.borrow().kind {
-        PyObjectKind::Class { ref dict, .. } => dict.clone(),
-        PyObjectKind::Instance { ref dict, .. } => dict.clone(),
+    let dict = match zelf.borrow().payload {
+        PyObjectPayload::Class { ref dict, .. } => dict.clone(),
+        PyObjectPayload::Instance { ref dict, .. } => dict.clone(),
         _ => return Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
     };
 
@@ -112,9 +112,9 @@ fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].borrow().kind {
-        PyObjectKind::Class { ref dict, .. } => Ok(dict.clone()),
-        PyObjectKind::Instance { ref dict, .. } => Ok(dict.clone()),
+    match args.args[0].borrow().payload {
+        PyObjectPayload::Class { ref dict, .. } => Ok(dict.clone()),
+        PyObjectPayload::Instance { ref dict, .. } => Ok(dict.clone()),
         _ => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
     }
 }

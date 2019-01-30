@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -60,7 +60,7 @@ fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(tuple, Some(vm.ctx.tuple_type()))]);
 
     let iter_obj = PyObject::new(
-        PyObjectKind::Iterator {
+        PyObjectPayload::Iterator {
             position: 0,
             iterated_obj: tuple.clone(),
         },
@@ -95,7 +95,7 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectKind::Sequence { elements: elements },
+        PyObjectPayload::Sequence { elements: elements },
         cls.clone(),
     ))
 }

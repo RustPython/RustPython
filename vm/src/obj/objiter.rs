@@ -3,7 +3,7 @@
  */
 
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -99,14 +99,14 @@ fn iter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
-    if let PyObjectKind::Iterator {
+    if let PyObjectPayload::Iterator {
         ref mut position,
         iterated_obj: ref iterated_obj_ref,
-    } = iter.borrow_mut().kind
+    } = iter.borrow_mut().payload
     {
         let iterated_obj = &*iterated_obj_ref.borrow_mut();
-        match iterated_obj.kind {
-            PyObjectKind::Sequence { ref elements } => {
+        match iterated_obj.payload {
+            PyObjectPayload::Sequence { ref elements } => {
                 if *position < elements.len() {
                     let obj_ref = elements[*position].clone();
                     *position += 1;

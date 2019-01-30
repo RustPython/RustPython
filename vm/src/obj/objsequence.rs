@@ -1,4 +1,4 @@
-use super::super::pyobject::{PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol};
+use super::super::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use num_traits::ToPrimitive;
@@ -26,8 +26,8 @@ pub trait PySliceableSequence {
         Self: Sized,
     {
         // TODO: we could potentially avoid this copy and use slice
-        match &(slice.borrow()).kind {
-            PyObjectKind::Slice { start, stop, step } => {
+        match &(slice.borrow()).payload {
+            PyObjectPayload::Slice { start, stop, step } => {
                 let start = match start {
                     &Some(start) => self.get_pos(start),
                     &None => 0,
@@ -46,7 +46,7 @@ pub trait PySliceableSequence {
                     }
                 }
             }
-            kind => panic!("get_slice_items called with non-slice: {:?}", kind),
+            payload => panic!("get_slice_items called with non-slice: {:?}", payload),
         }
     }
 }
@@ -69,8 +69,8 @@ pub fn get_item(
     elements: &[PyObjectRef],
     subscript: PyObjectRef,
 ) -> PyResult {
-    match &(subscript.borrow()).kind {
-        PyObjectKind::Integer { value } => {
+    match &(subscript.borrow()).payload {
+        PyObjectPayload::Integer { value } => {
             let value = value.to_i32().unwrap();
             let pos_index = elements.to_vec().get_pos(value);
             if pos_index < elements.len() {
@@ -81,16 +81,16 @@ pub fn get_item(
                 Err(vm.new_exception(value_error, "Index out of bounds!".to_string()))
             }
         }
-        PyObjectKind::Slice {
+        PyObjectPayload::Slice {
             start: _,
             stop: _,
             step: _,
         } => Ok(PyObject::new(
-            match &(sequence.borrow()).kind {
-                PyObjectKind::Sequence { elements: _ } => PyObjectKind::Sequence {
+            match &(sequence.borrow()).payload {
+                PyObjectPayload::Sequence { elements: _ } => PyObjectPayload::Sequence {
                     elements: elements.to_vec().get_slice_items(&subscript),
                 },
-                ref kind => panic!("sequence get_item called for non-sequence: {:?}", kind),
+                ref payload => panic!("sequence get_item called for non-sequence: {:?}", payload),
             },
             sequence.typ(),
         )),
@@ -122,7 +122,7 @@ pub fn seq_equal(
 
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
     Ref::map(obj.borrow(), |x| {
-        if let PyObjectKind::Sequence { ref elements } = x.kind {
+        if let PyObjectPayload::Sequence { ref elements } = x.payload {
             elements
         } else {
             panic!("Cannot extract elements from non-sequence");
@@ -132,7 +132,7 @@ pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjec
 
 pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<PyObjectRef>> + 'a {
     RefMut::map(obj.borrow_mut(), |x| {
-        if let PyObjectKind::Sequence { ref mut elements } = x.kind {
+        if let PyObjectPayload::Sequence { ref mut elements } = x.payload {
             elements
         } else {
             panic!("Cannot extract list elements from non-sequence");

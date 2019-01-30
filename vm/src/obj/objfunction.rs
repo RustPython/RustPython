@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
@@ -98,7 +98,7 @@ fn classmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (callable, None)]);
 
     let py_obj = PyObject::new(
-        PyObjectKind::Instance {
+        PyObjectPayload::Instance {
             dict: vm.ctx.new_dict(),
         },
         cls.clone(),
@@ -136,7 +136,7 @@ fn staticmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (callable, None)]);
 
     let py_obj = PyObject::new(
-        PyObjectKind::Instance {
+        PyObjectPayload::Instance {
             dict: vm.ctx.new_dict(),
         },
         cls.clone(),

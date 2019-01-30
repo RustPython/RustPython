@@ -3,7 +3,8 @@
  */
 
 use super::super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -14,7 +15,7 @@ use num_bigint::ToBigInt;
 use std::collections::HashMap;
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
-    if let PyObjectKind::Set { elements } = &obj.borrow().kind {
+    if let PyObjectPayload::Set { elements } = &obj.borrow().payload {
         elements.clone()
     } else {
         panic!("Cannot extract set elements from non-set");
@@ -39,7 +40,7 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let mut mut_obj = s.borrow_mut();
 
-    if let PyObjectKind::Set { ref mut elements } = mut_obj.kind {
+    if let PyObjectPayload::Set { ref mut elements } = mut_obj.payload {
         let key = item.get_id();
         elements.insert(key, item.clone());
         Ok(vm.get_none())
@@ -81,7 +82,7 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectKind::Set { elements: elements },
+        PyObjectPayload::Set { elements: elements },
         cls.clone(),
     ))
 }

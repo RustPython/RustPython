@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
@@ -13,7 +13,7 @@ use std::collections::HashMap;
  */
 
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
-    (*type_type.borrow_mut()).kind = PyObjectKind::Class {
+    (*type_type.borrow_mut()).payload = PyObjectPayload::Class {
         name: String::from("type"),
         dict: objdict::new(dict_type),
         mro: vec![object_type],
@@ -64,8 +64,8 @@ fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
-    match cls.borrow().kind {
-        PyObjectKind::Class { ref mro, .. } => {
+    match cls.borrow().payload {
+        PyObjectPayload::Class { ref mro, .. } => {
             let mut mro = mro.clone();
             mro.insert(0, cls.clone());
             Some(mro)
@@ -89,11 +89,11 @@ pub fn issubclass(typ: &PyObjectRef, cls: &PyObjectRef) -> bool {
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let PyObjectKind::Class {
+    if let PyObjectPayload::Class {
         name,
         dict: _,
         mro: _,
-    } = &typ.borrow().kind
+    } = &typ.borrow().payload
     {
         name.clone()
     } else {
@@ -219,11 +219,11 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     let mut base_classes = objtype::base_classes(obj);
     base_classes.reverse();
     for bc in base_classes {
-        if let PyObjectKind::Class {
+        if let PyObjectPayload::Class {
             name: _,
             dict,
             mro: _,
-        } = &bc.borrow().kind
+        } = &bc.borrow().payload
         {
             let elements = objdict::get_key_value_pairs(dict);
             for (name, value) in elements.iter() {
@@ -234,7 +234,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     }
 
     // Get instance attributes:
-    if let PyObjectKind::Instance { dict } = &obj.borrow().kind {
+    if let PyObjectPayload::Instance { dict } = &obj.borrow().payload {
         let elements = objdict::get_key_value_pairs(dict);
         for (name, value) in elements.iter() {
             let name = objstr::get_value(name);
@@ -295,7 +295,7 @@ pub fn new(typ: PyObjectRef, name: &str, bases: Vec<PyObjectRef>, dict: PyObject
     let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject::new(
-        PyObjectKind::Class {
+        PyObjectPayload::Class {
             name: String::from(name),
             dict: dict,
             mro: mro,

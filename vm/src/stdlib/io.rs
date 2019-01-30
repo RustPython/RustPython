@@ -20,8 +20,8 @@ use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 use super::super::pyobject::{
-    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
-    TypeProtocol,
+    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 
 use super::super::vm::VirtualMachine;
@@ -87,8 +87,8 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
 
         //Copy bytes from the buffer vector into the results vector
-        match buffer.borrow_mut().kind {
-            PyObjectKind::Bytes { ref mut value } => {
+        match buffer.borrow_mut().payload {
+            PyObjectPayload::Bytes { ref mut value } => {
                 result.extend(value.iter().cloned());
             }
             _ => {}
@@ -175,9 +175,9 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let handle = unsafe { File::from_raw_fd(raw_fd) };
 
     let mut f = handle.take(length);
-    match obj.borrow_mut().kind {
+    match obj.borrow_mut().payload {
         //TODO: Implement for MemoryView
-        PyObjectKind::Bytes { ref mut value } => {
+        PyObjectPayload::Bytes { ref mut value } => {
             value.clear();
             match f.read_to_end(&mut *value) {
                 Ok(_) => {}
@@ -208,8 +208,8 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     //to support windows - i.e. raw file_handles
     let mut handle = unsafe { File::from_raw_fd(raw_fd) };
 
-    match obj.borrow_mut().kind {
-        PyObjectKind::Bytes { ref mut value } => {
+    match obj.borrow_mut().payload {
+        PyObjectPayload::Bytes { ref mut value } => {
             match handle.write(&value[..]) {
                 Ok(len) => {
                     //reset raw fd on the FileIO object

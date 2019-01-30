@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objiter;
@@ -18,7 +18,7 @@ pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
 
 pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     PyObject::new(
-        PyObjectKind::Dict {
+        PyObjectPayload::Dict {
             elements: HashMap::new(),
         },
         dict_type.clone(),
@@ -27,7 +27,7 @@ pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
 
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = DictContentType> + 'a {
     Ref::map(obj.borrow(), |py_obj| {
-        if let PyObjectKind::Dict { ref elements } = py_obj.kind {
+        if let PyObjectPayload::Dict { ref elements } = py_obj.payload {
             elements
         } else {
             panic!("Cannot extract dict elements");
@@ -37,7 +37,7 @@ pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = DictContent
 
 fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictContentType> + 'a {
     RefMut::map(obj.borrow_mut(), |py_obj| {
-        if let PyObjectKind::Dict { ref mut elements } = py_obj.kind {
+        if let PyObjectPayload::Dict { ref mut elements } = py_obj.payload {
             elements
         } else {
             panic!("Cannot extract dict elements");
@@ -227,7 +227,7 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let key_list = vm.ctx.new_list(keys);
 
     let iter_obj = PyObject::new(
-        PyObjectKind::Iterator {
+        PyObjectPayload::Iterator {
             position: 0,
             iterated_obj: key_list,
         },
@@ -275,7 +275,7 @@ fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
-    (*dict_type.borrow_mut()).kind = PyObjectKind::Class {
+    (*dict_type.borrow_mut()).payload = PyObjectPayload::Class {
         name: String::from("dict"),
         dict: new(dict_type.clone()),
         mro: vec![object_type],

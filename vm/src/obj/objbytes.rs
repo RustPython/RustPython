@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -48,7 +48,7 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectKind::Bytes { value: value },
+        PyObjectPayload::Bytes { value: value },
         cls.clone(),
     ))
 }
@@ -87,7 +87,7 @@ fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
     Ref::map(obj.borrow(), |py_obj| {
-        if let PyObjectKind::Bytes { ref value } = py_obj.kind {
+        if let PyObjectPayload::Bytes { ref value } = py_obj.payload {
             value
         } else {
             panic!("Inner error getting int {:?}", obj);

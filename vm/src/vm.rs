@@ -18,7 +18,7 @@ use super::obj::objsequence;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
-    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    AttributeProtocol, DictProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use super::stdlib;
@@ -145,8 +145,8 @@ impl VirtualMachine {
         // TODO: fix this!
         self.get_none()
         /*
-        match (*scope).kind {
-            PyObjectKind::Scope { scope } => { scope.locals.clone() },
+        match (*scope).payload {
+            PyObjectPayload::Scope { scope } => { scope.locals.clone() },
             _ => { panic!("Should be scope") },
         } // .clone()
         */
@@ -158,8 +158,8 @@ impl VirtualMachine {
 
     pub fn get_builtin_scope(&mut self) -> PyObjectRef {
         let a2 = &*self.builtins.borrow();
-        match a2.kind {
-            PyObjectKind::Module { name: _, ref dict } => dict.clone(),
+        match a2.payload {
+            PyObjectPayload::Module { name: _, ref dict } => dict.clone(),
             _ => {
                 panic!("OMG");
             }
@@ -238,26 +238,28 @@ impl VirtualMachine {
 
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         trace!("Invoke: {:?} {:?}", func_ref, args);
-        match func_ref.borrow().kind {
-            PyObjectKind::RustFunction { ref function } => function(self, args),
-            PyObjectKind::Function {
+        match func_ref.borrow().payload {
+            PyObjectPayload::RustFunction { ref function } => function(self, args),
+            PyObjectPayload::Function {
                 ref code,
                 ref scope,
                 ref defaults,
             } => self.invoke_python_function(code, scope, defaults, args),
-            PyObjectKind::Class {
+            PyObjectPayload::Class {
                 name: _,
                 dict: _,
                 mro: _,
             } => self.call_method_pyargs(&func_ref, "__call__", args),
-            PyObjectKind::BoundMethod {
+            PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectKind::Instance { .. } => self.call_method_pyargs(&func_ref, "__call__", args),
-            ref kind => {
+            PyObjectPayload::Instance { .. } => {
+                self.call_method_pyargs(&func_ref, "__call__", args)
+            }
+            ref payload => {
                 // TODO: is it safe to just invoke __call__ otherwise?
-                trace!("invoke __call__ for: {:?}", kind);
+                trace!("invoke __call__ for: {:?}", payload);
                 self.call_method_pyargs(&func_ref, "__call__", args)
             }
         }
@@ -375,9 +377,9 @@ impl VirtualMachine {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let available_defaults = match defaults.borrow().kind {
-                PyObjectKind::Sequence { ref elements } => elements.clone(),
-                PyObjectKind::None => vec![],
+            let available_defaults = match defaults.borrow().payload {
+                PyObjectPayload::Sequence { ref elements } => elements.clone(),
+                PyObjectPayload::None => vec![],
                 _ => panic!("function defaults not tuple or None"),
             };
 

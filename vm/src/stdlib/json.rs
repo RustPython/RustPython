@@ -7,7 +7,7 @@ use serde_json;
 
 use super::super::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
 use super::super::pyobject::{
-    create_type, DictProtocol, PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult,
+    create_type, DictProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use super::super::VirtualMachine;
@@ -67,7 +67,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 map.serialize_entry(&key, &self.clone_with_object(&e.1))?;
             }
             map.end()
-        } else if let PyObjectKind::None = self.pyobject.borrow().kind {
+        } else if let PyObjectPayload::None = self.pyobject.borrow().payload {
             serializer.serialize_none()
         } else {
             Err(serde::ser::Error::custom(format!(
@@ -167,8 +167,8 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
                 while let Some((key_obj, value)) =
                     access.next_entry_seed(self.clone(), self.clone())?
                 {
-                    let key = match key_obj.borrow().kind {
-                        PyObjectKind::String { ref value } => value.clone(),
+                    let key = match key_obj.borrow().payload {
+                        PyObjectPayload::String { ref value } => value.clone(),
                         _ => unimplemented!("map keys must be strings"),
                     };
                     self.ctx.set_item(&dict, &key, value);

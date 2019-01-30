@@ -7,7 +7,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use super::bytecode::{self, CallType, CodeObject, Instruction};
-use super::pyobject::{PyObject, PyObjectKind, PyResult};
+use super::pyobject::{PyObject, PyObjectPayload, PyResult};
 use super::vm::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
@@ -53,7 +53,7 @@ pub fn compile(
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
     Ok(PyObject::new(
-        PyObjectKind::Code { code: code },
+        PyObjectPayload::Code { code: code },
         vm.ctx.code_type(),
     ))
 }

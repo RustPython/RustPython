@@ -3,7 +3,7 @@
 */
 
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
@@ -56,7 +56,7 @@ fn property_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (fget, None)]);
 
     let py_obj = PyObject::new(
-        PyObjectKind::Instance {
+        PyObjectPayload::Instance {
             dict: vm.ctx.new_dict(),
         },
         cls.clone(),

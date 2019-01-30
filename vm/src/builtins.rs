@@ -15,7 +15,7 @@ use super::obj::objstr;
 use super::obj::objtype;
 
 use super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, Scope, TypeProtocol,
 };
 use super::stdlib::io::io_open;
@@ -240,7 +240,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         parent: None,
     };
     let scope = PyObject {
-        kind: PyObjectKind::Scope { scope: scope_inner },
+        payload: PyObjectPayload::Scope { scope: scope_inner },
         typ: None,
     }
     .into_ref();
@@ -288,7 +288,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         parent: None,
     };
     let scope = PyObject {
-        kind: PyObjectKind::Scope { scope: scope_inner },
+        payload: PyObjectPayload::Scope { scope: scope_inner },
         typ: None,
     }
     .into_ref();

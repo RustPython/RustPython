@@ -1,6 +1,6 @@
 use super::super::format::{FormatParseError, FormatPart, FormatString};
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -96,7 +96,7 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
-    if let PyObjectKind::String { value } = &obj.borrow().kind {
+    if let PyObjectPayload::String { value } = &obj.borrow().payload {
         value.to_string()
     } else {
         panic!("Inner error getting str");
@@ -982,8 +982,8 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
         let idx = value.to_string().get_pos(pos);
         Ok(vm.new_str(value[idx..idx + 1].to_string()))
     } else {
-        match &(*b.borrow()).kind {
-            &PyObjectKind::Slice {
+        match &(*b.borrow()).payload {
+            &PyObjectPayload::Slice {
                 start: _,
                 stop: _,
                 step: _,

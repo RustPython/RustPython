@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 
 use super::objint;
@@ -64,7 +64,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
     Ok(PyObject::new(
-        PyObjectKind::Bytes { value: value },
+        PyObjectPayload::Bytes { value: value },
         cls.clone(),
     ))
 }
@@ -105,7 +105,7 @@ fn bytearray_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 */
 /*
 fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
-    obj.borrow_mut().kind = PyObjectKind::Bytes { value };
+    obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 }
 */
 

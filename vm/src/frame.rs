@@ -16,7 +16,7 @@ use super::obj::objlist;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
-    DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
@@ -265,9 +265,9 @@ impl Frame {
 
                 let mut out: Vec<Option<i32>> = elements
                     .into_iter()
-                    .map(|x| match x.borrow().kind {
-                        PyObjectKind::Integer { ref value } => Some(value.to_i32().unwrap()),
-                        PyObjectKind::None => None,
+                    .map(|x| match x.borrow().payload {
+                        PyObjectPayload::Integer { ref value } => Some(value.to_i32().unwrap()),
+                        PyObjectPayload::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
                     })
                     .collect();
@@ -277,7 +277,7 @@ impl Frame {
                 let step = if out.len() == 3 { out[2] } else { None };
 
                 let obj = PyObject::new(
-                    PyObjectKind::Slice { start, stop, step },
+                    PyObjectPayload::Slice { start, stop, step },
                     vm.ctx.type_type(),
                 );
                 self.push_value(obj);
@@ -542,8 +542,8 @@ impl Frame {
             }
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
-                match expr.borrow().kind {
-                    PyObjectKind::None => (),
+                match expr.borrow().payload {
+                    PyObjectPayload::None => (),
                     _ => {
                         let repr = vm.to_repr(&expr)?;
                         builtins::builtin_print(
@@ -559,7 +559,7 @@ impl Frame {
             }
             bytecode::Instruction::LoadBuildClass => {
                 let rustfunc = PyObject::new(
-                    PyObjectKind::RustFunction {
+                    PyObjectPayload::RustFunction {
                         function: Box::new(builtins::builtin_build_class_),
                     },
                     vm.ctx.type_type(),
@@ -569,8 +569,8 @@ impl Frame {
             }
             bytecode::Instruction::StoreLocals => {
                 let locals = self.pop_value();
-                match self.locals.borrow_mut().kind {
-                    PyObjectKind::Scope { ref mut scope } => {
+                match self.locals.borrow_mut().payload {
+                    PyObjectPayload::Scope { ref mut scope } => {
                         scope.locals = locals;
                     }
                     _ => panic!("We really expect our scope to be a scope!"),
@@ -827,8 +827,8 @@ impl Frame {
     }
 
     fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
-        let locals = match self.locals.borrow().kind {
-            PyObjectKind::Scope { ref scope } => scope.locals.clone(),
+        let locals = match self.locals.borrow().payload {
+            PyObjectPayload::Scope { ref scope } => scope.locals.clone(),
             _ => panic!("We really expect our scope to be a scope!"),
         };
 
@@ -1045,7 +1045,7 @@ impl Frame {
             bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
             bytecode::Constant::Code { ref code } => {
-                PyObject::new(PyObjectKind::Code { code: code.clone() }, vm.get_type())
+                PyObject::new(PyObjectPayload::Code { code: code.clone() }, vm.get_type())
             }
             bytecode::Constant::Tuple { ref elements } => vm.ctx.new_tuple(
                 elements
@@ -1109,9 +1109,9 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
-        let local_str = match self.locals.borrow().kind {
-            PyObjectKind::Scope { ref scope } => match scope.locals.borrow().kind {
-                PyObjectKind::Dict { ref elements } => {
+        let local_str = match self.locals.borrow().payload {
+            PyObjectPayload::Scope { ref scope } => match scope.locals.borrow().payload {
+                PyObjectPayload::Dict { ref elements } => {
                     objdict::get_key_value_pairs_from_content(elements)
                         .iter()
                         .map(|elem| {

@@ -1,6 +1,6 @@
 use super::super::format::FormatSpec;
 use super::super::pyobject::{
-    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult,
+    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
@@ -38,7 +38,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => Zero::zero(),
     };
     Ok(PyObject::new(
-        PyObjectKind::Integer { value: val },
+        PyObjectPayload::Integer { value: val },
         cls.clone(),
     ))
 }
@@ -77,7 +77,7 @@ pub fn to_int(
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> IntType {
-    if let PyObjectKind::Integer { value } = &obj.borrow().kind {
+    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
         value.clone()
     } else {
         panic!("Inner error getting int {:?}", obj);

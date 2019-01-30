@@ -1,23 +1,23 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
 use num_traits::Zero;
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
-    let result = match obj.borrow().kind {
-        PyObjectKind::Integer { ref value } => !value.is_zero(),
-        PyObjectKind::Float { value } => value != 0.0,
-        PyObjectKind::Sequence { ref elements } => !elements.is_empty(),
-        PyObjectKind::Dict { ref elements } => !elements.is_empty(),
-        PyObjectKind::String { ref value } => !value.is_empty(),
-        PyObjectKind::None { .. } => false,
+    let result = match obj.borrow().payload {
+        PyObjectPayload::Integer { ref value } => !value.is_zero(),
+        PyObjectPayload::Float { value } => value != 0.0,
+        PyObjectPayload::Sequence { ref elements } => !elements.is_empty(),
+        PyObjectPayload::Dict { ref elements } => !elements.is_empty(),
+        PyObjectPayload::String { ref value } => !value.is_empty(),
+        PyObjectPayload::None { .. } => false,
         _ => {
             if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
                 let bool_res = vm.invoke(f, PyFuncArgs::default())?;
-                let v = match bool_res.borrow().kind {
-                    PyObjectKind::Integer { ref value } => !value.is_zero(),
+                let v = match bool_res.borrow().payload {
+                    PyObjectPayload::Integer { ref value } => !value.is_zero(),
                     _ => return Err(vm.new_type_error(String::from("TypeError"))),
                 };
                 v
@@ -46,7 +46,7 @@ pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
-    if let PyObjectKind::Integer { value } = &obj.borrow().kind {
+    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
         !value.is_zero()
     } else {
         panic!("Inner error getting inner boolean");

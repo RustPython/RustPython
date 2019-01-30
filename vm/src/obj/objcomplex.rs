@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objfloat;
@@ -23,7 +23,7 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
-    if let PyObjectKind::Complex { value } = &obj.borrow().kind {
+    if let PyObjectPayload::Complex { value } = &obj.borrow().payload {
         *value
     } else {
         panic!("Inner error getting complex");
@@ -54,7 +54,10 @@ fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let value = Complex64::new(real, imag);
 
-    Ok(PyObject::new(PyObjectKind::Complex { value }, cls.clone()))
+    Ok(PyObject::new(
+        PyObjectPayload::Complex { value },
+        cls.clone(),
+    ))
 }
 
 fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
