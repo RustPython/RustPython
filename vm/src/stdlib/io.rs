@@ -421,7 +421,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
             ctx.new_rustfunc(buffered_writer_write),
         );
         buffered_writer
-    }
+    };
     ctx.set_attr(&py_mod, "BufferedWriter", buffered_writer.clone());
 
     //TextIOBase Subclass
