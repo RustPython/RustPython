@@ -42,9 +42,7 @@ impl VMStore {
     }
 
     pub fn ids() -> Vec<JsValue> {
-        STORED_VMS.with(|cell| {
-            cell.borrow().keys().map(|k| k.into()).collect()
-        })
+        STORED_VMS.with(|cell| cell.borrow().keys().map(|k| k.into()).collect())
     }
 }
 
