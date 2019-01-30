@@ -40,6 +40,12 @@ impl VMStore {
             cell.borrow_mut().remove(&id);
         });
     }
+
+    pub fn ids() -> Vec<JsValue> {
+        STORED_VMS.with(|cell| {
+            cell.borrow().keys().map(|k| k.into()).collect()
+        })
+    }
 }
 
 #[wasm_bindgen(js_name = VirtualMachine)]
@@ -62,6 +68,10 @@ impl WASMVirtualMachine {
             )
             .into())
         }
+    }
+
+    fn destroy(self) {
+        VMStore::destroy(self.id)
     }
 
     // TODO: Add actually useful methods
