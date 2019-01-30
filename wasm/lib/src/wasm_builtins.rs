@@ -8,7 +8,7 @@ extern crate js_sys;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use crate::js_to_py;
+use crate::convert;
 use js_sys::Array;
 use rustpython_vm::pyobject::{PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
@@ -47,7 +47,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
 
 pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs, selector: &str) -> PyResult {
     let output = format_print_args(vm, args)?;
-    print_to_html(&output, selector).map_err(|err| js_to_py(vm, err))?;
+    print_to_html(&output, selector).map_err(|err| convert::js_to_py(vm, err))?;
     Ok(vm.get_none())
 }
 
