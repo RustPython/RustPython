@@ -27,7 +27,7 @@ impl VMStore {
     pub fn get(id: String) -> JsValue {
         STORED_VMS.with(|cell| {
             let vms = cell.borrow();
-            if !vms.contains_key(&id) {
+            if vms.contains_key(&id) {
                 WASMVirtualMachine { id }.into()
             } else {
                 JsValue::UNDEFINED
