@@ -71,6 +71,7 @@ impl WASMVirtualMachine {
     pub fn destroy(self) -> Result<(), JsValue> {
         self.assert_valid()?;
         VMStore::destroy(self.id);
+        Ok(())
     }
 
     // TODO: Add actually useful methods
