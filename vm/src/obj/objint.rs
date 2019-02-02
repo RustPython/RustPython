@@ -425,6 +425,25 @@ fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(bits.to_bigint().unwrap()))
 }
 
+fn int_doc(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    arg_check!(vm, args, required = [(_zelf, None)]);
+    let s = "int(x=0) -> integer
+int(x, base=10) -> integer
+
+Convert a number or string to an integer, or return 0 if no arguments
+are given.  If x is a number, return x.__int__().  For floating point
+numbers, this truncates towards zero.
+
+If x is not a number or if base is given, then x must be a string,
+bytes, or bytearray instance representing an integer literal in the
+given base.  The literal can be preceded by '+' or '-' and be surrounded
+by whitespace.  The base defaults to 10.  Valid bases are 0 and 2-36.
+Base 0 means to interpret the base from the string as an integer literal.
+>>> int('0b100', base=0)
+4";
+    Ok(vm.ctx.new_str(s.to_string()))
+}
+
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
@@ -460,4 +479,5 @@ pub fn init(context: &PyContext) {
         "bit_length",
         context.new_rustfunc(int_bit_length),
     );
+    context.set_attr(&int_type, "__doc__", context.new_property(int_doc));
 }
