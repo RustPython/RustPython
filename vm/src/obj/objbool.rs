@@ -82,7 +82,7 @@ fn bool_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn bool_doc(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
-    arg_check!(vm, args, required = [(obj, None)]);
+    arg_check!(vm, args, required = [(_zelf, None)]);
     let s = "bool(x) -> bool
 
 Returns True when the argument x is true, False otherwise.
