@@ -81,6 +81,7 @@ To test rustpython, there is a collection of python snippets located in the
 
 ```shell
 $ cd tests
+$ pipenv install
 $ pipenv shell
 $ pytest -v
 ```
