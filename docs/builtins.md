@@ -1,6 +1,6 @@
 Byterun
 
-* Builtins are exposted to frame.f_builtins
+* Builtins are exposed to frame.f_builtins
 * f_builtins is assigned during frame creation,
     self.f_builtins = f_locals['__builtins__']
     if hasattr(self.f_builtins, '__dict__'):
@@ -21,10 +21,10 @@ TODO:
 * Implement a new type NativeFunction
 * Wrap a function pointer in NativeFunction
 * Refactor the CALL_FUNCTION case so it can call both python function and native function
-* During frame creation, force push a nativefunction `print` into the namespace
+* During frame creation, force push a native function `print` into the namespace
 * Modify LOAD_* so they can search for names in builtins
 
 * Create a module type
 * In VM initialization, load the builtins module into locals
-* During frame creation, create a field that conatins the builtins dict
+* During frame creation, create a field that contains the builtins dict
 
