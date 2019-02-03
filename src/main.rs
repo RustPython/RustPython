@@ -7,6 +7,7 @@ extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 extern crate rustyline;
+extern crate xdg;
 
 use clap::{App, Arg};
 use rustpython_parser::parser;
@@ -154,9 +155,10 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     let mut input = String::new();
     let mut rl = Editor::<()>::new();
 
-    // TODO: Store the history in a proper XDG directory
-    let repl_history_path = ".repl_history.txt";
-    if rl.load_history(repl_history_path).is_err() {
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
+    let repl_history_path = xdg_dirs.place_cache_file("repl_history.txt").unwrap();
+    let repl_history_path_str = repl_history_path.to_str().unwrap();
+    if rl.load_history(repl_history_path_str).is_err() {
         println!("No previous history.");
     }
 
@@ -220,7 +222,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
             }
         };
     }
-    rl.save_history(repl_history_path).unwrap();
+    rl.save_history(repl_history_path_str).unwrap();
 
     Ok(vm.get_none())
 }
