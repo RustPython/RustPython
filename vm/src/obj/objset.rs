@@ -13,8 +13,9 @@ use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
 use std::collections::HashMap;
+use num_bigint::BigInt;
 
-pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
+pub fn get_elements(obj: &PyObjectRef) -> HashMap<BigInt, PyObjectRef> {
     if let PyObjectPayload::Set { elements } = &obj.borrow().payload {
         elements.clone()
     } else {
@@ -40,14 +41,46 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let mut mut_obj = s.borrow_mut();
 
-    if let PyObjectPayload::Set { ref mut elements } = mut_obj.payload {
-        let key = item.get_id();
-        elements.insert(key, item.clone());
-        Ok(vm.get_none())
-    } else {
-        Err(vm.new_type_error("set.add is called with no list".to_string()))
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            let hash_result: PyObjectRef = vm.call_method(item, "__hash__", vec![]).unwrap();
+            let hash_object = hash_result.borrow();
+            let key: BigInt;
+            match hash_object.payload {
+                PyObjectPayload::Integer { ref value } => {
+                    let key = value.clone();
+                    elements.insert(key, item.clone());
+                    Ok(vm.get_none())
+                },
+                _ => { Err(vm.new_attribute_error(format!("Expected item to implment __hash__"))) }
+            }
+        },
+        _ => {
+            Err(vm.new_type_error("set.add is called with no list".to_string()))
+        }
     }
 }
+
+//fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+//    trace!("set.remove called with: {:?}", args);
+//    arg_check!(
+//        vm,
+//        args,
+//        required = [(s, Some(vm.ctx.set_type())), (item, None)]
+//    );
+//    let mut mut_obj = s.borrow_mut();
+//
+//    match mut_obj.payload {
+//        PyObjectPayload::Set { ref mut elements } => {
+//            let key = item.get_id();
+//            elements.remove(&key);
+//            Ok(vm.get_none())
+//        },
+//        _ => {
+//            Err(vm.new_key_error("set.remove is called with no element".to_string()))
+//        }
+//    }
+//}
 
 /* Create a new object of sub-type of set */
 fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -62,27 +95,27 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{} is not a subtype of set", cls.borrow())));
     }
 
-    let elements = match iterable {
-        None => HashMap::new(),
-        Some(iterable) => {
-            let mut elements = HashMap::new();
-            let iterator = objiter::get_iter(vm, iterable)?;
-            loop {
-                match vm.call_method(&iterator, "__next__", vec![]) {
-                    Ok(v) => {
-                        // TODO: should we use the hash function here?
-                        let key = v.get_id();
-                        elements.insert(key, v);
-                    }
-                    _ => break,
-                }
-            }
-            elements
-        }
-    };
+//    let elements = match iterable {
+//        None => HashMap::new(),
+//        Some(iterable) => {
+//            let mut elements = HashMap::new();
+//            let iterator = objiter::get_iter(vm, iterable)?;
+//            loop {
+//                match vm.call_method(&iterator, "__next__", vec![]) {
+//                    Ok(v) => {
+//                        // TODO: should we use the hash function here?
+//                        let key = v.get_id();
+//                        elements.insert(key, v);
+//                    }
+//                    _ => break,
+//                }
+//            }
+//            elements
+//        }
+//    };
 
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements: elements },
+        PyObjectPayload::Set { elements: HashMap::new() },
         cls.clone(),
     ))
 }
@@ -161,6 +194,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__new__", context.new_rustfunc(set_new));
     context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
+//    context.set_attr(&set_type, "remove", context.new_rustfunc(set_remove));
 
     let ref frozenset_type = context.frozenset_type;
     context.set_attr(

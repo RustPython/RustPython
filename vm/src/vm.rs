@@ -100,6 +100,11 @@ impl VirtualMachine {
         self.new_exception(type_error, msg)
     }
 
+    pub fn new_attribute_error(&mut self, msg: String) -> PyObjectRef {
+        let type_error = self.ctx.exceptions.attribute_error.clone();
+        self.new_exception(type_error, msg)
+    }
+
     /// Create a new python ValueError object. Useful for raising errors from
     /// python functions implemented in rust.
     pub fn new_value_error(&mut self, msg: String) -> PyObjectRef {

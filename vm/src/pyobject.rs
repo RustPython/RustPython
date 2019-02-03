@@ -440,8 +440,8 @@ impl PyContext {
         )
     }
 
-    pub fn new_set(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        let elements = objset::sequence_to_hashmap(&elements);
+    pub fn new_set(&self) -> PyObjectRef {
+        let elements: HashMap<BigInt, PyObjectRef> = HashMap::new();
         PyObject::new(PyObjectPayload::Set { elements: elements }, self.set_type())
     }
 
@@ -871,7 +871,7 @@ pub enum PyObjectPayload {
         elements: objdict::DictContentType,
     },
     Set {
-        elements: HashMap<usize, PyObjectRef>,
+        elements: HashMap<BigInt, PyObjectRef>,
     },
     Iterator {
         position: usize,
