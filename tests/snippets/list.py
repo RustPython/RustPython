@@ -22,13 +22,10 @@ except ValueError:
 else:
     assert False, "ValueError was not raised"
 
-x = [1, 2, 3]
-assert(x.pop() == 3)
-assert(x.pop() == 2)
-assert(x.pop() == 1)
+assert [1,2,'a'].pop() == 'a', "list pop failed"
 try:
-    x.pop()
+    [].pop()
 except IndexError:
     pass
 else:
-    assert False, "IndexError was not raised for pop from empty list"
+    assert False, "IndexError was not raised"

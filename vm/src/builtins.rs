@@ -846,6 +846,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "ModuleNotFoundError",
         ctx.exceptions.module_not_found_error.clone(),
     );
+
     py_mod
 }
 

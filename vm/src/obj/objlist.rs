@@ -170,16 +170,6 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
 }
 
-fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("list.pop called with: {:?}", args);
-    arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
-    let mut elements = get_mut_elements(list);
-    match elements.pop() {
-        None => Err(vm.new_index_error("pop from empty list".to_owned())),
-        Some(v) => Ok(v),
-    }
-}
-
 fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
@@ -272,6 +262,18 @@ fn list_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let new_elements = seq_mul(&get_elements(list), product);
 
     Ok(vm.ctx.new_list(new_elements))
+}
+
+fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.pop called with: {:?}", args);
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.list_type()))]);
+
+    let mut elements = get_mut_elements(zelf);
+    if let Some(result) = elements.pop() {
+        Ok(result)
+    } else {
+        Err(vm.new_index_error("pop from empty list".to_string()))
+    }
 }
 
 pub fn init(context: &PyContext) {
