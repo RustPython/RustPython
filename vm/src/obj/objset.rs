@@ -32,6 +32,24 @@ pub fn sequence_to_hashmap(iterable: &Vec<PyObjectRef>) -> HashMap<usize, PyObje
     elements
 }
 
+fn perform_action_with_hash(vm: &mut VirtualMachine, item: &PyObjectRef, elements: &mut HashMap<BigInt, PyObjectRef>) -> PyResult {
+    let hash_result: PyResult = vm.call_method(item, "__hash__", vec![]);
+    match hash_result {
+        Ok(hash_object) => {
+            let hash = hash_object.borrow();
+            match hash.payload {
+                PyObjectPayload::Integer { ref value } => {
+                    let key = value.clone();
+                    elements.insert(key, item.clone());
+                    Ok(vm.get_none())
+                },
+                _ => { Err(vm.new_type_error(format!("__hash__ method should return an integer"))) }
+            }
+        },
+        Err(error) => Err(error),
+    }
+}
+
 fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.add called with: {:?}", args);
     arg_check!(
@@ -42,28 +60,8 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mut_obj = s.borrow_mut();
 
     match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => {
-            let hash_result: PyResult = vm.call_method(item, "__hash__", vec![]);
-            match hash_result {
-                Ok(hash_object) => {
-                    let hash = hash_object.borrow();
-                    let key: BigInt;
-                    match hash.payload {
-                        PyObjectPayload::Integer { ref value } => {
-                            let key = value.clone();
-                            elements.insert(key, item.clone());
-                            Ok(vm.get_none())
-                        },
-                        _ => { Err(vm.new_type_error(format!("__hash__ method should return an integer"))) }
-                    }
-                },
-                Err(error) => Err(error),
-            }
-
-        },
-        _ => {
-            Err(vm.new_type_error("set.add is called with no item".to_string()))
-        }
+        PyObjectPayload::Set {ref mut elements} => perform_action_with_hash(vm, item, elements),
+        _ => Err(vm.new_type_error("set.add is called with no item".to_string())),
     }
 }
 
