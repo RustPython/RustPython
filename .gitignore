@@ -5,4 +5,5 @@ __pycache__
 **/*.pytest_cache
 .*sw*
 .repl_history.txt
+.vscode
 wasm-pack.log
