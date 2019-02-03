@@ -4,7 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objsequence::{get_elements, get_item, seq_equal};
+use super::objsequence::{get_elements, get_item, seq_equal, seq_mul};
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
@@ -119,6 +119,21 @@ fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
+fn tuple_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.tuple_type())),
+            (product, Some(vm.ctx.int_type()))
+        ]
+    );
+
+    let new_elements = seq_mul(&get_elements(zelf), product);
+
+    Ok(vm.ctx.new_tuple(new_elements))
+}
+
 fn tuple_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -165,6 +180,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&tuple_type, "__iter__", context.new_rustfunc(tuple_iter));
     context.set_attr(&tuple_type, "__len__", context.new_rustfunc(tuple_len));
     context.set_attr(&tuple_type, "__new__", context.new_rustfunc(tuple_new));
+    context.set_attr(&tuple_type, "__mul__", context.new_rustfunc(tuple_mul));
     context.set_attr(&tuple_type, "__repr__", context.new_rustfunc(tuple_repr));
     context.set_attr(&tuple_type, "count", context.new_rustfunc(tuple_count));
 }
