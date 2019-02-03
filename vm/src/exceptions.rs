@@ -113,9 +113,6 @@ impl ExceptionZoo {
 
         let exception_type = create_type("Exception", &type_type, &base_exception_type, &dict_type);
 
-        let runtime_error = create_type("RuntimeError", &type_type, &exception_type, &dict_type);
-        let import_error = create_type("ImportError", &type_type, &exception_type, &dict_type);
-
         let assertion_error =
             create_type("AssertionError", &type_type, &exception_type, &dict_type);
         let attribute_error = create_type(
@@ -124,8 +121,7 @@ impl ExceptionZoo {
             &exception_type.clone(),
             &dict_type,
         );
-        let file_not_found_error =
-            create_type("FileNotFoundError", &type_type, &import_error, &dict_type);
+        let import_error = create_type("ImportError", &type_type, &exception_type, &dict_type);
         let index_error = create_type(
             "IndexError",
             &type_type,
@@ -133,9 +129,17 @@ impl ExceptionZoo {
             &dict_type,
         );
         let key_error = create_type("KeyError", &type_type, &exception_type.clone(), &dict_type);
+        let name_error = create_type("NameError", &type_type, &exception_type.clone(), &dict_type);
+        let runtime_error = create_type("RuntimeError", &type_type, &exception_type, &dict_type);
+        let stop_iteration = create_type("StopIteration", &type_type, &exception_type, &dict_type);
+        let syntax_error = create_type("SyntaxError", &type_type, &exception_type, &dict_type);
+        let type_error = create_type("TypeError", &type_type, &exception_type, &dict_type);
+        let value_error = create_type("ValueError", &type_type, &exception_type, &dict_type);
+
+        let file_not_found_error =
+            create_type("FileNotFoundError", &type_type, &import_error, &dict_type);
         let module_not_found_error =
             create_type("ModuleNotFoundError", &type_type, &import_error, &dict_type);
-        let name_error = create_type("NameError", &type_type, &exception_type.clone(), &dict_type);
         let not_implemented_error = create_type(
             "NotImplementedError",
             &type_type,
@@ -144,14 +148,10 @@ impl ExceptionZoo {
         );
         let permission_error =
             create_type("PermissionError", &type_type, &import_error, &dict_type);
-        let stop_iteration = create_type("StopIteration", &type_type, &exception_type, &dict_type);
-        let syntax_error = create_type("SyntaxError", &type_type, &exception_type, &dict_type);
-        let type_error = create_type("TypeError", &type_type, &exception_type, &dict_type);
-        let value_error = create_type("ValueError", &type_type, &exception_type, &dict_type);
 
         ExceptionZoo {
-            attribute_error: attribute_error,
             assertion_error: assertion_error,
+            attribute_error: attribute_error,
             base_exception_type: base_exception_type,
             exception_type: exception_type,
             file_not_found_error: file_not_found_error,
