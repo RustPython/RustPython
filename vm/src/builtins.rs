@@ -822,7 +822,30 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     );
     ctx.set_attr(&py_mod, "TypeError", ctx.exceptions.type_error.clone());
     ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
-
+    ctx.set_attr(&py_mod, "IndexError", ctx.exceptions.index_error.clone());
+    ctx.set_attr(&py_mod, "KeyError", ctx.exceptions.index_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "RuntimeError",
+        ctx.exceptions.runtime_error.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
+        "NotImplementedError",
+        ctx.exceptions.not_implemented_error.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
+        "StopIteration",
+        ctx.exceptions.stop_iteration.clone(),
+    );
+    ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
+    ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "ModuleNotFoundError",
+        ctx.exceptions.module_not_found_error.clone(),
+    );
     py_mod
 }
 
