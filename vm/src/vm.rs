@@ -549,27 +549,27 @@ impl VirtualMachine {
     }
 
     pub fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__add__", vec![b])
+        self.call_or_unsupported(a, b, "__add__", "__radd__", "+")
     }
 
     pub fn _mul(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__mul__", vec![b])
+        self.call_or_unsupported(a, b, "__mul__", "__rmul__", "*")
     }
 
     pub fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__truediv__", vec![b])
+        self.call_or_unsupported(a, b, "__truediv__", "__truediv__", "/")
     }
 
     pub fn _pow(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__pow__", vec![b])
+        self.call_or_unsupported(a, b, "__pow__", "__rpow__", "**")
     }
 
     pub fn _modulo(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__mod__", vec![b])
+        self.call_or_unsupported(a, b, "__mod__", "__rmod__", "%")
     }
 
     pub fn _xor(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__xor__", vec![b])
+        self.call_or_unsupported(a, b, "__xor__", "__rxor__", "^")
     }
 
     pub fn _or(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
