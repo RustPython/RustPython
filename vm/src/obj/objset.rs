@@ -43,20 +43,26 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match mut_obj.payload {
         PyObjectPayload::Set { ref mut elements } => {
-            let hash_result: PyObjectRef = vm.call_method(item, "__hash__", vec![]).unwrap();
-            let hash_object = hash_result.borrow();
-            let key: BigInt;
-            match hash_object.payload {
-                PyObjectPayload::Integer { ref value } => {
-                    let key = value.clone();
-                    elements.insert(key, item.clone());
-                    Ok(vm.get_none())
+            let hash_result: PyResult = vm.call_method(item, "__hash__", vec![]);
+            match hash_result {
+                Ok(hash_object) => {
+                    let hash = hash_object.borrow();
+                    let key: BigInt;
+                    match hash.payload {
+                        PyObjectPayload::Integer { ref value } => {
+                            let key = value.clone();
+                            elements.insert(key, item.clone());
+                            Ok(vm.get_none())
+                        },
+                        _ => { Err(vm.new_type_error(format!("__hash__ method should return an integer"))) }
+                    }
                 },
-                _ => { Err(vm.new_attribute_error(format!("Expected item to implment __hash__"))) }
+                Err(error) => Err(error),
             }
+
         },
         _ => {
-            Err(vm.new_type_error("set.add is called with no list".to_string()))
+            Err(vm.new_type_error("set.add is called with no item".to_string()))
         }
     }
 }
