@@ -10,6 +10,7 @@ y.extend(x)
 assert y == [2, 1, 2, 3, 1, 2, 3]
 
 assert x * 0 == [], "list __mul__ by 0 failed"
+assert x * -1 == [], "list __mul__ by -1 failed"
 assert x * 2 == [1, 2, 3, 1, 2, 3], "list __mul__ by 2 failed"
 
 assert ['a', 'b', 'c'].index('b') == 1

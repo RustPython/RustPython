@@ -5,7 +5,7 @@ use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
 use super::objsequence::{
-    get_elements, get_item, get_mut_elements, seq_equal, PySliceableSequence,
+    get_elements, get_item, get_mut_elements, seq_equal, seq_mul, PySliceableSequence,
 };
 use super::objstr;
 use super::objtype;
@@ -259,15 +259,7 @@ fn list_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let counter = objint::get_value(&product).to_usize().unwrap();
-
-    let elements = get_elements(list);
-    let current_len = elements.len();
-    let mut new_elements = Vec::with_capacity(counter * current_len);
-
-    for _ in 0..counter {
-        new_elements.extend(elements.clone());
-    }
+    let new_elements = seq_mul(&get_elements(list), product);
 
     Ok(vm.ctx.new_list(new_elements))
 }
