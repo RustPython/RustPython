@@ -557,7 +557,7 @@ impl VirtualMachine {
     }
 
     pub fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_or_unsupported(a, b, "__truediv__", "__truediv__", "/")
+        self.call_or_unsupported(a, b, "__truediv__", "__rtruediv__", "/")
     }
 
     pub fn _pow(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
