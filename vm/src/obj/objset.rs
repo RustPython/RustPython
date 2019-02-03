@@ -10,9 +10,9 @@ use super::objbool;
 use super::objiter;
 use super::objstr;
 use super::objtype;
+use num_bigint::BigInt;
 use num_bigint::ToBigInt;
 use std::collections::HashMap;
-use num_bigint::BigInt;
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<BigInt, PyObjectRef> {
     if let PyObjectPayload::Set { elements } = &obj.borrow().payload {
@@ -22,8 +22,17 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<BigInt, PyObjectRef> {
     }
 }
 
-fn perform_action_with_hash(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>, item: &PyObjectRef,
-                            f: &Fn(&mut VirtualMachine, &mut HashMap<BigInt, PyObjectRef>, BigInt, &PyObjectRef) -> PyResult) -> PyResult {
+fn perform_action_with_hash(
+    vm: &mut VirtualMachine,
+    elements: &mut HashMap<BigInt, PyObjectRef>,
+    item: &PyObjectRef,
+    f: &Fn(
+        &mut VirtualMachine,
+        &mut HashMap<BigInt, PyObjectRef>,
+        BigInt,
+        &PyObjectRef,
+    ) -> PyResult,
+) -> PyResult {
     let hash_result: PyResult = vm.call_method(item, "__hash__", vec![]);
     match hash_result {
         Ok(hash_object) => {
@@ -32,18 +41,25 @@ fn perform_action_with_hash(vm: &mut VirtualMachine, elements: &mut HashMap<BigI
                 PyObjectPayload::Integer { ref value } => {
                     let key = value.clone();
                     f(vm, elements, key, item)
-                },
-                _ => { Err(vm.new_type_error(format!("__hash__ method should return an integer"))) }
+                }
+                _ => Err(vm.new_type_error(format!("__hash__ method should return an integer"))),
             }
-        },
+        }
         Err(error) => Err(error),
     }
 }
 
-fn insert_into_set(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>, item: &PyObjectRef) -> PyResult
-{
-    fn insert(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>,
-              key: BigInt, value: &PyObjectRef) -> PyResult {
+fn insert_into_set(
+    vm: &mut VirtualMachine,
+    elements: &mut HashMap<BigInt, PyObjectRef>,
+    item: &PyObjectRef,
+) -> PyResult {
+    fn insert(
+        vm: &mut VirtualMachine,
+        elements: &mut HashMap<BigInt, PyObjectRef>,
+        key: BigInt,
+        value: &PyObjectRef,
+    ) -> PyResult {
         elements.insert(key, value.clone());
         Ok(vm.get_none())
     }
@@ -60,7 +76,7 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mut_obj = s.borrow_mut();
 
     match mut_obj.payload {
-        PyObjectPayload::Set {ref mut elements} => insert_into_set(vm, elements, item),
+        PyObjectPayload::Set { ref mut elements } => insert_into_set(vm, elements, item),
         _ => Err(vm.new_type_error("set.add is called with no item".to_string())),
     }
 }
@@ -75,18 +91,23 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mut_obj = s.borrow_mut();
 
     match mut_obj.payload {
-        PyObjectPayload::Set {ref mut elements} => {
-            fn remove(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>,
-                               key: BigInt, value: &PyObjectRef) -> PyResult {
+        PyObjectPayload::Set { ref mut elements } => {
+            fn remove(
+                vm: &mut VirtualMachine,
+                elements: &mut HashMap<BigInt, PyObjectRef>,
+                key: BigInt,
+                value: &PyObjectRef,
+            ) -> PyResult {
                 match elements.remove(&key) {
                     None => {
                         let item = value.borrow();
                         Err(vm.new_key_error(item.str()))
-                    },
-                    Some(_) => {Ok(vm.get_none())},
+                    }
+                    Some(_) => Ok(vm.get_none()),
                 }
             }
-            perform_action_with_hash(vm, elements, item, &remove)},
+            perform_action_with_hash(vm, elements, item, &remove)
+        }
         _ => Err(vm.new_type_error("set.remove is called with no item".to_string())),
     }
 }
