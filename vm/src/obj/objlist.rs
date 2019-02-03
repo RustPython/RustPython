@@ -170,6 +170,16 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
 }
 
+fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.pop called with: {:?}", args);
+    arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
+    let mut elements = get_mut_elements(list);
+    match elements.pop() {
+        None => Err(vm.new_index_error("pop from empty list".to_owned())),
+        Some(v) => Ok(v),
+    }
+}
+
 fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
@@ -295,4 +305,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "index", context.new_rustfunc(list_index));
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
+    context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));
 }

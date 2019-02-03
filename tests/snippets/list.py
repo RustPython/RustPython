@@ -21,3 +21,14 @@ except ValueError:
     pass
 else:
     assert False, "ValueError was not raised"
+
+x = [1, 2, 3]
+assert(x.pop() == 3)
+assert(x.pop() == 2)
+assert(x.pop() == 1)
+try:
+    x.pop()
+except Exception as e:
+    assert(str(e).startswith("IndexError"))
+else:
+    assert False, "IndexError was not raised for pop from empty list"
