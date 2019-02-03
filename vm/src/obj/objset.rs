@@ -3,8 +3,7 @@
  */
 
 use super::super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -21,15 +20,6 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<BigInt, PyObjectRef> {
     } else {
         panic!("Cannot extract set elements from non-set");
     }
-}
-
-pub fn sequence_to_hashmap(iterable: &Vec<PyObjectRef>) -> HashMap<usize, PyObjectRef> {
-    let mut elements = HashMap::new();
-    for item in iterable {
-        let key = item.get_id();
-        elements.insert(key, item.clone());
-    }
-    elements
 }
 
 fn perform_action_with_hash(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>, item: &PyObjectRef,
@@ -50,6 +40,16 @@ fn perform_action_with_hash(vm: &mut VirtualMachine, elements: &mut HashMap<BigI
     }
 }
 
+fn insert_into_set(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>, item: &PyObjectRef) -> PyResult
+{
+    fn insert(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>,
+              key: BigInt, value: &PyObjectRef) -> PyResult {
+        elements.insert(key, value.clone());
+        Ok(vm.get_none())
+    }
+    perform_action_with_hash(vm, elements, item, &insert)
+}
+
 fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.add called with: {:?}", args);
     arg_check!(
@@ -60,13 +60,7 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mut_obj = s.borrow_mut();
 
     match mut_obj.payload {
-        PyObjectPayload::Set {ref mut elements} => {
-            fn insert_into_set(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>,
-                               key: BigInt, value: &PyObjectRef) -> PyResult {
-                elements.insert(key, value.clone());
-                Ok(vm.get_none())
-            }
-            perform_action_with_hash(vm, elements, item, &insert_into_set)},
+        PyObjectPayload::Set {ref mut elements} => insert_into_set(vm, elements, item),
         _ => Err(vm.new_type_error("set.add is called with no item".to_string())),
     }
 }
@@ -82,7 +76,7 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match mut_obj.payload {
         PyObjectPayload::Set {ref mut elements} => {
-            fn remove_from_set(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>,
+            fn remove(vm: &mut VirtualMachine, elements: &mut HashMap<BigInt, PyObjectRef>,
                                key: BigInt, value: &PyObjectRef) -> PyResult {
                 match elements.remove(&key) {
                     None => {
@@ -92,7 +86,7 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     Some(_) => {Ok(vm.get_none())},
                 }
             }
-            perform_action_with_hash(vm, elements, item, &remove_from_set)},
+            perform_action_with_hash(vm, elements, item, &remove)},
         _ => Err(vm.new_type_error("set.remove is called with no item".to_string())),
     }
 }
@@ -110,27 +104,25 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{} is not a subtype of set", cls.borrow())));
     }
 
-//    let elements = match iterable {
-//        None => HashMap::new(),
-//        Some(iterable) => {
-//            let mut elements = HashMap::new();
-//            let iterator = objiter::get_iter(vm, iterable)?;
-//            loop {
-//                match vm.call_method(&iterator, "__next__", vec![]) {
-//                    Ok(v) => {
-//                        // TODO: should we use the hash function here?
-//                        let key = v.get_id();
-//                        elements.insert(key, v);
-//                    }
-//                    _ => break,
-//                }
-//            }
-//            elements
-//        }
-//    };
+    let elements: HashMap<BigInt, PyObjectRef> = match iterable {
+        None => HashMap::new(),
+        Some(iterable) => {
+            let mut elements = HashMap::new();
+            let iterator = objiter::get_iter(vm, iterable)?;
+            loop {
+                match vm.call_method(&iterator, "__next__", vec![]) {
+                    Ok(v) => {
+                        insert_into_set(vm, &mut elements, &v).unwrap();
+                    }
+                    _ => break,
+                }
+            }
+            elements
+        }
+    };
 
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements: HashMap::new() },
+        PyObjectPayload::Set { elements: elements },
         cls.clone(),
     ))
 }

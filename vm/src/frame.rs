@@ -230,10 +230,8 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
-                let elements = self.get_elements(vm, *size, *unpack)?;
+                let _elements = self.get_elements(vm, *size, *unpack)?;
                 let py_obj = vm.ctx.new_set();
-                // TODO: Allow initial population of set with iterable (note: __hash__() of each object being added
-                // requires access to the VM. (see set_add in objset.rs)
                 self.push_value(py_obj);
                 Ok(None)
             }
