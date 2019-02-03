@@ -719,6 +719,11 @@ fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_list(new_items))
 }
 
+fn builtin_exit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let system_exit = vm.context().exceptions.system_exit.clone();
+    return Err(vm.new_exception(system_exit,"SystemExit".to_string()));
+}
+
 // builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
@@ -786,6 +791,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "tuple", ctx.tuple_type());
     ctx.set_attr(&py_mod, "type", ctx.type_type());
     ctx.set_attr(&py_mod, "zip", ctx.new_rustfunc(builtin_zip));
+    ctx.set_attr(&py_mod, "exit", ctx.new_rustfunc(builtin_exit));
 
     // Exceptions:
     ctx.set_attr(
@@ -819,6 +825,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
     ctx.set_attr(&py_mod, "IndexError", ctx.exceptions.index_error.clone());
     ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
+    ctx.set_attr(&py_mod, "SystemExit", ctx.exceptions.system_exit.clone());
 
     py_mod
 }

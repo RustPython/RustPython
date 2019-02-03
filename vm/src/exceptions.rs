@@ -99,6 +99,7 @@ pub struct ExceptionZoo {
     pub syntax_error: PyObjectRef,
     pub type_error: PyObjectRef,
     pub value_error: PyObjectRef,
+    pub system_exit: PyObjectRef,
 }
 
 impl ExceptionZoo {
@@ -140,6 +141,7 @@ impl ExceptionZoo {
         let file_not_found_error =
             create_type("FileNotFoundError", &type_type, &os_error, &dict_type);
         let permission_error = create_type("PermissionError", &type_type, &os_error, &dict_type);
+        let system_exit = create_type("SystemExit", &type_type, &exception_type.clone(), &dict_type);
 
         ExceptionZoo {
             assertion_error,
@@ -160,6 +162,7 @@ impl ExceptionZoo {
             syntax_error,
             type_error,
             value_error,
+            system_exit,
         }
     }
 }
