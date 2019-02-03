@@ -489,6 +489,11 @@ fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(bits.to_bigint().unwrap()))
 }
 
+fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    Ok(i.clone())
+}
+
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
@@ -526,4 +531,5 @@ pub fn init(context: &PyContext) {
         "bit_length",
         context.new_rustfunc(int_bit_length),
     );
+    context.set_attr(&int_type, "conjugate", context.new_rustfunc(int_conjugate));
 }
