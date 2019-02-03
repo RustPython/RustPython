@@ -21,3 +21,11 @@ except ValueError:
     pass
 else:
     assert False, "ValueError was not raised"
+
+assert [1,2,'a'].pop() == 'a', "list pop failed"
+try:
+    [].pop()
+except IndexError:
+    pass
+else:
+    assert False, "IndexError was not raised"
