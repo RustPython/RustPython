@@ -5,7 +5,8 @@ use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
 use super::objsequence::{
-    get_elements, get_item, get_mut_elements, seq_equal, seq_mul, PySliceableSequence,
+    get_elements, get_item, get_mut_elements, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
+    PySliceableSequence,
 };
 use super::objstr;
 use super::objtype;
@@ -70,6 +71,94 @@ fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         false
     };
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn list_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_lt(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn list_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_gt(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn list_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_ge(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn list_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_le(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
     Ok(vm.ctx.new_bool(result))
 }
 
@@ -284,6 +373,10 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(list_contains),
     );
     context.set_attr(&list_type, "__eq__", context.new_rustfunc(list_eq));
+    context.set_attr(&list_type, "__lt__", context.new_rustfunc(list_lt));
+    context.set_attr(&list_type, "__gt__", context.new_rustfunc(list_gt));
+    context.set_attr(&list_type, "__le__", context.new_rustfunc(list_le));
+    context.set_attr(&list_type, "__ge__", context.new_rustfunc(list_ge));
     context.set_attr(
         &list_type,
         "__getitem__",
