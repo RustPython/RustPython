@@ -491,7 +491,8 @@ fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
-    Ok(i.clone())
+    let v = get_value(i);
+    Ok(vm.ctx.new_int(v))
 }
 
 pub fn init(context: &PyContext) {
