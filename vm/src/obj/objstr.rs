@@ -53,6 +53,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "isalnum", context.new_rustfunc(str_isalnum));
     context.set_attr(&str_type, "isnumeric", context.new_rustfunc(str_isnumeric));
     context.set_attr(&str_type, "isdigit", context.new_rustfunc(str_isdigit));
+    context.set_attr(&str_type, "isdecimal", context.new_rustfunc(str_isdecimal));
     context.set_attr(&str_type, "title", context.new_rustfunc(str_title));
     context.set_attr(&str_type, "swapcase", context.new_rustfunc(str_swapcase));
     context.set_attr(&str_type, "isalpha", context.new_rustfunc(str_isalpha));
@@ -936,6 +937,20 @@ fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     }
     Ok(vm.ctx.new_bool(is_digit))
+}
+
+fn str_isdecimal(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+
+    let value = get_value(&s);
+
+    let is_decimal = if !value.is_empty() {
+        value.chars().all(|c| c.is_ascii_digit())
+    } else {
+        false
+    };
+
+    Ok(vm.ctx.new_bool(is_decimal))
 }
 
 fn str_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

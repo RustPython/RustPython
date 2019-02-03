@@ -1,6 +1,7 @@
 use super::super::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
 use super::objbool;
+use super::objint;
 use num_traits::ToPrimitive;
 use std::cell::{Ref, RefMut};
 use std::marker::Sized;
@@ -213,6 +214,20 @@ pub fn seq_le(
     other: &Vec<PyObjectRef>,
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
+}
+
+pub fn seq_mul(elements: &Vec<PyObjectRef>, product: &PyObjectRef) -> Vec<PyObjectRef> {
+    let counter = objint::get_value(&product).to_isize().unwrap();
+
+    let current_len = elements.len();
+    let new_len = counter.max(0) as usize * current_len;
+    let mut new_elements = Vec::with_capacity(new_len);
+
+    for _ in 0..counter {
+        new_elements.extend(elements.clone());
+    }
+
+    new_elements
 }
 
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {

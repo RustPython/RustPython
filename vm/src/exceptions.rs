@@ -96,6 +96,8 @@ pub struct ExceptionZoo {
     pub value_error: PyObjectRef,
     pub import_error: PyObjectRef,
     pub module_not_found_error: PyObjectRef,
+    pub file_not_found_error: PyObjectRef,
+    pub permission_error: PyObjectRef,
 }
 
 impl ExceptionZoo {
@@ -138,6 +140,10 @@ impl ExceptionZoo {
         let import_error = create_type("ImportError", &type_type, &exception_type, &dict_type);
         let module_not_found_error =
             create_type("ModuleNotFoundError", &type_type, &import_error, &dict_type);
+        let file_not_found_error =
+            create_type("FileNotFoundError", &type_type, &import_error, &dict_type);
+        let permission_error =
+            create_type("PermissionError", &type_type, &import_error, &dict_type);
 
         ExceptionZoo {
             base_exception_type: base_exception_type,
@@ -155,6 +161,8 @@ impl ExceptionZoo {
             value_error: value_error,
             import_error: import_error,
             module_not_found_error: module_not_found_error,
+            file_not_found_error: file_not_found_error,
+            permission_error: permission_error,
         }
     }
 }

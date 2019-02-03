@@ -348,17 +348,20 @@ fn list_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let counter = objint::get_value(&product).to_usize().unwrap();
-
-    let elements = get_elements(list);
-    let current_len = elements.len();
-    let mut new_elements = Vec::with_capacity(counter * current_len);
-
-    for _ in 0..counter {
-        new_elements.extend(elements.clone());
-    }
+    let new_elements = seq_mul(&get_elements(list), product);
 
     Ok(vm.ctx.new_list(new_elements))
+}
+
+fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.list_type()))]);
+
+    let mut elements = get_mut_elements(zelf);
+    if let Some(result) = elements.pop() {
+        Ok(result)
+    } else {
+        Err(vm.new_index_error("pop from empty list".to_string()))
+    }
 }
 
 pub fn init(context: &PyContext) {
@@ -396,4 +399,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "index", context.new_rustfunc(list_index));
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
+    context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));
 }
