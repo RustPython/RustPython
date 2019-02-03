@@ -5,7 +5,8 @@ use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
 use super::objsequence::{
-    get_elements, get_item, get_mut_elements, seq_equal, seq_gt, seq_lt, seq_le, seq_ge, PySliceableSequence,
+    get_elements, get_item, get_mut_elements, seq_equal, seq_ge, seq_gt, seq_le, seq_lt,
+    PySliceableSequence,
 };
 use super::objstr;
 use super::objtype;
