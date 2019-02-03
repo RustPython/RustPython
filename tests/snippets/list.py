@@ -21,10 +21,10 @@ except ValueError:
 else:
     assert False, "ValueError was not raised"
 
-x = [[1,2,3], 'a', 1]
-y = [[3,1,1], 'z', 2]
+x = [[1,0,-3], 'a', 1]
+y = [[3,2,1], 'z', 2]
 assert x < y, "list __lt__ failed"
 
-x = [5, -3, 1]
+x = [5, 13, 31]
 y = [1, 10, 29]
 assert x > y, "list __gt__ failed"
