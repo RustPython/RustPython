@@ -81,8 +81,8 @@ To test rustpython, there is a collection of python snippets located in the
 
 ```shell
 $ cd tests
-$ pipenv shell
-$ pytest -v
+$ pipenv install
+$ pipenv run pytest -v
 ```
 
 There also are some unittests, you can run those will cargo:
