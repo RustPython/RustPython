@@ -674,14 +674,14 @@ impl Compiler {
         Ok(flags)
     }
 
-    fn prepare_decorators(&mut self, decorator_list: &Vec<ast::Expression>) -> Result<(), String> {
+    fn prepare_decorators(&mut self, decorator_list: &[ast::Expression]) -> Result<(), String> {
         for decorator in decorator_list {
             self.compile_expression(decorator)?;
         }
         Ok(())
     }
 
-    fn apply_decorators(&mut self, decorator_list: &Vec<ast::Expression>) {
+    fn apply_decorators(&mut self, decorator_list: &[ast::Expression]) {
         // Apply decorators:
         for _ in decorator_list {
             self.emit(Instruction::CallFunction {
@@ -1036,8 +1036,8 @@ impl Compiler {
     fn compile_call(
         &mut self,
         function: &ast::Expression,
-        args: &Vec<ast::Expression>,
-        keywords: &Vec<ast::Keyword>,
+        args: &[ast::Expression],
+        keywords: &[ast::Keyword],
     ) -> Result<(), String> {
         self.compile_expression(function)?;
         let count = args.len() + keywords.len();
@@ -1123,7 +1123,7 @@ impl Compiler {
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(&mut self, elements: &Vec<ast::Expression>) -> Result<bool, String> {
+    fn gather_elements(&mut self, elements: &[ast::Expression]) -> Result<bool, String> {
         // First determine if we have starred elements:
         let has_stars = elements.iter().any(|e| {
             if let ast::Expression::Starred { .. } = e {
@@ -1153,7 +1153,7 @@ impl Compiler {
     fn compile_comprehension(
         &mut self,
         kind: &ast::ComprehensionKind,
-        generators: &Vec<ast::Comprehension>,
+        generators: &[ast::Comprehension],
     ) -> Result<(), String> {
         // We must have at least one generator:
         assert!(!generators.is_empty());

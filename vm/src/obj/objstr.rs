@@ -238,9 +238,9 @@ fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn call_object_format(
     vm: &mut VirtualMachine,
     argument: PyObjectRef,
-    format_spec: &String,
+    format_spec: &str,
 ) -> PyResult {
-    let returned_type = vm.ctx.new_str(format_spec.clone());
+    let returned_type = vm.ctx.new_str(format_spec.to_string());
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
         let result_type = result.typ();
