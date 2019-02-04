@@ -105,7 +105,11 @@ ExpressionStatement: ast::LocatedStatement = {
         let rhs = e2.into_iter().next().unwrap();
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::AugAssign { target: expr, op: op, value: rhs },
+            node: ast::Statement::AugAssign {
+                target: Box::new(expr),
+                op,
+                value: Box::new(rhs)
+            },
         }
     },
 };
