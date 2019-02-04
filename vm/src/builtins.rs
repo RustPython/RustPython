@@ -659,15 +659,6 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(range, Some(vm.ctx.int_type()))]);
-    let value = objint::get_value(range);
-    let range_elements: Vec<PyObjectRef> = (0..value.to_i32().unwrap())
-        .map(|num| vm.context().new_int(num.to_bigint().unwrap()))
-        .collect();
-    Ok(vm.context().new_list(range_elements))
-}
-
 fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
     vm.to_repr(obj)
@@ -784,7 +775,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "pow", ctx.new_rustfunc(builtin_pow));
     ctx.set_attr(&py_mod, "print", ctx.new_rustfunc(builtin_print));
     ctx.set_attr(&py_mod, "property", ctx.property_type());
-    ctx.set_attr(&py_mod, "range", ctx.new_rustfunc(builtin_range));
+    ctx.set_attr(&py_mod, "range", ctx.range_type());
     ctx.set_attr(&py_mod, "repr", ctx.new_rustfunc(builtin_repr));
     ctx.set_attr(&py_mod, "set", ctx.set_type());
     ctx.set_attr(&py_mod, "setattr", ctx.new_rustfunc(builtin_setattr));

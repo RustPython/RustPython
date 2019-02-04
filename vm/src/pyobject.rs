@@ -17,6 +17,7 @@ use super::obj::objlist;
 use super::obj::objmemory;
 use super::obj::objobject;
 use super::obj::objproperty;
+use super::obj::objrange;
 use super::obj::objset;
 use super::obj::objstr;
 use super::obj::objsuper;
@@ -122,6 +123,7 @@ pub struct PyContext {
     pub staticmethod_type: PyObjectRef,
     pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
+    pub range_type: PyObjectRef,
     pub type_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub property_type: PyObjectRef,
@@ -201,6 +203,7 @@ impl PyContext {
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
         let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
         let code_type = create_type("code", &type_type, &int_type, &dict_type);
+        let range_type = create_type("range", &type_type, &object_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
@@ -239,7 +242,8 @@ impl PyContext {
             iter_type,
             dict_type,
             none: none,
-            str_type,
+            str_type: str_type,
+            range_type: range_type,
             object: object_type,
             function_type,
             super_type,
@@ -267,6 +271,7 @@ impl PyContext {
         objproperty::init(&context);
         objmemory::init(&context);
         objstr::init(&context);
+        objrange::init(&context);
         objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
@@ -315,6 +320,10 @@ impl PyContext {
 
     pub fn set_type(&self) -> PyObjectRef {
         self.set_type.clone()
+    }
+
+    pub fn range_type(&self) -> PyObjectRef {
+        self.range_type.clone()
     }
 
     pub fn frozenset_type(&self) -> PyObjectRef {
@@ -882,6 +891,9 @@ pub enum PyObjectPayload {
         stop: Option<i32>,
         step: Option<i32>,
     },
+    Range {
+        range: objrange::RangeType,
+    },
     MemoryView {
         obj: PyObjectRef,
     },
@@ -949,10 +961,11 @@ impl fmt::Debug for PyObjectPayload {
                 stop: _,
                 step: _,
             } => write!(f, "slice"),
-            PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
-            PyObjectPayload::Function { .. } => write!(f, "function"),
-            PyObjectPayload::Generator { .. } => write!(f, "generator"),
-            PyObjectPayload::BoundMethod {
+            &PyObjectPayload::Range { range: _ } => write!(f, "range"),
+            &PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
+            &PyObjectPayload::Function { .. } => write!(f, "function"),
+            &PyObjectPayload::Generator { .. } => write!(f, "generator"),
+            &PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
@@ -1038,6 +1051,7 @@ impl PyObject {
                 ref stop,
                 ref step,
             } => format!("<slice '{:?}:{:?}:{:?}'>", start, stop, step),
+            PyObjectPayload::Range { ref range } => format!("<range '{:?}'>", range),
             PyObjectPayload::Iterator {
                 ref position,
                 ref iterated_obj,
