@@ -22,7 +22,12 @@ impl RangeType {
         if self.is_empty() {
             0usize
         } else {
-            ((self.end - self.start) / self.step).abs() as usize
+            let dist = (self.end - self.start).abs();
+            if dist % self.step.abs() == 0 {
+                (dist / self.step.abs()) as usize
+            } else {
+                (dist / self.step.abs() + 1) as usize
+            }
         }
     }
 
