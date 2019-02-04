@@ -11,7 +11,7 @@ use super::objsequence::{
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
-use num_traits::{Signed, ToPrimitive};
+use num_traits::ToPrimitive;
 
 // set_item:
 fn set_item(
@@ -277,19 +277,25 @@ fn list_insert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (element, None)
         ]
     );
-    if objint::get_value(insert_position) > std::usize::MAX.into() {
-        return Err(
-            vm.new_overflow_error("Python int too large to convert to Rust usize".to_string())
-        );
-    }
-    let mut vec = get_mut_elements(list);
-    let position = match objint::get_value(insert_position) {
-        ref i if (*i).is_negative() => {
-            (num_bigint::BigInt::from(vec.len()) - i.abs()).max(0.into())
+    let int_position = match objint::get_value(insert_position).to_i64() {
+        Some(i) => i,
+        None => {
+            return Err(
+                vm.new_overflow_error("Python int too large to convert to Rust i64".to_string())
+            );
         }
-        i => i.min(num_bigint::BigInt::from(vec.len()).into()),
     };
-    vec.insert(position.to_usize().unwrap(), element.clone());
+    let mut vec = get_mut_elements(list);
+    let vec_len = vec.len().to_i64().unwrap();
+    // This unbounded position can be < 0 or > vec.len()
+    let unbounded_position = if int_position < 0 {
+        vec_len + int_position
+    } else {
+        int_position
+    };
+    // Bound it by [0, vec.len()]
+    let position = unbounded_position.max(0).min(vec_len).to_usize().unwrap();
+    vec.insert(position, element.clone());
     Ok(vm.get_none())
 }
 
