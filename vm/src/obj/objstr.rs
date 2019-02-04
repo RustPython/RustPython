@@ -208,7 +208,7 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() == 0 {
+    if args.args.is_empty() {
         return Err(
             vm.new_type_error("descriptor 'format' of 'str' object needs an argument".to_string())
         );

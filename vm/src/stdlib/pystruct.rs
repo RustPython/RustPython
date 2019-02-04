@@ -169,7 +169,7 @@ fn pack_f64(
 }
 
 fn struct_pack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() < 1 {
+    if args.args.is_empty() {
         Err(vm.new_type_error(format!(
             "Expected at least 1 argument (got: {})",
             args.args.len()

@@ -98,7 +98,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.set_type()))]);
 
     let elements = get_elements(o);
-    let s = if elements.len() == 0 {
+    let s = if elements.is_empty() {
         "set()".to_string()
     } else {
         let mut str_parts = vec![];
@@ -136,7 +136,7 @@ fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
     let elements = get_elements(o);
-    let s = if elements.len() == 0 {
+    let s = if elements.is_empty() {
         "frozenset()".to_string()
     } else {
         let mut str_parts = vec![];
