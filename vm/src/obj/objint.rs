@@ -196,9 +196,7 @@ fn int_lshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // i2 failed `to_usize()` conversion
     match get_value(i2) {
-        ref v if *v < BigInt::zero() => {
-            return Err(vm.new_value_error("negative shift count".to_string()));
-        }
+        ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
         ref v if *v > BigInt::from(usize::max_value()) => {
             // TODO: raise OverflowError
             panic!("Failed converting {} to rust usize", get_value(i2));
@@ -228,9 +226,7 @@ fn int_rshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // i2 failed `to_usize()` conversion
     match get_value(i2) {
-        ref v if *v < BigInt::zero() => {
-            return Err(vm.new_value_error("negative shift count".to_string()));
-        }
+        ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
         ref v if *v > BigInt::from(usize::max_value()) => {
             // TODO: raise OverflowError
             panic!("Failed converting {} to rust usize", get_value(i2));

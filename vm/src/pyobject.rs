@@ -805,7 +805,7 @@ impl PyFuncArgs {
             kwargs: self.kwargs.clone(),
         };
         args.args.insert(0, item);
-        return args;
+        args
     }
 
     pub fn shift(&mut self) -> PyObjectRef {
