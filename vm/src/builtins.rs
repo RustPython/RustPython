@@ -465,7 +465,7 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
     };
 
-    if candidates.len() == 0 {
+    if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
         if default.is_none() {
             return Err(vm.new_value_error("max() arg is an empty sequence".to_string()));
@@ -516,7 +516,7 @@ fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
     };
 
-    if candidates.len() == 0 {
+    if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
         if default.is_none() {
             return Err(vm.new_value_error("min() arg is an empty sequence".to_string()));

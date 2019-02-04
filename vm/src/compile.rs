@@ -1156,7 +1156,7 @@ impl Compiler {
         generators: &Vec<ast::Comprehension>,
     ) -> Result<(), String> {
         // We must have at least one generator:
-        assert!(generators.len() > 0);
+        assert!(!generators.is_empty());
 
         let name = match kind {
             ast::ComprehensionKind::GeneratorExpression { .. } => "<genexpr>",
@@ -1201,8 +1201,7 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
-            let first = loop_labels.len() == 0;
-            if first {
+            if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
                     name: String::from(".0"),
