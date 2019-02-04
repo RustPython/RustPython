@@ -16,6 +16,7 @@ pub mod objlist;
 pub mod objmemory;
 pub mod objobject;
 pub mod objproperty;
+pub mod objrange;
 pub mod objsequence;
 pub mod objset;
 pub mod objstr;

@@ -9,6 +9,7 @@ use super::super::vm::VirtualMachine;
 use super::objbool;
 // use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
+use num_bigint::ToBigInt;
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -101,16 +102,28 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if let PyObjectPayload::Iterator {
         ref mut position,
-        iterated_obj: ref iterated_obj_ref,
+        iterated_obj: ref mut iterated_obj_ref,
     } = iter.borrow_mut().payload
     {
-        let iterated_obj = &*iterated_obj_ref.borrow_mut();
+        let iterated_obj = iterated_obj_ref.borrow_mut();
         match iterated_obj.payload {
             PyObjectPayload::Sequence { ref elements } => {
                 if *position < elements.len() {
                     let obj_ref = elements[*position].clone();
                     *position += 1;
                     Ok(obj_ref)
+                } else {
+                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+                    let stop_iteration =
+                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
+                    Err(stop_iteration)
+                }
+            }
+
+            PyObjectPayload::Range { ref range } => {
+                if let Some(int) = range.get(*position as i64) {
+                    *position += 1;
+                    Ok(vm.ctx.new_int(int.to_bigint().unwrap()))
                 } else {
                     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
                     let stop_iteration =
