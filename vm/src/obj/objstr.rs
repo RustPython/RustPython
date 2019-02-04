@@ -1081,5 +1081,5 @@ fn make_title(s: &str) -> String {
             capitalize_char = true;
         }
     }
-    return titled_str;
+    titled_str
 }
