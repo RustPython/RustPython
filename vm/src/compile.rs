@@ -838,21 +838,21 @@ impl Compiler {
                 self.compile_test(expression, None, None, EvalContext::Expression)?
             }
             ast::Expression::Binop { a, op, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
 
                 // Perform operation:
                 self.compile_op(op);
             }
             ast::Expression::Subscript { a, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
                 self.emit(Instruction::BinaryOperation {
                     op: bytecode::BinaryOperator::Subscript,
                 });
             }
             ast::Expression::Unop { op, a } => {
-                self.compile_expression(&*a)?;
+                self.compile_expression(a)?;
 
                 // Perform operation:
                 let i = match op {
@@ -865,14 +865,14 @@ impl Compiler {
                 self.emit(i);
             }
             ast::Expression::Attribute { value, name } => {
-                self.compile_expression(&*value)?;
+                self.compile_expression(value)?;
                 self.emit(Instruction::LoadAttr {
                     name: name.to_string(),
                 });
             }
             ast::Expression::Compare { a, op, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
 
                 let i = match op {
                     ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
