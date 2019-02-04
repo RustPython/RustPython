@@ -14,7 +14,7 @@ pub trait PySliceableSequence {
     fn get_pos(&self, p: i32) -> usize {
         if p < 0 {
             if -p as usize > self.len() {
-                // return something that is out of bounds so get_item raises an IndexError
+                // return something that is out of bounds so `get_item` raises an IndexError
                 self.len() + 1
             } else {
                 self.len() - ((-p) as usize)
@@ -57,7 +57,7 @@ pub trait PySliceableSequence {
     }
 }
 
-impl PySliceableSequence for Vec<PyObjectRef> {
+impl<T: Clone> PySliceableSequence for Vec<T> {
     fn do_slice(&self, start: usize, stop: usize) -> Self {
         self[start..stop].to_vec()
     }

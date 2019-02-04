@@ -11,6 +11,9 @@ use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 // rust's builtin to_lowercase isn't sufficient for casefold
 extern crate caseless;
+extern crate unicode_segmentation;
+
+use self::unicode_segmentation::UnicodeSegmentation;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
@@ -980,22 +983,45 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 impl PySliceableSequence for String {
     fn do_slice(&self, start: usize, stop: usize) -> Self {
-        self[start..stop].to_string()
+        to_graphemes(self)
+            .get(start..stop)
+            .map_or(String::default(), |c| c.join(""))
     }
+
     fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self {
-        self[start..stop].chars().step_by(step).collect()
+        if let Some(s) = to_graphemes(self).get(start..stop) {
+            return s
+                .iter()
+                .cloned()
+                .step_by(step)
+                .collect::<Vec<String>>()
+                .join("");
+        }
+        String::default()
     }
+
     fn len(&self) -> usize {
-        self.len()
+        to_graphemes(self).len()
     }
 }
 
+/// Convert a string-able `value` to a vec of graphemes
+/// represents the string according to user perceived characters
+fn to_graphemes<S: AsRef<str>>(value: S) -> Vec<String> {
+    UnicodeSegmentation::graphemes(value.as_ref(), true)
+        .map(String::from)
+        .collect()
+}
+
 pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
-    // let value = a
     if objtype::isinstance(&b, &vm.ctx.int_type()) {
         let pos = objint::get_value(&b).to_i32().unwrap();
-        let idx = value.to_string().get_pos(pos);
-        Ok(vm.new_str(value[idx..idx + 1].to_string()))
+        let graphemes = to_graphemes(value);
+        let idx = graphemes.get_pos(pos);
+        graphemes
+            .get(idx)
+            .map(|c| vm.new_str(c.to_string()))
+            .ok_or(vm.new_index_error("string index out of range".to_string()))
     } else {
         match &(*b.borrow()).payload {
             &PyObjectPayload::Slice {
