@@ -53,9 +53,9 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // Check obj type:
     if !(objtype::isinstance(&py_obj, &py_type) || objtype::issubclass(&py_obj, &py_type)) {
-        return Err(vm.new_type_error(format!(
-            "super(type, obj): obj must be an instance or subtype of type"
-        )));
+        return Err(vm.new_type_error(
+            "super(type, obj): obj must be an instance or subtype of type".to_string(),
+        ));
     }
 
     // TODO: how to store those types?
