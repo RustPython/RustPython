@@ -46,3 +46,5 @@ assert True + True == 2
 assert False * 7 == 0
 assert True > 0
 assert int(True) == 1
+assert True.conjugate() == 1
+assert isinstance(True.conjugate(), int)
