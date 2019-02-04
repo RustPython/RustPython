@@ -1,4 +1,5 @@
 use std::fs::OpenOptions;
+use std::io::ErrorKind;
 use std::os::unix::io::IntoRawFd;
 
 use num_bigint::ToBigInt;
@@ -22,25 +23,34 @@ pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
+    let fname = objstr::get_value(&name);
+
     let handle = match objint::get_value(mode).to_u16().unwrap() {
-        0 => OpenOptions::new().read(true).open(objstr::get_value(&name)),
-        1 => OpenOptions::new()
-            .write(true)
-            .open(objstr::get_value(&name)),
-        512 => OpenOptions::new()
-            .write(true)
-            .create(true)
-            .open(objstr::get_value(&name)),
-        _ => OpenOptions::new().read(true).open(objstr::get_value(&name)),
-    };
+        0 => OpenOptions::new().read(true).open(&fname),
+        1 => OpenOptions::new().write(true).open(&fname),
+        512 => OpenOptions::new().write(true).create(true).open(&fname),
+        _ => OpenOptions::new().read(true).open(&fname),
+    }
+    .map_err(|err| match err.kind() {
+        ErrorKind::NotFound => {
+            let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
+            vm.new_exception(exc_type, format!("No such file or directory: {}", &fname))
+        }
+        ErrorKind::PermissionDenied => {
+            let exc_type = vm.ctx.exceptions.permission_error.clone();
+            vm.new_exception(exc_type, format!("Permission denied: {}", &fname))
+        }
+        _ => vm.new_value_error("Unhandled file IO error".to_string()),
+    })?;
 
     //raw_fd is supported on UNIX only. This will need to be extended
     //to support windows - i.e. raw file_handles
-    if let Ok(f) = handle {
-        Ok(vm.ctx.new_int(f.into_raw_fd().to_bigint().unwrap()))
-    } else {
-        Err(vm.new_value_error("Bad file descriptor".to_string()))
-    }
+    Ok(vm.ctx.new_int(
+        handle
+            .into_raw_fd()
+            .to_bigint()
+            .expect("Invalid file descriptor"),
+    ))
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {

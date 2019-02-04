@@ -170,6 +170,70 @@ fn int_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn int_lshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+
+    if !objtype::isinstance(i2, &vm.ctx.int_type()) {
+        return Err(vm.new_type_error(format!(
+            "unsupported operand type(s) for << '{}' and '{}'",
+            objtype::get_type_name(&i.typ()),
+            objtype::get_type_name(&i2.typ())
+        )));
+    }
+
+    if let Some(n_bits) = get_value(i2).to_usize() {
+        return Ok(vm.ctx.new_int(get_value(i) << n_bits));
+    }
+
+    // i2 failed `to_usize()` conversion
+    match get_value(i2) {
+        ref v if *v < BigInt::zero() => {
+            return Err(vm.new_value_error("negative shift count".to_string()));
+        }
+        ref v if *v > BigInt::from(usize::max_value()) => {
+            // TODO: raise OverflowError
+            panic!("Failed converting {} to rust usize", get_value(i2));
+        }
+        _ => panic!("Failed converting {} to rust usize", get_value(i2)),
+    }
+}
+
+fn int_rshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+
+    if !objtype::isinstance(i2, &vm.ctx.int_type()) {
+        return Err(vm.new_type_error(format!(
+            "unsupported operand type(s) for >> '{}' and '{}'",
+            objtype::get_type_name(&i.typ()),
+            objtype::get_type_name(&i2.typ())
+        )));
+    }
+
+    if let Some(n_bits) = get_value(i2).to_usize() {
+        return Ok(vm.ctx.new_int(get_value(i) >> n_bits));
+    }
+
+    // i2 failed `to_usize()` conversion
+    match get_value(i2) {
+        ref v if *v < BigInt::zero() => {
+            return Err(vm.new_value_error("negative shift count".to_string()));
+        }
+        ref v if *v > BigInt::from(usize::max_value()) => {
+            // TODO: raise OverflowError
+            panic!("Failed converting {} to rust usize", get_value(i2));
+        }
+        _ => panic!("Failed converting {} to rust usize", get_value(i2)),
+    }
+}
+
 fn int_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
     let value = BigInt::from_pyobj(zelf);
@@ -425,6 +489,12 @@ fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(bits.to_bigint().unwrap()))
 }
 
+fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    let v = get_value(i);
+    Ok(vm.ctx.new_int(v))
+}
+
 pub fn init(context: &PyContext) {
     let ref int_type = context.int_type;
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
@@ -443,6 +513,8 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(int_floordiv),
     );
     context.set_attr(&int_type, "__hash__", context.new_rustfunc(int_hash));
+    context.set_attr(&int_type, "__lshift__", context.new_rustfunc(int_lshift));
+    context.set_attr(&int_type, "__rshift__", context.new_rustfunc(int_rshift));
     context.set_attr(&int_type, "__new__", context.new_rustfunc(int_new));
     context.set_attr(&int_type, "__mod__", context.new_rustfunc(int_mod));
     context.set_attr(&int_type, "__mul__", context.new_rustfunc(int_mul));
@@ -460,4 +532,5 @@ pub fn init(context: &PyContext) {
         "bit_length",
         context.new_rustfunc(int_bit_length),
     );
+    context.set_attr(&int_type, "conjugate", context.new_rustfunc(int_conjugate));
 }

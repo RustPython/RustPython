@@ -56,7 +56,7 @@ If you wish to update the online documentation. Push directly to the `release` b
   - `obj`: python builtin types
 - `src`: using the other subcrates to bring rustpython to life.
 - `docs`: documentation (work in progress)
-- `py_code_object`: CPython bytecode to rustpython bytecode convertor (work in progress)
+- `py_code_object`: CPython bytecode to rustpython bytecode converter (work in progress)
 - `wasm`: Binary crate and resources for WebAssembly build
 - `tests`: integration test snippets
 
@@ -81,8 +81,8 @@ To test rustpython, there is a collection of python snippets located in the
 
 ```shell
 $ cd tests
-$ pipenv shell
-$ pytest -v
+$ pipenv install
+$ pipenv run pytest -v
 ```
 
 There also are some unittests, you can run those will cargo:
