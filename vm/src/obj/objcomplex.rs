@@ -7,7 +7,7 @@ use super::objtype;
 use num_complex::Complex64;
 
 pub fn init(context: &PyContext) {
-    let ref complex_type = context.complex_type;
+    let complex_type = &context.complex_type;
     context.set_attr(&complex_type, "__add__", context.new_rustfunc(complex_add));
     context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
     context.set_attr(

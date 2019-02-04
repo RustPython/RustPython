@@ -16,7 +16,7 @@ extern crate unicode_segmentation;
 use self::unicode_segmentation::UnicodeSegmentation;
 
 pub fn init(context: &PyContext) {
-    let ref str_type = context.str_type;
+    let str_type = &context.str_type;
     context.set_attr(&str_type, "__add__", context.new_rustfunc(str_add));
     context.set_attr(&str_type, "__eq__", context.new_rustfunc(str_eq));
     context.set_attr(

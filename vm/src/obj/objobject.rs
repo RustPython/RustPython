@@ -86,7 +86,7 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref object = context.object;
+    let object = &context.object;
     context.set_attr(&object, "__new__", context.new_rustfunc(new_instance));
     context.set_attr(&object, "__init__", context.new_rustfunc(object_init));
     context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
