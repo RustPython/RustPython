@@ -76,7 +76,7 @@ fn pack_bool(
         data.write_u8(v).unwrap();
         Ok(())
     } else {
-        Err(vm.new_type_error(format!("Expected boolean")))
+        Err(vm.new_type_error("Expected boolean".to_string()))
     }
 }
 
@@ -150,7 +150,7 @@ fn pack_f32(
         data.write_f32::<LittleEndian>(v).unwrap();
         Ok(())
     } else {
-        Err(vm.new_type_error(format!("Expected float")))
+        Err(vm.new_type_error("Expected float".to_string()))
     }
 }
 
@@ -164,7 +164,7 @@ fn pack_f64(
         data.write_f64::<LittleEndian>(v).unwrap();
         Ok(())
     } else {
-        Err(vm.new_type_error(format!("Expected float")))
+        Err(vm.new_type_error("Expected float".to_string()))
     }
 }
 
@@ -216,7 +216,7 @@ fn struct_pack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 )))
             }
         } else {
-            Err(vm.new_type_error(format!("First argument must be of str type")))
+            Err(vm.new_type_error("First argument must be of str type".to_string()))
         }
     }
 }

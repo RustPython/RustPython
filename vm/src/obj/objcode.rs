@@ -27,7 +27,7 @@ pub fn copy_code(code_obj: &PyObjectRef) -> bytecode::CodeObject {
 
 fn code_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_cls, None)]);
-    Err(vm.new_type_error(format!("Cannot directly create code object")))
+    Err(vm.new_type_error("Cannot directly create code object".to_string()))
 }
 
 fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -43,7 +43,7 @@ fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     // TODO: fetch proper line info from code object
-    let line = format!(", line 1");
+    let line = ", line 1".to_string();
 
     let repr = format!("<code object at .. {}{}>", file, line);
     Ok(vm.new_str(repr))
