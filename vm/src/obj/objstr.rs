@@ -504,12 +504,11 @@ fn str_zfill(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let value = get_value(&s);
     let len = objint::get_value(&len).to_usize().unwrap();
-    let new_str: String;
-    if len <= value.len() {
-        new_str = value;
+    let new_str = if len <= value.len() {
+        value
     } else {
-        new_str = format!("{}{}", "0".repeat(len - value.len()), value);
-    }
+        format!("{}{}", "0".repeat(len - value.len()), value)
+    };
     Ok(vm.ctx.new_str(new_str))
 }
 
@@ -565,7 +564,7 @@ fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok((start, end)) => (start, end),
         Err(e) => return Err(vm.new_index_error(e)),
     };
-    let ind: usize = match value[start..end + 1].find(&sub) {
+    let ind: usize = match value[start..=end].find(&sub) {
         Some(num) => num,
         None => {
             return Err(vm.new_value_error("substring not found".to_string()));
@@ -590,7 +589,7 @@ fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok((start, end)) => (start, end),
         Err(e) => return Err(vm.new_index_error(e)),
     };
-    let ind: i128 = match value[start..end + 1].find(&sub) {
+    let ind: i128 = match value[start..=end].find(&sub) {
         Some(num) => num as i128,
         None => -1 as i128,
     };
@@ -785,7 +784,7 @@ fn str_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
     let mut is_titled = true;
-    for word in value.split(" ") {
+    for word in value.split(' ') {
         if word != make_title(&word) {
             is_titled = false;
             break;
@@ -871,7 +870,7 @@ fn str_rindex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok((start, end)) => (start, end),
         Err(e) => return Err(vm.new_index_error(e)),
     };
-    let ind: i64 = match value[start..end + 1].rfind(&sub) {
+    let ind: i64 = match value[start..=end].rfind(&sub) {
         Some(num) => num as i64,
         None => {
             return Err(vm.new_value_error("substring not found".to_string()));
@@ -896,7 +895,7 @@ fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok((start, end)) => (start, end),
         Err(e) => return Err(vm.new_index_error(e)),
     };
-    let ind = match value[start..end + 1].rfind(&sub) {
+    let ind = match value[start..=end].rfind(&sub) {
         Some(num) => num as i128,
         None => -1 as i128,
     };
@@ -1019,8 +1018,8 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
             .map(|c| vm.new_str(c.to_string()))
             .ok_or(vm.new_index_error("string index out of range".to_string()))
     } else {
-        match &(*b.borrow()).payload {
-            &PyObjectPayload::Slice { .. } => {
+        match (*b.borrow()).payload {
+            PyObjectPayload::Slice { .. } => {
                 Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string()))
             }
             _ => panic!(

@@ -47,8 +47,7 @@ fn program_to_ast(ctx: &PyContext, program: &ast::Program) -> PyObjectRef {
 fn create_node(ctx: &PyContext, _name: &str) -> PyObjectRef {
     // TODO: instantiate a class of type given by name
     // TODO: lookup in the current module?
-    let node = ctx.new_object();
-    node
+    ctx.new_object()
 }
 
 fn statements_to_ast(ctx: &PyContext, statements: &[ast::LocatedStatement]) -> PyObjectRef {
@@ -102,16 +101,13 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             node
         }
         ast::Statement::Continue => {
-            let node = create_node(ctx, "Continue");
-            node
+            create_node(ctx, "Continue")
         }
         ast::Statement::Break => {
-            let node = create_node(ctx, "Break");
-            node
+            create_node(ctx, "Break")
         }
         ast::Statement::Pass => {
-            let node = create_node(ctx, "Pass");
-            node
+            create_node(ctx, "Pass")
         }
         ast::Statement::Assert { test, msg } => {
             let node = create_node(ctx, "Pass");
@@ -131,7 +127,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
 
             let py_targets = ctx.new_tuple(
                 targets
-                    .into_iter()
+                    .iter()
                     .map(|v| expression_to_ast(ctx, v))
                     .collect(),
             );
@@ -145,7 +141,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             let py_value = if let Some(value) = value {
                 ctx.new_tuple(
                     value
-                        .into_iter()
+                        .iter()
                         .map(|v| expression_to_ast(ctx, v))
                         .collect(),
                 )

@@ -172,7 +172,7 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(o2, &vm.ctx.list_type()) {
         let e1 = get_elements(o);
         let e2 = get_elements(o2);
-        let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();
+        let elements = e1.iter().chain(e2.iter()).cloned().collect();
         Ok(vm.ctx.new_list(elements))
     } else {
         Err(vm.new_type_error(format!("Cannot add {} and {}", o.borrow(), o2.borrow())))
@@ -224,7 +224,7 @@ fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     for element in elements.iter() {
         let is_eq = vm._eq(element, value.clone())?;
         if objbool::boolval(vm, is_eq)? {
-            count = count + 1;
+            count += 1;
         }
     }
     Ok(vm.context().new_int(count.to_bigint().unwrap()))

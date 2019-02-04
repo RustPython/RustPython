@@ -314,7 +314,7 @@ impl FormatSpec {
             }
             None => Ok(magnitude.to_str_radix(10)),
         };
-        if !raw_magnitude_string_result.is_ok() {
+        if raw_magnitude_string_result.is_err() {
             return raw_magnitude_string_result;
         }
         let magnitude_string = format!(

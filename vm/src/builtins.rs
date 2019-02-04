@@ -136,11 +136,11 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mode = {
         let mode = objstr::get_value(mode);
-        if mode == String::from("exec") {
+        if mode == "exec" {
             compile::Mode::Exec
-        } else if mode == "eval".to_string() {
+        } else if mode == "eval" {
             compile::Mode::Eval
-        } else if mode == "single".to_string() {
+        } else if mode == "single" {
             compile::Mode::Single
         } else {
             return Err(
@@ -432,21 +432,16 @@ fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(function, None), (iter_target, None)]);
     let iterator = objiter::get_iter(vm, iter_target)?;
     let mut elements = vec![];
-    loop {
-        match vm.call_method(&iterator, "__next__", vec![]) {
-            Ok(v) => {
-                // Now apply function:
-                let mapped_value = vm.invoke(
-                    function.clone(),
-                    PyFuncArgs {
-                        args: vec![v],
-                        kwargs: vec![],
-                    },
-                )?;
-                elements.push(mapped_value);
-            }
-            Err(_) => break,
-        }
+    while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+        // Now apply function:
+        let mapped_value = vm.invoke(
+            function.clone(),
+            PyFuncArgs {
+                args: vec![v],
+                kwargs: vec![],
+            },
+        )?;
+        elements.push(mapped_value);
     }
 
     trace!("Mapped elements: {:?}", elements);

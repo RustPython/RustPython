@@ -27,7 +27,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {
-    match mode.as_ref() {
+    match mode {
         "w" => 512,
         "x" => 512,
         "a" => 8,
@@ -85,11 +85,8 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .map_err(|_| vm.new_value_error("IO Error".to_string()))?;
 
         //Copy bytes from the buffer vector into the results vector
-        match buffer.borrow_mut().payload {
-            PyObjectPayload::Bytes { ref mut value } => {
-                result.extend(value.iter().cloned());
-            }
-            _ => {}
+        if let PyObjectPayload::Bytes { ref mut value } = buffer.borrow_mut().payload {
+            result.extend(value.iter().cloned());
         };
 
         let len = vm.get_method(buffer.clone(), &"__len__".to_string());
@@ -170,16 +167,14 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let handle = unsafe { File::from_raw_fd(raw_fd) };
 
     let mut f = handle.take(length);
-    match obj.borrow_mut().payload {
+    if let PyObjectPayload::Bytes { ref mut value } = obj.borrow_mut().payload {
         //TODO: Implement for MemoryView
-        PyObjectPayload::Bytes { ref mut value } => {
-            value.clear();
-            match f.read_to_end(&mut *value) {
-                Ok(_) => {}
-                Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string())),
-            }
+
+        value.clear();
+        match f.read_to_end(&mut *value) {
+            Ok(_) => {}
+            Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string())),
         }
-        _ => {}
     };
 
     let new_handle = f.into_inner().into_raw_fd().to_bigint();
@@ -319,7 +314,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     //the operation in the mode.
     //There are 3 possible classes here, each inheriting from the RawBaseIO
     // creating || writing || appending => BufferedWriter
-    let buffered = if rust_mode.contains("w") {
+    let buffered = if rust_mode.contains('w') {
         vm.invoke(
             buffered_writer_class,
             PyFuncArgs::new(vec![file_io.clone()], vec![]),
@@ -333,7 +328,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         //TODO: updating => PyBufferedRandom
     };
 
-    if rust_mode.contains("t") {
+    if rust_mode.contains('t') {
         //If the mode is text this buffer type is consumed on construction of
         //a TextIOWrapper which is subsequently returned.
         vm.invoke(
