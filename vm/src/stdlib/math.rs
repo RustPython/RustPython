@@ -14,8 +14,8 @@ use std;
 macro_rules! make_math_func {
     ( $fname:ident, $fun:ident ) => {
         fn $fname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-            arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-            let value = objfloat::get_value(value);
+            arg_check!(vm, args, required = [(value, None)]);
+            let value = objfloat::make_float(vm, value)?;
             let value = value.$fun();
             let value = vm.ctx.new_float(value);
             Ok(value)
@@ -27,20 +27,20 @@ macro_rules! make_math_func {
 make_math_func!(math_fabs, abs);
 
 fn math_isfinite(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let value = objfloat::get_value(value).is_finite();
+    arg_check!(vm, args, required = [(value, None)]);
+    let value = objfloat::make_float(vm, value)?.is_finite();
     Ok(vm.ctx.new_bool(value))
 }
 
 fn math_isinf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let value = objfloat::get_value(value).is_infinite();
+    arg_check!(vm, args, required = [(value, None)]);
+    let value = objfloat::make_float(vm, value)?.is_infinite();
     Ok(vm.ctx.new_bool(value))
 }
 
 fn math_isnan(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let value = objfloat::get_value(value).is_nan();
+    arg_check!(vm, args, required = [(value, None)]);
+    let value = objfloat::make_float(vm, value)?.is_nan();
     Ok(vm.ctx.new_bool(value))
 }
 
@@ -49,25 +49,20 @@ make_math_func!(math_exp, exp);
 make_math_func!(math_expm1, exp_m1);
 
 fn math_log(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(x, Some(vm.ctx.float_type()))],
-        optional = [(base, Some(vm.ctx.float_type()))]
-    );
-    let x = objfloat::get_value(x);
+    arg_check!(vm, args, required = [(x, None)], optional = [(base, None)]);
+    let x = objfloat::make_float(vm, x)?;
     match base {
         None => Ok(vm.ctx.new_float(x.ln())),
         Some(base) => {
-            let base = objfloat::get_value(base);
+            let base = objfloat::make_float(vm, base)?;
             Ok(vm.ctx.new_float(x.log(base)))
         }
     }
 }
 
 fn math_log1p(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(x);
+    arg_check!(vm, args, required = [(x, None)]);
+    let x = objfloat::make_float(vm, x)?;
     Ok(vm.ctx.new_float((x + 1.0).ln()))
 }
 
@@ -75,16 +70,9 @@ make_math_func!(math_log2, log2);
 make_math_func!(math_log10, log10);
 
 fn math_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (x, Some(vm.ctx.float_type())),
-            (y, Some(vm.ctx.float_type()))
-        ]
-    );
-    let x = objfloat::get_value(x);
-    let y = objfloat::get_value(y);
+    arg_check!(vm, args, required = [(x, None), (y, None)]);
+    let x = objfloat::make_float(vm, x)?;
+    let y = objfloat::make_float(vm, y)?;
     Ok(vm.ctx.new_float(x.powf(y)))
 }
 
@@ -96,32 +84,18 @@ make_math_func!(math_asin, asin);
 make_math_func!(math_atan, atan);
 
 fn math_atan2(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (y, Some(vm.ctx.float_type())),
-            (x, Some(vm.ctx.float_type()))
-        ]
-    );
-    let y = objfloat::get_value(y);
-    let x = objfloat::get_value(x);
+    arg_check!(vm, args, required = [(y, None), (x, None)]);
+    let y = objfloat::make_float(vm, y)?;
+    let x = objfloat::make_float(vm, x)?;
     Ok(vm.ctx.new_float(y.atan2(x)))
 }
 
 make_math_func!(math_cos, cos);
 
 fn math_hypot(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (x, Some(vm.ctx.float_type())),
-            (y, Some(vm.ctx.float_type()))
-        ]
-    );
-    let x = objfloat::get_value(x);
-    let y = objfloat::get_value(y);
+    arg_check!(vm, args, required = [(x, None), (y, None)]);
+    let x = objfloat::make_float(vm, x)?;
+    let y = objfloat::make_float(vm, y)?;
     Ok(vm.ctx.new_float(x.hypot(y)))
 }
 
@@ -129,14 +103,14 @@ make_math_func!(math_sin, sin);
 make_math_func!(math_tan, tan);
 
 fn math_degrees(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
     Ok(vm.ctx.new_float(x * (180.0 / std::f64::consts::PI)))
 }
 
 fn math_radians(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
     Ok(vm.ctx.new_float(x * (std::f64::consts::PI / 180.0)))
 }
 
@@ -150,8 +124,8 @@ make_math_func!(math_tanh, tanh);
 
 // Special functions:
 fn math_erf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
 
     if x.is_nan() {
         Ok(vm.ctx.new_float(x))
@@ -161,8 +135,8 @@ fn math_erf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn math_erfc(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
 
     if x.is_nan() {
         Ok(vm.ctx.new_float(x))
@@ -172,8 +146,8 @@ fn math_erfc(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn math_gamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
 
     if x.is_finite() {
         Ok(vm.ctx.new_float(gamma(x)))
@@ -187,8 +161,8 @@ fn math_gamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn math_lgamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
 
     if x.is_finite() {
         Ok(vm.ctx.new_float(ln_gamma(x)))
