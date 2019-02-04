@@ -112,8 +112,8 @@ pub fn get_item(
 
 pub fn seq_equal(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -131,8 +131,8 @@ pub fn seq_equal(
 
 pub fn seq_lt(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -171,8 +171,8 @@ pub fn seq_lt(
 
 pub fn seq_gt(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -210,21 +210,21 @@ pub fn seq_gt(
 
 pub fn seq_ge(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
 pub fn seq_le(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
-pub fn seq_mul(elements: &Vec<PyObjectRef>, product: &PyObjectRef) -> Vec<PyObjectRef> {
+pub fn seq_mul(elements: &[PyObjectRef], product: &PyObjectRef) -> Vec<PyObjectRef> {
     let counter = objint::get_value(&product).to_isize().unwrap();
 
     let current_len = elements.len();
@@ -232,7 +232,7 @@ pub fn seq_mul(elements: &Vec<PyObjectRef>, product: &PyObjectRef) -> Vec<PyObje
     let mut new_elements = Vec::with_capacity(new_len);
 
     for _ in 0..counter {
-        new_elements.extend(elements.clone());
+        new_elements.extend(elements.clone().to_owned());
     }
 
     new_elements

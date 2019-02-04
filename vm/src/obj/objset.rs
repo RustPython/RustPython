@@ -22,7 +22,7 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
     }
 }
 
-pub fn sequence_to_hashmap(iterable: &Vec<PyObjectRef>) -> HashMap<usize, PyObjectRef> {
+pub fn sequence_to_hashmap(iterable: &[PyObjectRef]) -> HashMap<usize, PyObjectRef> {
     let mut elements = HashMap::new();
     for item in iterable {
         let key = item.get_id();
