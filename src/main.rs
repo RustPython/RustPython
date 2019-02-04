@@ -70,7 +70,7 @@ fn main() {
 }
 
 fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: Option<String>) -> PyResult {
-    let code_obj = compile::compile(vm, source, compile::Mode::Exec, source_path)?;
+    let code_obj = compile::compile(vm, source, &compile::Mode::Exec, source_path)?;
     // trace!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
@@ -115,7 +115,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
 }
 
 fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
-    match compile::compile(vm, source, compile::Mode::Single, None) {
+    match compile::compile(vm, source, &compile::Mode::Single, None) {
         Ok(code) => {
             match vm.run_code_obj(code, scope) {
                 Ok(_value) => {

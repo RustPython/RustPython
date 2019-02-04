@@ -65,9 +65,9 @@ pub enum Statement {
         value: Expression,
     },
     AugAssign {
-        target: Expression,
+        target: Box<Expression>,
         op: Operator,
-        value: Expression,
+        value: Box<Expression>,
     },
     Expression {
         expression: Expression,

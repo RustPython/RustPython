@@ -13,7 +13,12 @@ pub trait PySliceableSequence {
     fn len(&self) -> usize;
     fn get_pos(&self, p: i32) -> usize {
         if p < 0 {
-            self.len() - ((-p) as usize)
+            if -p as usize > self.len() {
+                // return something that is out of bounds so `get_item` raises an IndexError
+                self.len() + 1
+            } else {
+                self.len() - ((-p) as usize)
+            }
         } else if p as usize > self.len() {
             // This is for the slicing case where the end element is greater than the length of the
             // sequence
@@ -52,7 +57,7 @@ pub trait PySliceableSequence {
     }
 }
 
-impl PySliceableSequence for Vec<PyObjectRef> {
+impl<T: Clone> PySliceableSequence for Vec<T> {
     fn do_slice(&self, start: usize, stop: usize) -> Self {
         self[start..stop].to_vec()
     }
@@ -78,8 +83,8 @@ pub fn get_item(
                 let obj = elements[pos_index].clone();
                 Ok(obj)
             } else {
-                let value_error = vm.context().exceptions.value_error.clone();
-                Err(vm.new_exception(value_error, "Index out of bounds!".to_string()))
+                let index_error = vm.context().exceptions.index_error.clone();
+                Err(vm.new_exception(index_error, "Index out of bounds!".to_string()))
             }
         }
         PyObjectPayload::Slice {
