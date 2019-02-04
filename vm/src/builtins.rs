@@ -238,7 +238,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals,
+        locals,
         parent: None,
     };
     let scope = PyObject {
@@ -288,7 +288,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals,
+        locals,
         parent: None,
     };
     let scope = PyObject {

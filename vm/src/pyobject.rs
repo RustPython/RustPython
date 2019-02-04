@@ -241,9 +241,9 @@ impl PyContext {
             tuple_type,
             iter_type,
             dict_type,
-            none: none,
-            str_type: str_type,
-            range_type: range_type,
+            none,
+            str_type,
+            range_type,
             object: object_type,
             function_type,
             super_type,
@@ -436,22 +436,16 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::Sequence { elements: elements },
-            self.tuple_type(),
-        )
+        PyObject::new(PyObjectPayload::Sequence { elements }, self.tuple_type())
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::Sequence { elements: elements },
-            self.list_type(),
-        )
+        PyObject::new(PyObjectPayload::Sequence { elements }, self.list_type())
     }
 
     pub fn new_set(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         let elements = objset::sequence_to_hashmap(&elements);
-        PyObject::new(PyObjectPayload::Set { elements: elements }, self.set_type())
+        PyObject::new(PyObjectPayload::Set { elements }, self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
@@ -469,12 +463,9 @@ impl PyContext {
 
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
         let locals = self.new_dict();
-        let scope = Scope {
-            locals: locals,
-            parent: parent,
-        };
+        let scope = Scope { locals, parent };
         PyObject {
-            payload: PyObjectPayload::Scope { scope: scope },
+            payload: PyObjectPayload::Scope { scope },
             typ: None,
         }
         .into_ref()
@@ -513,7 +504,7 @@ impl PyContext {
     }
 
     pub fn new_frame(&self, frame: Frame) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Frame { frame: frame }, self.frame_type())
+        PyObject::new(PyObjectPayload::Frame { frame }, self.frame_type())
     }
 
     pub fn new_property<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
@@ -544,8 +535,8 @@ impl PyContext {
         PyObject::new(
             PyObjectPayload::Function {
                 code: code_obj,
-                scope: scope,
-                defaults: defaults,
+                scope,
+                defaults,
             },
             self.function_type(),
         )
@@ -553,10 +544,7 @@ impl PyContext {
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::BoundMethod {
-                function: function,
-                object: object,
-            },
+            PyObjectPayload::BoundMethod { function, object },
             self.bound_method_type(),
         )
     }
@@ -571,7 +559,7 @@ impl PyContext {
     }
 
     pub fn new_instance(&self, dict: PyObjectRef, class: PyObjectRef) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Instance { dict: dict }, class)
+        PyObject::new(PyObjectPayload::Instance { dict }, class)
     }
 
     // Item set/get:
@@ -815,10 +803,7 @@ impl PyFuncArgs {
         for name in kwarg_names.iter().rev() {
             kwargs.push((name.clone(), args.pop().unwrap()));
         }
-        PyFuncArgs {
-            args: args,
-            kwargs: kwargs,
-        }
+        PyFuncArgs { args, kwargs }
     }
 
     pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
@@ -990,7 +975,7 @@ impl PyObject {
         /* dict: PyObjectRef,*/ typ: PyObjectRef,
     ) -> PyObjectRef {
         PyObject {
-            payload: payload,
+            payload,
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
         }

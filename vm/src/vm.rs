@@ -53,10 +53,10 @@ impl VirtualMachine {
 
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
-            builtins: builtins,
+            builtins,
             sys_module: sysmod,
             stdlib_inits,
-            ctx: ctx,
+            ctx,
             current_frame: None,
         }
     }
@@ -86,7 +86,7 @@ impl VirtualMachine {
         let pymsg = self.new_str(msg);
         let args: Vec<PyObjectRef> = vec![pymsg];
         let args = PyFuncArgs {
-            args: args,
+            args,
             kwargs: vec![],
         };
 
@@ -211,7 +211,7 @@ impl VirtualMachine {
             obj,
             method_name,
             PyFuncArgs {
-                args: args,
+                args,
                 kwargs: vec![],
             },
         )

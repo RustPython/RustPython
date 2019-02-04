@@ -28,7 +28,7 @@ fn ref_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (referent, None)]);
     let referent = Rc::downgrade(referent);
     Ok(PyObject::new(
-        PyObjectPayload::WeakRef { referent: referent },
+        PyObjectPayload::WeakRef { referent },
         cls.clone(),
     ))
 }
