@@ -64,7 +64,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
     Ok(PyObject::new(
-        PyObjectPayload::Bytes { value: value },
+        PyObjectPayload::Bytes { value },
         cls.clone(),
     ))
 }

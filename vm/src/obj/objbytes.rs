@@ -48,7 +48,7 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Bytes { value: value },
+        PyObjectPayload::Bytes { value },
         cls.clone(),
     ))
 }

@@ -12,7 +12,7 @@ pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
     let type_ref = args.shift();
     let dict = vm.new_dict();
-    let obj = PyObject::new(PyObjectPayload::Instance { dict: dict }, type_ref.clone());
+    let obj = PyObject::new(PyObjectPayload::Instance { dict }, type_ref.clone());
     Ok(obj)
 }
 
