@@ -150,35 +150,35 @@ impl ExceptionZoo {
             create_type("PermissionError", &type_type, &import_error, &dict_type);
 
         ExceptionZoo {
-            assertion_error: assertion_error,
-            attribute_error: attribute_error,
-            base_exception_type: base_exception_type,
-            exception_type: exception_type,
-            file_not_found_error: file_not_found_error,
-            import_error: import_error,
-            index_error: index_error,
-            key_error: key_error,
-            module_not_found_error: module_not_found_error,
-            name_error: name_error,
-            not_implemented_error: not_implemented_error,
-            permission_error: permission_error,
-            runtime_error: runtime_error,
-            stop_iteration: stop_iteration,
-            syntax_error: syntax_error,
-            type_error: type_error,
-            value_error: value_error,
+            assertion_error,
+            attribute_error,
+            base_exception_type,
+            exception_type,
+            file_not_found_error,
+            import_error,
+            index_error,
+            key_error,
+            module_not_found_error,
+            name_error,
+            not_implemented_error,
+            permission_error,
+            runtime_error,
+            stop_iteration,
+            syntax_error,
+            type_error,
+            value_error,
         }
     }
 }
 
 pub fn init(context: &PyContext) {
-    let ref base_exception_type = context.exceptions.base_exception_type;
+    let base_exception_type = &context.exceptions.base_exception_type;
     context.set_attr(
         &base_exception_type,
         "__init__",
         context.new_rustfunc(exception_init),
     );
-    let ref exception_type = context.exceptions.exception_type;
+    let exception_type = &context.exceptions.exception_type;
     context.set_attr(
         &exception_type,
         "__str__",

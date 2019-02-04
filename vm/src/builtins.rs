@@ -151,7 +151,7 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let filename = objstr::get_value(filename);
 
-    compile::compile(vm, &source, mode, Some(filename))
+    compile::compile(vm, &source, &mode, Some(filename))
 }
 
 fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -203,6 +203,8 @@ fn builtin_enumerate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_list(new_items))
 }
 
+/// Implements `eval`.
+/// See also: https://docs.python.org/3/library/functions.html#eval
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -222,7 +224,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, mode, None)?
+        compile::compile(vm, &source, &mode, None)?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
@@ -249,6 +251,8 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.run_code_obj(code_obj.clone(), scope)
 }
 
+/// Implements `exec`
+/// https://docs.python.org/3/library/functions.html#exec
 fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -266,7 +270,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, mode, None)?
+        compile::compile(vm, &source, &mode, None)?
     } else if objtype::isinstance(source, &vm.ctx.code_type()) {
         source.clone()
     } else {
