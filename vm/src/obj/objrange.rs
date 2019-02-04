@@ -19,7 +19,11 @@ pub struct RangeType {
 impl RangeType {
     #[inline]
     pub fn len(&self) -> usize {
-        ((self.end - self.start) / self.step).abs() as usize
+        if self.is_empty() {
+            0usize
+        } else {
+            ((self.end - self.start) / self.step).abs() as usize
+        }
     }
 
     #[inline]
