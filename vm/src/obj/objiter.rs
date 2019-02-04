@@ -141,7 +141,7 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref iter_type = context.iter_type;
+    let iter_type = &context.iter_type;
     context.set_attr(
         &iter_type,
         "__contains__",

@@ -698,7 +698,7 @@ impl AttributeProtocol for PyObjectRef {
                 if let Some(item) = class_get_item(self, attr_name) {
                     return Some(item);
                 }
-                for ref class in mro {
+                for class in mro {
                     if let Some(item) = class_get_item(class, attr_name) {
                         return Some(item);
                     }

@@ -497,7 +497,7 @@ fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref int_type = context.int_type;
+    let int_type = &context.int_type;
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
     context.set_attr(&int_type, "__lt__", context.new_rustfunc(int_lt));
     context.set_attr(&int_type, "__le__", context.new_rustfunc(int_le));

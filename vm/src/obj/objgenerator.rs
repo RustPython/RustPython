@@ -10,7 +10,7 @@ use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
-    let ref generator_type = context.generator_type;
+    let generator_type = &context.generator_type;
     context.set_attr(
         &generator_type,
         "__iter__",

@@ -22,7 +22,7 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
 }
 
 pub fn init(context: &PyContext) {
-    let ref type_type = context.type_type;
+    let type_type = &context.type_type;
     context.set_attr(&type_type, "__call__", context.new_rustfunc(type_call));
     context.set_attr(&type_type, "__new__", context.new_rustfunc(type_new));
     context.set_attr(
@@ -253,7 +253,7 @@ fn take_next_base(
     }
 
     if let Some(head) = next {
-        for ref mut item in &mut bases {
+        for item in &mut bases {
             if item[0].get_id() == head.get_id() {
                 item.remove(0);
             }
