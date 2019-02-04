@@ -848,6 +848,32 @@ tuple_expected_methods = [
     'index',
 ]
 
+object_expected_methods = [
+    '__repr__',
+    '__hash__',
+    '__str__',
+    '__getattribute__',
+    '__setattr__',
+    '__delattr__',
+    '__lt__',
+    '__le__',
+    '__eq__',
+    '__ne__',
+    '__gt__',
+    '__ge__',
+    '__init__',
+    '__new__',
+    '__reduce_ex__',
+    '__reduce__',
+    '__subclasshook__',
+    '__init_subclass__',
+    '__format__',
+    '__sizeof__',
+    '__dir__',
+    '__class__',
+    '__doc__'
+]
+
 not_implemented = []
 
 for method in bool_expected_methods:
@@ -956,6 +982,13 @@ for method in tuple_expected_methods:
             not_implemented.append(("tuple", method))
     except NameError:
         not_implemented.append(("tuple", method))
+
+for method in object_expected_methods:
+    try:
+        if not hasattr(bool, method):
+            not_implemented.append(("object", method))
+    except NameError:
+        not_implemented.append(("object", method))
 
 for r in not_implemented:
     print(r[0], ".", r[1])
