@@ -11,6 +11,9 @@ use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 // rust's builtin to_lowercase isn't sufficient for casefold
 extern crate caseless;
+extern crate unicode_segmentation;
+
+use self::unicode_segmentation::UnicodeSegmentation;
 
 pub fn init(context: &PyContext) {
     let ref str_type = context.str_type;
@@ -53,6 +56,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "isalnum", context.new_rustfunc(str_isalnum));
     context.set_attr(&str_type, "isnumeric", context.new_rustfunc(str_isnumeric));
     context.set_attr(&str_type, "isdigit", context.new_rustfunc(str_isdigit));
+    context.set_attr(&str_type, "isdecimal", context.new_rustfunc(str_isdecimal));
     context.set_attr(&str_type, "title", context.new_rustfunc(str_title));
     context.set_attr(&str_type, "swapcase", context.new_rustfunc(str_swapcase));
     context.set_attr(&str_type, "isalpha", context.new_rustfunc(str_isalpha));
@@ -938,6 +942,20 @@ fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(is_digit))
 }
 
+fn str_isdecimal(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+
+    let value = get_value(&s);
+
+    let is_decimal = if !value.is_empty() {
+        value.chars().all(|c| c.is_ascii_digit())
+    } else {
+        false
+    };
+
+    Ok(vm.ctx.new_bool(is_decimal))
+}
+
 fn str_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -965,22 +983,45 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 impl PySliceableSequence for String {
     fn do_slice(&self, start: usize, stop: usize) -> Self {
-        self[start..stop].to_string()
+        to_graphemes(self)
+            .get(start..stop)
+            .map_or(String::default(), |c| c.join(""))
     }
+
     fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self {
-        self[start..stop].chars().step_by(step).collect()
+        if let Some(s) = to_graphemes(self).get(start..stop) {
+            return s
+                .iter()
+                .cloned()
+                .step_by(step)
+                .collect::<Vec<String>>()
+                .join("");
+        }
+        String::default()
     }
+
     fn len(&self) -> usize {
-        self.len()
+        to_graphemes(self).len()
     }
 }
 
+/// Convert a string-able `value` to a vec of graphemes
+/// represents the string according to user perceived characters
+fn to_graphemes<S: AsRef<str>>(value: S) -> Vec<String> {
+    UnicodeSegmentation::graphemes(value.as_ref(), true)
+        .map(String::from)
+        .collect()
+}
+
 pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
-    // let value = a
     if objtype::isinstance(&b, &vm.ctx.int_type()) {
         let pos = objint::get_value(&b).to_i32().unwrap();
-        let idx = value.to_string().get_pos(pos);
-        Ok(vm.new_str(value[idx..idx + 1].to_string()))
+        let graphemes = to_graphemes(value);
+        let idx = graphemes.get_pos(pos);
+        graphemes
+            .get(idx)
+            .map(|c| vm.new_str(c.to_string()))
+            .ok_or(vm.new_index_error("string index out of range".to_string()))
     } else {
         match &(*b.borrow()).payload {
             &PyObjectPayload::Slice {

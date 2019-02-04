@@ -17,6 +17,7 @@ use super::obj::objlist;
 use super::obj::objmemory;
 use super::obj::objobject;
 use super::obj::objproperty;
+use super::obj::objrange;
 use super::obj::objset;
 use super::obj::objstr;
 use super::obj::objsuper;
@@ -122,6 +123,7 @@ pub struct PyContext {
     pub staticmethod_type: PyObjectRef,
     pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
+    pub range_type: PyObjectRef,
     pub type_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub property_type: PyObjectRef,
@@ -201,6 +203,7 @@ impl PyContext {
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
         let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
         let code_type = create_type("code", &type_type, &int_type, &dict_type);
+        let range_type = create_type("range", &type_type, &object_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
@@ -219,37 +222,38 @@ impl PyContext {
             bool_type.clone(),
         );
         let context = PyContext {
-            bool_type: bool_type,
-            memoryview_type: memoryview_type,
-            bytearray_type: bytearray_type,
-            bytes_type: bytes_type,
-            code_type: code_type,
-            complex_type: complex_type,
-            classmethod_type: classmethod_type,
-            int_type: int_type,
-            float_type: float_type,
-            frame_type: frame_type,
-            staticmethod_type: staticmethod_type,
-            list_type: list_type,
-            set_type: set_type,
-            frozenset_type: frozenset_type,
-            true_value: true_value,
-            false_value: false_value,
-            tuple_type: tuple_type,
-            iter_type: iter_type,
-            dict_type: dict_type,
+            bool_type,
+            memoryview_type,
+            bytearray_type,
+            bytes_type,
+            code_type,
+            complex_type,
+            classmethod_type,
+            int_type,
+            float_type,
+            frame_type,
+            staticmethod_type,
+            list_type,
+            set_type,
+            frozenset_type,
+            true_value,
+            false_value,
+            tuple_type,
+            iter_type,
+            dict_type,
             none: none,
             str_type: str_type,
+            range_type: range_type,
             object: object_type,
-            function_type: function_type,
-            super_type: super_type,
-            property_type: property_type,
-            generator_type: generator_type,
-            module_type: module_type,
-            bound_method_type: bound_method_type,
-            member_descriptor_type: member_descriptor_type,
-            type_type: type_type,
-            exceptions: exceptions,
+            function_type,
+            super_type,
+            property_type,
+            generator_type,
+            module_type,
+            bound_method_type,
+            member_descriptor_type,
+            type_type,
+            exceptions,
         };
         objtype::init(&context);
         objlist::init(&context);
@@ -267,6 +271,7 @@ impl PyContext {
         objproperty::init(&context);
         objmemory::init(&context);
         objstr::init(&context);
+        objrange::init(&context);
         objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
@@ -315,6 +320,10 @@ impl PyContext {
 
     pub fn set_type(&self) -> PyObjectRef {
         self.set_type.clone()
+    }
+
+    pub fn range_type(&self) -> PyObjectRef {
+        self.range_type.clone()
     }
 
     pub fn frozenset_type(&self) -> PyObjectRef {
@@ -882,6 +891,9 @@ pub enum PyObjectPayload {
         stop: Option<i32>,
         step: Option<i32>,
     },
+    Range {
+        range: objrange::RangeType,
+    },
     MemoryView {
         obj: PyObjectRef,
     },
@@ -930,25 +942,26 @@ pub enum PyObjectPayload {
 impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &PyObjectPayload::String { ref value } => write!(f, "str \"{}\"", value),
-            &PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
-            &PyObjectPayload::Float { ref value } => write!(f, "float {}", value),
-            &PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
-            &PyObjectPayload::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
-            &PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
-            &PyObjectPayload::Sequence { elements: _ } => write!(f, "list or tuple"),
-            &PyObjectPayload::Dict { elements: _ } => write!(f, "dict"),
-            &PyObjectPayload::Set { elements: _ } => write!(f, "set"),
-            &PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
-            &PyObjectPayload::Iterator {
+            PyObjectPayload::String { ref value } => write!(f, "str \"{}\"", value),
+            PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
+            PyObjectPayload::Float { ref value } => write!(f, "float {}", value),
+            PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
+            PyObjectPayload::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
+            PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
+            PyObjectPayload::Sequence { elements: _ } => write!(f, "list or tuple"),
+            PyObjectPayload::Dict { elements: _ } => write!(f, "dict"),
+            PyObjectPayload::Set { elements: _ } => write!(f, "set"),
+            PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
+            PyObjectPayload::Iterator {
                 position: _,
                 iterated_obj: _,
             } => write!(f, "iterator"),
-            &PyObjectPayload::Slice {
+            PyObjectPayload::Slice {
                 start: _,
                 stop: _,
                 step: _,
             } => write!(f, "slice"),
+            &PyObjectPayload::Range { range: _ } => write!(f, "range"),
             &PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
             &PyObjectPayload::Function { .. } => write!(f, "function"),
             &PyObjectPayload::Generator { .. } => write!(f, "generator"),
@@ -956,17 +969,17 @@ impl fmt::Debug for PyObjectPayload {
                 ref function,
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
-            &PyObjectPayload::Module { name: _, dict: _ } => write!(f, "module"),
-            &PyObjectPayload::Scope { scope: _ } => write!(f, "scope"),
-            &PyObjectPayload::None => write!(f, "None"),
-            &PyObjectPayload::Class {
+            PyObjectPayload::Module { name: _, dict: _ } => write!(f, "module"),
+            PyObjectPayload::Scope { scope: _ } => write!(f, "scope"),
+            PyObjectPayload::None => write!(f, "None"),
+            PyObjectPayload::Class {
                 ref name,
                 dict: _,
                 mro: _,
             } => write!(f, "class {:?}", name),
-            &PyObjectPayload::Instance { dict: _ } => write!(f, "instance"),
-            &PyObjectPayload::RustFunction { function: _ } => write!(f, "rust function"),
-            &PyObjectPayload::Frame { .. } => write!(f, "frame"),
+            PyObjectPayload::Instance { dict: _ } => write!(f, "instance"),
+            PyObjectPayload::RustFunction { function: _ } => write!(f, "rust function"),
+            PyObjectPayload::Frame { .. } => write!(f, "frame"),
         }
     }
 }
@@ -1038,6 +1051,7 @@ impl PyObject {
                 ref stop,
                 ref step,
             } => format!("<slice '{:?}:{:?}:{:?}'>", start, stop, step),
+            PyObjectPayload::Range { ref range } => format!("<range '{:?}'>", range),
             PyObjectPayload::Iterator {
                 ref position,
                 ref iterated_obj,

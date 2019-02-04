@@ -81,10 +81,8 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     //bytes are returned (when the end of the file is reached).
     while length == buff_size {
         let raw_read = vm.get_method(raw.clone(), &"readinto".to_string()).unwrap();
-        match vm.invoke(raw_read, PyFuncArgs::new(vec![buffer.clone()], vec![])) {
-            Ok(_) => {}
-            Err(_) => return Err(vm.new_value_error("IO Error".to_string())),
-        }
+        vm.invoke(raw_read, PyFuncArgs::new(vec![buffer.clone()], vec![]))
+            .map_err(|_| vm.new_value_error("IO Error".to_string()))?;
 
         //Copy bytes from the buffer vector into the results vector
         match buffer.borrow_mut().payload {
@@ -110,18 +108,15 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
-    let rust_mode = match mode {
-        Some(m) => objstr::get_value(m),
-        None => "r".to_string(),
-    };
+    let rust_mode = mode.map_or("r".to_string(), |m| objstr::get_value(m));
 
     match compute_c_flag(&rust_mode).to_bigint() {
         Some(os_mode) => {
             let args = vec![name.clone(), vm.ctx.new_int(os_mode)];
-            let fileno = os::os_open(vm, PyFuncArgs::new(args, vec![]));
+            let file_no = os::os_open(vm, PyFuncArgs::new(args, vec![]))?;
 
             vm.ctx.set_attr(&file_io, "name", name.clone());
-            vm.ctx.set_attr(&file_io, "fileno", fileno.unwrap());
+            vm.ctx.set_attr(&file_io, "file_no", file_no);
             Ok(vm.get_none())
         }
         None => Err(vm.new_type_error(format!("invalid mode {}", rust_mode))),
@@ -166,8 +161,8 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_length = vm.invoke(len_method.unwrap(), PyFuncArgs::default());
     let length = objint::get_value(&py_length.unwrap()).to_u64().unwrap();
 
-    let fileno = file_io.get_attr("fileno").unwrap();
-    let raw_fd = objint::get_value(&fileno).to_i32().unwrap();
+    let file_no = file_io.get_attr("file_no").unwrap();
+    let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
 
     //unsafe block - creates file handle from the UNIX file descriptor
     //raw_fd is supported on UNIX only. This will need to be extended
@@ -189,7 +184,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let new_handle = f.into_inner().into_raw_fd().to_bigint();
     vm.ctx
-        .set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
+        .set_attr(&file_io, "file_no", vm.ctx.new_int(new_handle.unwrap()));
     Ok(vm.get_none())
 }
 
@@ -200,8 +195,8 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(file_io, None), (obj, Some(vm.ctx.bytes_type()))]
     );
 
-    let fileno = file_io.get_attr("fileno").unwrap();
-    let raw_fd = objint::get_value(&fileno).to_i32().unwrap();
+    let file_no = file_io.get_attr("file_no").unwrap();
+    let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
 
     //unsafe block - creates file handle from the UNIX file descriptor
     //raw_fd is supported on UNIX only. This will need to be extended
@@ -215,7 +210,7 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     //reset raw fd on the FileIO object
                     let new_handle = handle.into_raw_fd().to_bigint();
                     vm.ctx
-                        .set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
+                        .set_attr(&file_io, "file_no", vm.ctx.new_int(new_handle.unwrap()));
 
                     //return number of bytes written
                     Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
@@ -280,11 +275,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let module = mk_module(&vm.ctx);
 
     //mode is optional: 'rt' is the default mode (open from reading text)
-    let rust_mode = if let Some(m) = mode {
-        objstr::get_value(m)
-    } else {
-        "rt".to_string()
-    };
+    let rust_mode = mode.map_or("rt".to_string(), |m| objstr::get_value(m));
 
     let mut raw_modes = HashSet::new();
 
@@ -322,7 +313,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![file.clone(), vm.ctx.new_str(modes[0].to_string())],
         vec![],
     );
-    let file_io = vm.invoke(file_io_class, file_args).unwrap();
+    let file_io = vm.invoke(file_io_class, file_args)?;
 
     //Create Buffered class to consume FileIO. The type of buffered class depends on
     //the operation in the mode.

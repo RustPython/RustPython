@@ -34,7 +34,7 @@ fn import_uncached_module(
     let code_obj = compile::compile(
         vm,
         &source,
-        compile::Mode::Exec,
+        &compile::Mode::Exec,
         Some(filepath.to_str().unwrap().to_string()),
     )?;
     // trace!("Code object: {:?}", code_obj);

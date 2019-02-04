@@ -1,6 +1,7 @@
 use super::super::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
 use super::objbool;
+use super::objint;
 use num_traits::ToPrimitive;
 use std::cell::{Ref, RefMut};
 use std::marker::Sized;
@@ -12,7 +13,12 @@ pub trait PySliceableSequence {
     fn len(&self) -> usize;
     fn get_pos(&self, p: i32) -> usize {
         if p < 0 {
-            self.len() - ((-p) as usize)
+            if -p as usize > self.len() {
+                // return something that is out of bounds so `get_item` raises an IndexError
+                self.len() + 1
+            } else {
+                self.len() - ((-p) as usize)
+            }
         } else if p as usize > self.len() {
             // This is for the slicing case where the end element is greater than the length of the
             // sequence
@@ -51,7 +57,7 @@ pub trait PySliceableSequence {
     }
 }
 
-impl PySliceableSequence for Vec<PyObjectRef> {
+impl<T: Clone> PySliceableSequence for Vec<T> {
     fn do_slice(&self, start: usize, stop: usize) -> Self {
         self[start..stop].to_vec()
     }
@@ -77,8 +83,8 @@ pub fn get_item(
                 let obj = elements[pos_index].clone();
                 Ok(obj)
             } else {
-                let value_error = vm.context().exceptions.value_error.clone();
-                Err(vm.new_exception(value_error, "Index out of bounds!".to_string()))
+                let index_error = vm.context().exceptions.index_error.clone();
+                Err(vm.new_exception(index_error, "Index out of bounds!".to_string()))
             }
         }
         PyObjectPayload::Slice {
@@ -118,6 +124,115 @@ pub fn seq_equal(
     } else {
         Ok(false)
     }
+}
+
+pub fn seq_lt(
+    vm: &mut VirtualMachine,
+    zelf: &Vec<PyObjectRef>,
+    other: &Vec<PyObjectRef>,
+) -> Result<bool, PyObjectRef> {
+    if zelf.len() == other.len() {
+        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+            let lt = vm.call_method(&a.clone(), "__lt__", vec![b.clone()])?;
+            let value = objbool::boolval(vm, lt)?;
+            if !value {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    } else {
+        // This case is more complicated because it can still return true if
+        // `zelf` is the head of `other` e.g. [1,2,3] < [1,2,3,4] should return true
+        let mut head = true; // true if `zelf` is the head of `other`
+
+        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+            let lt = vm.call_method(&a.clone(), "__lt__", vec![b.clone()])?;
+            let eq = vm.call_method(&a.clone(), "__eq__", vec![b.clone()])?;
+            let lt_value = objbool::boolval(vm, lt)?;
+            let eq_value = objbool::boolval(vm, eq)?;
+
+            if !lt_value && !eq_value {
+                return Ok(false);
+            } else if !eq_value {
+                head = false;
+            }
+        }
+
+        if head {
+            Ok(zelf.len() < other.len())
+        } else {
+            Ok(true)
+        }
+    }
+}
+
+pub fn seq_gt(
+    vm: &mut VirtualMachine,
+    zelf: &Vec<PyObjectRef>,
+    other: &Vec<PyObjectRef>,
+) -> Result<bool, PyObjectRef> {
+    if zelf.len() == other.len() {
+        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+            let gt = vm.call_method(&a.clone(), "__gt__", vec![b.clone()])?;
+            let value = objbool::boolval(vm, gt)?;
+            if !value {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    } else {
+        let mut head = true; // true if `other` is the head of `zelf`
+        for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
+            // This case is more complicated because it can still return true if
+            // `other` is the head of `zelf` e.g. [1,2,3,4] > [1,2,3] should return true
+            let gt = vm.call_method(&a.clone(), "__gt__", vec![b.clone()])?;
+            let eq = vm.call_method(&a.clone(), "__eq__", vec![b.clone()])?;
+            let gt_value = objbool::boolval(vm, gt)?;
+            let eq_value = objbool::boolval(vm, eq)?;
+
+            if !gt_value && !eq_value {
+                return Ok(false);
+            } else if !eq_value {
+                head = false;
+            }
+        }
+
+        if head {
+            Ok(zelf.len() > other.len())
+        } else {
+            Ok(true)
+        }
+    }
+}
+
+pub fn seq_ge(
+    vm: &mut VirtualMachine,
+    zelf: &Vec<PyObjectRef>,
+    other: &Vec<PyObjectRef>,
+) -> Result<bool, PyObjectRef> {
+    Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
+}
+
+pub fn seq_le(
+    vm: &mut VirtualMachine,
+    zelf: &Vec<PyObjectRef>,
+    other: &Vec<PyObjectRef>,
+) -> Result<bool, PyObjectRef> {
+    Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
+}
+
+pub fn seq_mul(elements: &Vec<PyObjectRef>, product: &PyObjectRef) -> Vec<PyObjectRef> {
+    let counter = objint::get_value(&product).to_isize().unwrap();
+
+    let current_len = elements.len();
+    let new_len = counter.max(0) as usize * current_len;
+    let mut new_elements = Vec::with_capacity(new_len);
+
+    for _ in 0..counter {
+        new_elements.extend(elements.clone());
+    }
+
+    new_elements
 }
 
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {

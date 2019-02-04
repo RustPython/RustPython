@@ -13,6 +13,7 @@ clap = "2.31.2"
 rustpython_parser = {path = "parser"}
 rustpython_vm = {path = "vm"}
 rustyline = "2.1.0"
+xdg = "2.2.0"
 
 [profile.release]
 opt-level = "s"
