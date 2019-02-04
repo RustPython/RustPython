@@ -151,21 +151,19 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(obj_attr)
     } else if let Some(attr) = cls.get_attr(&name) {
         vm.call_get_descriptor(attr, obj.clone())
+    } else if let Some(getter) = cls.get_attr("__getattr__") {
+        vm.invoke(
+            getter,
+            PyFuncArgs {
+                args: vec![cls, name_str.clone()],
+                kwargs: vec![],
+            },
+        )
     } else {
-        if let Some(getter) = cls.get_attr("__getattr__") {
-            vm.invoke(
-                getter,
-                PyFuncArgs {
-                    args: vec![cls, name_str.clone()],
-                    kwargs: vec![],
-                },
-            )
-        } else {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(
-                attribute_error,
-                format!("{} has no attribute '{}'", obj.borrow(), name),
-            ))
-        }
+        let attribute_error = vm.context().exceptions.attribute_error.clone();
+        Err(vm.new_exception(
+            attribute_error,
+            format!("{} has no attribute '{}'", obj.borrow(), name),
+        ))
     }
 }

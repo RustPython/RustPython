@@ -192,22 +192,20 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
         Ok(cls_attr)
     } else if let Some(attr) = mcl.get_attr(&name) {
         vm.call_get_descriptor(attr, cls.clone())
+    } else if let Some(getter) = cls.get_attr("__getattr__") {
+        vm.invoke(
+            getter,
+            PyFuncArgs {
+                args: vec![mcl, name_str.clone()],
+                kwargs: vec![],
+            },
+        )
     } else {
-        if let Some(getter) = cls.get_attr("__getattr__") {
-            vm.invoke(
-                getter,
-                PyFuncArgs {
-                    args: vec![mcl, name_str.clone()],
-                    kwargs: vec![],
-                },
-            )
-        } else {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(
-                attribute_error,
-                format!("{} has no attribute '{}'", cls.borrow(), name),
-            ))
-        }
+        let attribute_error = vm.context().exceptions.attribute_error.clone();
+        Err(vm.new_exception(
+            attribute_error,
+            format!("{} has no attribute '{}'", cls.borrow(), name),
+        ))
     }
 }
 

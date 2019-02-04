@@ -450,12 +450,8 @@ fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         && !value.chars().nth(0).unwrap().is_digit(10)
     {
         for c in value.chars() {
-            if c != "_".chars().nth(0).unwrap() {
-                if !c.is_digit(10) {
-                    if !c.is_alphabetic() {
-                        is_identifier = false;
-                    }
-                }
+            if c != "_".chars().nth(0).unwrap() && !c.is_digit(10) && !c.is_alphabetic() {
+                is_identifier = false;
             }
         }
     } else {
