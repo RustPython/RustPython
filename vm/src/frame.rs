@@ -611,7 +611,7 @@ impl Frame {
                         .iter()
                         .skip(*before)
                         .take(middle)
-                        .map(|x| x.clone())
+                        .cloned()
                         .collect();
                     let t = vm.ctx.new_list(middle_elements);
                     self.push_value(t);
@@ -887,25 +887,25 @@ impl Frame {
     ) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = match op {
-            &bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-            &bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
-            &bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            &bytecode::BinaryOperator::MatrixMultiply => {
+        let value = match *op {
+            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => {
                 vm.call_method(&a_ref, "__matmul__", vec![b_ref])
             }
-            &bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-            &bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
-            &bytecode::BinaryOperator::FloorDivide => {
+            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
+            bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => {
                 vm.call_method(&a_ref, "__floordiv__", vec![b_ref])
             }
-            &bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
-            &bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
-            &bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
-            &bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
-            &bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
-            &bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
-            &bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+            bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
         }?;
 
         self.push_value(value);
@@ -918,11 +918,11 @@ impl Frame {
         op: &bytecode::UnaryOperator,
     ) -> FrameResult {
         let a = self.pop_value();
-        let value = match op {
-            &bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
-            &bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
-            &bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
-            &bytecode::UnaryOperator::Not => {
+        let value = match *op {
+            bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
+            bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
+            bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
+            bytecode::UnaryOperator::Not => {
                 let value = objbool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)
             }
@@ -995,17 +995,17 @@ impl Frame {
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let value = match op {
-            &bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
-            &bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
-            &bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
-            &bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
-            &bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
-            &bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
-            &bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
-            &bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
-            &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+        let value = match *op {
+            bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
+            bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
+            bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
+            bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
+            bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
+            bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
+            bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
+            bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
         };
 
         self.push_value(value);

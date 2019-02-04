@@ -106,10 +106,7 @@ pub fn contains_key_str(dict: &PyObjectRef, key: &str) -> bool {
 
 pub fn content_contains_key_str(elements: &DictContentType, key: &str) -> bool {
     // TODO: let hash: usize = key;
-    match elements.get(key) {
-        Some(_) => true,
-        None => false,
-    }
+    elements.get(key).is_some()
 }
 
 // Python dict methods:
@@ -140,7 +137,7 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 let elem_iter = objiter::get_iter(vm, &element)?;
                 let needle = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                 let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                if let Some(_) = objiter::get_next_object(vm, &elem_iter)? {
+                if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                     return Err(err(vm));
                 }
                 set_item(&dict, &needle, &value);

@@ -667,10 +667,7 @@ pub trait ParentProtocol {
 impl ParentProtocol for PyObjectRef {
     fn has_parent(&self) -> bool {
         match self.borrow().payload {
-            PyObjectPayload::Scope { ref scope } => match scope.parent {
-                Some(_) => true,
-                None => false,
-            },
+            PyObjectPayload::Scope { ref scope } => scope.parent.is_some(),
             _ => panic!("Only scopes have parent (not {:?}", self),
         }
     }
@@ -733,8 +730,7 @@ impl AttributeProtocol for PyObjectRef {
         match obj.payload {
             PyObjectPayload::Module { ref dict, .. } => dict.contains_key(attr_name),
             PyObjectPayload::Class { ref mro, .. } => {
-                class_has_item(self, attr_name)
-                    || mro.into_iter().any(|d| class_has_item(d, attr_name))
+                class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
             }
             PyObjectPayload::Instance { ref dict } => dict.contains_key(attr_name),
             _ => false,

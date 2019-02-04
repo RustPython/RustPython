@@ -110,7 +110,7 @@ fn tuple_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(other, &vm.ctx.tuple_type()) {
         let e1 = get_elements(zelf);
         let e2 = get_elements(other);
-        let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();
+        let elements = e1.iter().chain(e2.iter()).cloned().collect();
         Ok(vm.ctx.new_tuple(elements))
     } else {
         Err(vm.new_type_error(format!(
@@ -132,7 +132,7 @@ fn tuple_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     for element in elements.iter() {
         let is_eq = vm._eq(element, value.clone())?;
         if objbool::boolval(vm, is_eq)? {
-            count = count + 1;
+            count += 1;
         }
     }
     Ok(vm.context().new_int(count.to_bigint().unwrap()))

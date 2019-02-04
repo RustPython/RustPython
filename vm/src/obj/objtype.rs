@@ -242,8 +242,8 @@ fn take_next_base(
     for base in &bases {
         let head = base[0].clone();
         if !(&bases)
-            .into_iter()
-            .any(|x| x[1..].into_iter().any(|x| x.get_id() == head.get_id()))
+            .iter()
+            .any(|x| x[1..].iter().any(|x| x.get_id() == head.get_id()))
         {
             next = Some(head);
             break;
@@ -265,7 +265,7 @@ fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
     debug!("Linearising MRO: {:?}", bases);
     let mut result = vec![];
     loop {
-        if (&bases).into_iter().all(|x| x.is_empty()) {
+        if (&bases).iter().all(|x| x.is_empty()) {
             break;
         }
         match take_next_base(bases) {

@@ -45,9 +45,8 @@ pub fn compile(
         },
     };
 
-    match result {
-        Err(msg) => return Err(vm.new_exception(syntax_error.clone(), msg)),
-        _ => {}
+    if let Err(msg) = result {
+        return Err(vm.new_exception(syntax_error.clone(), msg));
     }
 
     let code = compiler.pop_code_object();
@@ -592,7 +591,7 @@ impl Compiler {
             ast::Statement::Assign { targets, value } => {
                 self.compile_expression(value)?;
 
-                for (i, target) in targets.into_iter().enumerate() {
+                for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
                         self.emit(Instruction::Duplicate);
                     }
@@ -668,7 +667,7 @@ impl Compiler {
 
         let mut flags = bytecode::FunctionOpArg::empty();
         if have_kwargs {
-            flags = flags | bytecode::FunctionOpArg::HAS_DEFAULTS;
+            flags |= bytecode::FunctionOpArg::HAS_DEFAULTS;
         }
 
         Ok(flags)
