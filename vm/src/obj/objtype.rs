@@ -89,12 +89,7 @@ pub fn issubclass(typ: &PyObjectRef, cls: &PyObjectRef) -> bool {
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let PyObjectPayload::Class {
-        name,
-        dict: _,
-        mro: _,
-    } = &typ.borrow().payload
-    {
+    if let PyObjectPayload::Class { name, .. } = &typ.borrow().payload {
         name.clone()
     } else {
         panic!("Cannot get type_name of non-type type {:?}", typ);
@@ -219,12 +214,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     let mut base_classes = objtype::base_classes(obj);
     base_classes.reverse();
     for bc in base_classes {
-        if let PyObjectPayload::Class {
-            name: _,
-            dict,
-            mro: _,
-        } = &bc.borrow().payload
-        {
+        if let PyObjectPayload::Class { dict, .. } = &bc.borrow().payload {
             let elements = objdict::get_key_value_pairs(dict);
             for (name, value) in elements.iter() {
                 let name = objstr::get_value(name);

@@ -1024,11 +1024,9 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
             .ok_or(vm.new_index_error("string index out of range".to_string()))
     } else {
         match &(*b.borrow()).payload {
-            &PyObjectPayload::Slice {
-                start: _,
-                stop: _,
-                step: _,
-            } => Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string())),
+            &PyObjectPayload::Slice { .. } => {
+                Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string()))
+            }
             _ => panic!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
                 value, b

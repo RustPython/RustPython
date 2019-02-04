@@ -87,13 +87,9 @@ pub fn get_item(
                 Err(vm.new_exception(index_error, "Index out of bounds!".to_string()))
             }
         }
-        PyObjectPayload::Slice {
-            start: _,
-            stop: _,
-            step: _,
-        } => Ok(PyObject::new(
+        PyObjectPayload::Slice { .. } => Ok(PyObject::new(
             match &(sequence.borrow()).payload {
-                PyObjectPayload::Sequence { elements: _ } => PyObjectPayload::Sequence {
+                PyObjectPayload::Sequence { .. } => PyObjectPayload::Sequence {
                     elements: elements.to_vec().get_slice_items(&subscript),
                 },
                 ref payload => panic!("sequence get_item called for non-sequence: {:?}", payload),
