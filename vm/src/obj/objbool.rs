@@ -31,9 +31,15 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
 
 pub fn init(context: &PyContext) {
     let ref bool_type = context.bool_type;
+    let bool_doc = "bool(x) -> bool
+
+Returns True when the argument x is true, False otherwise.
+The builtins True and False are the only two instances of the class bool.
+The class bool is a subclass of the class int, and cannot be subclassed.";
+
     context.set_attr(&bool_type, "__new__", context.new_rustfunc(bool_new));
     context.set_attr(&bool_type, "__repr__", context.new_rustfunc(bool_repr));
-    context.set_attr(&bool_type, "__doc__", context.new_property(bool_doc));
+    context.set_attr(&bool_type, "__doc__", context.new_str(bool_doc.to_string()));
 }
 
 pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
@@ -79,14 +85,4 @@ fn bool_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
         None => vm.context().new_bool(false),
     })
-}
-
-fn bool_doc(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
-    arg_check!(vm, args, required = [(_zelf, None)]);
-    let s = "bool(x) -> bool
-
-Returns True when the argument x is true, False otherwise.
-The builtins True and False are the only two instances of the class bool.
-The class bool is a subclass of the class int, and cannot be subclassed.";
-    Ok(vm.new_str(s.to_string()))
 }
