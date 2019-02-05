@@ -8,6 +8,9 @@ assert "\n" == """
 """
 
 assert len(""" " \" """) == 5
+assert len("é") == 1
+assert len("é") == 2
+assert len("あ") == 1
 
 assert type("") is str
 assert type(b"") is bytes

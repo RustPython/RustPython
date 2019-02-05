@@ -314,7 +314,7 @@ fn str_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn str_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let sv = get_value(s);
-    Ok(vm.ctx.new_int(sv.len().to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(sv.chars().count().to_bigint().unwrap()))
 }
 
 fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
