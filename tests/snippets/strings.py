@@ -8,9 +8,9 @@ assert "\n" == """
 """
 
 assert len(""" " \" """) == 5
-assert len("\u00E9") == 1
-assert len("\u0065\u0301") == 2
-assert len("\u3042") == 1
+assert len("é") == 1
+assert len("é") == 2
+assert len("あ") == 1
 
 assert type("") is str
 assert type(b"") is bytes
