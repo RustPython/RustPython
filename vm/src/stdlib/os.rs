@@ -30,17 +30,18 @@ pub fn rust_file(raw_fileno: i32) -> File {
 }
 
 #[cfg(target_family = "windows")]
-pub fn rust_file(handle: File) -> i32 {
+pub fn raw_file_number(handle: File) -> i32 {
     use std::os::windows::io::IntoRawHandle;
 
-    handle.into_raw_handle()
+    handle.into_raw_handle() as i32
 }
 
 #[cfg(target_family = "windows")]
 pub fn rust_file(raw_fileno: i32) -> File {
-    use std::os::unix::io::FromRawHandle;
+    use std::os::windows::io::FromRawHandle;
+	use std::ffi::c_void;
 
-    unsafe { File::from_raw_handle(raw_fileno) }
+    unsafe { File::from_raw_handle(raw_fileno as *mut c_void)}
 }
 
 pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
