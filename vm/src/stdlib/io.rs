@@ -116,7 +116,7 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             let file_no = os::os_open(vm, PyFuncArgs::new(args, vec![]))?;
 
             vm.ctx.set_attr(&file_io, "name", name.clone());
-            vm.ctx.set_attr(&file_io, "file_no", file_no);
+            vm.ctx.set_attr(&file_io, "fileno", file_no);
             Ok(vm.get_none())
         }
         None => Err(vm.new_type_error(format!("invalid mode {}", rust_mode))),
@@ -161,7 +161,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_length = vm.invoke(len_method.unwrap(), PyFuncArgs::default());
     let length = objint::get_value(&py_length.unwrap()).to_u64().unwrap();
 
-    let file_no = file_io.get_attr("file_no").unwrap();
+    let file_no = file_io.get_attr("fileno").unwrap();
     let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
 
     //unsafe block - creates file handle from the UNIX file descriptor
@@ -184,7 +184,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let new_handle = f.into_inner().into_raw_fd().to_bigint();
     vm.ctx
-        .set_attr(&file_io, "file_no", vm.ctx.new_int(new_handle.unwrap()));
+        .set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
     Ok(vm.get_none())
 }
 
@@ -195,7 +195,7 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(file_io, None), (obj, Some(vm.ctx.bytes_type()))]
     );
 
-    let file_no = file_io.get_attr("file_no").unwrap();
+    let file_no = file_io.get_attr("fileno").unwrap();
     let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
 
     //unsafe block - creates file handle from the UNIX file descriptor
@@ -210,7 +210,7 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     //reset raw fd on the FileIO object
                     let new_handle = handle.into_raw_fd().to_bigint();
                     vm.ctx
-                        .set_attr(&file_io, "file_no", vm.ctx.new_int(new_handle.unwrap()));
+                        .set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
 
                     //return number of bytes written
                     Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
