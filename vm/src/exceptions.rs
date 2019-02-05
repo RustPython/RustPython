@@ -92,6 +92,7 @@ pub struct ExceptionZoo {
     pub module_not_found_error: PyObjectRef,
     pub name_error: PyObjectRef,
     pub not_implemented_error: PyObjectRef,
+    pub os_error: PyObjectRef,
     pub permission_error: PyObjectRef,
     pub runtime_error: PyObjectRef,
     pub stop_iteration: PyObjectRef,
@@ -135,6 +136,7 @@ impl ExceptionZoo {
         let syntax_error = create_type("SyntaxError", &type_type, &exception_type, &dict_type);
         let type_error = create_type("TypeError", &type_type, &exception_type, &dict_type);
         let value_error = create_type("ValueError", &type_type, &exception_type, &dict_type);
+        let os_error = create_type("OSError", &type_type, &exception_type.clone(), &dict_type);
 
         let file_not_found_error =
             create_type("FileNotFoundError", &type_type, &import_error, &dict_type);
@@ -167,6 +169,7 @@ impl ExceptionZoo {
             syntax_error,
             type_error,
             value_error,
+            os_error,
         }
     }
 }

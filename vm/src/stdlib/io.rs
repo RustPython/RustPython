@@ -2,22 +2,22 @@
  * I/O core tools.
  */
 
+//library imports
 use std::collections::HashSet;
-
-use std::io::prelude::*;
-use std::os::unix::io::{FromRawFd, IntoRawFd};
-
 use std::fs::File;
+use std::io::prelude::*;
 use std::io::BufReader;
 
+//3rd party imports
+use num_bigint::ToBigInt;
+use num_traits::ToPrimitive;
+
+//custom imports
 use super::super::obj::objbytes;
 use super::super::obj::objint;
 use super::super::obj::objstr;
 use super::super::obj::objtype;
 use super::os;
-
-use num_bigint::ToBigInt;
-use num_traits::ToPrimitive;
 
 use super::super::pyobject::{
     AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef,
@@ -117,6 +117,9 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
             vm.ctx.set_attr(&file_io, "name", name.clone());
             vm.ctx.set_attr(&file_io, "fileno", file_no);
+            vm.ctx.set_attr(&file_io, "closefd", vm.new_bool(false));
+            vm.ctx.set_attr(&file_io, "closed", vm.new_bool(false));
+
             Ok(vm.get_none())
         }
         None => Err(vm.new_type_error(format!("invalid mode {}", rust_mode))),
@@ -164,10 +167,8 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let file_no = file_io.get_attr("fileno").unwrap();
     let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
 
-    //unsafe block - creates file handle from the UNIX file descriptor
-    //raw_fd is supported on UNIX only. This will need to be extended
-    //to support windows - i.e. raw file_handles
-    let handle = unsafe { File::from_raw_fd(raw_fd) };
+    //extract unix file descriptor.
+    let handle = os::rust_file(raw_fd);
 
     let mut f = handle.take(length);
     match obj.borrow_mut().payload {
@@ -182,9 +183,9 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         _ => {}
     };
 
-    let new_handle = f.into_inner().into_raw_fd().to_bigint();
+    let updated = os::raw_file_number(f.into_inner()).to_bigint();
     vm.ctx
-        .set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
+        .set_attr(&file_io, "fileno", vm.ctx.new_int(updated.unwrap()));
     Ok(vm.get_none())
 }
 
@@ -201,16 +202,16 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     //unsafe block - creates file handle from the UNIX file descriptor
     //raw_fd is supported on UNIX only. This will need to be extended
     //to support windows - i.e. raw file_handles
-    let mut handle = unsafe { File::from_raw_fd(raw_fd) };
+    let mut handle = os::rust_file(raw_fd);
 
     match obj.borrow_mut().payload {
         PyObjectPayload::Bytes { ref mut value } => {
             match handle.write(&value[..]) {
                 Ok(len) => {
                     //reset raw fd on the FileIO object
-                    let new_handle = handle.into_raw_fd().to_bigint();
+                    let updated = os::raw_file_number(handle).to_bigint();
                     vm.ctx
-                        .set_attr(&file_io, "fileno", vm.ctx.new_int(new_handle.unwrap()));
+                        .set_attr(&file_io, "fileno", vm.ctx.new_int(updated.unwrap()));
 
                     //return number of bytes written
                     Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
@@ -279,7 +280,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mut raw_modes = HashSet::new();
 
-    // Add some books.
+    //add raw modes
     raw_modes.insert("a".to_string());
     raw_modes.insert("r".to_string());
     raw_modes.insert("x".to_string());
