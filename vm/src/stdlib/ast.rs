@@ -238,7 +238,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
     node
 }
 
-fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> PyObjectRef {
+fn expressions_to_ast(ctx: &PyContext, expressions: &[ast::Expression]) -> PyObjectRef {
     let mut py_expression_nodes = vec![];
     for expression in expressions {
         py_expression_nodes.push(expression_to_ast(ctx, expression));
