@@ -818,6 +818,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "TypeError", ctx.exceptions.type_error.clone());
     ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
     ctx.set_attr(&py_mod, "IndexError", ctx.exceptions.index_error.clone());
+    ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
 
     py_mod
 }
