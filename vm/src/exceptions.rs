@@ -108,7 +108,6 @@ impl ExceptionZoo {
         dict_type: &PyObjectRef,
     ) -> Self {
         // Sorted By Hierarchy then alphabetized.
-
         let base_exception_type =
             create_type("BaseException", &type_type, &object_type, &dict_type);
 
@@ -116,21 +115,13 @@ impl ExceptionZoo {
 
         let assertion_error =
             create_type("AssertionError", &type_type, &exception_type, &dict_type);
-        let attribute_error = create_type(
-            "AttributeError",
-            &type_type,
-            &exception_type.clone(),
-            &dict_type,
-        );
+        let attribute_error =
+            create_type("AttributeError", &type_type, &exception_type, &dict_type);
         let import_error = create_type("ImportError", &type_type, &exception_type, &dict_type);
-        let index_error = create_type(
-            "IndexError",
-            &type_type,
-            &exception_type.clone(),
-            &dict_type,
-        );
-        let key_error = create_type("KeyError", &type_type, &exception_type.clone(), &dict_type);
-        let name_error = create_type("NameError", &type_type, &exception_type.clone(), &dict_type);
+        let index_error = create_type("IndexError", &type_type, &exception_type, &dict_type);
+        let key_error = create_type("KeyError", &type_type, &exception_type, &dict_type);
+        let name_error = create_type("NameError", &type_type, &exception_type, &dict_type);
+        let os_error = create_type("OSError", &type_type, &exception_type, &dict_type);
         let runtime_error = create_type("RuntimeError", &type_type, &exception_type, &dict_type);
         let stop_iteration = create_type("StopIteration", &type_type, &exception_type, &dict_type);
         let syntax_error = create_type("SyntaxError", &type_type, &exception_type, &dict_type);
@@ -138,8 +129,6 @@ impl ExceptionZoo {
         let value_error = create_type("ValueError", &type_type, &exception_type, &dict_type);
         let os_error = create_type("OSError", &type_type, &exception_type.clone(), &dict_type);
 
-        let file_not_found_error =
-            create_type("FileNotFoundError", &type_type, &import_error, &dict_type);
         let module_not_found_error =
             create_type("ModuleNotFoundError", &type_type, &import_error, &dict_type);
         let not_implemented_error = create_type(
@@ -148,8 +137,10 @@ impl ExceptionZoo {
             &runtime_error,
             &dict_type,
         );
-        let permission_error =
-            create_type("PermissionError", &type_type, &import_error, &dict_type);
+
+        let file_not_found_error =
+            create_type("FileNotFoundError", &type_type, &os_error, &dict_type);
+        let permission_error = create_type("PermissionError", &type_type, &os_error, &dict_type);
 
         ExceptionZoo {
             assertion_error,
@@ -163,6 +154,7 @@ impl ExceptionZoo {
             module_not_found_error,
             name_error,
             not_implemented_error,
+            os_error,
             permission_error,
             runtime_error,
             stop_iteration,
