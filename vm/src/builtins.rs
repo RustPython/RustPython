@@ -304,24 +304,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_filter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(function, None), (iterable, None)]);
 
-    // TODO: process one element at a time from iterators.
-    let iterable = vm.extract_elements(iterable)?;
-
-    let mut new_items = vec![];
-    for element in iterable {
-        // apply function:
-        let args = PyFuncArgs {
-            args: vec![element.clone()],
-            kwargs: vec![],
-        };
-        let result = vm.invoke(function.clone(), args)?;
-        let result = objbool::boolval(vm, result)?;
-        if result {
-            new_items.push(element);
-        }
-    }
-
-    Ok(vm.ctx.new_list(new_items))
+    objiter::create_filter(vm, function, iterable)
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

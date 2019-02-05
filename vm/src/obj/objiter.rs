@@ -3,7 +3,8 @@
  */
 
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -23,6 +24,10 @@ pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult 
     // return Err(type_error);
 }
 
+pub fn call_next(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
+    vm.call_method(iter_obj, "__next__", vec![])
+}
+
 /*
  * Helper function to retrieve the next object (or none) from an iterator.
  */
@@ -30,7 +35,7 @@ pub fn get_next_object(
     vm: &mut VirtualMachine,
     iter_obj: &PyObjectRef,
 ) -> Result<Option<PyObjectRef>, PyObjectRef> {
-    let next_obj: PyResult = vm.call_method(iter_obj, "__next__", vec![]);
+    let next_obj: PyResult = call_next(vm, iter_obj);
 
     match next_obj {
         Ok(value) => Ok(Some(value)),
@@ -60,6 +65,38 @@ pub fn get_all(
     }
     Ok(elements)
 }
+
+// Should filter/map have their own class?
+pub fn create_filter(
+    vm: &mut VirtualMachine,
+    predicate: &PyObjectRef,
+    iterable: &PyObjectRef,
+) -> PyResult {
+    let iterator = get_iter(vm, iterable)?;
+    let iter_obj = PyObject::new(
+        PyObjectPayload::FilterIterator {
+            predicate: predicate.clone(),
+            iterator,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
+
+//pub fn create_map(vm: &mut VirtualMachine,
+//                  mapper: &PyObjectRef,
+//                  iterators: &PyObjectRef) -> PyResult {
+//    let iter_obj = PyObject::new(
+//        PyObjectPayload::MapIterator {
+//            predicate: predicate.clone(),
+//            iterator: iterator.clone(),
+//        },
+//        vm.ctx.iter_type(),
+//    );
+//
+//    Ok(iter_obj)
+//}
 
 // Sequence iterator:
 fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -100,43 +137,67 @@ fn iter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
-    if let PyObjectPayload::Iterator {
-        ref mut position,
-        iterated_obj: ref mut iterated_obj_ref,
-    } = iter.borrow_mut().payload
-    {
-        let iterated_obj = iterated_obj_ref.borrow_mut();
-        match iterated_obj.payload {
-            PyObjectPayload::Sequence { ref elements } => {
-                if *position < elements.len() {
-                    let obj_ref = elements[*position].clone();
-                    *position += 1;
-                    Ok(obj_ref)
-                } else {
-                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-                    let stop_iteration =
-                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-                    Err(stop_iteration)
+    let ref mut payload = iter.borrow_mut().payload;
+    match payload {
+        PyObjectPayload::Iterator {
+            ref mut position,
+            iterated_obj: ref mut iterated_obj_ref,
+        } => {
+            let iterated_obj = iterated_obj_ref.borrow_mut();
+            match iterated_obj.payload {
+                PyObjectPayload::Sequence { ref elements } => {
+                    if *position < elements.len() {
+                        let obj_ref = elements[*position].clone();
+                        *position += 1;
+                        Ok(obj_ref)
+                    } else {
+                        let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+                        let stop_iteration =
+                            vm.new_exception(stop_iteration_type, "End of iterator".to_string());
+                        Err(stop_iteration)
+                    }
                 }
-            }
 
-            PyObjectPayload::Range { ref range } => {
-                if let Some(int) = range.get(BigInt::from(*position)) {
-                    *position += 1;
-                    Ok(vm.ctx.new_int(int.to_bigint().unwrap()))
-                } else {
-                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-                    let stop_iteration =
-                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-                    Err(stop_iteration)
+                PyObjectPayload::Range { ref range } => {
+                    if let Some(int) = range.get(BigInt::from(*position)) {
+                        *position += 1;
+                        Ok(vm.ctx.new_int(int.to_bigint().unwrap()))
+                    } else {
+                        let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+                        let stop_iteration =
+                            vm.new_exception(stop_iteration_type, "End of iterator".to_string());
+                        Err(stop_iteration)
+                    }
                 }
-            }
-            _ => {
-                panic!("NOT IMPL");
+                _ => {
+                    panic!("NOT IMPL");
+                }
             }
         }
-    } else {
-        panic!("NOT IMPL");
+        PyObjectPayload::FilterIterator {
+            ref mut predicate,
+            ref mut iterator,
+        } => {
+            loop {
+                let next_obj = call_next(vm, iterator)?;
+                if predicate.is(&vm.get_none()) {
+                    return Ok(next_obj);
+                }
+                let predicate_value = vm.invoke(
+                    predicate.clone(),
+                    PyFuncArgs {
+                        args: vec![next_obj.clone()],
+                        kwargs: vec![],
+                    },
+                )?; // What happens if the predicate raise StopIteration
+                if objbool::boolval(vm, predicate_value)? {
+                    return Ok(next_obj);
+                }
+            }
+        }
+        _ => {
+            panic!("NOT IMPL");
+        }
     }
 }
 

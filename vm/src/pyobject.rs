@@ -866,6 +866,14 @@ pub enum PyObjectPayload {
         position: usize,
         iterated_obj: PyObjectRef,
     },
+    FilterIterator {
+        predicate: PyObjectRef,
+        iterator: PyObjectRef,
+    },
+    MapIterator {
+        mapper: PyObjectRef,
+        iterators: Vec<PyObjectRef>,
+    },
     Slice {
         start: Option<i32>,
         stop: Option<i32>,
@@ -934,6 +942,8 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Range { .. } => write!(f, "range"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
+            PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),
+            PyObjectPayload::MapIterator { .. } => write!(f, "map"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
             PyObjectPayload::Function { .. } => write!(f, "function"),
@@ -1030,6 +1040,8 @@ impl PyObject {
                 position,
                 iterated_obj.borrow_mut().str()
             ),
+            PyObjectPayload::FilterIterator { .. } => format!("<filter>"),
+            PyObjectPayload::MapIterator { .. } => format!("<map>"),
         }
     }
 
