@@ -4,7 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
-use num_bigint::{BigInt, ToBigInt, Sign};
+use num_bigint::{BigInt, Sign, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 #[derive(Debug, Clone)]
@@ -20,10 +20,14 @@ impl RangeType {
     #[inline]
     pub fn try_len(&self) -> Option<usize> {
         match self.step.sign() {
-            Sign::Plus if self.start < self.end =>
-                ((&self.end - &self.start - 1usize) / &self.step).to_usize().map(|sz| sz + 1),
-            Sign::Minus if self.start > self.end =>
-                ((&self.start - &self.end - 1usize) / (-&self.step)).to_usize().map(|sz| sz + 1),
+            Sign::Plus if self.start < self.end => ((&self.end - &self.start - 1usize)
+                / &self.step)
+                .to_usize()
+                .map(|sz| sz + 1),
+            Sign::Minus if self.start > self.end => ((&self.start - &self.end - 1usize)
+                / (-&self.step))
+                .to_usize()
+                .map(|sz| sz + 1),
             _ => Some(0),
         }
     }
@@ -56,7 +60,7 @@ impl RangeType {
             None
         }
     }
-    
+
     #[inline]
     pub fn repr(&self) -> String {
         if self.step == BigInt::one() {

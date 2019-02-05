@@ -371,11 +371,13 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
 
-    let v1 = get_value(i).to_f64()
+    let v1 = get_value(i)
+        .to_f64()
         .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?;
 
     let v2 = if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        get_value(i2).to_f64()
+        get_value(i2)
+            .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         objfloat::get_value(i2)
@@ -386,9 +388,7 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if v2 == 0.0 {
         Err(vm.new_zero_division_error("integer division by zero".to_string()))
     } else {
-        Ok(vm
-            .ctx
-            .new_float(v1 / v2))
+        Ok(vm.ctx.new_float(v1 / v2))
     }
 }
 

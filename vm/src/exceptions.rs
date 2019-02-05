@@ -135,8 +135,12 @@ impl ExceptionZoo {
 
         let overflow_error =
             create_type("OverflowError", &type_type, &arithmetic_error, &dict_type);
-        let zero_division_error =
-            create_type("ZeroDivisionError", &type_type, &arithmetic_error, &dict_type);
+        let zero_division_error = create_type(
+            "ZeroDivisionError",
+            &type_type,
+            &arithmetic_error,
+            &dict_type,
+        );
 
         let module_not_found_error =
             create_type("ModuleNotFoundError", &type_type, &import_error, &dict_type);
