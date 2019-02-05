@@ -90,13 +90,10 @@ pub fn get_item(
                 Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
             }
         },
-        PyObjectPayload::Slice {
-            start: _,
-            stop: _,
-            step: _,
-        } => Ok(PyObject::new(
+
+        PyObjectPayload::Slice { .. } => Ok(PyObject::new(
             match &(sequence.borrow()).payload {
-                PyObjectPayload::Sequence { elements: _ } => PyObjectPayload::Sequence {
+                PyObjectPayload::Sequence { .. } => PyObjectPayload::Sequence {
                     elements: elements.to_vec().get_slice_items(&subscript),
                 },
                 ref payload => panic!("sequence get_item called for non-sequence: {:?}", payload),
