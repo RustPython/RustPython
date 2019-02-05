@@ -9,10 +9,10 @@ thread_local! {
     static STORED_VMS: RefCell<HashMap<String, VirtualMachine>> = RefCell::default();
 }
 
-#[wasm_bindgen(js_name = vms)]
+#[wasm_bindgen(js_name = vmStore)]
 pub struct VMStore;
 
-#[wasm_bindgen(js_class = vms)]
+#[wasm_bindgen(js_class = vmStore)]
 impl VMStore {
     pub fn init(id: String) -> WASMVirtualMachine {
         STORED_VMS.with(|cell| {
