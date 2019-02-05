@@ -18,8 +18,8 @@ assert -a == -4
 assert +a == 4
 
 import math
-assert(math.exp(2) == math.exp(2.0))
-assert(math.exp(True) == math.exp(1.0))
+assert(math.sin(2) == math.sin(2.0))
+assert(math.sin(True) == math.sin(1.0))
 
 class Conversible():
     def __float__(self):
