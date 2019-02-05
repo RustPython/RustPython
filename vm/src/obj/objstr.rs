@@ -1015,13 +1015,19 @@ fn to_graphemes<S: AsRef<str>>(value: S) -> Vec<String> {
 
 pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
     if objtype::isinstance(&b, &vm.ctx.int_type()) {
-        let pos = objint::get_value(&b).to_i32().unwrap();
-        let graphemes = to_graphemes(value);
-        let idx = graphemes.get_pos(pos);
-        graphemes
-            .get(idx)
-            .map(|c| vm.new_str(c.to_string()))
-            .ok_or(vm.new_index_error("string index out of range".to_string()))
+        match objint::get_value(&b).to_i32() {
+            Some(pos) => {
+                let graphemes = to_graphemes(value);
+                let idx = graphemes.get_pos(pos);
+                graphemes
+                    .get(idx)
+                    .map(|c| vm.new_str(c.to_string()))
+                    .ok_or(vm.new_index_error("string index out of range".to_string()))
+            }
+            None => {
+                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
+            }
+        }
     } else {
         match &(*b.borrow()).payload {
             &PyObjectPayload::Slice {

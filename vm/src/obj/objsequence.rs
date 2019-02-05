@@ -76,17 +76,20 @@ pub fn get_item(
     subscript: PyObjectRef,
 ) -> PyResult {
     match &(subscript.borrow()).payload {
-        PyObjectPayload::Integer { value } => {
-            let value = value.to_i32().unwrap();
-            let pos_index = elements.to_vec().get_pos(value);
-            if pos_index < elements.len() {
-                let obj = elements[pos_index].clone();
-                Ok(obj)
-            } else {
-                let index_error = vm.context().exceptions.index_error.clone();
-                Err(vm.new_exception(index_error, "Index out of bounds!".to_string()))
+        PyObjectPayload::Integer { value } => match value.to_i32() {
+            Some(value) => {
+                let pos_index = elements.to_vec().get_pos(value);
+                if pos_index < elements.len() {
+                    let obj = elements[pos_index].clone();
+                    Ok(obj)
+                } else {
+                    Err(vm.new_index_error("Index out of bounds!".to_string()))
+                }
             }
-        }
+            None => {
+                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
+            }
+        },
         PyObjectPayload::Slice {
             start: _,
             stop: _,
