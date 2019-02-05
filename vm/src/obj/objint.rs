@@ -506,7 +506,6 @@ fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref int_type = context.int_type;
     let int_doc = "int(x=0) -> integer
 int(x, base=10) -> integer
 
@@ -521,6 +520,8 @@ by whitespace.  The base defaults to 10.  Valid bases are 0 and 2-36.
 Base 0 means to interpret the base from the string as an integer literal.
 >>> int('0b100', base=0)
 4";
+    let int_type = &context.int_type;
+
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
     context.set_attr(&int_type, "__lt__", context.new_rustfunc(int_lt));
     context.set_attr(&int_type, "__le__", context.new_rustfunc(int_le));

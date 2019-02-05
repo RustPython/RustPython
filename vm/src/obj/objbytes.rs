@@ -14,7 +14,7 @@ use std::ops::Deref;
 
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
-    let ref bytes_type = context.bytes_type;
+    let bytes_type = &context.bytes_type;
     context.set_attr(bytes_type, "__eq__", context.new_rustfunc(bytes_eq));
     context.set_attr(bytes_type, "__hash__", context.new_rustfunc(bytes_hash));
     context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
