@@ -151,12 +151,10 @@ fn math_gamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if x.is_finite() {
         Ok(vm.ctx.new_float(gamma(x)))
+    } else if x.is_nan() || x.is_sign_positive() {
+        Ok(vm.ctx.new_float(x))
     } else {
-        if x.is_nan() || x.is_sign_positive() {
-            Ok(vm.ctx.new_float(x))
-        } else {
-            Ok(vm.ctx.new_float(std::f64::NAN))
-        }
+        Ok(vm.ctx.new_float(std::f64::NAN))
     }
 }
 
@@ -166,12 +164,10 @@ fn math_lgamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if x.is_finite() {
         Ok(vm.ctx.new_float(ln_gamma(x)))
+    } else if x.is_nan() {
+        Ok(vm.ctx.new_float(x))
     } else {
-        if x.is_nan() {
-            Ok(vm.ctx.new_float(x))
-        } else {
-            Ok(vm.ctx.new_float(std::f64::INFINITY))
-        }
+        Ok(vm.ctx.new_float(std::f64::INFINITY))
     }
 }
 
