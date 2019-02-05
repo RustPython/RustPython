@@ -796,6 +796,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "Exception", ctx.exceptions.exception_type.clone());
     ctx.set_attr(
         &py_mod,
+        "ArithmeticError",
+        ctx.exceptions.arithmetic_error.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
         "AssertionError",
         ctx.exceptions.assertion_error.clone(),
     );
@@ -805,6 +810,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         ctx.exceptions.attribute_error.clone(),
     );
     ctx.set_attr(&py_mod, "NameError", ctx.exceptions.name_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "OverflowError",
+        ctx.exceptions.overflow_error.clone(),
+    );
     ctx.set_attr(
         &py_mod,
         "RuntimeError",
@@ -819,6 +829,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
     ctx.set_attr(&py_mod, "IndexError", ctx.exceptions.index_error.clone());
     ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "ZeroDivisionError",
+        ctx.exceptions.zero_division_error.clone(),
+    );
 
     py_mod
 }
