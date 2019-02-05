@@ -16,6 +16,12 @@ assert import_target.Y == aliased_other_func()
 
 assert STAR_IMPORT == '123'
 
+try:
+    from import_target import func, unknown_name
+    raise AssertionError('`unknown_name` does not cause an exception')
+except:
+    pass
+
 # TODO: Once we can determine current directory, use that to construct this
 # path:
 #import sys
