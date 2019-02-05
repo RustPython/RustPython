@@ -95,6 +95,15 @@ fn int_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = !BigInt::from_pyobj(zelf).is_zero();
     Ok(vm.ctx.new_bool(result))
 }
+
+fn int_invert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
+
+    let result = !BigInt::from_pyobj(zelf);
+
+    Ok(vm.ctx.new_int(result))
+}
+
 fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -533,6 +542,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&int_type, "__truediv__", context.new_rustfunc(int_truediv));
     context.set_attr(&int_type, "__xor__", context.new_rustfunc(int_xor));
     context.set_attr(&int_type, "__bool__", context.new_rustfunc(int_bool));
+    context.set_attr(&int_type, "__invert__", context.new_rustfunc(int_invert));
     context.set_attr(
         &int_type,
         "bit_length",
