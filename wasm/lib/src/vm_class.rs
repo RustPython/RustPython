@@ -1,12 +1,27 @@
+use convert;
 use js_sys::TypeError;
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::{pyobject::PyObjectRef, VirtualMachine};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
+struct StoredVirtualMachine {
+    pub vm: VirtualMachine,
+    pub scope: PyObjectRef,
+}
+
+impl StoredVirtualMachine {
+    fn new() -> StoredVirtualMachine {
+        let mut vm = VirtualMachine::new();
+        let builtin = vm.get_builtin_scope();
+        let scope = vm.context().new_scope(Some(builtin));
+        StoredVirtualMachine { vm, scope }
+    }
+}
+
 // It's fine that it's thread local, since WASM doesn't even have threads yet
 thread_local! {
-    static STORED_VMS: RefCell<HashMap<String, VirtualMachine>> = RefCell::default();
+    static STORED_VMS: RefCell<HashMap<String, StoredVirtualMachine>> = RefCell::default();
 }
 
 #[wasm_bindgen(js_name = vmStore)]
@@ -18,7 +33,7 @@ impl VMStore {
         STORED_VMS.with(|cell| {
             let mut vms = cell.borrow_mut();
             if !vms.contains_key(&id) {
-                vms.insert(id.clone(), VirtualMachine::new());
+                vms.insert(id.clone(), StoredVirtualMachine::new());
             }
         });
         WASMVirtualMachine { id }
@@ -35,9 +50,9 @@ impl VMStore {
         })
     }
 
-    pub fn destroy(id: String) {
+    pub fn destroy(id: &String) {
         STORED_VMS.with(|cell| {
-            cell.borrow_mut().remove(&id);
+            cell.borrow_mut().remove(id);
         });
     }
 
@@ -68,11 +83,24 @@ impl WASMVirtualMachine {
         }
     }
 
-    pub fn destroy(self) -> Result<(), JsValue> {
+    pub fn destroy(&self) -> Result<(), JsValue> {
         self.assert_valid()?;
-        VMStore::destroy(self.id);
+        VMStore::destroy(&self.id);
         Ok(())
     }
 
-    // TODO: Add actually useful methods
+    #[wasm_bindgen(js_name = addToScope)]
+    pub fn add_to_scope(&self, name: String, value: JsValue) -> Result<(), JsValue> {
+        self.assert_valid()?;
+        STORED_VMS.with(|cell| {
+            let mut vms = cell.borrow_mut();
+            let StoredVirtualMachine {
+                ref mut vm,
+                ref mut scope,
+            } = vms.get_mut(&self.id).unwrap();
+            let value = convert::js_to_py(vm, value);
+            vm.ctx.set_attr(scope, &name, value);
+        });
+        Ok(())
+    }
 }
