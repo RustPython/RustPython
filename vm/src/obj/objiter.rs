@@ -9,7 +9,7 @@ use super::super::vm::VirtualMachine;
 use super::objbool;
 // use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
-use num_bigint::ToBigInt;
+use num_bigint::{BigInt, ToBigInt};
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -121,7 +121,7 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             }
 
             PyObjectPayload::Range { ref range } => {
-                if let Some(int) = range.get(*position as i64) {
+                if let Some(int) = range.get(BigInt::from(*position)) {
                     *position += 1;
                     Ok(vm.ctx.new_int(int.to_bigint().unwrap()))
                 } else {
