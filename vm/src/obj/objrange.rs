@@ -4,36 +4,38 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
-use num_bigint::ToBigInt;
-use num_traits::ToPrimitive;
+use num_bigint::{BigInt, ToBigInt};
+use num_traits::{One, Signed, Zero};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct RangeType {
     // Unfortunately Rust's built in range type doesn't support things like indexing
     // or ranges where start > end so we need to roll our own.
-    pub start: i64,
-    pub end: i64,
-    pub step: i64,
+    pub start: BigInt,
+    pub end: BigInt,
+    pub step: BigInt,
 }
 
 impl RangeType {
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn len(&self) -> BigInt {
         if self.is_empty() {
-            0usize
+            BigInt::zero()
         } else {
-            let dist = (self.end - self.start).abs();
-            if dist % self.step.abs() == 0 {
-                (dist / self.step.abs()) as usize
+            let dist = (&self.end - &self.start).abs();
+            if (&dist % self.step.abs()).is_zero() {
+                dist / self.step.abs()
             } else {
-                (dist / self.step.abs() + 1) as usize
+                dist / self.step.abs() + 1
             }
         }
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        (self.start <= self.end && self.step < 0) || (self.start >= self.end && self.step > 0)
+        (self.start == self.end)
+            || (self.start < self.end && self.step < BigInt::zero())
+            || (self.start > self.end && self.step > BigInt::zero())
     }
 
     #[inline]
@@ -42,12 +44,26 @@ impl RangeType {
     }
 
     #[inline]
-    pub fn get(&self, index: i64) -> Option<i64> {
-        let result = self.start + self.step * index;
+    pub fn contains(&self, val: &BigInt) -> bool {
+        !self.is_empty()
+            && ((self.forward() && self.start <= *val && *val < self.end)
+                || (!self.forward() && *val <= self.start && self.end < *val))
+    }
 
-        if self.forward() && !self.is_empty() && result < self.end {
-            Some(result)
-        } else if !self.forward() && !self.is_empty() && result > self.end {
+    #[inline]
+    pub fn reversed(&self) -> RangeType {
+        RangeType {
+            start: self.end.clone(),
+            end: self.start.clone(),
+            step: -(self.step.clone()),
+        }
+    }
+
+    #[inline]
+    pub fn get(&self, index: &BigInt) -> Option<BigInt> {
+        let result = &self.start + &self.step * index;
+
+        if self.contains(&result) {
             Some(result)
         } else {
             None
@@ -79,24 +95,24 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let start = if let Some(_) = second {
-        objint::get_value(first).to_i64().unwrap()
+        objint::get_value(first)
     } else {
-        0i64
+        BigInt::zero()
     };
 
     let end = if let Some(pyint) = second {
-        objint::get_value(pyint).to_i64().unwrap()
+        objint::get_value(pyint)
     } else {
-        objint::get_value(first).to_i64().unwrap()
+        objint::get_value(first)
     };
 
     let step = if let Some(pyint) = step {
-        objint::get_value(pyint).to_i64().unwrap()
+        objint::get_value(pyint)
     } else {
-        1i64
+        BigInt::one()
     };
 
-    if step == 0 {
+    if step.is_zero() {
         Err(vm.new_value_error("range with 0 step size".to_string()))
     } else {
         Ok(PyObject::new(
@@ -137,7 +153,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.range_type())), (subscript, None)]
     );
-    let zrange = if let PyObjectPayload::Range { range } = zelf.borrow().payload {
+    let zrange = if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
         range.clone()
     } else {
         unreachable!()
@@ -145,7 +161,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match subscript.borrow().payload {
         PyObjectPayload::Integer { ref value } => {
-            if let Some(int) = zrange.get(value.to_i64().unwrap()) {
+            if let Some(int) = zrange.get(value) {
                 Ok(PyObject::new(
                     PyObjectPayload::Integer {
                         value: int.to_bigint().unwrap(),
@@ -158,18 +174,18 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
         PyObjectPayload::Slice { start, stop, step } => {
             let new_start = if let Some(int) = start {
-                if let Some(i) = zrange.get(int.into()) {
-                    i as i64
+                if let Some(i) = zrange.get(&int.to_bigint().unwrap()) {
+                    i
                 } else {
-                    zrange.start
+                    zrange.start.clone()
                 }
             } else {
-                zrange.start
+                zrange.start.clone()
             };
 
             let new_end = if let Some(int) = stop {
-                if let Some(i) = zrange.get(int.into()) {
-                    i as i64
+                if let Some(i) = zrange.get(&int.to_bigint().unwrap()) {
+                    i
                 } else {
                     zrange.end
                 }

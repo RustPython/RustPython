@@ -121,7 +121,7 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             }
 
             PyObjectPayload::Range { ref range } => {
-                if let Some(int) = range.get(*position as i64) {
+                if let Some(int) = range.get(&position.to_bigint().unwrap()) {
                     *position += 1;
                     Ok(vm.ctx.new_int(int.to_bigint().unwrap()))
                 } else {
