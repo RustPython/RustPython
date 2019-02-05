@@ -1,6 +1,6 @@
 use convert;
 use js_sys::TypeError;
-use rustpython_vm::{pyobject::PyObjectRef, VirtualMachine};
+use rustpython_vm::{compile, pyobject::PyObjectRef, VirtualMachine};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -50,9 +50,9 @@ impl VMStore {
         })
     }
 
-    pub fn destroy(id: &String) {
+    pub fn destroy(id: String) {
         STORED_VMS.with(|cell| {
-            cell.borrow_mut().remove(id);
+            cell.borrow_mut().remove(&id);
         });
     }
 
@@ -85,7 +85,7 @@ impl WASMVirtualMachine {
 
     pub fn destroy(&self) -> Result<(), JsValue> {
         self.assert_valid()?;
-        VMStore::destroy(&self.id);
+        VMStore::destroy(self.id.clone());
         Ok(())
     }
 
@@ -99,8 +99,26 @@ impl WASMVirtualMachine {
                 ref mut scope,
             } = vms.get_mut(&self.id).unwrap();
             let value = convert::js_to_py(vm, value);
-            vm.ctx.set_attr(scope, &name, value);
-        });
-        Ok(())
+            vm.ctx.set_item(scope, &name, value);
+            Ok(())
+        })
+    }
+
+    pub fn run(&self, mut source: String) -> Result<JsValue, JsValue> {
+        self.assert_valid()?;
+        STORED_VMS.with(|cell| {
+            let mut vms = cell.borrow_mut();
+            let StoredVirtualMachine {
+                ref mut vm,
+                ref mut scope,
+            } = vms.get_mut(&self.id).unwrap();
+            source.push('\n');
+            let code = compile::compile(vm, &source, compile::Mode::Single, None)
+                .map_err(|err| convert::py_str_err(vm, &err))?;
+            let result = vm
+                .run_code_obj(code, scope.clone())
+                .map_err(|err| convert::py_str_err(vm, &err))?;
+            Ok(convert::py_to_js(vm, result))
+        })
     }
 }

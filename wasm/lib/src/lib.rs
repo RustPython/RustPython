@@ -15,6 +15,15 @@ use wasm_bindgen::prelude::*;
 
 pub use vm_class::*;
 
+#[cfg(debug_assertions)]
+extern crate console_error_panic_hook;
+
+#[cfg(debug_assertions)]
+#[wasm_bindgen(start)]
+pub fn setup_console_error() {
+    console_error_panic_hook::set_once();
+}
+
 // Hack to comment out wasm-bindgen's generated typescript definitons
 #[wasm_bindgen(typescript_custom_section)]
 const TS_CMT_START: &'static str = "/*";
