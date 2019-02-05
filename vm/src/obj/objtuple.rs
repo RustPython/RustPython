@@ -47,7 +47,7 @@ fn tuple_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         seq_gt(vm, &zelf, &other)?
     } else {
         return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '<'",
+            "Cannot compare {} and {} using '>'",
             zelf.borrow(),
             other.borrow()
         )));
@@ -69,7 +69,7 @@ fn tuple_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         seq_ge(vm, &zelf, &other)?
     } else {
         return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '<'",
+            "Cannot compare {} and {} using '>='",
             zelf.borrow(),
             other.borrow()
         )));
@@ -91,7 +91,7 @@ fn tuple_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         seq_le(vm, &zelf, &other)?
     } else {
         return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '<'",
+            "Cannot compare {} and {} using '<='",
             zelf.borrow(),
             other.borrow()
         )));
