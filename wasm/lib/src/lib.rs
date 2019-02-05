@@ -123,7 +123,7 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
         source.push('\n');
     }
 
-    let code_obj = compile::compile(vm, &source, &compile::Mode::Exec, "<string>".to_string())?;
+    let code_obj = compile::compile(&source, &compile::Mode::Exec, "<string>".to_string(), vm.ctx.code_type())?;
 
     vm.run_code_obj(code_obj, vars)
 }

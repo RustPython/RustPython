@@ -1,5 +1,4 @@
 //!
-//!
 //! Take an AST and transform it into bytecode
 //!
 //! Inspirational code:
@@ -7,8 +6,8 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use super::bytecode::{self, CallType, CodeObject, Instruction};
-use super::pyobject::PyResult;
-use super::vm::VirtualMachine;
+use super::error::CompileError;
+use super::pyobject::{PyObject, PyObjectPayload, PyObjectRef};
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
@@ -21,37 +20,37 @@ struct Compiler {
 
 /// Compile a given sourcecode into a bytecode object.
 pub fn compile(
-    vm: &mut VirtualMachine,
     source: &str,
     mode: &Mode,
     source_path: String,
-) -> PyResult {
+    code_type: PyObjectRef,
+) -> Result<PyObjectRef, CompileError> {
     let mut compiler = Compiler::new();
-    compiler.source_path = Some(source_path.clone());
-    compiler.push_new_code_object(source_path, "<module>".to_string());
-    let syntax_error = vm.context().exceptions.syntax_error.clone();
-    let result = match mode {
-        Mode::Exec => match parser::parse_program(source) {
-            Ok(ast) => compiler.compile_program(&ast),
-            Err(msg) => Err(msg),
-        },
-        Mode::Eval => match parser::parse_statement(source) {
-            Ok(statement) => compiler.compile_statement_eval(&statement),
-            Err(msg) => Err(msg),
-        },
-        Mode::Single => match parser::parse_program(source) {
-            Ok(ast) => compiler.compile_program_single(&ast),
-            Err(msg) => Err(msg),
-        },
-    };
+    compiler.source_path = Some(source_path);
+    compiler.push_new_code_object("<module>".to_string());
 
-    if let Err(msg) = result {
-        return Err(vm.new_exception(syntax_error.clone(), msg));
-    }
+    match mode {
+        Mode::Exec => {
+            let ast = parser::parse_program(source).map_err(|err| CompileError::Parse(err))?;
+            compiler.compile_program(&ast)
+        }
+        Mode::Eval => {
+            let statement =
+                parser::parse_statement(source).map_err(|err| CompileError::Parse(err))?;
+            compiler.compile_statement_eval(&statement)
+        }
+        Mode::Single => {
+            let ast = parser::parse_program(source).map_err(|err| CompileError::Parse(err))?;
+            compiler.compile_program_single(&ast)
+        }
+    }?;
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(vm.ctx.new_code_object(code))
+    Ok(PyObject::new(
+        PyObjectPayload::Code { code: code },
+        code_type,
+    ))
 }
 
 pub enum Mode {
@@ -78,14 +77,14 @@ impl Compiler {
         }
     }
 
-    fn push_new_code_object(&mut self, source_path: String, obj_name: String) {
+    fn push_new_code_object(&mut self, obj_name: String) {
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             Vec::new(),
             None,
             Vec::new(),
             None,
-            source_path.clone(),
+            self.source_path.clone().unwrap(),
             line_number,
             obj_name,
         ));
@@ -95,7 +94,7 @@ impl Compiler {
         self.code_object_stack.pop().unwrap()
     }
 
-    fn compile_program(&mut self, program: &ast::Program) -> Result<(), String> {
+    fn compile_program(&mut self, program: &ast::Program) -> Result<(), CompileError> {
         let size_before = self.code_object_stack.len();
         self.compile_statements(&program.statements)?;
         assert!(self.code_object_stack.len() == size_before);
@@ -108,7 +107,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_program_single(&mut self, program: &ast::Program) -> Result<(), String> {
+    fn compile_program_single(&mut self, program: &ast::Program) -> Result<(), CompileError> {
         for statement in &program.statements {
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
@@ -125,24 +124,30 @@ impl Compiler {
     }
 
     // Compile statement in eval mode:
-    fn compile_statement_eval(&mut self, statement: &ast::LocatedStatement) -> Result<(), String> {
+    fn compile_statement_eval(
+        &mut self,
+        statement: &ast::LocatedStatement,
+    ) -> Result<(), CompileError> {
         if let ast::Statement::Expression { ref expression } = statement.node {
             self.compile_expression(expression)?;
             self.emit(Instruction::ReturnValue);
             Ok(())
         } else {
-            Err("Expecting expression, got statement".to_string())
+            Err(CompileError::ExpectExpr)
         }
     }
 
-    fn compile_statements(&mut self, statements: &[ast::LocatedStatement]) -> Result<(), String> {
+    fn compile_statements(
+        &mut self,
+        statements: &[ast::LocatedStatement],
+    ) -> Result<(), CompileError> {
         for statement in statements {
             self.compile_statement(statement)?
         }
         Ok(())
     }
 
-    fn compile_statement(&mut self, statement: &ast::LocatedStatement) -> Result<(), String> {
+    fn compile_statement(&mut self, statement: &ast::LocatedStatement) -> Result<(), CompileError> {
         trace!("Compiling {:?}", statement);
         self.set_source_location(&statement.location);
 
@@ -627,7 +632,7 @@ impl Compiler {
                             self.emit(Instruction::DeleteSubscript);
                         }
                         _ => {
-                            return Err("Invalid delete statement".to_string());
+                            return Err(CompileError::Delete);
                         }
                     }
                 }
@@ -643,7 +648,7 @@ impl Compiler {
         &mut self,
         name: &str,
         args: &ast::Parameters,
-    ) -> Result<bytecode::FunctionOpArg, String> {
+    ) -> Result<bytecode::FunctionOpArg, CompileError> {
         let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
@@ -676,7 +681,10 @@ impl Compiler {
         Ok(flags)
     }
 
-    fn prepare_decorators(&mut self, decorator_list: &[ast::Expression]) -> Result<(), String> {
+    fn prepare_decorators(
+        &mut self,
+        decorator_list: &[ast::Expression],
+    ) -> Result<(), CompileError> {
         for decorator in decorator_list {
             self.compile_expression(decorator)?;
         }
@@ -692,7 +700,7 @@ impl Compiler {
         }
     }
 
-    fn compile_store(&mut self, target: &ast::Expression) -> Result<(), String> {
+    fn compile_store(&mut self, target: &ast::Expression) -> Result<(), CompileError> {
         match target {
             ast::Expression::Identifier { name } => {
                 self.emit(Instruction::StoreName {
@@ -717,7 +725,7 @@ impl Compiler {
                 for (i, element) in elements.iter().enumerate() {
                     if let ast::Expression::Starred { .. } = element {
                         if seen_star {
-                            return Err("two starred expressions in assignment".to_string());
+                            return Err(CompileError::StarArgs);
                         } else {
                             seen_star = true;
                             self.emit(Instruction::UnpackEx {
@@ -743,9 +751,10 @@ impl Compiler {
                 }
             }
             _ => {
-                return Err(format!("Cannot store value into: {:?}", target));
+                return Err(CompileError::Assign(format!("{:?}", target)));
             }
         }
+
         Ok(())
     }
 
@@ -774,7 +783,7 @@ impl Compiler {
         true_label: Option<Label>,
         false_label: Option<Label>,
         context: EvalContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), CompileError> {
         // Compile expression for test, and jump to label if false
         match expression {
             ast::Expression::BoolOp { a, op, b } => match op {
@@ -828,7 +837,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), String> {
+    fn compile_expression(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
         trace!("Compiling {:?}", expression);
         match expression {
             ast::Expression::Call {
@@ -1040,7 +1049,7 @@ impl Compiler {
         function: &ast::Expression,
         args: &[ast::Expression],
         keywords: &[ast::Keyword],
-    ) -> Result<(), String> {
+    ) -> Result<(), CompileError> {
         self.compile_expression(function)?;
         let count = args.len() + keywords.len();
 
@@ -1125,7 +1134,7 @@ impl Compiler {
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(&mut self, elements: &[ast::Expression]) -> Result<bool, String> {
+    fn gather_elements(&mut self, elements: &[ast::Expression]) -> Result<bool, CompileError> {
         // First determine if we have starred elements:
         let has_stars = elements.iter().any(|e| {
             if let ast::Expression::Starred { .. } = e {
@@ -1156,7 +1165,7 @@ impl Compiler {
         &mut self,
         kind: &ast::ComprehensionKind,
         generators: &[ast::Comprehension],
-    ) -> Result<(), String> {
+    ) -> Result<(), CompileError> {
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
@@ -1364,7 +1373,8 @@ mod tests {
     use rustpython_parser::parser;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
-        compiler.push_new_code_object("source_path".to_string(), "<module>".to_string());
+        compiler.source_path = source_path;
+        compiler.push_new_code_object("<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
         compiler.compile_program(&ast).unwrap();
         compiler.pop_code_object()
