@@ -4,7 +4,9 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objsequence::{get_elements, get_item, seq_equal, seq_mul, seq_ge, seq_gt, seq_le, seq_lt};
+use super::objsequence::{
+    get_elements, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
+};
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
