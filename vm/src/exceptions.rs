@@ -127,7 +127,6 @@ impl ExceptionZoo {
         let syntax_error = create_type("SyntaxError", &type_type, &exception_type, &dict_type);
         let type_error = create_type("TypeError", &type_type, &exception_type, &dict_type);
         let value_error = create_type("ValueError", &type_type, &exception_type, &dict_type);
-        let os_error = create_type("OSError", &type_type, &exception_type.clone(), &dict_type);
 
         let module_not_found_error =
             create_type("ModuleNotFoundError", &type_type, &import_error, &dict_type);
@@ -161,7 +160,6 @@ impl ExceptionZoo {
             syntax_error,
             type_error,
             value_error,
-            os_error,
         }
     }
 }
