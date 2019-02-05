@@ -84,19 +84,25 @@ pub fn create_filter(
     Ok(iter_obj)
 }
 
-//pub fn create_map(vm: &mut VirtualMachine,
-//                  mapper: &PyObjectRef,
-//                  iterators: &PyObjectRef) -> PyResult {
-//    let iter_obj = PyObject::new(
-//        PyObjectPayload::MapIterator {
-//            predicate: predicate.clone(),
-//            iterator: iterator.clone(),
-//        },
-//        vm.ctx.iter_type(),
-//    );
-//
-//    Ok(iter_obj)
-//}
+pub fn create_map(
+    vm: &mut VirtualMachine,
+    mapper: &PyObjectRef,
+    iterables: &[PyObjectRef],
+) -> PyResult {
+    let iterators = iterables
+        .into_iter()
+        .map(|iterable| get_iter(vm, iterable))
+        .collect::<Result<Vec<_>, _>>()?;
+    let iter_obj = PyObject::new(
+        PyObjectPayload::MapIterator {
+            mapper: mapper.clone(),
+            iterators,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
 
 // Sequence iterator:
 fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -194,6 +200,23 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     return Ok(next_obj);
                 }
             }
+        }
+        PyObjectPayload::MapIterator {
+            ref mut mapper,
+            ref mut iterators,
+        } => {
+            let next_objs = iterators
+                .iter()
+                .map(|iterator| call_next(vm, iterator))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            vm.invoke(
+                mapper.clone(),
+                PyFuncArgs {
+                    args: next_objs,
+                    kwargs: vec![],
+                },
+            )
         }
         _ => {
             panic!("NOT IMPL");

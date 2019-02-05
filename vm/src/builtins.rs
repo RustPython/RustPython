@@ -412,30 +412,14 @@ fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(function, None), (iter_target, None)]);
-    let iterator = objiter::get_iter(vm, iter_target)?;
-    let mut elements = vec![];
-    loop {
-        match vm.call_method(&iterator, "__next__", vec![]) {
-            Ok(v) => {
-                // Now apply function:
-                let mapped_value = vm.invoke(
-                    function.clone(),
-                    PyFuncArgs {
-                        args: vec![v],
-                        kwargs: vec![],
-                    },
-                )?;
-                elements.push(mapped_value);
-            }
-            Err(_) => break,
-        }
+    no_kwargs!(vm, args);
+    if args.args.len() < 2 {
+        Err(vm.new_type_error("map() must have at least two arguments.".to_owned()))
+    } else {
+        let function = &args.args[0];
+        let iterables = &args.args[1..];
+        objiter::create_map(vm, function, iterables)
     }
-
-    trace!("Mapped elements: {:?}", elements);
-
-    // TODO: when iterators are implemented, we can improve this function.
-    Ok(vm.ctx.new_list(elements))
 }
 
 fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -1,6 +1,9 @@
-assert list(filter(lambda x: ((x % 2) == 0), [0, 1, 2])) == [0, 2]
+a = list(map(str, [1, 2, 3]))
+assert a == ['1', '2', '3']
 
-assert list(filter(None, [0, 1, 2])) == [0, 1, 2]
+
+b = list(map(lambda x, y: x + y, [1, 2, 4], [3, 5]))
+assert b == [4, 7]
 
 
 # test infinite iterator
@@ -15,6 +18,6 @@ class Counter(object):
         return self
 
 
-it = filter(lambda x: ((x % 2) == 0), Counter())
+it = map(lambda x: x+1, Counter())
 assert next(it) == 2
-assert next(it) == 4
+assert next(it) == 3
