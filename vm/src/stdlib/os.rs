@@ -42,8 +42,8 @@ pub fn rust_file(raw_fileno: i64) -> File {
     use std::os::windows::io::FromRawHandle;
 
     //TODO: This is untested and (very) unsafe handling or
-    //raw pointers - This should be patched urgently by 
-    //comparison to the cpython handling of the equivalent fileno 
+    //raw pointers - This should be patched urgently by
+    //comparison to the cpython handling of the equivalent fileno
     //fields for windows
     unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
 }
