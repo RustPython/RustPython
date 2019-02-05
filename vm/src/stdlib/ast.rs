@@ -100,15 +100,9 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             ctx.set_attr(&node, "decorator_list", py_decorator_list);
             node
         }
-        ast::Statement::Continue => {
-            create_node(ctx, "Continue")
-        }
-        ast::Statement::Break => {
-            create_node(ctx, "Break")
-        }
-        ast::Statement::Pass => {
-            create_node(ctx, "Pass")
-        }
+        ast::Statement::Continue => create_node(ctx, "Continue"),
+        ast::Statement::Break => create_node(ctx, "Break"),
+        ast::Statement::Pass => create_node(ctx, "Pass"),
         ast::Statement::Assert { test, msg } => {
             let node = create_node(ctx, "Pass");
 
@@ -125,12 +119,8 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
         ast::Statement::Delete { targets } => {
             let node = create_node(ctx, "Delete");
 
-            let py_targets = ctx.new_tuple(
-                targets
-                    .iter()
-                    .map(|v| expression_to_ast(ctx, v))
-                    .collect(),
-            );
+            let py_targets =
+                ctx.new_tuple(targets.iter().map(|v| expression_to_ast(ctx, v)).collect());
             ctx.set_attr(&node, "targets", py_targets);
 
             node
@@ -139,12 +129,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             let node = create_node(ctx, "Return");
 
             let py_value = if let Some(value) = value {
-                ctx.new_tuple(
-                    value
-                        .iter()
-                        .map(|v| expression_to_ast(ctx, v))
-                        .collect(),
-                )
+                ctx.new_tuple(value.iter().map(|v| expression_to_ast(ctx, v)).collect())
             } else {
                 ctx.none()
             };

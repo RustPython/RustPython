@@ -63,10 +63,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         vec![]
     };
-    Ok(PyObject::new(
-        PyObjectPayload::Bytes { value },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(PyObjectPayload::Bytes { value }, cls.clone()))
 }
 
 fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
