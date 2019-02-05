@@ -18,3 +18,7 @@ assert int(-1).__bool__() == True
 assert int(0).__invert__() == -1
 assert int(-3).__invert__() == 2
 assert int(4).__invert__() == -5
+
+assert int(0).__ceil__() == 0
+assert int(-3).__ceil__() == -3
+assert int(4).__ceil__() == 4
