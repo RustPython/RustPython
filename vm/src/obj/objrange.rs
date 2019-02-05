@@ -4,7 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
-use num_bigint::{BigInt, ToBigInt};
+use num_bigint::{BigInt, ToBigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 #[derive(Debug, Clone)]
@@ -19,10 +19,13 @@ pub struct RangeType {
 impl RangeType {
     #[inline]
     pub fn len(&self) -> usize {
-        ((self.end.clone() - self.start.clone()) / self.step.clone())
-            .abs()
-            .to_usize()
-            .unwrap()
+        match self.step.sign() {
+            Sign::Plus if self.start < self.end =>
+                ((&self.end - &self.start - 1usize) / &self.step).to_usize().unwrap() + 1,
+            Sign::Minus if self.start > self.end =>
+                ((&self.start - &self.end - 1usize) / (-&self.step)).to_usize().unwrap() + 1,
+            _ => 0,
+        }
     }
 
     #[inline]
