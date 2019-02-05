@@ -64,9 +64,8 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
         ast::Statement::ClassDef {
             name,
             body,
-            bases: _,
-            keywords: _,
             decorator_list,
+            ..
         } => {
             let node = create_node(ctx, "ClassDef");
 
@@ -239,7 +238,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
     node
 }
 
-fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> PyObjectRef {
+fn expressions_to_ast(ctx: &PyContext, expressions: &[ast::Expression]) -> PyObjectRef {
     let mut py_expression_nodes = vec![];
     for expression in expressions {
         py_expression_nodes.push(expression_to_ast(ctx, expression));
@@ -249,11 +248,7 @@ fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> Py
 
 fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectRef {
     let node = match &expression {
-        ast::Expression::Call {
-            function,
-            args,
-            keywords: _,
-        } => {
+        ast::Expression::Call { function, args, .. } => {
             let node = create_node(ctx, "Call");
 
             let py_func_ast = expression_to_ast(ctx, function);
@@ -610,20 +605,23 @@ fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+    // TODO: maybe we can use some clever macro to generate this?
     let ast_mod = ctx.new_module("ast", ctx.new_scope(None));
+
     ctx.set_attr(&ast_mod, "parse", ctx.new_rustfunc(ast_parse));
+
     ctx.set_attr(
         &ast_mod,
         "Module",
         ctx.new_class("_ast.Module", ctx.object()),
     );
 
-    // TODO: maybe we can use some clever macro to generate this?
     ctx.set_attr(
         &ast_mod,
         "FunctionDef",
         ctx.new_class("_ast.FunctionDef", ctx.object()),
     );
     ctx.set_attr(&ast_mod, "Call", ctx.new_class("_ast.Call", ctx.object()));
+
     ast_mod
 }

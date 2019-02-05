@@ -34,7 +34,7 @@ fn import_uncached_module(
     let code_obj = compile::compile(
         vm,
         &source,
-        compile::Mode::Exec,
+        &compile::Mode::Exec,
         Some(filepath.to_str().unwrap().to_string()),
     )?;
     // trace!("Code object: {:?}", code_obj);
@@ -71,11 +71,17 @@ pub fn import(
     let module = import_module(vm, current_path, module_name)?;
     // If we're importing a symbol, look it up and use it, otherwise construct a module and return
     // that
-    let obj = match symbol {
-        Some(symbol) => module.get_item(symbol).unwrap(),
-        None => module,
-    };
-    Ok(obj)
+    if let Some(symbol) = symbol {
+        module.get_item(symbol).map_or_else(
+            || {
+                let import_error = vm.context().exceptions.import_error.clone();
+                Err(vm.new_exception(import_error, format!("cannot import name '{}'", symbol)))
+            },
+            |obj| Ok(obj),
+        )
+    } else {
+        Ok(module)
+    }
 }
 
 fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {

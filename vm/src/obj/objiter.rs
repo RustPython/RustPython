@@ -3,12 +3,13 @@
  */
 
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
 // use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
+use num_bigint::{BigInt, ToBigInt};
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -99,18 +100,30 @@ fn iter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
-    if let PyObjectKind::Iterator {
+    if let PyObjectPayload::Iterator {
         ref mut position,
-        iterated_obj: ref iterated_obj_ref,
-    } = iter.borrow_mut().kind
+        iterated_obj: ref mut iterated_obj_ref,
+    } = iter.borrow_mut().payload
     {
-        let iterated_obj = &*iterated_obj_ref.borrow_mut();
-        match iterated_obj.kind {
-            PyObjectKind::Sequence { ref elements } => {
+        let iterated_obj = iterated_obj_ref.borrow_mut();
+        match iterated_obj.payload {
+            PyObjectPayload::Sequence { ref elements } => {
                 if *position < elements.len() {
                     let obj_ref = elements[*position].clone();
                     *position += 1;
                     Ok(obj_ref)
+                } else {
+                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+                    let stop_iteration =
+                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
+                    Err(stop_iteration)
+                }
+            }
+
+            PyObjectPayload::Range { ref range } => {
+                if let Some(int) = range.get(BigInt::from(*position)) {
+                    *position += 1;
+                    Ok(vm.ctx.new_int(int.to_bigint().unwrap()))
                 } else {
                     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
                     let stop_iteration =
@@ -128,7 +141,7 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref iter_type = context.iter_type;
+    let iter_type = &context.iter_type;
     context.set_attr(
         &iter_type,
         "__contains__",

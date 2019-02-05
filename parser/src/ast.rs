@@ -65,9 +65,9 @@ pub enum Statement {
         value: Expression,
     },
     AugAssign {
-        target: Expression,
+        target: Box<Expression>,
         op: Operator,
-        value: Expression,
+        value: Box<Expression>,
     },
     Expression {
         expression: Expression,
@@ -221,7 +221,7 @@ pub enum Expression {
 
 /*
  * In cpython this is called arguments, but we choose parameters to
- * distuingish between function parameters and actual call arguments.
+ * distinguish between function parameters and actual call arguments.
  */
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameters {

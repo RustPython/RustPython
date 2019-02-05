@@ -1,6 +1,6 @@
 use super::super::format::{FormatParseError, FormatPart, FormatString};
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -11,9 +11,12 @@ use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 // rust's builtin to_lowercase isn't sufficient for casefold
 extern crate caseless;
+extern crate unicode_segmentation;
+
+use self::unicode_segmentation::UnicodeSegmentation;
 
 pub fn init(context: &PyContext) {
-    let ref str_type = context.str_type;
+    let str_type = &context.str_type;
     context.set_attr(&str_type, "__add__", context.new_rustfunc(str_add));
     context.set_attr(&str_type, "__eq__", context.new_rustfunc(str_eq));
     context.set_attr(
@@ -53,6 +56,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "isalnum", context.new_rustfunc(str_isalnum));
     context.set_attr(&str_type, "isnumeric", context.new_rustfunc(str_isnumeric));
     context.set_attr(&str_type, "isdigit", context.new_rustfunc(str_isdigit));
+    context.set_attr(&str_type, "isdecimal", context.new_rustfunc(str_isdecimal));
     context.set_attr(&str_type, "title", context.new_rustfunc(str_title));
     context.set_attr(&str_type, "swapcase", context.new_rustfunc(str_swapcase));
     context.set_attr(&str_type, "isalpha", context.new_rustfunc(str_isalpha));
@@ -96,7 +100,7 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
-    if let PyObjectKind::String { value } = &obj.borrow().kind {
+    if let PyObjectPayload::String { value } = &obj.borrow().payload {
         value.to_string()
     } else {
         panic!("Inner error getting str");
@@ -204,7 +208,7 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() == 0 {
+    if args.args.is_empty() {
         return Err(
             vm.new_type_error("descriptor 'format' of 'str' object needs an argument".to_string())
         );
@@ -234,9 +238,9 @@ fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn call_object_format(
     vm: &mut VirtualMachine,
     argument: PyObjectRef,
-    format_spec: &String,
+    format_spec: &str,
 ) -> PyResult {
-    let returned_type = vm.ctx.new_str(format_spec.clone());
+    let returned_type = vm.ctx.new_str(format_spec.to_string());
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
         let result_type = result.typ();
@@ -310,7 +314,7 @@ fn str_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn str_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let sv = get_value(s);
-    Ok(vm.ctx.new_int(sv.len().to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(sv.chars().count().to_bigint().unwrap()))
 }
 
 fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -446,12 +450,8 @@ fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         && !value.chars().nth(0).unwrap().is_digit(10)
     {
         for c in value.chars() {
-            if c != "_".chars().nth(0).unwrap() {
-                if !c.is_digit(10) {
-                    if !c.is_alphabetic() {
-                        is_identifier = false;
-                    }
-                }
+            if c != "_".chars().nth(0).unwrap() && !c.is_digit(10) && !c.is_alphabetic() {
+                is_identifier = false;
             }
         }
     } else {
@@ -938,6 +938,20 @@ fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(is_digit))
 }
 
+fn str_isdecimal(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
+
+    let value = get_value(&s);
+
+    let is_decimal = if !value.is_empty() {
+        value.chars().all(|c| c.is_ascii_digit())
+    } else {
+        false
+    };
+
+    Ok(vm.ctx.new_bool(is_decimal))
+}
+
 fn str_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -965,29 +979,56 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 impl PySliceableSequence for String {
     fn do_slice(&self, start: usize, stop: usize) -> Self {
-        self[start..stop].to_string()
+        to_graphemes(self)
+            .get(start..stop)
+            .map_or(String::default(), |c| c.join(""))
     }
+
     fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self {
-        self[start..stop].chars().step_by(step).collect()
+        if let Some(s) = to_graphemes(self).get(start..stop) {
+            return s
+                .iter()
+                .cloned()
+                .step_by(step)
+                .collect::<Vec<String>>()
+                .join("");
+        }
+        String::default()
     }
+
     fn len(&self) -> usize {
-        self.len()
+        to_graphemes(self).len()
     }
 }
 
+/// Convert a string-able `value` to a vec of graphemes
+/// represents the string according to user perceived characters
+fn to_graphemes<S: AsRef<str>>(value: S) -> Vec<String> {
+    UnicodeSegmentation::graphemes(value.as_ref(), true)
+        .map(String::from)
+        .collect()
+}
+
 pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
-    // let value = a
     if objtype::isinstance(&b, &vm.ctx.int_type()) {
-        let pos = objint::get_value(&b).to_i32().unwrap();
-        let idx = value.to_string().get_pos(pos);
-        Ok(vm.new_str(value[idx..idx + 1].to_string()))
+        match objint::get_value(&b).to_i32() {
+            Some(pos) => {
+                let graphemes = to_graphemes(value);
+                let idx = graphemes.get_pos(pos);
+                graphemes
+                    .get(idx)
+                    .map(|c| vm.new_str(c.to_string()))
+                    .ok_or(vm.new_index_error("string index out of range".to_string()))
+            }
+            None => {
+                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
+            }
+        }
     } else {
-        match &(*b.borrow()).kind {
-            &PyObjectKind::Slice {
-                start: _,
-                stop: _,
-                step: _,
-            } => Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string())),
+        match &(*b.borrow()).payload {
+            &PyObjectPayload::Slice { .. } => {
+                Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string()))
+            }
             _ => panic!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
                 value, b
@@ -1034,5 +1075,5 @@ fn make_title(s: &str) -> String {
             capitalize_char = true;
         }
     }
-    return titled_str;
+    titled_str
 }

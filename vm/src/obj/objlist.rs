@@ -1,11 +1,12 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
 use super::objsequence::{
-    get_elements, get_item, get_mut_elements, seq_equal, PySliceableSequence,
+    get_elements, get_item, get_mut_elements, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
+    PySliceableSequence,
 };
 use super::objstr;
 use super::objtype;
@@ -51,7 +52,7 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectKind::Sequence { elements: elements },
+        PyObjectPayload::Sequence { elements: elements },
         cls.clone(),
     ))
 }
@@ -70,6 +71,94 @@ fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         false
     };
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn list_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_lt(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn list_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_gt(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '>'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn list_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_ge(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '>='",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn list_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_le(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<='",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
     Ok(vm.ctx.new_bool(result))
 }
 
@@ -228,7 +317,7 @@ fn list_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
 
     let iter_obj = PyObject::new(
-        PyObjectKind::Iterator {
+        PyObjectPayload::Iterator {
             position: 0,
             iterated_obj: list.clone(),
         },
@@ -259,21 +348,24 @@ fn list_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let counter = objint::get_value(&product).to_usize().unwrap();
-
-    let elements = get_elements(list);
-    let current_len = elements.len();
-    let mut new_elements = Vec::with_capacity(counter * current_len);
-
-    for _ in 0..counter {
-        new_elements.extend(elements.clone());
-    }
+    let new_elements = seq_mul(&get_elements(list), product);
 
     Ok(vm.ctx.new_list(new_elements))
 }
 
+fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.list_type()))]);
+
+    let mut elements = get_mut_elements(zelf);
+    if let Some(result) = elements.pop() {
+        Ok(result)
+    } else {
+        Err(vm.new_index_error("pop from empty list".to_string()))
+    }
+}
+
 pub fn init(context: &PyContext) {
-    let ref list_type = context.list_type;
+    let list_type = &context.list_type;
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
     context.set_attr(
         &list_type,
@@ -281,6 +373,10 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(list_contains),
     );
     context.set_attr(&list_type, "__eq__", context.new_rustfunc(list_eq));
+    context.set_attr(&list_type, "__lt__", context.new_rustfunc(list_lt));
+    context.set_attr(&list_type, "__gt__", context.new_rustfunc(list_gt));
+    context.set_attr(&list_type, "__le__", context.new_rustfunc(list_le));
+    context.set_attr(&list_type, "__ge__", context.new_rustfunc(list_ge));
     context.set_attr(
         &list_type,
         "__getitem__",
@@ -303,4 +399,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "index", context.new_rustfunc(list_index));
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
+    context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));
 }

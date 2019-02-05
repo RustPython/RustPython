@@ -4,13 +4,13 @@
 
 use super::super::bytecode;
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
-    let ref code_type = context.code_type;
+    let code_type = &context.code_type;
     context.set_attr(code_type, "__new__", context.new_rustfunc(code_new));
     context.set_attr(code_type, "__repr__", context.new_rustfunc(code_repr));
 }
@@ -18,7 +18,7 @@ pub fn init(context: &PyContext) {
 /// Extract rust bytecode object from a python code object.
 pub fn copy_code(code_obj: &PyObjectRef) -> bytecode::CodeObject {
     let code_obj = code_obj.borrow();
-    if let PyObjectKind::Code { ref code } = code_obj.kind {
+    if let PyObjectPayload::Code { ref code } = code_obj.payload {
         code.clone()
     } else {
         panic!("Must be code obj");

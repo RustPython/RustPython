@@ -1,14 +1,125 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objsequence::{get_elements, get_item, seq_equal};
+use super::objsequence::{
+    get_elements, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
+};
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
 use std::hash::{Hash, Hasher};
+
+fn tuple_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_lt(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn tuple_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_gt(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '>'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn tuple_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_ge(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '>='",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn tuple_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_le(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<='",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn tuple_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let e1 = get_elements(zelf);
+        let e2 = get_elements(other);
+        let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();
+        Ok(vm.ctx.new_tuple(elements))
+    } else {
+        Err(vm.new_type_error(format!(
+            "Cannot add {} and {}",
+            zelf.borrow(),
+            other.borrow()
+        )))
+    }
+}
 
 fn tuple_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -60,7 +171,7 @@ fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(tuple, Some(vm.ctx.tuple_type()))]);
 
     let iter_obj = PyObject::new(
-        PyObjectKind::Iterator {
+        PyObjectPayload::Iterator {
             position: 0,
             iterated_obj: tuple.clone(),
         },
@@ -95,7 +206,7 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectKind::Sequence { elements: elements },
+        PyObjectPayload::Sequence { elements: elements },
         cls.clone(),
     ))
 }
@@ -117,6 +228,21 @@ fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         format!("({})", str_parts.join(", "))
     };
     Ok(vm.new_str(s))
+}
+
+fn tuple_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.tuple_type())),
+            (product, Some(vm.ctx.int_type()))
+        ]
+    );
+
+    let new_elements = seq_mul(&get_elements(zelf), product);
+
+    Ok(vm.ctx.new_tuple(new_elements))
 }
 
 fn tuple_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -149,7 +275,8 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref tuple_type = context.tuple_type;
+    let tuple_type = &context.tuple_type;
+    context.set_attr(&tuple_type, "__add__", context.new_rustfunc(tuple_add));
     context.set_attr(&tuple_type, "__eq__", context.new_rustfunc(tuple_eq));
     context.set_attr(
         &tuple_type,
@@ -165,6 +292,11 @@ pub fn init(context: &PyContext) {
     context.set_attr(&tuple_type, "__iter__", context.new_rustfunc(tuple_iter));
     context.set_attr(&tuple_type, "__len__", context.new_rustfunc(tuple_len));
     context.set_attr(&tuple_type, "__new__", context.new_rustfunc(tuple_new));
+    context.set_attr(&tuple_type, "__mul__", context.new_rustfunc(tuple_mul));
     context.set_attr(&tuple_type, "__repr__", context.new_rustfunc(tuple_repr));
     context.set_attr(&tuple_type, "count", context.new_rustfunc(tuple_count));
+    context.set_attr(&tuple_type, "__lt__", context.new_rustfunc(tuple_lt));
+    context.set_attr(&tuple_type, "__le__", context.new_rustfunc(tuple_le));
+    context.set_attr(&tuple_type, "__gt__", context.new_rustfunc(tuple_gt));
+    context.set_attr(&tuple_type, "__ge__", context.new_rustfunc(tuple_ge));
 }

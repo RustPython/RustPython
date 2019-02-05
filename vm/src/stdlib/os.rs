@@ -1,0 +1,113 @@
+//library imports
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::io::ErrorKind;
+
+//3rd party imports
+use num_bigint::ToBigInt;
+use num_traits::cast::ToPrimitive;
+
+//custom imports
+use super::super::obj::objint;
+use super::super::obj::objstr;
+use super::super::obj::objtype;
+
+use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use super::super::vm::VirtualMachine;
+
+#[cfg(target_family = "unix")]
+pub fn raw_file_number(handle: File) -> i64 {
+    use std::os::unix::io::IntoRawFd;
+
+    handle.into_raw_fd() as i64
+}
+
+#[cfg(target_family = "unix")]
+pub fn rust_file(raw_fileno: i64) -> File {
+    use std::os::unix::io::FromRawFd;
+
+    unsafe { File::from_raw_fd(raw_fileno as i32) }
+}
+
+#[cfg(target_family = "windows")]
+pub fn raw_file_number(handle: File) -> i64 {
+    use std::os::windows::io::IntoRawHandle;
+
+    handle.into_raw_handle() as i64
+}
+
+#[cfg(target_family = "windows")]
+pub fn rust_file(raw_fileno: i64) -> File {
+    use std::ffi::c_void;
+    use std::os::windows::io::FromRawHandle;
+
+    //TODO: This is untested and (very) unsafe handling or
+    //raw pointers - This should be patched urgently by
+    //comparison to the cpython handling of the equivalent fileno
+    //fields for windows
+    unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
+}
+
+pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(fileno, Some(vm.ctx.int_type()))]);
+
+    let raw_fileno = objint::get_value(&fileno);
+
+    //The File type automatically closes when it goes out of scope.
+    //To enable us to close these file desciptors (and hence prevent leaks)
+    //we seek to create the relevant File and simply let it pass out of scope!
+    rust_file(raw_fileno.to_i64().unwrap());
+
+    Ok(vm.get_none())
+}
+
+pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (name, Some(vm.ctx.str_type())),
+            (mode, Some(vm.ctx.int_type()))
+        ]
+    );
+
+    let fname = objstr::get_value(&name);
+
+    let handle = match objint::get_value(mode).to_u16().unwrap() {
+        0 => OpenOptions::new().read(true).open(&fname),
+        1 => OpenOptions::new().write(true).open(&fname),
+        512 => OpenOptions::new().write(true).create(true).open(&fname),
+        _ => OpenOptions::new().read(true).open(&fname),
+    }
+    .map_err(|err| match err.kind() {
+        ErrorKind::NotFound => {
+            let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
+            vm.new_exception(exc_type, format!("No such file or directory: {}", &fname))
+        }
+        ErrorKind::PermissionDenied => {
+            let exc_type = vm.ctx.exceptions.permission_error.clone();
+            vm.new_exception(exc_type, format!("Permission denied: {}", &fname))
+        }
+        _ => vm.new_value_error("Unhandled file IO error".to_string()),
+    })?;
+
+    Ok(vm.ctx.new_int(
+        raw_file_number(handle)
+            .to_bigint()
+            .expect("Invalid file descriptor"),
+    ))
+}
+
+pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+    let py_mod = ctx.new_module(&"io".to_string(), ctx.new_scope(None));
+    ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(os_open));
+    ctx.set_attr(&py_mod, "close", ctx.new_rustfunc(os_close));
+
+    ctx.set_attr(&py_mod, "O_RDONLY", ctx.new_int(0.to_bigint().unwrap()));
+    ctx.set_attr(&py_mod, "O_WRONLY", ctx.new_int(1.to_bigint().unwrap()));
+    ctx.set_attr(&py_mod, "O_RDWR", ctx.new_int(2.to_bigint().unwrap()));
+    ctx.set_attr(&py_mod, "O_NONBLOCK", ctx.new_int(4.to_bigint().unwrap()));
+    ctx.set_attr(&py_mod, "O_APPEND", ctx.new_int(8.to_bigint().unwrap()));
+    ctx.set_attr(&py_mod, "O_CREAT", ctx.new_int(512.to_bigint().unwrap()));
+    py_mod
+}

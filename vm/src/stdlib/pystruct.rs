@@ -169,7 +169,7 @@ fn pack_f64(
 }
 
 fn struct_pack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() < 1 {
+    if args.args.is_empty() {
         Err(vm.new_type_error(format!(
             "Expected at least 1 argument (got: {})",
             args.args.len()
@@ -342,7 +342,9 @@ fn struct_unpack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"struct".to_string(), ctx.new_scope(None));
+
     ctx.set_attr(&py_mod, "pack", ctx.new_rustfunc(struct_pack));
     ctx.set_attr(&py_mod, "unpack", ctx.new_rustfunc(struct_unpack));
+
     py_mod
 }

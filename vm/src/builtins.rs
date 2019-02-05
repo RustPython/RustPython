@@ -13,10 +13,13 @@ use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
+
 use super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, Scope, TypeProtocol,
 };
+use super::stdlib::io::io_open;
+
 use super::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_traits::{Signed, ToPrimitive, Zero};
@@ -148,7 +151,7 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let filename = objstr::get_value(filename);
 
-    compile::compile(vm, &source, mode, Some(filename))
+    compile::compile(vm, &source, &mode, Some(filename))
 }
 
 fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -200,6 +203,8 @@ fn builtin_enumerate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_list(new_items))
 }
 
+/// Implements `eval`.
+/// See also: https://docs.python.org/3/library/functions.html#eval
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -219,7 +224,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, mode, None)?
+        compile::compile(vm, &source, &mode, None)?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
@@ -237,7 +242,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         parent: None,
     };
     let scope = PyObject {
-        kind: PyObjectKind::Scope { scope: scope_inner },
+        payload: PyObjectPayload::Scope { scope: scope_inner },
         typ: None,
     }
     .into_ref();
@@ -246,6 +251,8 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.run_code_obj(code_obj.clone(), scope)
 }
 
+/// Implements `exec`
+/// https://docs.python.org/3/library/functions.html#exec
 fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -263,7 +270,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, mode, None)?
+        compile::compile(vm, &source, &mode, None)?
     } else if objtype::isinstance(source, &vm.ctx.code_type()) {
         source.clone()
     } else {
@@ -285,7 +292,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         parent: None,
     };
     let scope = PyObject {
-        kind: PyObjectKind::Scope { scope: scope_inner },
+        payload: PyObjectPayload::Scope { scope: scope_inner },
         typ: None,
     }
     .into_ref();
@@ -458,7 +465,7 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
     };
 
-    if candidates.len() == 0 {
+    if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
         if default.is_none() {
             return Err(vm.new_value_error("max() arg is an empty sequence".to_string()));
@@ -499,8 +506,6 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(x)
 }
 
-// builtin_memoryview
-
 fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let candidates = if args.args.len() > 1 {
         args.args.clone()
@@ -511,7 +516,7 @@ fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
     };
 
-    if candidates.len() == 0 {
+    if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
         if default.is_none() {
             return Err(vm.new_value_error("min() arg is an empty sequence".to_string()));
@@ -587,8 +592,6 @@ fn builtin_oct(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-// builtin_open
-
 fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
     let string = objstr::get_value(string);
@@ -654,15 +657,6 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     println!();
     io::stdout().flush().unwrap();
     Ok(vm.get_none())
-}
-
-fn builtin_range(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(range, Some(vm.ctx.int_type()))]);
-    let value = objint::get_value(range);
-    let range_elements: Vec<PyObjectRef> = (0..value.to_i32().unwrap())
-        .map(|num| vm.context().new_int(num.to_bigint().unwrap()))
-        .collect();
-    Ok(vm.context().new_list(range_elements))
 }
 
 fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -771,15 +765,17 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "locals", ctx.new_rustfunc(builtin_locals));
     ctx.set_attr(&py_mod, "map", ctx.new_rustfunc(builtin_map));
     ctx.set_attr(&py_mod, "max", ctx.new_rustfunc(builtin_max));
+    ctx.set_attr(&py_mod, "memoryview", ctx.memoryview_type());
     ctx.set_attr(&py_mod, "min", ctx.new_rustfunc(builtin_min));
     ctx.set_attr(&py_mod, "object", ctx.object());
     ctx.set_attr(&py_mod, "oct", ctx.new_rustfunc(builtin_oct));
+    ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(io_open));
     ctx.set_attr(&py_mod, "ord", ctx.new_rustfunc(builtin_ord));
     ctx.set_attr(&py_mod, "next", ctx.new_rustfunc(builtin_next));
     ctx.set_attr(&py_mod, "pow", ctx.new_rustfunc(builtin_pow));
     ctx.set_attr(&py_mod, "print", ctx.new_rustfunc(builtin_print));
     ctx.set_attr(&py_mod, "property", ctx.property_type());
-    ctx.set_attr(&py_mod, "range", ctx.new_rustfunc(builtin_range));
+    ctx.set_attr(&py_mod, "range", ctx.range_type());
     ctx.set_attr(&py_mod, "repr", ctx.new_rustfunc(builtin_repr));
     ctx.set_attr(&py_mod, "set", ctx.set_type());
     ctx.set_attr(&py_mod, "setattr", ctx.new_rustfunc(builtin_setattr));
@@ -821,6 +817,8 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     );
     ctx.set_attr(&py_mod, "TypeError", ctx.exceptions.type_error.clone());
     ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
+    ctx.set_attr(&py_mod, "IndexError", ctx.exceptions.index_error.clone());
+    ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
 
     py_mod
 }

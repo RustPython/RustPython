@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -32,7 +32,7 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // Retrieve inner float value:
 pub fn get_value(obj: &PyObjectRef) -> f64 {
-    if let PyObjectKind::Float { value } = &obj.borrow().kind {
+    if let PyObjectPayload::Float { value } = &obj.borrow().payload {
         *value
     } else {
         panic!("Inner error getting float");
@@ -57,7 +57,7 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyO
 }
 
 fn set_value(obj: &PyObjectRef, value: f64) {
-    obj.borrow_mut().kind = PyObjectKind::Float { value };
+    obj.borrow_mut().payload = PyObjectPayload::Float { value };
 }
 
 fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -267,7 +267,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref float_type = context.float_type;
+    let float_type = &context.float_type;
     context.set_attr(&float_type, "__eq__", context.new_rustfunc(float_eq));
     context.set_attr(&float_type, "__lt__", context.new_rustfunc(float_lt));
     context.set_attr(&float_type, "__le__", context.new_rustfunc(float_le));

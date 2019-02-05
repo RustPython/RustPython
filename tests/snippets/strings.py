@@ -8,6 +8,9 @@ assert "\n" == """
 """
 
 assert len(""" " \" """) == 5
+assert len("é") == 1
+assert len("é") == 2
+assert len("あ") == 1
 
 assert type("") is str
 assert type(b"") is bytes
@@ -35,6 +38,7 @@ assert not a.endswith('on')
 assert a.zfill(8) == '000Hallo'
 assert a.isalnum()
 assert not a.isdigit()
+assert not a.isdecimal()
 assert not a.isnumeric()
 assert a.istitle()
 assert a.isalpha()
@@ -65,6 +69,9 @@ assert '-'.join(['1', '2', '3']) == '1-2-3'
 assert 'HALLO'.isupper()
 assert "hello, my name is".partition("my ") == ('hello, ', 'my ', 'name is')
 assert "hello, my name is".rpartition("is") == ('hello, my name ', 'is', '')
+assert not ''.isdecimal()
+assert '123'.isdecimal()
+assert not '\u00B2'.isdecimal()
 
 # String Formatting
 assert "{} {}".format(1,2) == "1 2"

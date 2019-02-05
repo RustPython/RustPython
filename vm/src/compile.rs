@@ -7,7 +7,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use super::bytecode::{self, CallType, CodeObject, Instruction};
-use super::pyobject::{PyObject, PyObjectKind, PyResult};
+use super::pyobject::{PyObject, PyObjectPayload, PyResult};
 use super::vm::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
@@ -23,7 +23,7 @@ struct Compiler {
 pub fn compile(
     vm: &mut VirtualMachine,
     source: &str,
-    mode: Mode,
+    mode: &Mode,
     source_path: Option<String>,
 ) -> PyResult {
     let mut compiler = Compiler::new();
@@ -53,7 +53,7 @@ pub fn compile(
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
     Ok(PyObject::new(
-        PyObjectKind::Code { code: code },
+        PyObjectPayload::Code { code: code },
         vm.ctx.code_type(),
     ))
 }
@@ -112,7 +112,7 @@ impl Compiler {
 
     fn compile_program_single(&mut self, program: &ast::Program) -> Result<(), String> {
         for statement in &program.statements {
-            if let &ast::Statement::Expression { ref expression } = &statement.node {
+            if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
                 self.emit(Instruction::PrintExpr);
             } else {
@@ -128,7 +128,7 @@ impl Compiler {
 
     // Compile statement in eval mode:
     fn compile_statement_eval(&mut self, statement: &ast::LocatedStatement) -> Result<(), String> {
-        if let &ast::Statement::Expression { ref expression } = &statement.node {
+        if let ast::Statement::Expression { ref expression } = statement.node {
             self.compile_expression(expression)?;
             self.emit(Instruction::ReturnValue);
             Ok(())
@@ -500,7 +500,7 @@ impl Compiler {
                     self.compile_expression(base)?;
                 }
 
-                if keywords.len() > 0 {
+                if !keywords.is_empty() {
                     let mut kwarg_names = vec![];
                     for keyword in keywords {
                         if let Some(name) = &keyword.name {
@@ -627,7 +627,7 @@ impl Compiler {
                             self.emit(Instruction::DeleteSubscript);
                         }
                         _ => {
-                            return Err(format!("Invalid delete statement"));
+                            return Err("Invalid delete statement".to_string());
                         }
                     }
                 }
@@ -641,10 +641,10 @@ impl Compiler {
 
     fn enter_function(
         &mut self,
-        name: &String,
+        name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, String> {
-        let have_kwargs = args.defaults.len() > 0;
+        let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
             let size = args.defaults.len();
@@ -663,7 +663,7 @@ impl Compiler {
             args.kwonlyargs.clone(),
             args.kwarg.clone(),
             self.source_path.clone(),
-            name.clone(),
+            name.to_string(),
         ));
 
         let mut flags = bytecode::FunctionOpArg::empty();
@@ -674,14 +674,14 @@ impl Compiler {
         Ok(flags)
     }
 
-    fn prepare_decorators(&mut self, decorator_list: &Vec<ast::Expression>) -> Result<(), String> {
+    fn prepare_decorators(&mut self, decorator_list: &[ast::Expression]) -> Result<(), String> {
         for decorator in decorator_list {
             self.compile_expression(decorator)?;
         }
         Ok(())
     }
 
-    fn apply_decorators(&mut self, decorator_list: &Vec<ast::Expression>) {
+    fn apply_decorators(&mut self, decorator_list: &[ast::Expression]) {
         // Apply decorators:
         for _ in decorator_list {
             self.emit(Instruction::CallFunction {
@@ -780,7 +780,7 @@ impl Compiler {
                     let f = false_label.unwrap_or_else(|| self.new_label());
                     self.compile_test(a, None, Some(f), context)?;
                     self.compile_test(b, true_label, false_label, context)?;
-                    if let None = false_label {
+                    if false_label.is_none() {
                         self.set_label(f);
                     }
                 }
@@ -788,7 +788,7 @@ impl Compiler {
                     let t = true_label.unwrap_or_else(|| self.new_label());
                     self.compile_test(a, Some(t), None, context)?;
                     self.compile_test(b, true_label, false_label, context)?;
-                    if let None = true_label {
+                    if true_label.is_none() {
                         self.set_label(t);
                     }
                 }
@@ -838,21 +838,21 @@ impl Compiler {
                 self.compile_test(expression, None, None, EvalContext::Expression)?
             }
             ast::Expression::Binop { a, op, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
 
                 // Perform operation:
                 self.compile_op(op);
             }
             ast::Expression::Subscript { a, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
                 self.emit(Instruction::BinaryOperation {
                     op: bytecode::BinaryOperator::Subscript,
                 });
             }
             ast::Expression::Unop { op, a } => {
-                self.compile_expression(&*a)?;
+                self.compile_expression(a)?;
 
                 // Perform operation:
                 let i = match op {
@@ -865,14 +865,14 @@ impl Compiler {
                 self.emit(i);
             }
             ast::Expression::Attribute { value, name } => {
-                self.compile_expression(&*value)?;
+                self.compile_expression(value)?;
                 self.emit(Instruction::LoadAttr {
                     name: name.to_string(),
                 });
             }
             ast::Expression::Compare { a, op, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
 
                 let i = match op {
                     ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
@@ -1036,8 +1036,8 @@ impl Compiler {
     fn compile_call(
         &mut self,
         function: &ast::Expression,
-        args: &Vec<ast::Expression>,
-        keywords: &Vec<ast::Keyword>,
+        args: &[ast::Expression],
+        keywords: &[ast::Keyword],
     ) -> Result<(), String> {
         self.compile_expression(function)?;
         let count = args.len() + keywords.len();
@@ -1054,7 +1054,7 @@ impl Compiler {
             });
 
             // Create an optional map with kw-args:
-            if keywords.len() > 0 {
+            if !keywords.is_empty() {
                 for keyword in keywords {
                     if let Some(name) = &keyword.name {
                         self.emit(Instruction::LoadConst {
@@ -1090,7 +1090,7 @@ impl Compiler {
             }
         } else {
             // Keyword arguments:
-            if keywords.len() > 0 {
+            if !keywords.is_empty() {
                 let mut kwarg_names = vec![];
                 for keyword in keywords {
                     if let Some(name) = &keyword.name {
@@ -1123,7 +1123,7 @@ impl Compiler {
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(&mut self, elements: &Vec<ast::Expression>) -> Result<bool, String> {
+    fn gather_elements(&mut self, elements: &[ast::Expression]) -> Result<bool, String> {
         // First determine if we have starred elements:
         let has_stars = elements.iter().any(|e| {
             if let ast::Expression::Starred { .. } = e {
@@ -1153,10 +1153,10 @@ impl Compiler {
     fn compile_comprehension(
         &mut self,
         kind: &ast::ComprehensionKind,
-        generators: &Vec<ast::Comprehension>,
+        generators: &[ast::Comprehension],
     ) -> Result<(), String> {
         // We must have at least one generator:
-        assert!(generators.len() > 0);
+        assert!(!generators.is_empty());
 
         let name = match kind {
             ast::ComprehensionKind::GeneratorExpression { .. } => "<genexpr>",
@@ -1201,8 +1201,7 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
-            let first = loop_labels.len() == 0;
-            if first {
+            if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
                     name: String::from(".0"),

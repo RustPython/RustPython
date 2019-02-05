@@ -28,7 +28,7 @@ pyEval(code, options?);
 
 -   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
     accessed in Python with the variable `js_vars`. Functions do work, and
-    recieve the Python kwargs as the `this` argument.
+    receive the Python kwargs as the `this` argument.
 -   `stdout?`: `(out: string) => void`: A function to replace the native print
     function, by default `console.log`.
 

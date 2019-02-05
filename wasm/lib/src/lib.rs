@@ -40,7 +40,7 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
         source.push('\n');
     }
 
-    let code_obj = compile::compile(vm, &source, compile::Mode::Exec, None)?;
+    let code_obj = compile::compile(vm, &source, &compile::Mode::Exec, None)?;
 
     vm.run_code_obj(code_obj, vars)
 }
@@ -58,7 +58,7 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
 ///
 /// -   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
 ///     accessed in Python with the variable `js_vars`. Functions do work, and
-///     recieve the Python kwargs as the `this` argument.
+///     receive the Python kwargs as the `this` argument.
 /// -   `stdout?`: `(out: string) => void`: A function to replace the native print
 ///     function, by default `console.log`.
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {

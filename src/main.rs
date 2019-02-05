@@ -7,6 +7,7 @@ extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 extern crate rustyline;
+extern crate xdg;
 
 use clap::{App, Arg};
 use rustpython_parser::parser;
@@ -69,7 +70,7 @@ fn main() {
 }
 
 fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: Option<String>) -> PyResult {
-    let code_obj = compile::compile(vm, source, compile::Mode::Exec, source_path)?;
+    let code_obj = compile::compile(vm, source, &compile::Mode::Exec, source_path)?;
     // trace!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
@@ -114,7 +115,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
 }
 
 fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
-    match compile::compile(vm, source, compile::Mode::Single, None) {
+    match compile::compile(vm, source, &compile::Mode::Single, None) {
         Ok(code) => {
             match vm.run_code_obj(code, scope) {
                 Ok(_value) => {
@@ -154,9 +155,10 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     let mut input = String::new();
     let mut rl = Editor::<()>::new();
 
-    // TODO: Store the history in a proper XDG directory
-    let repl_history_path = ".repl_history.txt";
-    if rl.load_history(repl_history_path).is_err() {
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
+    let repl_history_path = xdg_dirs.place_cache_file("repl_history.txt").unwrap();
+    let repl_history_path_str = repl_history_path.to_str().unwrap();
+    if rl.load_history(repl_history_path_str).is_err() {
         println!("No previous history.");
     }
 
@@ -220,7 +222,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
             }
         };
     }
-    rl.save_history(repl_history_path).unwrap();
+    rl.save_history(repl_history_path_str).unwrap();
 
     Ok(vm.get_none())
 }
