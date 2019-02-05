@@ -5,12 +5,12 @@
 
 import sys
 import os
-import unittest
 import glob
 import logging
 import subprocess
 import contextlib
 import enum
+import pytest
 
 import compile_code
 
@@ -39,72 +39,6 @@ def pushd(path):
     os.chdir(old_dir)
 
 
-def perform_test(filename, method, test_type):
-    logger.info('Running %s via %s', filename, method)
-    if method == 'cpython':
-        run_via_cpython(filename)
-    elif method == 'cpython_bytecode':
-        run_via_cpython_bytecode(filename, test_type)
-    elif method == 'rustpython':
-        run_via_rustpython(filename, test_type)
-    else:
-        raise NotImplementedError(method)
-
-
-def run_via_cpython(filename):
-    """ Simply invoke python itself on the script """
-    env = os.environ.copy()
-    subprocess.check_call([sys.executable, filename], env=env)
-
-
-def run_via_cpython_bytecode(filename, test_type):
-    # Step1: Create bytecode file:
-    bytecode_filename = filename + '.bytecode'
-    with open(bytecode_filename, 'w') as f:
-        compile_code.compile_to_bytecode(filename, out_file=f)
-
-    # Step2: run cpython bytecode:
-    env = os.environ.copy()
-    log_level = 'info' if test_type == _TestType.benchmark else 'debug'
-    env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
-    env['RUST_BACKTRACE'] = '1'
-    with pushd(CPYTHON_RUNNER_DIR):
-        subprocess.check_call(['cargo', 'run', bytecode_filename], env=env)
-
-
-def run_via_rustpython(filename, test_type):
-    env = os.environ.copy()
-    log_level = 'info' if test_type == _TestType.benchmark else 'trace'
-    env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
-    env['RUST_BACKTRACE'] = '1'
-    subprocess.check_call(
-        ['cargo', 'run', '--release', filename], env=env)
-
-
-def create_test_function(cls, filename, method, test_type):
-    """ Create a test function for a single snippet """
-    core_test_directory, snippet_filename = os.path.split(filename)
-    test_function_name = 'test_{}_'.format(method) \
-        + os.path.splitext(snippet_filename)[0] \
-        .replace('.', '_').replace('-', '_')
-
-    def test_function(self):
-        perform_test(filename, method, test_type)
-
-    if hasattr(cls, test_function_name):
-        raise ValueError('Duplicate test case {}'.format(test_function_name))
-    setattr(cls, test_function_name, test_function)
-
-
-def populate(method):
-    def wrapper(cls):
-        """ Decorator function which can populate a unittest.TestCase class """
-        for test_type, filename in get_test_files():
-            create_test_function(cls, filename, method, test_type)
-        return cls
-    return wrapper
-
-
 def get_test_files():
     """ Retrieve test files """
     for test_type, test_dir in TEST_DIRS.items():
@@ -116,8 +50,34 @@ def get_test_files():
             yield test_type, os.path.abspath(filepath)
 
 
-@populate('cpython')
-# @populate('cpython_bytecode')
-@populate('rustpython')
-class SampleTestCase(unittest.TestCase):
-    pass
+@pytest.mark.parametrize("test_type, filename", get_test_files())
+def test_cpython(test_type, filename):
+    env = os.environ.copy()
+    subprocess.check_call([sys.executable, filename], env=env)
+
+
+@pytest.mark.parametrize("test_type, filename", get_test_files())
+def test_rustpython(test_type, filename):
+    env = os.environ.copy()
+    log_level = 'info' if test_type == _TestType.benchmark else 'trace'
+    env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
+    env['RUST_BACKTRACE'] = '1'
+    subprocess.check_call(
+        ['cargo', 'run', '--release', filename], env=env)
+
+
+@pytest.mark.parametrize("test_type, filename", get_test_files())
+@pytest.mark.skip(reason="Currently non-functional")
+def test_rustpython_bytecode(test_type, filename, tmpdir):
+    bytecode_filename = tmpdir.join(filename + '.bytecode')
+    with open(bytecode_filename, 'w') as f:
+        compile_code.compile_to_bytecode(filename, out_file=f)
+
+    # Step2: run cpython bytecode:
+    env = os.environ.copy()
+    log_level = 'info' if test_type == _TestType.benchmark else 'debug'
+    env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
+    env['RUST_BACKTRACE'] = '1'
+    with pushd(CPYTHON_RUNNER_DIR):
+        subprocess.check_call(['cargo', 'run', bytecode_filename], env=env)
+
