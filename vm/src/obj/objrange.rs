@@ -5,6 +5,7 @@ use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
 use num_bigint::{BigInt, ToBigInt};
+use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 #[derive(Debug, Clone)]
@@ -23,6 +24,25 @@ impl RangeType {
             .abs()
             .to_usize()
             .unwrap()
+    }
+
+    #[inline]
+    pub fn contains(&self, value: &BigInt) -> bool {
+        value >= &self.start && value < &self.end
+    }
+
+    #[inline]
+    pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
+        if !self.contains(value) {
+            return None;
+        }
+
+        let offset = value - &self.start;
+        if offset.is_multiple_of(&self.step) {
+            Some(offset / &self.step)
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -60,6 +80,7 @@ pub fn init(context: &PyContext) {
         "__getitem__",
         context.new_rustfunc(range_getitem),
     );
+    context.set_attr(&range_type, "index", context.new_rustfunc(range_index));
 }
 
 fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -191,5 +212,25 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
 
         _ => Err(vm.new_type_error("range indices must be integer or slice".to_string())),
+    }
+}
+
+fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.range_type())), (needle, None)]
+    );
+
+    if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
+        match needle.borrow().payload {
+            PyObjectPayload::Integer { ref value } => match range.index_of(value) {
+                Some(idx) => Ok(vm.ctx.new_int(idx)),
+                None => Err(vm.new_value_error(format!("{} is not in range", value))),
+            },
+            _ => Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string())),
+        }
+    } else {
+        unreachable!()
     }
 }
