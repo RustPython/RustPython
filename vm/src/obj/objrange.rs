@@ -18,14 +18,19 @@ pub struct RangeType {
 
 impl RangeType {
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn try_len(&self) -> Option<usize> {
         match self.step.sign() {
             Sign::Plus if self.start < self.end =>
-                ((&self.end - &self.start - 1usize) / &self.step).to_usize().unwrap() + 1,
+                ((&self.end - &self.start - 1usize) / &self.step).to_usize().map(|sz| sz + 1),
             Sign::Minus if self.start > self.end =>
-                ((&self.start - &self.end - 1usize) / (-&self.step)).to_usize().unwrap() + 1,
-            _ => 0,
+                ((&self.start - &self.end - 1usize) / (-&self.step)).to_usize().map(|sz| sz + 1),
+            _ => Some(0),
         }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.try_len().unwrap()
     }
 
     #[inline]
@@ -51,6 +56,15 @@ impl RangeType {
             None
         }
     }
+    
+    #[inline]
+    pub fn repr(&self) -> String {
+        if self.step == BigInt::one() {
+            format!("range({}, {})", self.start, self.end)
+        } else {
+            format!("range({}, {}, {})", self.start, self.end, self.step)
+        }
+    }
 }
 
 pub fn init(context: &PyContext) {
@@ -63,6 +77,7 @@ pub fn init(context: &PyContext) {
         "__getitem__",
         context.new_rustfunc(range_getitem),
     );
+    context.set_attr(&range_type, "__repr__", context.new_rustfunc(range_repr));
 }
 
 fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -121,12 +136,14 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
-    let len = match zelf.borrow().payload {
-        PyObjectPayload::Range { ref range } => range.len(),
+    if let Some(len) = match zelf.borrow().payload {
+        PyObjectPayload::Range { ref range } => range.try_len(),
         _ => unreachable!(),
-    };
-
-    Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
+    } {
+        Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
+    } else {
+        Err(vm.new_overflow_error("Python int too large to convert to Rust usize".to_string()))
+    }
 }
 
 fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -195,4 +212,15 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
         _ => Err(vm.new_type_error("range indices must be integer or slice".to_string())),
     }
+}
+
+fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+
+    let s = match zelf.borrow().payload {
+        PyObjectPayload::Range { ref range } => range.repr(),
+        _ => unreachable!(),
+    };
+
+    Ok(vm.ctx.new_str(s))
 }
