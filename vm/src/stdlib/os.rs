@@ -38,10 +38,14 @@ pub fn raw_file_number(handle: File) -> i32 {
 
 #[cfg(target_family = "windows")]
 pub fn rust_file(raw_fileno: i32) -> File {
+    use std::ffi::c_void;
     use std::os::windows::io::FromRawHandle;
-	use std::ffi::c_void;
 
-    unsafe { File::from_raw_handle(raw_fileno as *mut c_void)}
+    //TODO: This is untested and (very) unsafe handling or
+    //raw pointers - This should be patched as a matter of
+    //urgently patched by comparison to the cpython handling of
+    //the equivalent fileno fields for windows
+    unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
 }
 
 pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
