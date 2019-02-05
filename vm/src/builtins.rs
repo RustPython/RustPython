@@ -720,8 +720,20 @@ fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_exit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [],
+        optional = [(number, Some(vm.ctx.int_type()))]
+    );
+    let default_exit_code = vm.context().none();
+    let number = number.unwrap_or(&default_exit_code);
     let system_exit = vm.context().exceptions.system_exit.clone();
-    return Err(vm.new_exception(system_exit,"SystemExit".to_string()));
+    let args = PyFuncArgs {
+        args: vec![number.clone()],
+        kwargs: vec![],
+    };
+    return Err(vm.new_exception_with_args(system_exit, args));
 }
 
 // builtin___import__

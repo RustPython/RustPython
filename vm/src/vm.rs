@@ -90,7 +90,15 @@ impl VirtualMachine {
             kwargs: vec![],
         };
 
-        // Call function:
+        let exception = self.new_exception_with_args(exc_type, args);
+        exception
+    }
+
+    pub fn new_exception_with_args(
+        &mut self,
+        exc_type: PyObjectRef,
+        args: PyFuncArgs,
+    ) -> PyObjectRef {
         let exception = self.invoke(exc_type, args).unwrap();
         exception
     }

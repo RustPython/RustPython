@@ -19,6 +19,23 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn system_exit_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.object())),
+            (number, Some(vm.ctx.int_type()))
+        ]
+    );
+    let traceback = vm.ctx.new_list(Vec::new());
+    vm.ctx
+        .set_attr(&zelf, "msg", vm.new_str("SystemExit".to_string()));
+    vm.ctx.set_attr(&zelf, "code", number.clone());
+    vm.ctx.set_attr(&zelf, "__traceback__", traceback);
+    Ok(vm.get_none())
+}
+
 // Print exception including traceback:
 pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
     if let Some(tb) = exc.get_attr("__traceback__") {
@@ -111,6 +128,7 @@ impl ExceptionZoo {
         // Sorted By Hierarchy then alphabetized.
         let base_exception_type =
             create_type("BaseException", &type_type, &object_type, &dict_type);
+        let system_exit = create_type("SystemExit", &type_type, &base_exception_type, &dict_type);
 
         let exception_type = create_type("Exception", &type_type, &base_exception_type, &dict_type);
 
@@ -141,7 +159,6 @@ impl ExceptionZoo {
         let file_not_found_error =
             create_type("FileNotFoundError", &type_type, &os_error, &dict_type);
         let permission_error = create_type("PermissionError", &type_type, &os_error, &dict_type);
-        let system_exit = create_type("SystemExit", &type_type, &exception_type.clone(), &dict_type);
 
         ExceptionZoo {
             assertion_error,
@@ -174,6 +191,14 @@ pub fn init(context: &PyContext) {
         "__init__",
         context.new_rustfunc(exception_init),
     );
+
+    let system_exit_type = &context.exceptions.system_exit;
+    context.set_attr(
+        &system_exit_type,
+        "__init__",
+        context.new_rustfunc(system_exit_init),
+    );
+
     let exception_type = &context.exceptions.exception_type;
     context.set_attr(
         &exception_type,

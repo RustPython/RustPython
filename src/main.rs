@@ -4,15 +4,20 @@ extern crate clap;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
+extern crate num_traits;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 extern crate rustyline;
 extern crate xdg;
 
 use clap::{App, Arg};
+use num_traits::cast::ToPrimitive;
 use rustpython_parser::parser;
+use rustpython_vm::obj::objint;
 use rustpython_vm::obj::objstr;
+use rustpython_vm::obj::objtype;
 use rustpython_vm::print_exception;
+use rustpython_vm::pyobject::PyObjectPayload;
 use rustpython_vm::pyobject::{AttributeProtocol, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use rustpython_vm::{compile, import};
@@ -122,6 +127,17 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
                     // Printed already.
                 }
                 Err(err) => {
+                    if objtype::isinstance(&err, &vm.ctx.exceptions.system_exit) {
+                        let code = vm.ctx.get_attr(&err, "code").unwrap();
+                        let code_value = match &code.borrow().payload {
+                            PyObjectPayload::Integer { value } => {
+                                value.to_i32().unwrap_or(std::i32::MAX)
+                            }
+                            PyObjectPayload::None => 0,
+                            _ => 1,
+                        };
+                        std::process::exit(code_value);
+                    }
                     print_exception(vm, &err);
                 }
             }
