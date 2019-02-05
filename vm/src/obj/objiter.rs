@@ -186,16 +186,18 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         } => {
             loop {
                 let next_obj = call_next(vm, iterator)?;
-                if predicate.is(&vm.get_none()) {
-                    return Ok(next_obj);
-                }
-                let predicate_value = vm.invoke(
-                    predicate.clone(),
-                    PyFuncArgs {
-                        args: vec![next_obj.clone()],
-                        kwargs: vec![],
-                    },
-                )?; // What happens if the predicate raise StopIteration
+                let predicate_value = if predicate.is(&vm.get_none()) {
+                    next_obj.clone()
+                } else {
+                    // What should happen if the predicate raise StopIteration
+                    vm.invoke(
+                        predicate.clone(),
+                        PyFuncArgs {
+                            args: vec![next_obj.clone()],
+                            kwargs: vec![],
+                        },
+                    )?
+                };
                 if objbool::boolval(vm, predicate_value)? {
                     return Ok(next_obj);
                 }

@@ -1,4 +1,4 @@
-x = sum(map(int, a))
+x = sum(map(int, ['1', '2', '3']))
 assert x == 6
 
 assert callable(type)
