@@ -370,17 +370,25 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm
-            .ctx
-            .new_float(v1.to_f64().unwrap() / get_value(i2).to_f64().unwrap()))
+
+    let v1 = get_value(i).to_f64()
+        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?;
+
+    let v2 = if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        get_value(i2).to_f64()
+            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        objfloat::get_value(i2)
+    } else {
+        return Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())));
+    };
+
+    if v2 == 0.0 {
+        Err(vm.new_zero_division_error("integer division by zero".to_string()))
+    } else {
         Ok(vm
             .ctx
-            .new_float(v1.to_f64().unwrap() / objfloat::get_value(i2)))
-    } else {
-        Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())))
+            .new_float(v1 / v2))
     }
 }
 
@@ -392,7 +400,13 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(v1 % get_value(i2)))
+        let v2 = get_value(i2);
+
+        if v2 != BigInt::zero() {
+            Ok(vm.ctx.new_int(v1 % get_value(i2)))
+        } else {
+            Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!("Cannot modulo {} and {}", i.borrow(), i2.borrow())))
     }

@@ -132,6 +132,11 @@ impl VirtualMachine {
         self.new_exception(not_implemented_error, msg)
     }
 
+    pub fn new_zero_division_error(&mut self, msg: String) -> PyObjectRef {
+        let zero_division_error = self.ctx.exceptions.zero_division_error.clone();
+        self.new_exception(zero_division_error, msg)
+    }
+
     pub fn new_scope(&mut self, parent_scope: Option<PyObjectRef>) -> PyObjectRef {
         // let parent_scope = self.current_frame_mut().locals.clone();
         self.ctx.new_scope(parent_scope)
