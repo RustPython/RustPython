@@ -1,4 +1,7 @@
-bool_expected_methods = [
+expected_methods = []
+
+# TODO: using tuple could have been better
+expected_methods.append({'name': 'bool', 'methods': [
     '__abs__',
     '__add__',
     '__and__',
@@ -69,9 +72,8 @@ bool_expected_methods = [
     'numerator',
     'real',
     'to_bytes',
-]
-
-bytearray_expected_methods = [
+], 'type': bool})
+expected_methods.append({'name': 'bytearray', 'type': bytearray, 'methods': [
     '__add__',
     '__alloc__',
     '__class__',
@@ -157,9 +159,8 @@ bytearray_expected_methods = [
     'translate',
     'upper',
     'zfill',
-]
-
-bytes_expected_methods = [
+]})
+expected_methods.append({'name': 'bytes', 'type': bytes, 'methods': [
     '__add__',
     '__class__',
     '__contains__',
@@ -233,9 +234,8 @@ bytes_expected_methods = [
     'translate',
     'upper',
     'zfill',
-]
-
-complex_expected_methods = [
+]})
+expected_methods.append({'name': 'complex', 'type': complex, 'methods': [
     '__abs__',
     '__add__',
     '__bool__',
@@ -285,9 +285,8 @@ complex_expected_methods = [
     'conjugate',
     'imag',
     'real',
-]
-
-dict_expected_methods = [
+]})
+expected_methods.append({'name': 'dict', 'type': dict, 'methods': [
     '__class__',
     '__contains__',
     '__delattr__',
@@ -328,9 +327,8 @@ dict_expected_methods = [
     'setdefault',
     'update',
     'values',
-]
-
-float_expected_methods = [
+]})
+expected_methods.append({'name': 'float','type':float,'methods':[
     '__abs__',
     '__add__',
     '__bool__',
@@ -388,9 +386,8 @@ float_expected_methods = [
     'imag',
     'is_integer',
     'real',
-]
-
-frozenset_expected_methods = [
+]})
+expected_methods.append({'name': 'frozenset','type':frozenset, 'methods': [
     '__and__',
     '__class__',
     '__contains__',
@@ -433,9 +430,8 @@ frozenset_expected_methods = [
     'issuperset',
     'symmetric_difference',
     'union',
-]
-
-int_expected_methods = [
+]})
+expected_methods.append({'name': 'int', 'type':int, 'methods': [
     '__abs__',
     '__add__',
     '__and__',
@@ -506,9 +502,8 @@ int_expected_methods = [
     'numerator',
     'real',
     'to_bytes',
-]
-
-iter_expected_methods = [
+]})
+expected_methods.append({'name': 'iter','type':iter,'methods':[
     '__class__',
     '__delattr__',
     '__dir__',
@@ -536,9 +531,8 @@ iter_expected_methods = [
     '__sizeof__',
     '__str__',
     '__subclasshook__',
-]
-
-list_expected_methods = [
+]})
+expected_methods.append({'name': 'list','type':list,'methods':[
     '__add__',
     '__class__',
     '__contains__',
@@ -585,9 +579,8 @@ list_expected_methods = [
     'remove',
     'reverse',
     'sort',
-]
-
-memoryview_expected_methods = [
+]})
+expected_methods.append({'name': 'memoryview','type':memoryview,'methods':[
     '__class__',
     '__delattr__',
     '__delitem__',
@@ -634,9 +627,8 @@ memoryview_expected_methods = [
     'suboffsets',
     'tobytes',
     'tolist',
-]
-
-range_expected_methods = [
+]})
+expected_methods.append({'name': 'range','type':range,'methods':[
     '__bool__',
     '__class__',
     '__contains__',
@@ -671,9 +663,8 @@ range_expected_methods = [
     'start',
     'step',
     'stop',
-]
-
-set_expected_methods = [
+]})
+expected_methods.append({'name': 'set','type':set,'methods':[
     '__and__',
     '__class__',
     '__contains__',
@@ -729,9 +720,8 @@ set_expected_methods = [
     'symmetric_difference_update',
     'union',
     'update',
-]
-
-string_expected_methods = [
+]})
+expected_methods.append({'name': 'string','type':str,'methods':[
     '__add__',
     '__class__',
     '__contains__',
@@ -810,9 +800,8 @@ string_expected_methods = [
     'translate',
     'upper',
     'zfill'
-]
-
-tuple_expected_methods = [
+]})
+expected_methods.append({'name': 'tuple','type':tuple, 'methods': [
     '__add__',
     '__class__',
     '__contains__',
@@ -846,9 +835,8 @@ tuple_expected_methods = [
     '__subclasshook__',
     'count',
     'index',
-]
-
-object_expected_methods = [
+]})
+expected_methods.append({'name': 'object', 'type':object, 'methods':[
     '__repr__',
     '__hash__',
     '__str__',
@@ -872,123 +860,17 @@ object_expected_methods = [
     '__dir__',
     '__class__',
     '__doc__'
-]
+]})
 
 not_implemented = []
 
-for method in bool_expected_methods:
-    try:
-        if not hasattr(bool, method):
-            not_implemented.append(("bool", method))
-    except NameError:
-        not_implemented.append(("bool", method))
-
-for method in bytearray_expected_methods:
-    try:
-        if not hasattr(bytearray(), method):
-            not_implemented.append(("bytearray", method))
-    except NameError:
-        not_implemented.append(("bytearray", method))
-
-for method in bytes_expected_methods:
-    try:
-        if not hasattr(bytes, method):
-            not_implemented.append(("bytes", method))
-    except NameError:
-        not_implemented.append(("bytes", method))
-
-for method in complex_expected_methods:
-    try:
-        if not hasattr(complex, method):
-            not_implemented.append(("complex", method))
-    except NameError:
-        not_implemented.append(("complex", method))
-
-for method in dict_expected_methods:
-    try:
-        if not hasattr(dict, method):
-            not_implemented.append(("dict", method))
-    except NameError:
-        not_implemented.append(("dict", method))
-
-for method in float_expected_methods:
-    try:
-        if not hasattr(float, method):
-            not_implemented.append(("float", method))
-    except NameError:
-        not_implemented.append(("float", method))
-
-for method in frozenset_expected_methods:
-# TODO: uncomment this when frozenset is implemented
-#    try:
-#        if not hasattr(frozenset, method):
-#            not_implemented.append(("frozenset", method))
-#    except NameError:
-    not_implemented.append(("frozenset", method))
-
-for method in int_expected_methods:
-    try:
-        if not hasattr(int, method):
-            not_implemented.append(("int", method))
-    except NameError:
-        not_implemented.append(("int", method))
-
-for method in iter_expected_methods:
-    try:
-        if not hasattr(iter([]), method):
-            not_implemented.append(("iter", method))
-    except NameError:
-        not_implemented.append(("iter", method))
-
-for method in list_expected_methods:
-    try:
-        if not hasattr(list, method):
-            not_implemented.append(("list", method))
-    except NameError:
-        not_implemented.append(("list", method))
-
-for method in memoryview_expected_methods:
-# TODO: uncomment this when memoryview is implemented
-#    try:
-#        if not hasattr(memoryview, method):
-#            not_implemented.append(("memoryview", method))
-#    except NameError:
-    not_implemented.append(("memoryview", method))
-
-for method in range_expected_methods:
-    try:
-        if not hasattr(range, method):
-            not_implemented.append(("range", method))
-    except NameError:
-        not_implemented.append(("range", method))
-
-for method in set_expected_methods:
-    try:
-        if not hasattr(set, method):
-            not_implemented.append(("set", method))
-    except NameError:
-        not_implemented.append(("set", method))
-
-for method in string_expected_methods:
-    try:
-        if not hasattr(str, method):
-            not_implemented.append(("string", method))
-    except NameError:
-        not_implemented.append(("string", method))
-
-for method in tuple_expected_methods:
-    try:
-        if not hasattr(tuple, method):
-            not_implemented.append(("tuple", method))
-    except NameError:
-        not_implemented.append(("tuple", method))
-
-for method in object_expected_methods:
-    try:
-        if not hasattr(bool, method):
-            not_implemented.append(("object", method))
-    except NameError:
-        not_implemented.append(("object", method))
+for item in expected_methods:
+    for method in item['methods']:
+        try:
+            if not hasattr(item['type'], method):
+                not_implemented.append((item['name'], method))
+        except NameError:
+            not_implemented.append((item['name'], method))
 
 for r in not_implemented:
     print(r[0], ".", r[1])
