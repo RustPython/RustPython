@@ -3,8 +3,7 @@
  */
 
 use super::super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
@@ -66,42 +65,19 @@ pub fn get_all(
     Ok(elements)
 }
 
-// Should filter/map have their own class?
-pub fn create_filter(
-    vm: &mut VirtualMachine,
-    predicate: &PyObjectRef,
-    iterable: &PyObjectRef,
-) -> PyResult {
-    let iterator = get_iter(vm, iterable)?;
-    let iter_obj = PyObject::new(
-        PyObjectPayload::FilterIterator {
-            predicate: predicate.clone(),
-            iterator,
-        },
-        vm.ctx.iter_type(),
-    );
-
-    Ok(iter_obj)
-}
-
-pub fn create_map(
-    vm: &mut VirtualMachine,
-    mapper: &PyObjectRef,
-    iterables: &[PyObjectRef],
-) -> PyResult {
-    let iterators = iterables
-        .into_iter()
-        .map(|iterable| get_iter(vm, iterable))
-        .collect::<Result<Vec<_>, _>>()?;
-    let iter_obj = PyObject::new(
-        PyObjectPayload::MapIterator {
-            mapper: mapper.clone(),
-            iterators,
-        },
-        vm.ctx.iter_type(),
-    );
-
-    Ok(iter_obj)
+pub fn contains(vm: &mut VirtualMachine, iter: &PyObjectRef, needle: &PyObjectRef) -> PyResult {
+    loop {
+        if let Some(element) = get_next_object(vm, iter)? {
+            let equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+            if objbool::get_value(&equal) {
+                return Ok(vm.new_bool(true));
+            } else {
+                continue;
+            }
+        } else {
+            return Ok(vm.new_bool(false));
+        }
+    }
 }
 
 // Sequence iterator:
@@ -123,108 +99,49 @@ fn iter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(iter, Some(vm.ctx.iter_type())), (needle, None)]
     );
-    loop {
-        match vm.call_method(&iter, "__next__", vec![]) {
-            Ok(element) => match vm.call_method(needle, "__eq__", vec![element.clone()]) {
-                Ok(value) => {
-                    if objbool::get_value(&value) {
-                        return Ok(vm.new_bool(true));
-                    } else {
-                        continue;
-                    }
-                }
-                Err(_) => return Err(vm.new_type_error("".to_string())),
-            },
-            Err(_) => return Ok(vm.new_bool(false)),
-        }
-    }
+    contains(vm, iter, needle)
 }
 
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
-    let ref mut payload = iter.borrow_mut().payload;
-    match payload {
-        PyObjectPayload::Iterator {
-            ref mut position,
-            iterated_obj: ref mut iterated_obj_ref,
-        } => {
-            let iterated_obj = iterated_obj_ref.borrow_mut();
-            match iterated_obj.payload {
-                PyObjectPayload::Sequence { ref elements } => {
-                    if *position < elements.len() {
-                        let obj_ref = elements[*position].clone();
-                        *position += 1;
-                        Ok(obj_ref)
-                    } else {
-                        let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-                        let stop_iteration =
-                            vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-                        Err(stop_iteration)
-                    }
-                }
-
-                PyObjectPayload::Range { ref range } => {
-                    if let Some(int) = range.get(BigInt::from(*position)) {
-                        *position += 1;
-                        Ok(vm.ctx.new_int(int.to_bigint().unwrap()))
-                    } else {
-                        let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-                        let stop_iteration =
-                            vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-                        Err(stop_iteration)
-                    }
-                }
-                _ => {
-                    panic!("NOT IMPL");
-                }
-            }
-        }
-        PyObjectPayload::FilterIterator {
-            ref mut predicate,
-            ref mut iterator,
-        } => {
-            loop {
-                let next_obj = call_next(vm, iterator)?;
-                let predicate_value = if predicate.is(&vm.get_none()) {
-                    next_obj.clone()
+    if let PyObjectPayload::Iterator {
+        ref mut position,
+        iterated_obj: ref mut iterated_obj_ref,
+    } = iter.borrow_mut().payload
+    {
+        let iterated_obj = iterated_obj_ref.borrow_mut();
+        match iterated_obj.payload {
+            PyObjectPayload::Sequence { ref elements } => {
+                if *position < elements.len() {
+                    let obj_ref = elements[*position].clone();
+                    *position += 1;
+                    Ok(obj_ref)
                 } else {
-                    // the predicate itself can raise StopIteration which does stop the filter
-                    // iteration
-                    vm.invoke(
-                        predicate.clone(),
-                        PyFuncArgs {
-                            args: vec![next_obj.clone()],
-                            kwargs: vec![],
-                        },
-                    )?
-                };
-                if objbool::boolval(vm, predicate_value)? {
-                    return Ok(next_obj);
+                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+                    let stop_iteration =
+                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
+                    Err(stop_iteration)
                 }
             }
-        }
-        PyObjectPayload::MapIterator {
-            ref mut mapper,
-            ref mut iterators,
-        } => {
-            let next_objs = iterators
-                .iter()
-                .map(|iterator| call_next(vm, iterator))
-                .collect::<Result<Vec<_>, _>>()?;
 
-            // the mapper itself can raise StopIteration which does stop the map iteration
-            vm.invoke(
-                mapper.clone(),
-                PyFuncArgs {
-                    args: next_objs,
-                    kwargs: vec![],
-                },
-            )
+            PyObjectPayload::Range { ref range } => {
+                if let Some(int) = range.get(BigInt::from(*position)) {
+                    *position += 1;
+                    Ok(vm.ctx.new_int(int.to_bigint().unwrap()))
+                } else {
+                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+                    let stop_iteration =
+                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
+                    Err(stop_iteration)
+                }
+            }
+            _ => {
+                panic!("NOT IMPL");
+            }
         }
-        _ => {
-            panic!("NOT IMPL");
-        }
+    } else {
+        panic!("NOT IMPL");
     }
 }
 

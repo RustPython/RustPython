@@ -301,12 +301,6 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.run_code_obj(code_obj, scope)
 }
 
-fn builtin_filter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(function, None), (iterable, None)]);
-
-    objiter::create_filter(vm, function, iterable)
-}
-
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -409,17 +403,6 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
     Ok(vm.get_locals())
-}
-
-fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    no_kwargs!(vm, args);
-    if args.args.len() < 2 {
-        Err(vm.new_type_error("map() must have at least two arguments.".to_owned()))
-    } else {
-        let function = &args.args[0];
-        let iterables = &args.args[1..];
-        objiter::create_map(vm, function, iterables)
-    }
 }
 
 fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -716,7 +699,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "exec", ctx.new_rustfunc(builtin_exec));
     ctx.set_attr(&py_mod, "float", ctx.float_type());
     ctx.set_attr(&py_mod, "frozenset", ctx.frozenset_type());
-    ctx.set_attr(&py_mod, "filter", ctx.new_rustfunc(builtin_filter));
+    ctx.set_attr(&py_mod, "filter", ctx.filter_type());
     ctx.set_attr(&py_mod, "format", ctx.new_rustfunc(builtin_format));
     ctx.set_attr(&py_mod, "getattr", ctx.new_rustfunc(builtin_getattr));
     ctx.set_attr(&py_mod, "hasattr", ctx.new_rustfunc(builtin_hasattr));
@@ -730,7 +713,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "len", ctx.new_rustfunc(builtin_len));
     ctx.set_attr(&py_mod, "list", ctx.list_type());
     ctx.set_attr(&py_mod, "locals", ctx.new_rustfunc(builtin_locals));
-    ctx.set_attr(&py_mod, "map", ctx.new_rustfunc(builtin_map));
+    ctx.set_attr(&py_mod, "map", ctx.map_type());
     ctx.set_attr(&py_mod, "max", ctx.new_rustfunc(builtin_max));
     ctx.set_attr(&py_mod, "memoryview", ctx.memoryview_type());
     ctx.set_attr(&py_mod, "min", ctx.new_rustfunc(builtin_min));

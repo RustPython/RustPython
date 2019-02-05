@@ -5,6 +5,8 @@ assert a == ['1', '2', '3']
 b = list(map(lambda x, y: x + y, [1, 2, 4], [3, 5]))
 assert b == [4, 7]
 
+assert type(map(lambda x: x, [])) == map
+
 
 # test infinite iterator
 class Counter(object):
