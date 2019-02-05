@@ -7,10 +7,5 @@ export PATH=$HOME/.cargo/bin:$PATH
 
 # Install pipenv
 pip install pipenv
-(cd tests; pipenv install)
 
-# Build outside of the test runner
-cargo build --verbose --release
-
-# Run the tests
-(cd tests; pipenv run pytest)
+RUST_RELEASE=1 ./tests/run_tests.sh --release

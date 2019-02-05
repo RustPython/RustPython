@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 bytecode = "*"
 pytest = "*"
+pytest-xdist = "*"
 
 [dev-packages]
 

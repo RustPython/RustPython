@@ -14,6 +14,8 @@ import enum
 
 import compile_code
 
+RELEASE = 'RUST_RELEASE' in os.environ
+
 
 class _TestType(enum.Enum):
     functional = 1
@@ -78,7 +80,7 @@ def run_via_rustpython(filename, test_type):
     env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
     env['RUST_BACKTRACE'] = '1'
     subprocess.check_call(
-        ['cargo', 'run', '--release', filename], env=env)
+        ['cargo', 'run', '--release' if RELEASE else '', filename], env=env)
 
 
 def create_test_function(cls, filename, method, test_type):
