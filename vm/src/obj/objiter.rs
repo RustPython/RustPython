@@ -189,7 +189,8 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 let predicate_value = if predicate.is(&vm.get_none()) {
                     next_obj.clone()
                 } else {
-                    // What should happen if the predicate raise StopIteration
+                    // the predicate itself can raise StopIteration which does stop the filter
+                    // iteration
                     vm.invoke(
                         predicate.clone(),
                         PyFuncArgs {
@@ -212,6 +213,7 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 .map(|iterator| call_next(vm, iterator))
                 .collect::<Result<Vec<_>, _>>()?;
 
+            // the mapper itself can raise StopIteration which does stop the map iteration
             vm.invoke(
                 mapper.clone(),
                 PyFuncArgs {

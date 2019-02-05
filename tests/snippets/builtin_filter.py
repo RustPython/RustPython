@@ -19,3 +19,12 @@ class Counter(object):
 it = filter(lambda x: ((x % 2) == 0), Counter())
 assert next(it) == 2
 assert next(it) == 4
+
+
+def predicate(x):
+    if x == 0:
+        raise StopIteration()
+    return True
+
+
+assert list(filter(predicate, [1, 2, 0, 4, 5])) == [1, 2]

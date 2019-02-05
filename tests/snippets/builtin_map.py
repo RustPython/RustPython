@@ -21,3 +21,12 @@ class Counter(object):
 it = map(lambda x: x+1, Counter())
 assert next(it) == 2
 assert next(it) == 3
+
+
+def mapping(x):
+    if x == 0:
+        raise StopIteration()
+    return x
+
+
+assert list(map(mapping, [1, 2, 0, 4, 5])) == [1, 2]
