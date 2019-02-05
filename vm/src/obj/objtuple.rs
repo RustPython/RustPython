@@ -4,11 +4,99 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use super::objsequence::{get_elements, get_item, seq_equal, seq_mul};
+use super::objsequence::{get_elements, get_item, seq_equal, seq_mul, seq_ge, seq_gt, seq_le, seq_lt};
 use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
 use std::hash::{Hash, Hasher};
+
+fn tuple_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_lt(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn tuple_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_gt(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn tuple_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_ge(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn tuple_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
+    );
+
+    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+        let zelf = get_elements(zelf);
+        let other = get_elements(other);
+        seq_le(vm, &zelf, &other)?
+    } else {
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            zelf.borrow(),
+            other.borrow()
+        )));
+    };
+
+    Ok(vm.ctx.new_bool(result))
+}
 
 fn tuple_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -205,4 +293,8 @@ pub fn init(context: &PyContext) {
     context.set_attr(&tuple_type, "__mul__", context.new_rustfunc(tuple_mul));
     context.set_attr(&tuple_type, "__repr__", context.new_rustfunc(tuple_repr));
     context.set_attr(&tuple_type, "count", context.new_rustfunc(tuple_count));
+    context.set_attr(&tuple_type, "__lt__", context.new_rustfunc(tuple_lt));
+    context.set_attr(&tuple_type, "__le__", context.new_rustfunc(tuple_le));
+    context.set_attr(&tuple_type, "__gt__", context.new_rustfunc(tuple_gt));
+    context.set_attr(&tuple_type, "__ge__", context.new_rustfunc(tuple_ge));
 }
