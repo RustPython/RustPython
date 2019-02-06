@@ -53,3 +53,20 @@ assert isinstance(True.conjugate(), int)
 
 assert True.__int__() == 1
 assert False.__int__() == 0
+
+assert bool.__int__(5) == 5
+
+assert True.__ceil__() == 1
+assert False.__ceil__() == 0
+
+assert bool.__ceil__(5) == 5
+
+assert True.__floor__() == 1
+assert False.__floor__() == 0
+
+assert bool.__floor__(5) == 5
+
+assert True.__round__() == 1
+assert False.__round__() == 0
+
+assert bool.__round__(5) == 5

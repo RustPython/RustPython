@@ -39,7 +39,10 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
     let bool_type = &context.bool_type;
     context.set_attr(&bool_type, "__new__", context.new_rustfunc(bool_new));
     context.set_attr(&bool_type, "__repr__", context.new_rustfunc(bool_repr));
-    context.set_attr(&bool_type, "__int__", context.new_rustfunc(bool_int));
+    context.set_attr(&bool_type, "__int__", context.new_rustfunc(bool_to_int));
+    context.set_attr(&bool_type, "__floor__", context.new_rustfunc(bool_to_int));
+    context.set_attr(&bool_type, "__ceil__", context.new_rustfunc(bool_to_int));
+    context.set_attr(&bool_type, "__round__", context.new_rustfunc(bool_to_int));
     context.set_attr(&bool_type, "__doc__", context.new_str(bool_doc.to_string()));
 }
 
@@ -61,8 +64,8 @@ pub fn get_value(obj: &PyObjectRef) -> bool {
     }
 }
 
-fn bool_int(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bool_type()))]);
+fn bool_to_int(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.int_type()))]);
 
     if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
         Ok(vm.ctx.new_int(value.clone()))
