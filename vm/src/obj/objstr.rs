@@ -16,7 +16,7 @@ extern crate unicode_segmentation;
 use self::unicode_segmentation::UnicodeSegmentation;
 
 pub fn init(context: &PyContext) {
-    let ref str_type = context.str_type;
+    let str_type = &context.str_type;
     context.set_attr(&str_type, "__add__", context.new_rustfunc(str_add));
     context.set_attr(&str_type, "__eq__", context.new_rustfunc(str_eq));
     context.set_attr(
@@ -208,7 +208,7 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() == 0 {
+    if args.args.is_empty() {
         return Err(
             vm.new_type_error("descriptor 'format' of 'str' object needs an argument".to_string())
         );
@@ -238,9 +238,9 @@ fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn call_object_format(
     vm: &mut VirtualMachine,
     argument: PyObjectRef,
-    format_spec: &String,
+    format_spec: &str,
 ) -> PyResult {
-    let returned_type = vm.ctx.new_str(format_spec.clone());
+    let returned_type = vm.ctx.new_str(format_spec.to_string());
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
         let result_type = result.typ();
@@ -450,12 +450,8 @@ fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         && !value.chars().nth(0).unwrap().is_digit(10)
     {
         for c in value.chars() {
-            if c != "_".chars().nth(0).unwrap() {
-                if !c.is_digit(10) {
-                    if !c.is_alphabetic() {
-                        is_identifier = false;
-                    }
-                }
+            if c != "_".chars().nth(0).unwrap() && !c.is_digit(10) && !c.is_alphabetic() {
+                is_identifier = false;
             }
         }
     } else {
@@ -1030,11 +1026,9 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
         }
     } else {
         match &(*b.borrow()).payload {
-            &PyObjectPayload::Slice {
-                start: _,
-                stop: _,
-                step: _,
-            } => Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string())),
+            &PyObjectPayload::Slice { .. } => {
+                Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string()))
+            }
             _ => panic!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
                 value, b
@@ -1081,5 +1075,5 @@ fn make_title(s: &str) -> String {
             capitalize_char = true;
         }
     }
-    return titled_str;
+    titled_str
 }

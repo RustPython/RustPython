@@ -238,7 +238,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals,
+        locals,
         parent: None,
     };
     let scope = PyObject {
@@ -288,7 +288,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals,
+        locals,
         parent: None,
     };
     let scope = PyObject {
@@ -299,29 +299,6 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // Run the code:
     vm.run_code_obj(code_obj, scope)
-}
-
-fn builtin_filter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(function, None), (iterable, None)]);
-
-    // TODO: process one element at a time from iterators.
-    let iterable = vm.extract_elements(iterable)?;
-
-    let mut new_items = vec![];
-    for element in iterable {
-        // apply function:
-        let args = PyFuncArgs {
-            args: vec![element.clone()],
-            kwargs: vec![],
-        };
-        let result = vm.invoke(function.clone(), args)?;
-        let result = objbool::boolval(vm, result)?;
-        if result {
-            new_items.push(element);
-        }
-    }
-
-    Ok(vm.ctx.new_list(new_items))
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -428,33 +405,6 @@ fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_locals())
 }
 
-fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(function, None), (iter_target, None)]);
-    let iterator = objiter::get_iter(vm, iter_target)?;
-    let mut elements = vec![];
-    loop {
-        match vm.call_method(&iterator, "__next__", vec![]) {
-            Ok(v) => {
-                // Now apply function:
-                let mapped_value = vm.invoke(
-                    function.clone(),
-                    PyFuncArgs {
-                        args: vec![v],
-                        kwargs: vec![],
-                    },
-                )?;
-                elements.push(mapped_value);
-            }
-            Err(_) => break,
-        }
-    }
-
-    trace!("Mapped elements: {:?}", elements);
-
-    // TODO: when iterators are implemented, we can improve this function.
-    Ok(vm.ctx.new_list(elements))
-}
-
 fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let candidates = if args.args.len() > 1 {
         args.args.clone()
@@ -465,7 +415,7 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
     };
 
-    if candidates.len() == 0 {
+    if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
         if default.is_none() {
             return Err(vm.new_value_error("max() arg is an empty sequence".to_string()));
@@ -516,7 +466,7 @@ fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("Expected 1 or more arguments".to_string()));
     };
 
-    if candidates.len() == 0 {
+    if candidates.is_empty() {
         let default = args.get_optional_kwarg("default");
         if default.is_none() {
             return Err(vm.new_value_error("min() arg is an empty sequence".to_string()));
@@ -749,7 +699,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "exec", ctx.new_rustfunc(builtin_exec));
     ctx.set_attr(&py_mod, "float", ctx.float_type());
     ctx.set_attr(&py_mod, "frozenset", ctx.frozenset_type());
-    ctx.set_attr(&py_mod, "filter", ctx.new_rustfunc(builtin_filter));
+    ctx.set_attr(&py_mod, "filter", ctx.filter_type());
     ctx.set_attr(&py_mod, "format", ctx.new_rustfunc(builtin_format));
     ctx.set_attr(&py_mod, "getattr", ctx.new_rustfunc(builtin_getattr));
     ctx.set_attr(&py_mod, "hasattr", ctx.new_rustfunc(builtin_hasattr));
@@ -763,7 +713,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "len", ctx.new_rustfunc(builtin_len));
     ctx.set_attr(&py_mod, "list", ctx.list_type());
     ctx.set_attr(&py_mod, "locals", ctx.new_rustfunc(builtin_locals));
-    ctx.set_attr(&py_mod, "map", ctx.new_rustfunc(builtin_map));
+    ctx.set_attr(&py_mod, "map", ctx.map_type());
     ctx.set_attr(&py_mod, "max", ctx.new_rustfunc(builtin_max));
     ctx.set_attr(&py_mod, "memoryview", ctx.memoryview_type());
     ctx.set_attr(&py_mod, "min", ctx.new_rustfunc(builtin_min));
@@ -819,6 +769,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
     ctx.set_attr(&py_mod, "IndexError", ctx.exceptions.index_error.clone());
     ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "StopIteration",
+        ctx.exceptions.stop_iteration.clone(),
+    );
 
     py_mod
 }

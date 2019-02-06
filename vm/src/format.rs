@@ -87,7 +87,7 @@ fn parse_align(text: &str) -> (Option<FormatAlign>, &str) {
 
 fn parse_fill_and_align(text: &str) -> (Option<char>, Option<FormatAlign>, &str) {
     let char_indices: Vec<(usize, char)> = text.char_indices().take(3).collect();
-    if char_indices.len() == 0 {
+    if char_indices.is_empty() {
         (None, None, text)
     } else if char_indices.len() == 1 {
         let (maybe_align, remaining) = parse_align(text);
@@ -438,14 +438,14 @@ impl FormatString {
     fn parse_literal(text: &str) -> Result<(FormatPart, &str), FormatParseError> {
         let mut cur_text = text;
         let mut result_string = String::new();
-        while cur_text.len() > 0 {
+        while !cur_text.is_empty() {
             match FormatString::parse_literal_single(cur_text) {
                 Ok((next_char, remaining)) => {
                     result_string.push(next_char);
                     cur_text = remaining;
                 }
                 Err(err) => {
-                    if result_string.len() > 0 {
+                    if !result_string.is_empty() {
                         return Ok((FormatPart::Literal(result_string.to_string()), cur_text));
                     } else {
                         return Err(err);
@@ -467,7 +467,7 @@ impl FormatString {
             String::new()
         };
 
-        if arg_part.len() == 0 {
+        if arg_part.is_empty() {
             return Ok(FormatPart::AutoSpec(format_spec));
         }
 
@@ -500,7 +500,7 @@ impl FormatString {
     pub fn from_str(text: &str) -> Result<FormatString, FormatParseError> {
         let mut cur_text: &str = text;
         let mut parts: Vec<FormatPart> = Vec::new();
-        while cur_text.len() > 0 {
+        while !cur_text.is_empty() {
             // Try to parse both literals and bracketed format parts util we
             // run out of text
             cur_text = FormatString::parse_literal(cur_text)

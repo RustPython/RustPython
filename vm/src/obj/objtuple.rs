@@ -206,7 +206,7 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements: elements },
+        PyObjectPayload::Sequence { elements },
         cls.clone(),
     ))
 }
@@ -275,7 +275,7 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref tuple_type = context.tuple_type;
+    let tuple_type = &context.tuple_type;
     context.set_attr(&tuple_type, "__add__", context.new_rustfunc(tuple_add));
     context.set_attr(&tuple_type, "__eq__", context.new_rustfunc(tuple_eq));
     context.set_attr(

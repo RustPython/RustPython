@@ -53,10 +53,10 @@ impl VirtualMachine {
 
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
-            builtins: builtins,
+            builtins,
             sys_module: sysmod,
             stdlib_inits,
-            ctx: ctx,
+            ctx,
             current_frame: None,
         }
     }
@@ -86,7 +86,7 @@ impl VirtualMachine {
         let pymsg = self.new_str(msg);
         let args: Vec<PyObjectRef> = vec![pymsg];
         let args = PyFuncArgs {
-            args: args,
+            args,
             kwargs: vec![],
         };
 
@@ -164,7 +164,7 @@ impl VirtualMachine {
     pub fn get_builtin_scope(&mut self) -> PyObjectRef {
         let a2 = &*self.builtins.borrow();
         match a2.payload {
-            PyObjectPayload::Module { name: _, ref dict } => dict.clone(),
+            PyObjectPayload::Module { ref dict, .. } => dict.clone(),
             _ => {
                 panic!("OMG");
             }
@@ -211,7 +211,7 @@ impl VirtualMachine {
             obj,
             method_name,
             PyFuncArgs {
-                args: args,
+                args,
                 kwargs: vec![],
             },
         )
@@ -250,11 +250,7 @@ impl VirtualMachine {
                 ref scope,
                 ref defaults,
             } => self.invoke_python_function(code, scope, defaults, args),
-            PyObjectPayload::Class {
-                name: _,
-                dict: _,
-                mro: _,
-            } => self.call_method_pyargs(&func_ref, "__call__", args),
+            PyObjectPayload::Class { .. } => self.call_method_pyargs(&func_ref, "__call__", args),
             PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,

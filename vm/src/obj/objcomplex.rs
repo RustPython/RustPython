@@ -7,7 +7,7 @@ use super::objtype;
 use num_complex::Complex64;
 
 pub fn init(context: &PyContext) {
-    let ref complex_type = context.complex_type;
+    let complex_type = &context.complex_type;
     context.set_attr(&complex_type, "__add__", context.new_rustfunc(complex_add));
     context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
     context.set_attr(
@@ -85,5 +85,10 @@ fn complex_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn complex_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.complex_type()))]);
     let v = get_value(obj);
-    Ok(vm.new_str(v.to_string()))
+    let repr = if v.re == 0. {
+        format!("{}j", v.im)
+    } else {
+        format!("({}+{}j)", v.re, v.im)
+    };
+    Ok(vm.new_str(repr))
 }

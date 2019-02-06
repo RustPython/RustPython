@@ -6,17 +6,17 @@ use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
-    let ref function_type = context.function_type;
+    let function_type = &context.function_type;
     context.set_attr(&function_type, "__get__", context.new_rustfunc(bind_method));
 
-    let ref member_descriptor_type = context.member_descriptor_type;
+    let member_descriptor_type = &context.member_descriptor_type;
     context.set_attr(
         &member_descriptor_type,
         "__get__",
         context.new_rustfunc(member_get),
     );
 
-    let ref classmethod_type = context.classmethod_type;
+    let classmethod_type = &context.classmethod_type;
     context.set_attr(
         &classmethod_type,
         "__get__",
@@ -28,7 +28,7 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(classmethod_new),
     );
 
-    let ref staticmethod_type = context.staticmethod_type;
+    let staticmethod_type = &context.staticmethod_type;
     context.set_attr(
         staticmethod_type,
         "__get__",

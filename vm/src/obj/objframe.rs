@@ -10,7 +10,7 @@ use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
-    let ref frame_type = context.frame_type;
+    let frame_type = &context.frame_type;
     context.set_attr(&frame_type, "__new__", context.new_rustfunc(frame_new));
     context.set_attr(&frame_type, "__repr__", context.new_rustfunc(frame_repr));
     context.set_attr(&frame_type, "f_locals", context.new_property(frame_flocals));

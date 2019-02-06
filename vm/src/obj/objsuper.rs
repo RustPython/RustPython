@@ -11,7 +11,7 @@ use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
-    let ref super_type = context.super_type;
+    let super_type = &context.super_type;
     context.set_attr(&super_type, "__init__", context.new_rustfunc(super_init));
 }
 

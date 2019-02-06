@@ -16,7 +16,7 @@ use num_traits::ToPrimitive;
 
 /// Fill bytearray class methods dictionary.
 pub fn init(context: &PyContext) {
-    let ref bytearray_type = context.bytearray_type;
+    let bytearray_type = &context.bytearray_type;
     context.set_attr(
         &bytearray_type,
         "__eq__",
@@ -63,10 +63,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         vec![]
     };
-    Ok(PyObject::new(
-        PyObjectPayload::Bytes { value: value },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(PyObjectPayload::Bytes { value }, cls.clone()))
 }
 
 fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

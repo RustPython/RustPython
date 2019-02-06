@@ -52,7 +52,7 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements: elements },
+        PyObjectPayload::Sequence { elements },
         cls.clone(),
     ))
 }
@@ -365,7 +365,7 @@ fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref list_type = context.list_type;
+    let list_type = &context.list_type;
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
     context.set_attr(
         &list_type,

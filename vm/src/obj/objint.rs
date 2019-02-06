@@ -205,9 +205,7 @@ fn int_lshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // i2 failed `to_usize()` conversion
     match get_value(i2) {
-        ref v if *v < BigInt::zero() => {
-            return Err(vm.new_value_error("negative shift count".to_string()));
-        }
+        ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
         ref v if *v > BigInt::from(usize::max_value()) => {
             // TODO: raise OverflowError
             panic!("Failed converting {} to rust usize", get_value(i2));
@@ -237,9 +235,7 @@ fn int_rshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // i2 failed `to_usize()` conversion
     match get_value(i2) {
-        ref v if *v < BigInt::zero() => {
-            return Err(vm.new_value_error("negative shift count".to_string()));
-        }
+        ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
         ref v if *v > BigInt::from(usize::max_value()) => {
             // TODO: raise OverflowError
             panic!("Failed converting {} to rust usize", get_value(i2));
@@ -510,7 +506,6 @@ fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref int_type = context.int_type;
     let int_doc = "int(x=0) -> integer
 int(x, base=10) -> integer
 
@@ -525,6 +520,8 @@ by whitespace.  The base defaults to 10.  Valid bases are 0 and 2-36.
 Base 0 means to interpret the base from the string as an integer literal.
 >>> int('0b100', base=0)
 4";
+    let int_type = &context.int_type;
+
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
     context.set_attr(&int_type, "__lt__", context.new_rustfunc(int_lt));
     context.set_attr(&int_type, "__le__", context.new_rustfunc(int_le));

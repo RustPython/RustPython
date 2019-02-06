@@ -22,7 +22,7 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
     }
 }
 
-pub fn sequence_to_hashmap(iterable: &Vec<PyObjectRef>) -> HashMap<usize, PyObjectRef> {
+pub fn sequence_to_hashmap(iterable: &[PyObjectRef]) -> HashMap<usize, PyObjectRef> {
     let mut elements = HashMap::new();
     for item in iterable {
         let key = item.get_id();
@@ -82,7 +82,7 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements: elements },
+        PyObjectPayload::Set { elements },
         cls.clone(),
     ))
 }
@@ -98,7 +98,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.set_type()))]);
 
     let elements = get_elements(o);
-    let s = if elements.len() == 0 {
+    let s = if elements.is_empty() {
         "set()".to_string()
     } else {
         let mut str_parts = vec![];
@@ -136,7 +136,7 @@ fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
     let elements = get_elements(o);
-    let s = if elements.len() == 0 {
+    let s = if elements.is_empty() {
         "frozenset()".to_string()
     } else {
         let mut str_parts = vec![];
@@ -151,7 +151,7 @@ fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref set_type = context.set_type;
+    let set_type = &context.set_type;
     context.set_attr(
         &set_type,
         "__contains__",
@@ -162,7 +162,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
-    let ref frozenset_type = context.frozenset_type;
+    let frozenset_type = &context.frozenset_type;
     context.set_attr(
         &frozenset_type,
         "__contains__",

@@ -22,7 +22,7 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
 }
 
 pub fn init(context: &PyContext) {
-    let ref type_type = context.type_type;
+    let type_type = &context.type_type;
     context.set_attr(&type_type, "__call__", context.new_rustfunc(type_call));
     context.set_attr(&type_type, "__new__", context.new_rustfunc(type_new));
     context.set_attr(
@@ -89,12 +89,7 @@ pub fn issubclass(typ: &PyObjectRef, cls: &PyObjectRef) -> bool {
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let PyObjectPayload::Class {
-        name,
-        dict: _,
-        mro: _,
-    } = &typ.borrow().payload
-    {
+    if let PyObjectPayload::Class { name, .. } = &typ.borrow().payload {
         name.clone()
     } else {
         panic!("Cannot get type_name of non-type type {:?}", typ);
@@ -192,22 +187,20 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
         Ok(cls_attr)
     } else if let Some(attr) = mcl.get_attr(&name) {
         vm.call_get_descriptor(attr, cls.clone())
+    } else if let Some(getter) = cls.get_attr("__getattr__") {
+        vm.invoke(
+            getter,
+            PyFuncArgs {
+                args: vec![mcl, name_str.clone()],
+                kwargs: vec![],
+            },
+        )
     } else {
-        if let Some(getter) = cls.get_attr("__getattr__") {
-            vm.invoke(
-                getter,
-                PyFuncArgs {
-                    args: vec![mcl, name_str.clone()],
-                    kwargs: vec![],
-                },
-            )
-        } else {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(
-                attribute_error,
-                format!("{} has no attribute '{}'", cls.borrow(), name),
-            ))
-        }
+        let attribute_error = vm.context().exceptions.attribute_error.clone();
+        Err(vm.new_exception(
+            attribute_error,
+            format!("{} has no attribute '{}'", cls.borrow(), name),
+        ))
     }
 }
 
@@ -219,12 +212,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
     let mut base_classes = objtype::base_classes(obj);
     base_classes.reverse();
     for bc in base_classes {
-        if let PyObjectPayload::Class {
-            name: _,
-            dict,
-            mro: _,
-        } = &bc.borrow().payload
-        {
+        if let PyObjectPayload::Class { dict, .. } = &bc.borrow().payload {
             let elements = objdict::get_key_value_pairs(dict);
             for (name, value) in elements.iter() {
                 let name = objstr::get_value(name);
@@ -263,7 +251,7 @@ fn take_next_base(
     }
 
     if let Some(head) = next {
-        for ref mut item in &mut bases {
+        for item in &mut bases {
             if item[0].get_id() == head.get_id() {
                 item.remove(0);
             }
@@ -297,8 +285,8 @@ pub fn new(typ: PyObjectRef, name: &str, bases: Vec<PyObjectRef>, dict: PyObject
     Ok(PyObject::new(
         PyObjectPayload::Class {
             name: String::from(name),
-            dict: dict,
-            mro: mro,
+            dict,
+            mro,
         },
         typ,
     ))

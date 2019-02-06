@@ -53,7 +53,7 @@ pub fn compile(
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
     Ok(PyObject::new(
-        PyObjectPayload::Code { code: code },
+        PyObjectPayload::Code { code },
         vm.ctx.code_type(),
     ))
 }
@@ -432,7 +432,7 @@ impl Compiler {
 
                 self.prepare_decorators(decorator_list)?;
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -441,7 +441,7 @@ impl Compiler {
                 });
 
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags: flags });
+                self.emit(Instruction::MakeFunction { flags });
                 self.apply_decorators(decorator_list);
 
                 self.emit(Instruction::StoreName {
@@ -477,7 +477,7 @@ impl Compiler {
 
                 let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -674,14 +674,14 @@ impl Compiler {
         Ok(flags)
     }
 
-    fn prepare_decorators(&mut self, decorator_list: &Vec<ast::Expression>) -> Result<(), String> {
+    fn prepare_decorators(&mut self, decorator_list: &[ast::Expression]) -> Result<(), String> {
         for decorator in decorator_list {
             self.compile_expression(decorator)?;
         }
         Ok(())
     }
 
-    fn apply_decorators(&mut self, decorator_list: &Vec<ast::Expression>) {
+    fn apply_decorators(&mut self, decorator_list: &[ast::Expression]) {
         // Apply decorators:
         for _ in decorator_list {
             self.emit(Instruction::CallFunction {
@@ -905,7 +905,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildList {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -913,7 +913,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildTuple {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -921,7 +921,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildSet {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -932,7 +932,7 @@ impl Compiler {
                     self.compile_expression(value)?;
                 }
                 self.emit(Instruction::BuildMap {
-                    size: size,
+                    size,
                     unpack: false,
                 });
             }
@@ -941,7 +941,7 @@ impl Compiler {
                 for element in elements {
                     self.compile_expression(element)?;
                 }
-                self.emit(Instruction::BuildSlice { size: size });
+                self.emit(Instruction::BuildSlice { size });
             }
             ast::Expression::Yield { value } => {
                 self.mark_generator();
@@ -1003,13 +1003,13 @@ impl Compiler {
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String { value: name },
                 });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags: flags });
+                self.emit(Instruction::MakeFunction { flags });
             }
             ast::Expression::Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
@@ -1036,8 +1036,8 @@ impl Compiler {
     fn compile_call(
         &mut self,
         function: &ast::Expression,
-        args: &Vec<ast::Expression>,
-        keywords: &Vec<ast::Keyword>,
+        args: &[ast::Expression],
+        keywords: &[ast::Keyword],
     ) -> Result<(), String> {
         self.compile_expression(function)?;
         let count = args.len() + keywords.len();
@@ -1123,7 +1123,7 @@ impl Compiler {
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(&mut self, elements: &Vec<ast::Expression>) -> Result<bool, String> {
+    fn gather_elements(&mut self, elements: &[ast::Expression]) -> Result<bool, String> {
         // First determine if we have starred elements:
         let has_stars = elements.iter().any(|e| {
             if let ast::Expression::Starred { .. } = e {
@@ -1153,10 +1153,10 @@ impl Compiler {
     fn compile_comprehension(
         &mut self,
         kind: &ast::ComprehensionKind,
-        generators: &Vec<ast::Comprehension>,
+        generators: &[ast::Comprehension],
     ) -> Result<(), String> {
         // We must have at least one generator:
-        assert!(generators.len() > 0);
+        assert!(!generators.is_empty());
 
         let name = match kind {
             ast::ComprehensionKind::GeneratorExpression { .. } => "<genexpr>",
@@ -1201,8 +1201,7 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
-            let first = loop_labels.len() == 0;
-            if first {
+            if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
                     name: String::from(".0"),
@@ -1287,7 +1286,7 @@ impl Compiler {
 
         // List comprehension code:
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::Code { code: code },
+            value: bytecode::Constant::Code { code },
         });
 
         // List comprehension function name:
