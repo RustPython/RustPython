@@ -87,6 +87,8 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let object = &context.object;
+    let object_doc = "The most base type";
+
     context.set_attr(&object, "__new__", context.new_rustfunc(new_instance));
     context.set_attr(&object, "__init__", context.new_rustfunc(object_init));
     context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
@@ -105,6 +107,7 @@ pub fn init(context: &PyContext) {
         "__getattribute__",
         context.new_rustfunc(object_getattribute),
     );
+    context.set_attr(&object, "__doc__", context.new_str(object_doc.to_string()));
 }
 
 fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
