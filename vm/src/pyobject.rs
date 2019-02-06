@@ -7,6 +7,7 @@ use super::obj::objbytes;
 use super::obj::objcode;
 use super::obj::objcomplex;
 use super::obj::objdict;
+use super::obj::objfilter;
 use super::obj::objfloat;
 use super::obj::objframe;
 use super::obj::objfunction;
@@ -14,6 +15,7 @@ use super::obj::objgenerator;
 use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objlist;
+use super::obj::objmap;
 use super::obj::objmemory;
 use super::obj::objobject;
 use super::obj::objproperty;
@@ -106,6 +108,7 @@ pub struct PyContext {
     pub classmethod_type: PyObjectRef,
     pub code_type: PyObjectRef,
     pub dict_type: PyObjectRef,
+    pub filter_type: PyObjectRef,
     pub float_type: PyObjectRef,
     pub frame_type: PyObjectRef,
     pub frozenset_type: PyObjectRef,
@@ -116,6 +119,7 @@ pub struct PyContext {
     pub true_value: PyObjectRef,
     pub false_value: PyObjectRef,
     pub list_type: PyObjectRef,
+    pub map_type: PyObjectRef,
     pub memoryview_type: PyObjectRef,
     pub none: PyObjectRef,
     pub tuple_type: PyObjectRef,
@@ -200,6 +204,8 @@ impl PyContext {
         let bytearray_type = create_type("bytearray", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
+        let filter_type = create_type("filter", &type_type, &object_type, &dict_type);
+        let map_type = create_type("map", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
         let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
         let code_type = create_type("code", &type_type, &int_type, &dict_type);
@@ -240,6 +246,8 @@ impl PyContext {
             false_value,
             tuple_type,
             iter_type,
+            filter_type,
+            map_type,
             dict_type,
             none: none,
             str_type: str_type,
@@ -275,6 +283,8 @@ impl PyContext {
         objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
+        objfilter::init(&context);
+        objmap::init(&context);
         objbool::init(&context);
         objcode::init(&context);
         objframe::init(&context);
@@ -344,6 +354,14 @@ impl PyContext {
 
     pub fn iter_type(&self) -> PyObjectRef {
         self.iter_type.clone()
+    }
+
+    pub fn filter_type(&self) -> PyObjectRef {
+        self.filter_type.clone()
+    }
+
+    pub fn map_type(&self) -> PyObjectRef {
+        self.map_type.clone()
     }
 
     pub fn str_type(&self) -> PyObjectRef {
@@ -866,6 +884,14 @@ pub enum PyObjectPayload {
         position: usize,
         iterated_obj: PyObjectRef,
     },
+    FilterIterator {
+        predicate: PyObjectRef,
+        iterator: PyObjectRef,
+    },
+    MapIterator {
+        mapper: PyObjectRef,
+        iterators: Vec<PyObjectRef>,
+    },
     Slice {
         start: Option<i32>,
         stop: Option<i32>,
@@ -934,6 +960,8 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Range { .. } => write!(f, "range"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
+            PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),
+            PyObjectPayload::MapIterator { .. } => write!(f, "map"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
             PyObjectPayload::Function { .. } => write!(f, "function"),
@@ -1030,6 +1058,8 @@ impl PyObject {
                 position,
                 iterated_obj.borrow_mut().str()
             ),
+            PyObjectPayload::FilterIterator { .. } => format!("<filter>"),
+            PyObjectPayload::MapIterator { .. } => format!("<map>"),
         }
     }
 
