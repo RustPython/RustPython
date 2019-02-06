@@ -250,7 +250,7 @@ fn int_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn int_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -414,7 +414,7 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2).to_u32().unwrap();
-        Ok(vm.ctx.new_int(v1.pow(v2).to_bigint().unwrap()))
+        Ok(vm.ctx.new_int(v1.pow(v2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))
@@ -513,7 +513,7 @@ fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
     let v = get_value(i);
     let bits = v.bits();
-    Ok(vm.ctx.new_int(bits.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(bits))
 }
 
 fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

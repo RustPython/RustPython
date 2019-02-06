@@ -6,7 +6,6 @@ use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 // rust's builtin to_lowercase isn't sufficient for casefold
@@ -308,13 +307,13 @@ fn str_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn str_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let sv = get_value(s);
-    Ok(vm.ctx.new_int(sv.chars().count().to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(sv.chars().count()))
 }
 
 fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -554,7 +553,7 @@ fn str_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Err(e) => return Err(vm.new_index_error(e)),
     };
     let num_occur: usize = value[start..end].matches(&sub).count();
-    Ok(vm.ctx.new_int(num_occur.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(num_occur))
 }
 
 fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -579,7 +578,7 @@ fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -602,7 +601,7 @@ fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(num) => num as i128,
         None => -1 as i128,
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 // casefold is much more aggresive than lower
@@ -894,7 +893,7 @@ fn str_rindex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -917,7 +916,7 @@ fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(num) => num as i128,
         None => -1 as i128,
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_isnumeric(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

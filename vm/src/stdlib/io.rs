@@ -183,9 +183,8 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         _ => {}
     };
 
-    let updated = os::raw_file_number(f.into_inner()).to_bigint();
-    vm.ctx
-        .set_attr(&file_io, "fileno", vm.ctx.new_int(updated.unwrap()));
+    let updated = os::raw_file_number(f.into_inner());
+    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(updated));
     Ok(vm.get_none())
 }
 
@@ -209,12 +208,11 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             match handle.write(&value[..]) {
                 Ok(len) => {
                     //reset raw fd on the FileIO object
-                    let updated = os::raw_file_number(handle).to_bigint();
-                    vm.ctx
-                        .set_attr(&file_io, "fileno", vm.ctx.new_int(updated.unwrap()));
+                    let updated = os::raw_file_number(handle);
+                    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(updated));
 
                     //return number of bytes written
-                    Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
+                    Ok(vm.ctx.new_int(len))
                 }
                 Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string())),
             }

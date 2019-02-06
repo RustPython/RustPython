@@ -20,7 +20,6 @@ use super::pyobject::{
     PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 #[derive(Clone, Debug)]
@@ -121,7 +120,7 @@ impl Frame {
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.get_row().to_bigint().unwrap()),
+                        vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::list_append(
@@ -1036,7 +1035,7 @@ impl Frame {
 
     fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
-            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.to_bigint().unwrap()),
+            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.clone()),
             bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
             bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
             bytecode::Constant::String { ref value } => vm.new_str(value.clone()),

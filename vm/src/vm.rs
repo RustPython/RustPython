@@ -610,23 +610,22 @@ impl VirtualMachine {
 mod tests {
     use super::super::obj::{objint, objstr};
     use super::VirtualMachine;
-    use num_bigint::ToBigInt;
 
     #[test]
     fn test_add_py_integers() {
         let mut vm = VirtualMachine::new();
-        let a = vm.ctx.new_int(33_i32.to_bigint().unwrap());
-        let b = vm.ctx.new_int(12_i32.to_bigint().unwrap());
+        let a = vm.ctx.new_int(33_i32);
+        let b = vm.ctx.new_int(12_i32);
         let res = vm._add(a, b).unwrap();
         let value = objint::get_value(&res);
-        assert_eq!(value, 45_i32.to_bigint().unwrap());
+        assert_eq!(value, 45_i32);
     }
 
     #[test]
     fn test_multiply_str() {
         let mut vm = VirtualMachine::new();
         let a = vm.ctx.new_str(String::from("Hello "));
-        let b = vm.ctx.new_int(4_i32.to_bigint().unwrap());
+        let b = vm.ctx.new_int(4_i32);
         let res = vm._mul(a, b).unwrap();
         let value = objstr::get_value(&res);
         assert_eq!(value, String::from("Hello Hello Hello Hello "))

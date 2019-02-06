@@ -9,7 +9,6 @@ use super::objint;
 use super::super::vm::VirtualMachine;
 use super::objbytes::get_value;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 // Binary data support
@@ -110,8 +109,7 @@ fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(a, Some(vm.ctx.bytearray_type()))]);
 
     let byte_vec = get_value(a).to_vec();
-    let value = byte_vec.len().to_bigint();
-    Ok(vm.ctx.new_int(value.unwrap()))
+    Ok(vm.ctx.new_int(byte_vec.len()))
 }
 
 fn bytearray_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
