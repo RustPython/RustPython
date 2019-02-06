@@ -1042,9 +1042,7 @@ impl Frame {
             bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => {
-                PyObject::new(PyObjectPayload::Code { code: code.clone() }, vm.get_type())
-            }
+            bytecode::Constant::Code { ref code } => vm.ctx.new_code_object(code.clone()),
             bytecode::Constant::Tuple { ref elements } => vm.ctx.new_tuple(
                 elements
                     .iter()

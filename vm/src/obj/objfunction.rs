@@ -9,6 +9,12 @@ pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
     context.set_attr(&function_type, "__get__", context.new_rustfunc(bind_method));
 
+    context.set_attr(
+        &function_type,
+        "__code__",
+        context.new_member_descriptor(function_code),
+    );
+
     let member_descriptor_type = &context.member_descriptor_type;
     context.set_attr(
         &member_descriptor_type,
@@ -52,6 +58,13 @@ fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(function.clone())
     } else {
         Ok(vm.ctx.new_bound_method(function.clone(), obj.clone()))
+    }
+}
+
+fn function_code(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    match args.args[0].borrow().payload {
+        PyObjectPayload::Function { ref code, .. } => Ok(code.clone()),
+        _ => Err(vm.new_type_error("no code".to_string())),
     }
 }
 

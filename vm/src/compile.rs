@@ -7,7 +7,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use super::bytecode::{self, CallType, CodeObject, Instruction};
-use super::pyobject::{PyObject, PyObjectPayload, PyResult};
+use super::pyobject::PyResult;
 use super::vm::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
@@ -52,10 +52,7 @@ pub fn compile(
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(PyObject::new(
-        PyObjectPayload::Code { code },
-        vm.ctx.code_type(),
-    ))
+    Ok(vm.ctx.new_code_object(code))
 }
 
 pub enum Mode {
