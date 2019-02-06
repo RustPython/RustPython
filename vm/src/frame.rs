@@ -76,7 +76,7 @@ impl Frame {
             blocks: vec![],
             // save the callargs as locals
             // globals: locals.clone(),
-            locals: locals,
+            locals,
             lasti: 0,
         }
     }
@@ -440,7 +440,7 @@ impl Frame {
                     bytecode::CallType::Positional(count) => {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
-                            args: args,
+                            args,
                             kwargs: vec![],
                         }
                     }

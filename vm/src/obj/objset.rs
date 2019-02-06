@@ -82,7 +82,7 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements: elements },
+        PyObjectPayload::Set { elements },
         cls.clone(),
     ))
 }

@@ -285,8 +285,8 @@ pub fn new(typ: PyObjectRef, name: &str, bases: Vec<PyObjectRef>, dict: PyObject
     Ok(PyObject::new(
         PyObjectPayload::Class {
             name: String::from(name),
-            dict: dict,
-            mro: mro,
+            dict,
+            mro,
         },
         typ,
     ))

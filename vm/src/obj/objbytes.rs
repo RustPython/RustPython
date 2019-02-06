@@ -48,10 +48,7 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
 
-    Ok(PyObject::new(
-        PyObjectPayload::Bytes { value: value },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(PyObjectPayload::Bytes { value }, cls.clone()))
 }
 
 fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

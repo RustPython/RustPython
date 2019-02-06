@@ -40,12 +40,12 @@ impl CodeObject {
             instructions: Vec::new(),
             label_map: HashMap::new(),
             locations: Vec::new(),
-            arg_names: arg_names,
-            varargs: varargs,
-            kwonlyarg_names: kwonlyarg_names,
-            varkeywords: varkeywords,
-            source_path: source_path,
-            obj_name: obj_name,
+            arg_names,
+            varargs,
+            kwonlyarg_names,
+            varkeywords,
+            source_path,
+            obj_name,
             is_generator: false,
         }
     }
