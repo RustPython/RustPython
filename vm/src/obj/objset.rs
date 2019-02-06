@@ -152,6 +152,11 @@ fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let set_type = &context.set_type;
+
+    let set_doc = "set() -> new empty set object\n\
+                   set(iterable) -> new set object\n\n\
+                   Build an unordered collection of unique elements.";
+
     context.set_attr(
         &set_type,
         "__contains__",
@@ -160,15 +165,26 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__len__", context.new_rustfunc(set_len));
     context.set_attr(&set_type, "__new__", context.new_rustfunc(set_new));
     context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
+    context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
     let frozenset_type = &context.frozenset_type;
+
+    let frozenset_doc = "frozenset() -> empty frozenset object\n\
+                         frozenset(iterable) -> frozenset object\n\n\
+                         Build an immutable unordered collection of unique elements.";
+
     context.set_attr(
         &frozenset_type,
         "__contains__",
         context.new_rustfunc(set_contains),
     );
     context.set_attr(&frozenset_type, "__len__", context.new_rustfunc(set_len));
+    context.set_attr(
+        &frozenset_type,
+        "__doc__",
+        context.new_str(frozenset_doc.to_string()),
+    );
     context.set_attr(
         &frozenset_type,
         "__repr__",
