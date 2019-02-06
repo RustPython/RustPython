@@ -136,6 +136,20 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     Err(stop_iteration)
                 }
             }
+
+            PyObjectPayload::Bytes { ref value } => {
+                if *position < value.len() {
+                    let obj_ref = vm.ctx.new_int(value[*position].to_bigint().unwrap());
+                    *position += 1;
+                    Ok(obj_ref)
+                } else {
+                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+                    let stop_iteration =
+                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
+                    Err(stop_iteration)
+                }
+            }
+
             _ => {
                 panic!("NOT IMPL");
             }
