@@ -50,3 +50,6 @@ assert True > 0
 assert int(True) == 1
 assert True.conjugate() == 1
 assert isinstance(True.conjugate(), int)
+
+assert True.__int__() == 1
+assert False.__int__() == 0
