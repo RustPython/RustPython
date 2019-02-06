@@ -4,7 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
@@ -27,16 +27,29 @@ impl RangeType {
     }
 
     #[inline]
-    pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
-        if value < &self.start || value >= &self.end {
-            return None;
+    fn offset(&self, value: &BigInt) -> Option<BigInt> {
+        match self.step.sign() {
+            Sign::Plus if value >= &self.start && value < &self.end => Some(value - &self.start),
+            Sign::Minus if value <= &self.start && value > &self.end => Some(&self.start - value),
+            _ => None,
         }
+    }
 
-        let offset = value - &self.start;
-        if offset.is_multiple_of(&self.step) {
-            Some(offset / &self.step)
-        } else {
-            None
+    #[inline]
+    pub fn contains(&self, value: &BigInt) -> bool {
+        match self.offset(value) {
+            Some(ref offset) => offset.is_multiple_of(&self.step),
+            None => false,
+        }
+    }
+
+    #[inline]
+    pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
+        match self.offset(value) {
+            Some(ref offset) if offset.is_multiple_of(&self.step) => {
+                Some((offset / &self.step).abs())
+            }
+            Some(_) | None => None,
         }
     }
 
@@ -74,6 +87,12 @@ pub fn init(context: &PyContext) {
         &range_type,
         "__getitem__",
         context.new_rustfunc(range_getitem),
+    );
+    context.set_attr(&range_type, "__bool__", context.new_rustfunc(range_bool));
+    context.set_attr(
+        &range_type,
+        "__contains__",
+        context.new_rustfunc(range_contains),
     );
     context.set_attr(&range_type, "index", context.new_rustfunc(range_index));
 }
@@ -202,6 +221,34 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
 
         _ => Err(vm.new_type_error("range indices must be integer or slice".to_string())),
+    }
+}
+
+fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+
+    let len = match zelf.borrow().payload {
+        PyObjectPayload::Range { ref range } => range.len(),
+        _ => unreachable!(),
+    };
+
+    Ok(vm.ctx.new_bool(len > 0))
+}
+
+fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.range_type())), (needle, None)]
+    );
+
+    if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
+        Ok(vm.ctx.new_bool(match needle.borrow().payload {
+            PyObjectPayload::Integer { ref value } => range.contains(value),
+            _ => false,
+        }))
+    } else {
+        unreachable!()
     }
 }
 
