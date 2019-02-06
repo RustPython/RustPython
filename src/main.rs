@@ -144,19 +144,19 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
 
 #[cfg(target_family = "windows")]
 fn get_history_path() -> String {
-	//
-	String::from(".repl_history.txt")
+    //
+    String::from(".repl_history.txt")
 }
 
 #[cfg(target_family = "unix")]
 fn get_history_path() -> String {
-	//work around for windows dependent builds. The xdg crate is unix specific
-	//so access to the BaseDirectories struct breaks builds on python.
-	extern crate xdg;
+    //work around for windows dependent builds. The xdg crate is unix specific
+    //so access to the BaseDirectories struct breaks builds on python.
+    extern crate xdg;
 
     let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
     let repl_history_path = xdg_dirs.place_cache_file("repl_history.txt").unwrap();
-	repl_history_path.to_str().unwrap()
+    repl_history_path.to_str().unwrap()
 }
 
 fn run_shell(vm: &mut VirtualMachine) -> PyResult {
@@ -171,8 +171,8 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     let mut input = String::new();
     let mut rl = Editor::<()>::new();
 
-	//retrieve a history_path_str dependent to the os
-	let repl_history_path_str = &get_history_path();
+    //retrieve a history_path_str dependent to the os
+    let repl_history_path_str = &get_history_path();
     if rl.load_history(repl_history_path_str).is_err() {
         println!("No previous history.");
     }
