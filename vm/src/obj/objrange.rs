@@ -27,13 +27,8 @@ impl RangeType {
     }
 
     #[inline]
-    pub fn contains(&self, value: &BigInt) -> bool {
-        value >= &self.start && value < &self.end
-    }
-
-    #[inline]
     pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
-        if !self.contains(value) {
+        if value < &self.start || value >= &self.end {
             return None;
         }
 
