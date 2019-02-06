@@ -70,3 +70,13 @@ assert True.__round__() == 1
 assert False.__round__() == 0
 
 assert bool.__round__(5) == 5
+
+assert True.__float__() == 1.0
+assert False.__float__() == 0.0
+
+assert bool.__float__(5) == 5.0
+
+assert isinstance(True.__float__(), float)
+assert isinstance(False.__float__(), float)
+
+assert isinstance(bool.__float__(12), float)

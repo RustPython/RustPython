@@ -3,7 +3,7 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
-use num_traits::Zero;
+use num_traits::{ToPrimitive, Zero};
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
     let result = match obj.borrow().payload {
@@ -43,6 +43,7 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
     context.set_attr(&bool_type, "__floor__", context.new_rustfunc(bool_to_int));
     context.set_attr(&bool_type, "__ceil__", context.new_rustfunc(bool_to_int));
     context.set_attr(&bool_type, "__round__", context.new_rustfunc(bool_to_int));
+    context.set_attr(&bool_type, "__float__", context.new_rustfunc(bool_to_float));
     context.set_attr(&bool_type, "__doc__", context.new_str(bool_doc.to_string()));
 }
 
@@ -69,6 +70,16 @@ fn bool_to_int(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
         Ok(vm.ctx.new_int(value.clone()))
+    } else {
+        Err(vm.new_type_error(format!("Can only convert bool, not {:?}", obj)))
+    }
+}
+
+fn bool_to_float(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.int_type()))]);
+
+    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
+        Ok(vm.ctx.new_float(value.to_f64().unwrap()))
     } else {
         Err(vm.new_type_error(format!("Can only convert bool, not {:?}", obj)))
     }
