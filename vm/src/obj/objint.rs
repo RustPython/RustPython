@@ -532,6 +532,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&int_type, "__floor__", context.new_rustfunc(int_pass_value));
     context.set_attr(&int_type, "__index__", context.new_rustfunc(int_pass_value));
     context.set_attr(&int_type, "__trunc__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__int__", context.new_rustfunc(int_pass_value));
     context.set_attr(
         &int_type,
         "__floordiv__",
