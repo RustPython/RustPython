@@ -462,6 +462,23 @@ fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_rxor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        let right_val = get_value(i);
+        let left_val = get_value(i2);
+
+        Ok(vm.ctx.new_int(left_val ^ right_val))
+    } else {
+        Err(vm.new_type_error(format!("Cannot rxor {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
 fn int_or(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -552,6 +569,7 @@ Base 0 means to interpret the base from the string as an integer literal.
     context.set_attr(&int_type, "__format__", context.new_rustfunc(int_format));
     context.set_attr(&int_type, "__truediv__", context.new_rustfunc(int_truediv));
     context.set_attr(&int_type, "__xor__", context.new_rustfunc(int_xor));
+    context.set_attr(&int_type, "__rxor__", context.new_rustfunc(int_rxor));
     context.set_attr(&int_type, "__bool__", context.new_rustfunc(int_bool));
     context.set_attr(&int_type, "__invert__", context.new_rustfunc(int_invert));
     context.set_attr(
