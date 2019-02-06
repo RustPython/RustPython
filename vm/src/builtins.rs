@@ -18,6 +18,8 @@ use super::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, Scope, TypeProtocol,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
 use super::stdlib::io::io_open;
 
 use super::vm::VirtualMachine;
@@ -769,6 +771,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "min", ctx.new_rustfunc(builtin_min));
     ctx.set_attr(&py_mod, "object", ctx.object());
     ctx.set_attr(&py_mod, "oct", ctx.new_rustfunc(builtin_oct));
+    #[cfg(not(target_arch = "wasm32"))]
     ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(io_open));
     ctx.set_attr(&py_mod, "ord", ctx.new_rustfunc(builtin_ord));
     ctx.set_attr(&py_mod, "next", ctx.new_rustfunc(builtin_next));

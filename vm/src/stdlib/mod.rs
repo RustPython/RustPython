@@ -1,9 +1,7 @@
 mod ast;
-pub mod io;
 mod json;
 mod keyword;
 mod math;
-mod os;
 mod pystruct;
 mod random;
 mod re;
@@ -14,6 +12,11 @@ mod types;
 mod weakref;
 use std::collections::HashMap;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod io;
+#[cfg(not(target_arch = "wasm32"))]
+mod os;
+
 use super::pyobject::{PyContext, PyObjectRef};
 
 pub type StdlibInitFunc = fn(&PyContext) -> PyObjectRef;
@@ -21,11 +24,9 @@ pub type StdlibInitFunc = fn(&PyContext) -> PyObjectRef;
 pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     let mut modules = HashMap::new();
     modules.insert("ast".to_string(), ast::mk_module as StdlibInitFunc);
-    modules.insert("io".to_string(), io::mk_module as StdlibInitFunc);
     modules.insert("json".to_string(), json::mk_module as StdlibInitFunc);
     modules.insert("keyword".to_string(), keyword::mk_module as StdlibInitFunc);
     modules.insert("math".to_string(), math::mk_module as StdlibInitFunc);
-    modules.insert("os".to_string(), os::mk_module as StdlibInitFunc);
     modules.insert("re".to_string(), re::mk_module as StdlibInitFunc);
     modules.insert("random".to_string(), random::mk_module as StdlibInitFunc);
     modules.insert("string".to_string(), string::mk_module as StdlibInitFunc);
@@ -37,5 +38,13 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     );
     modules.insert("types".to_string(), types::mk_module as StdlibInitFunc);
     modules.insert("_weakref".to_string(), weakref::mk_module as StdlibInitFunc);
+
+    // disable some modules on WASM
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        modules.insert("io".to_string(), io::mk_module as StdlibInitFunc);
+        modules.insert("os".to_string(), os::mk_module as StdlibInitFunc);
+    }
+
     modules
 }

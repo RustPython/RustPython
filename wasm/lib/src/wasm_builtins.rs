@@ -47,7 +47,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
 
 pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs, selector: &str) -> PyResult {
     let output = format_print_args(vm, args)?;
-    print_to_html(&output, selector).map_err(|err| convert::js_to_py(vm, err))?;
+    print_to_html(&output, selector).map_err(|err| convert::js_to_py(vm, err, None))?;
     Ok(vm.get_none())
 }
 

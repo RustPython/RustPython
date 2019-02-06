@@ -99,7 +99,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
                             &JsValue::UNDEFINED,
                             &wasm_builtins::format_print_args(vm, args)?.into(),
                         )
-                        .map_err(|err| convert::js_to_py(vm, err))?;
+                        .map_err(|err| convert::js_to_py(vm, err, None))?;
                         Ok(vm.get_none())
                     },
                 )
@@ -121,11 +121,9 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
     let injections = vm.new_dict();
 
     if let Some(js_vars) = js_vars.clone() {
-        for pair in Object::entries(&js_vars).values() {
-            let pair = pair?;
-            let key = Reflect::get(&pair, &"0".into()).unwrap();
-            let val = Reflect::get(&pair, &"1".into()).unwrap();
-            let py_val = convert::js_to_py(&mut vm, val);
+        for pair in convert::object_entries(&js_vars) {
+            let (key, val) = pair?;
+            let py_val = convert::js_to_py(&mut vm, val, None);
             vm.ctx.set_item(
                 &injections,
                 &String::from(js_sys::JsString::from(key)),
@@ -136,9 +134,8 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
 
     vm.ctx.set_item(&mut vars, "js_vars", injections);
 
-    eval(&mut vm, source, vars)
-        .map(|value| convert::py_to_js(&mut vm, value))
-        .map_err(|err| convert::py_str_err(&mut vm, &err).into())
+    let result = eval(&mut vm, source, vars);
+    convert::pyresult_to_jsresult(&mut vm, result, None)
 }
 
 #[wasm_bindgen(typescript_custom_section)]
