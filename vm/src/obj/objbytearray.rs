@@ -135,43 +135,55 @@ fn bytearray_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn bytearray_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
-    Ok(vm.new_bool(bytes.iter().all(|x| char::from(*x).is_alphanumeric())))
+    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_alphanumeric())))
 }
 
 fn bytearray_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
-    Ok(vm.new_bool(bytes.iter().all(|x| char::from(*x).is_alphabetic())))
+    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_alphabetic())))
 }
 
 fn bytearray_isascii(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
-    Ok(vm.new_bool(bytes.iter().all(|x| char::from(*x).is_ascii())))
+    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_ascii())))
 }
 
 fn bytearray_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
-    Ok(vm.new_bool(bytes.iter().all(|x| char::from(*x).is_digit(10))))
+    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_digit(10))))
 }
 
 fn bytearray_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
-    Ok(vm.new_bool(bytes.iter().all(|x| char::from(*x).is_lowercase())))
+    Ok(vm.new_bool(
+        !bytes.is_empty()
+            && bytes
+                .iter()
+                .filter(|x| char::from(**x).is_whitespace())
+                .all(|x| char::from(*x).is_lowercase()),
+    ))
 }
 
 fn bytearray_isspace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
-    Ok(vm.new_bool(bytes.iter().all(|x| char::from(*x).is_whitespace())))
+    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_whitespace())))
 }
 
 fn bytearray_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
-    Ok(vm.new_bool(bytes.iter().all(|x| char::from(*x).is_uppercase())))
+    Ok(vm.new_bool(
+        !bytes.is_empty()
+            && bytes
+                .iter()
+                .filter(|x| !char::from(**x).is_whitespace())
+                .all(|x| char::from(*x).is_uppercase()),
+    ))
 }
 
 fn bytearray_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
