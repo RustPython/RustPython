@@ -143,20 +143,19 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
 }
 
 #[cfg(target_family = "windows")]
-fn get_history_path() -> String {
-    //
-    String::from(".repl_history.txt")
+fn get_history_path() -> PathBuf {
+    //Path buffer
+    PathBuf::from(".repl_history.txt")
 }
 
 #[cfg(target_family = "unix")]
-fn get_history_path() -> String {
+fn get_history_path() -> PathBuf {
     //work around for windows dependent builds. The xdg crate is unix specific
     //so access to the BaseDirectories struct breaks builds on python.
     extern crate xdg;
 
     let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
-    let repl_history_path = xdg_dirs.place_cache_file("repl_history.txt").unwrap();
-    repl_history_path.to_str().unwrap()
+    xdg_dirs.place_cache_file("repl_history.txt").unwrap()
 }
 
 fn run_shell(vm: &mut VirtualMachine) -> PyResult {
