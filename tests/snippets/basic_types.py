@@ -44,6 +44,9 @@ assert int() == 0
 a = complex(2, 4)
 assert type(a) is complex
 assert type(a + a) is complex
+assert repr(a) == '(2+4j)'
+a = 10j
+assert repr(a) == '10j'
 
 a = 1
 assert a.conjugate() == a
