@@ -1032,7 +1032,6 @@ impl PyObject {
                 dict: ref _dict,
                 ..
             } => format!("<class '{}'>", name),
-
             PyObjectPayload::Instance { .. } => "<instance>".to_string(),
             PyObjectPayload::Code { .. } => "<code>".to_string(),
             PyObjectPayload::Function { .. } => "<func>".to_string(),
