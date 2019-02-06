@@ -366,6 +366,11 @@ fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let list_type = &context.list_type;
+
+    let list_doc = "Built-in mutable sequence.\n\n\
+                    If no argument is given, the constructor creates a new empty list.\n\
+                    The argument must be an iterable if specified.";
+
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
     context.set_attr(
         &list_type,
@@ -392,6 +397,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "__len__", context.new_rustfunc(list_len));
     context.set_attr(&list_type, "__new__", context.new_rustfunc(list_new));
     context.set_attr(&list_type, "__repr__", context.new_rustfunc(list_repr));
+    context.set_attr(&list_type, "__doc__", context.new_str(list_doc.to_string()));
     context.set_attr(&list_type, "append", context.new_rustfunc(list_append));
     context.set_attr(&list_type, "clear", context.new_rustfunc(list_clear));
     context.set_attr(&list_type, "count", context.new_rustfunc(list_count));
