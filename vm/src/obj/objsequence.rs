@@ -90,13 +90,10 @@ pub fn get_item(
                 Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
             }
         },
-        PyObjectPayload::Slice {
-            start: _,
-            stop: _,
-            step: _,
-        } => Ok(PyObject::new(
+
+        PyObjectPayload::Slice { .. } => Ok(PyObject::new(
             match &(sequence.borrow()).payload {
-                PyObjectPayload::Sequence { elements: _ } => PyObjectPayload::Sequence {
+                PyObjectPayload::Sequence { .. } => PyObjectPayload::Sequence {
                     elements: elements.to_vec().get_slice_items(&subscript),
                 },
                 ref payload => panic!("sequence get_item called for non-sequence: {:?}", payload),
@@ -112,8 +109,8 @@ pub fn get_item(
 
 pub fn seq_equal(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -131,8 +128,8 @@ pub fn seq_equal(
 
 pub fn seq_lt(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -171,8 +168,8 @@ pub fn seq_lt(
 
 pub fn seq_gt(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
@@ -210,21 +207,21 @@ pub fn seq_gt(
 
 pub fn seq_ge(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
 pub fn seq_le(
     vm: &mut VirtualMachine,
-    zelf: &Vec<PyObjectRef>,
-    other: &Vec<PyObjectRef>,
+    zelf: &[PyObjectRef],
+    other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
     Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
-pub fn seq_mul(elements: &Vec<PyObjectRef>, product: &PyObjectRef) -> Vec<PyObjectRef> {
+pub fn seq_mul(elements: &[PyObjectRef], product: &PyObjectRef) -> Vec<PyObjectRef> {
     let counter = objint::get_value(&product).to_isize().unwrap();
 
     let current_len = elements.len();
@@ -232,7 +229,7 @@ pub fn seq_mul(elements: &Vec<PyObjectRef>, product: &PyObjectRef) -> Vec<PyObje
     let mut new_elements = Vec::with_capacity(new_len);
 
     for _ in 0..counter {
-        new_elements.extend(elements.clone());
+        new_elements.extend(elements.clone().to_owned());
     }
 
     new_elements

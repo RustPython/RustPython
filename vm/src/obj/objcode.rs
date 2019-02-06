@@ -10,7 +10,7 @@ use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
-    let ref code_type = context.code_type;
+    let code_type = &context.code_type;
     context.set_attr(code_type, "__new__", context.new_rustfunc(code_new));
     context.set_attr(code_type, "__repr__", context.new_rustfunc(code_repr));
 }

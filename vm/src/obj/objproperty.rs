@@ -9,7 +9,7 @@ use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
-    let ref property_type = context.property_type;
+    let property_type = &context.property_type;
     context.set_attr(
         &property_type,
         "__get__",

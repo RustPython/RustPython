@@ -522,7 +522,7 @@ impl Frame {
 
             bytecode::Instruction::Break => {
                 let block = self.unwind_loop(vm);
-                if let Block::Loop { start: _, end } = block {
+                if let Block::Loop { end, .. } = block {
                     self.jump(end);
                 }
                 Ok(None)
@@ -533,7 +533,7 @@ impl Frame {
             }
             bytecode::Instruction::Continue => {
                 let block = self.unwind_loop(vm);
-                if let Block::Loop { start, end: _ } = block {
+                if let Block::Loop { start, .. } = block {
                     self.jump(start);
                 } else {
                     assert!(false);
@@ -708,8 +708,7 @@ impl Frame {
                     // TODO: execute finally handler
                 }
                 Some(Block::With {
-                    end: _,
-                    context_manager,
+                    context_manager, ..
                 }) => {
                     match self.with_exit(vm, &context_manager, None) {
                         Ok(..) => {}
@@ -728,13 +727,12 @@ impl Frame {
         loop {
             let block = self.pop_block();
             match block {
-                Some(Block::Loop { start: _, end: __ }) => break block.unwrap(),
+                Some(Block::Loop { .. }) => break block.unwrap(),
                 Some(Block::TryExcept { .. }) => {
                     // TODO: execute finally handler
                 }
                 Some(Block::With {
-                    end: _,
-                    context_manager,
+                    context_manager, ..
                 }) => match self.with_exit(vm, &context_manager, None) {
                     Ok(..) => {}
                     Err(exc) => {

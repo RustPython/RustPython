@@ -86,7 +86,9 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref object = context.object;
+    let object = &context.object;
+    let object_doc = "The most base type";
+
     context.set_attr(&object, "__new__", context.new_rustfunc(new_instance));
     context.set_attr(&object, "__init__", context.new_rustfunc(object_init));
     context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
@@ -105,6 +107,7 @@ pub fn init(context: &PyContext) {
         "__getattribute__",
         context.new_rustfunc(object_getattribute),
     );
+    context.set_attr(&object, "__doc__", context.new_str(object_doc.to_string()));
 }
 
 fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
@@ -151,21 +154,19 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(obj_attr)
     } else if let Some(attr) = cls.get_attr(&name) {
         vm.call_get_descriptor(attr, obj.clone())
+    } else if let Some(getter) = cls.get_attr("__getattr__") {
+        vm.invoke(
+            getter,
+            PyFuncArgs {
+                args: vec![cls, name_str.clone()],
+                kwargs: vec![],
+            },
+        )
     } else {
-        if let Some(getter) = cls.get_attr("__getattr__") {
-            vm.invoke(
-                getter,
-                PyFuncArgs {
-                    args: vec![cls, name_str.clone()],
-                    kwargs: vec![],
-                },
-            )
-        } else {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(
-                attribute_error,
-                format!("{} has no attribute '{}'", obj.borrow(), name),
-            ))
-        }
+        let attribute_error = vm.context().exceptions.attribute_error.clone();
+        Err(vm.new_exception(
+            attribute_error,
+            format!("{} has no attribute '{}'", obj.borrow(), name),
+        ))
     }
 }

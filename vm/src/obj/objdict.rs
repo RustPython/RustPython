@@ -284,7 +284,7 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
 }
 
 pub fn init(context: &PyContext) {
-    let ref dict_type = context.dict_type;
+    let dict_type = &context.dict_type;
     context.set_attr(&dict_type, "__len__", context.new_rustfunc(dict_len));
     context.set_attr(
         &dict_type,

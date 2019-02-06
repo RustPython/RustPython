@@ -16,7 +16,7 @@ use num_traits::ToPrimitive;
 
 /// Fill bytearray class methods dictionary.
 pub fn init(context: &PyContext) {
-    let ref bytearray_type = context.bytearray_type;
+    let bytearray_type = &context.bytearray_type;
     context.set_attr(
         &bytearray_type,
         "__eq__",
