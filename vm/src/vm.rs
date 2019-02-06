@@ -610,6 +610,7 @@ impl VirtualMachine {
 mod tests {
     use super::super::obj::{objint, objstr};
     use super::VirtualMachine;
+    use num_bigint::ToBigInt;
 
     #[test]
     fn test_add_py_integers() {
@@ -618,7 +619,7 @@ mod tests {
         let b = vm.ctx.new_int(12_i32);
         let res = vm._add(a, b).unwrap();
         let value = objint::get_value(&res);
-        assert_eq!(value, 45_i32);
+        assert_eq!(value, 45_i32.to_bigint().unwrap());
     }
 
     #[test]
