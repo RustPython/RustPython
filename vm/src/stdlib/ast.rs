@@ -64,9 +64,8 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
         ast::Statement::ClassDef {
             name,
             body,
-            bases: _,
-            keywords: _,
             decorator_list,
+            ..
         } => {
             let node = create_node(ctx, "ClassDef");
 
@@ -239,7 +238,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
     node
 }
 
-fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> PyObjectRef {
+fn expressions_to_ast(ctx: &PyContext, expressions: &[ast::Expression]) -> PyObjectRef {
     let mut py_expression_nodes = vec![];
     for expression in expressions {
         py_expression_nodes.push(expression_to_ast(ctx, expression));
@@ -249,11 +248,7 @@ fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> Py
 
 fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectRef {
     let node = match &expression {
-        ast::Expression::Call {
-            function,
-            args,
-            keywords: _,
-        } => {
+        ast::Expression::Call { function, args, .. } => {
             let node = create_node(ctx, "Call");
 
             let py_func_ast = expression_to_ast(ctx, function);

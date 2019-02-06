@@ -267,7 +267,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref float_type = context.float_type;
+    let float_type = &context.float_type;
     context.set_attr(&float_type, "__eq__", context.new_rustfunc(float_eq));
     context.set_attr(&float_type, "__lt__", context.new_rustfunc(float_lt));
     context.set_attr(&float_type, "__le__", context.new_rustfunc(float_le));

@@ -26,7 +26,7 @@ use super::super::pyobject::{
 
 use super::super::vm::VirtualMachine;
 
-fn compute_c_flag(mode: &String) -> u16 {
+fn compute_c_flag(mode: &str) -> u16 {
     match mode.as_ref() {
         "w" => 512,
         "x" => 512,
@@ -295,7 +295,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .filter(|a| raw_modes.contains(&a.to_string()))
         .collect();
 
-    if modes.len() == 0 || modes.len() > 1 {
+    if modes.is_empty() || modes.len() > 1 {
         return Err(vm.new_value_error("Invalid Mode".to_string()));
     }
 

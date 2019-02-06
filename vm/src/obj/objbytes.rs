@@ -14,12 +14,13 @@ use std::ops::Deref;
 
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
-    let ref bytes_type = context.bytes_type;
+    let bytes_type = &context.bytes_type;
     context.set_attr(bytes_type, "__eq__", context.new_rustfunc(bytes_eq));
     context.set_attr(bytes_type, "__hash__", context.new_rustfunc(bytes_hash));
     context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
     context.set_attr(bytes_type, "__repr__", context.new_rustfunc(bytes_repr));
     context.set_attr(bytes_type, "__len__", context.new_rustfunc(bytes_len));
+    context.set_attr(bytes_type, "__iter__", context.new_rustfunc(bytes_iter))
 }
 
 fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -100,4 +101,18 @@ fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(obj);
     let data = String::from_utf8(value.to_vec()).unwrap();
     Ok(vm.new_str(format!("b'{}'", data)))
+}
+
+fn bytes_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
+
+    let iter_obj = PyObject::new(
+        PyObjectPayload::Iterator {
+            position: 0,
+            iterated_obj: obj.clone(),
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
 }
