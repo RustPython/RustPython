@@ -16,32 +16,36 @@ use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeP
 use super::super::vm::VirtualMachine;
 
 #[cfg(target_family = "unix")]
-pub fn raw_file_number(handle: File) -> i32 {
+pub fn raw_file_number(handle: File) -> i64 {
     use std::os::unix::io::IntoRawFd;
 
-    handle.into_raw_fd()
+    handle.into_raw_fd() as i64
 }
 
 #[cfg(target_family = "unix")]
-pub fn rust_file(raw_fileno: i32) -> File {
+pub fn rust_file(raw_fileno: i64) -> File {
     use std::os::unix::io::FromRawFd;
 
-    unsafe { File::from_raw_fd(raw_fileno) }
+    unsafe { File::from_raw_fd(raw_fileno as i32) }
 }
 
 #[cfg(target_family = "windows")]
-pub fn raw_file_number(handle: File) -> i32 {
+pub fn raw_file_number(handle: File) -> i64 {
     use std::os::windows::io::IntoRawHandle;
 
-    handle.into_raw_handle() as i32
+    handle.into_raw_handle() as i64
 }
 
 #[cfg(target_family = "windows")]
-pub fn rust_file(raw_fileno: i32) -> File {
+pub fn rust_file(raw_fileno: i64) -> File {
+    use std::ffi::c_void;
     use std::os::windows::io::FromRawHandle;
-	use std::ffi::c_void;
 
-    unsafe { File::from_raw_handle(raw_fileno as *mut c_void)}
+    //TODO: This is untested and (very) unsafe handling or
+    //raw pointers - This should be patched urgently by
+    //comparison to the cpython handling of the equivalent fileno
+    //fields for windows
+    unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
 }
 
 pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -52,7 +56,7 @@ pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     //The File type automatically closes when it goes out of scope.
     //To enable us to close these file desciptors (and hence prevent leaks)
     //we seek to create the relevant File and simply let it pass out of scope!
-    rust_file(raw_fileno.to_i32().unwrap());
+    rust_file(raw_fileno.to_i64().unwrap());
 
     Ok(vm.get_none())
 }

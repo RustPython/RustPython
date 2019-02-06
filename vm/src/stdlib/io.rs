@@ -165,7 +165,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let length = objint::get_value(&py_length.unwrap()).to_u64().unwrap();
 
     let file_no = file_io.get_attr("fileno").unwrap();
-    let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
+    let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
 
     //extract unix file descriptor.
     let handle = os::rust_file(raw_fd);
@@ -197,7 +197,7 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let file_no = file_io.get_attr("fileno").unwrap();
-    let raw_fd = objint::get_value(&file_no).to_i32().unwrap();
+    let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
 
     //unsafe block - creates file handle from the UNIX file descriptor
     //raw_fd is supported on UNIX only. This will need to be extended
