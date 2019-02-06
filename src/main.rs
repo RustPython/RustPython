@@ -142,7 +142,7 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
     true
 }
 
-#[cfg(target_family = "windows")]
+#[cfg(not(target_family = "unix"))]
 fn get_history_path() -> PathBuf {
     //Path buffer
     PathBuf::from(".repl_history.txt")
