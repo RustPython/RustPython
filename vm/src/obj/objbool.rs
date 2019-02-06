@@ -3,7 +3,8 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
-use num_traits::{ToPrimitive, Zero};
+use num_traits::{Zero, ToPrimitive};
+use super::objint;
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
     let result = match obj.borrow().payload {
@@ -67,22 +68,13 @@ pub fn get_value(obj: &PyObjectRef) -> bool {
 
 fn bool_to_int(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.int_type()))]);
-
-    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
-        Ok(vm.ctx.new_int(value.clone()))
-    } else {
-        Err(vm.new_type_error(format!("Can only convert bool, not {:?}", obj)))
-    }
+    Ok(vm.ctx.new_int(objint::get_value(obj)))
 }
 
 fn bool_to_float(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.int_type()))]);
 
-    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
-        Ok(vm.ctx.new_float(value.to_f64().unwrap()))
-    } else {
-        Err(vm.new_type_error(format!("Can only convert bool, not {:?}", obj)))
-    }
+    Ok(vm.ctx.new_float(objint::get_value(obj).to_f64().unwrap()))
 }
 
 fn bool_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
