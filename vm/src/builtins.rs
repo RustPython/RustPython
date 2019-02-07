@@ -136,11 +136,11 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mode = {
         let mode = objstr::get_value(mode);
-        if mode == String::from("exec") {
+        if mode == "exec" {
             compile::Mode::Exec
-        } else if mode == "eval".to_string() {
+        } else if mode == "eval" {
             compile::Mode::Eval
-        } else if mode == "single".to_string() {
+        } else if mode == "single" {
             compile::Mode::Single
         } else {
             return Err(

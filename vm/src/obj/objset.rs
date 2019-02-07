@@ -66,15 +66,10 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(iterable) => {
             let mut elements = HashMap::new();
             let iterator = objiter::get_iter(vm, iterable)?;
-            loop {
-                match vm.call_method(&iterator, "__next__", vec![]) {
-                    Ok(v) => {
-                        // TODO: should we use the hash function here?
-                        let key = v.get_id();
-                        elements.insert(key, v);
-                    }
-                    _ => break,
-                }
+            while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+                // TODO: should we use the hash function here?
+                let key = v.get_id();
+                elements.insert(key, v);
             }
             elements
         }

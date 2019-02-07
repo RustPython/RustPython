@@ -20,6 +20,7 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
                     PyObjectPayload::Integer { ref value } => !value.is_zero(),
                     _ => return Err(vm.new_type_error(String::from("TypeError"))),
                 };
+
                 v
             } else {
                 true
@@ -81,7 +82,7 @@ fn bool_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(match val {
         Some(val) => {
             let bv = boolval(vm, val.clone())?;
-            vm.new_bool(bv.clone())
+            vm.new_bool(bv)
         }
         None => vm.context().new_bool(false),
     })
