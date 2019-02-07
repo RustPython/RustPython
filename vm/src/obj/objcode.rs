@@ -13,6 +13,11 @@ pub fn init(context: &PyContext) {
     let code_type = &context.code_type;
     context.set_attr(code_type, "__new__", context.new_rustfunc(code_new));
     context.set_attr(code_type, "__repr__", context.new_rustfunc(code_repr));
+    context.set_attr(
+        code_type,
+        "co_argcount",
+        context.new_member_descriptor(code_co_argcount),
+    );
 }
 
 /// Extract rust bytecode object from a python code object.
@@ -47,4 +52,25 @@ fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let repr = format!("<code object at .. {}{}>", file, line);
     Ok(vm.new_str(repr))
+}
+
+fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
+    if let PyObjectPayload::Code { code } = &obj.borrow().payload {
+        code.clone()
+    } else {
+        panic!("Inner error getting code {:?}", obj)
+    }
+}
+
+fn code_co_argcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.code_type())),
+            (_cls, Some(vm.ctx.type_type()))
+        ]
+    );
+    let code_obj = get_value(zelf);
+    Ok(vm.ctx.new_int(code_obj.arg_names.len()))
 }
