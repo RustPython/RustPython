@@ -1,17 +1,13 @@
-
+use super::obj::objbool;
+use super::obj::objint;
+use super::pyobject::{IdProtocol, PyObjectRef, PyResult};
+use super::vm::VirtualMachine;
+use num_traits::ToPrimitive;
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
 /// And: http://code.activestate.com/recipes/578375/
-
 use std::collections::HashMap;
-use super::pyobject::{
-    PyObjectRef, PyResult, IdProtocol
-};
-use super::vm::VirtualMachine;
-use super::obj::objint;
-use super::obj::objbool;
-use num_traits::ToPrimitive;
 
 pub struct Dict {
     size: usize,
@@ -35,8 +31,12 @@ impl Dict {
     }
 
     /// Store a key
-    pub fn insert(&mut self, vm: &mut VirtualMachine, key: &PyObjectRef, value: PyObjectRef) -> Result<(), PyObjectRef>
-    {
+    pub fn insert(
+        &mut self,
+        vm: &mut VirtualMachine,
+        key: &PyObjectRef,
+        value: PyObjectRef,
+    ) -> Result<(), PyObjectRef> {
         match self.lookup(vm, key)? {
             LookupResult::Existing(index) => {
                 // Update existing key
@@ -46,10 +46,14 @@ impl Dict {
                 } else {
                     panic!("Lookup returned invalied index into entries!");
                 }
-            },
+            }
             LookupResult::NewIndex { i, hash_value } => {
                 // New key:
-                let entry = DictEntry { hash: hash_value, key: key.clone(), value};
+                let entry = DictEntry {
+                    hash: hash_value,
+                    key: key.clone(),
+                    value,
+                };
                 let index = self.entries.len();
                 self.entries.push(Some(entry));
                 self.indices.insert(i, index);
@@ -58,8 +62,11 @@ impl Dict {
         }
     }
 
-    pub fn contains(&self, vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<bool, PyObjectRef>
-    {
+    pub fn contains(
+        &self,
+        vm: &mut VirtualMachine,
+        key: &PyObjectRef,
+    ) -> Result<bool, PyObjectRef> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             Ok(true)
         } else {
@@ -68,8 +75,7 @@ impl Dict {
     }
 
     /// Retrieve a key
-    pub fn get(&self, vm: &mut VirtualMachine, key: &PyObjectRef) -> PyResult
-    {
+    pub fn get(&self, vm: &mut VirtualMachine, key: &PyObjectRef) -> PyResult {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             if let Some(entry) = &self.entries[index] {
                 Ok(entry.value.clone())
@@ -83,8 +89,11 @@ impl Dict {
     }
 
     /// Delete a key
-    pub fn delete(&mut self, vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<(), PyObjectRef>
-    {
+    pub fn delete(
+        &mut self,
+        vm: &mut VirtualMachine,
+        key: &PyObjectRef,
+    ) -> Result<(), PyObjectRef> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             self.entries[index] = None;
             Ok(())
@@ -94,18 +103,15 @@ impl Dict {
         }
     }
 
-    pub fn len(&self) -> usize
-    {
+    pub fn len(&self) -> usize {
         self.get_items().len()
     }
 
-    pub fn is_empty(&self) -> bool
-    {
+    pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    pub fn get_items(&self) -> Vec<(PyObjectRef, PyObjectRef)>
-    {
+    pub fn get_items(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
         self.entries
             .iter()
             .filter(|e| e.is_some())
@@ -115,8 +121,11 @@ impl Dict {
     }
 
     /// Lookup the index for the given key.
-    fn lookup(&self, vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<LookupResult, PyObjectRef>
-    {
+    fn lookup(
+        &self,
+        vm: &mut VirtualMachine,
+        key: &PyObjectRef,
+    ) -> Result<LookupResult, PyObjectRef> {
         let hash_value = calc_hash(vm, key)?;
         let perturb = hash_value;
         let mut i: usize = hash_value;
@@ -128,10 +137,10 @@ impl Dict {
                     // Okay, we have an entry at this place
                     if entry.key.is(key) {
                         // Literally the same object
-                        break Ok(LookupResult::Existing(index))
+                        break Ok(LookupResult::Existing(index));
                     } else if entry.hash == hash_value {
                         if do_eq(vm, &entry.key, key)? {
-                            break Ok(LookupResult::Existing(index))
+                            break Ok(LookupResult::Existing(index));
                         } else {
                             // entry mismatch.
                         }
@@ -143,32 +152,32 @@ impl Dict {
                 }
             } else {
                 // Hash not in table, we are at free slot now.
-                break Ok(LookupResult::NewIndex{ hash_value, i })
+                break Ok(LookupResult::NewIndex { hash_value, i });
             }
 
             // Update i to next probe location:
-            i =  i.wrapping_mul(5).wrapping_add(perturb).wrapping_add(1);
+            i = i.wrapping_mul(5).wrapping_add(perturb).wrapping_add(1);
             warn!("Perturb value: {}", i);
         }
     }
 }
 
 enum LookupResult {
-    NewIndex {
-        hash_value: usize,
-        i: usize,
-    },  // return not found, index into indices
-    Existing(usize),  // Existing record, index into entries
+    NewIndex { hash_value: usize, i: usize }, // return not found, index into indices
+    Existing(usize),                          // Existing record, index into entries
 }
 
-fn calc_hash(vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<usize, PyObjectRef>
-{
+fn calc_hash(vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<usize, PyObjectRef> {
     let hash = vm.call_method(key, "__hash__", vec![])?;
     Ok(objint::get_value(&hash).to_usize().unwrap())
 }
 
 /// Invoke __eq__ on two keys
-fn do_eq(vm: &mut VirtualMachine, key1: &PyObjectRef, key2: &PyObjectRef) -> Result<bool, PyObjectRef> {
+fn do_eq(
+    vm: &mut VirtualMachine,
+    key1: &PyObjectRef,
+    key2: &PyObjectRef,
+) -> Result<bool, PyObjectRef> {
     let result = vm._eq(key1, key2.clone())?;
     Ok(objbool::get_value(&result))
 }
@@ -205,4 +214,3 @@ mod tests {
         assert_eq!(true, dict.contains(&mut vm, &key1));
     }
 }
-
