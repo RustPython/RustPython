@@ -253,6 +253,21 @@ fn tuple_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     get_item(vm, tuple, &get_elements(&tuple), needle.clone())
 }
 
+pub fn tuple_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(tuple, Some(vm.ctx.tuple_type())), (needle, None)]
+    );
+    for (index, element) in get_elements(tuple).iter().enumerate() {
+        let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+        if objbool::get_value(&py_equal) {
+            return Ok(vm.context().new_int(index));
+        }
+    }
+    Err(vm.new_value_error("tuple.index(x): x not in tuple".to_string()))
+}
+
 pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -298,4 +313,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&tuple_type, "__le__", context.new_rustfunc(tuple_le));
     context.set_attr(&tuple_type, "__gt__", context.new_rustfunc(tuple_gt));
     context.set_attr(&tuple_type, "__ge__", context.new_rustfunc(tuple_ge));
+    context.set_attr(&tuple_type, "index", context.new_rustfunc(tuple_index));
 }
