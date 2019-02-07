@@ -5,12 +5,12 @@
 
 import sys
 import os
-import glob
 import logging
 import subprocess
 import contextlib
 import enum
 import pytest
+from pathlib import Path
 
 import compile_code
 
@@ -21,14 +21,14 @@ class _TestType(enum.Enum):
 
 
 logger = logging.getLogger('tests')
-ROOT_DIR = '..'
-TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, 'tests'))
+ROOT_DIR = Path('..').absolute()
+TEST_ROOT = ROOT_DIR / 'tests'
 TEST_DIRS = {
-    _TestType.functional: os.path.join(TEST_ROOT, 'snippets'),
-    _TestType.benchmark: os.path.join(TEST_ROOT, 'benchmarks'),
+    _TestType.functional: TEST_ROOT / 'snippets',
+    _TestType.benchmark: TEST_ROOT / 'benchmarks',
 }
-CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'py_code_object'))
-RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
+CPYTHON_RUNNER_DIR = ROOT_DIR / 'py_code_object'
+RUSTPYTHON_RUNNER_DIR = ROOT_DIR
 
 
 @contextlib.contextmanager
@@ -42,12 +42,11 @@ def pushd(path):
 def get_test_files():
     """ Retrieve test files """
     for test_type, test_dir in TEST_DIRS.items():
-        for filepath in sorted(glob.iglob(os.path.join(test_dir, '*.py'))):
-            filename = os.path.split(filepath)[1]
-            if filename.startswith('xfail_'):
+        for filepath in sorted(test_dir.glob('*.py')):
+            if filepath.name.startswith('xfail_'):
                 continue
 
-            yield test_type, os.path.abspath(filepath)
+            yield test_type, filepath
 
 
 def run_rust_python(test_type, filename):
@@ -73,7 +72,7 @@ def test_rustpython(test_type, filename):
 @pytest.mark.parametrize("test_type, filename", get_test_files())
 @pytest.mark.skip(reason="Currently non-functional")
 def test_rustpython_bytecode(test_type, filename, tmpdir):
-    bytecode_filename = tmpdir.join(filename + '.bytecode')
+    bytecode_filename = tmpdir.join(filename.with_suffix('.bytecode'))
     with open(bytecode_filename, 'w') as f:
         compile_code.compile_to_bytecode(filename, out_file=f)
 
