@@ -27,6 +27,7 @@ use super::obj::objtuple;
 use super::obj::objtype;
 use super::vm::VirtualMachine;
 use num_bigint::BigInt;
+use num_bigint::ToBigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
 use std::cell::RefCell;
@@ -418,8 +419,13 @@ impl PyContext {
         )
     }
 
-    pub fn new_int(&self, i: BigInt) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Integer { value: i }, self.int_type())
+    pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
+        PyObject::new(
+            PyObjectPayload::Integer {
+                value: i.to_bigint().unwrap(),
+            },
+            self.int_type(),
+        )
     }
 
     pub fn new_float(&self, i: f64) -> PyObjectRef {

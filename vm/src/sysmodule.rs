@@ -1,4 +1,3 @@
-use num_bigint::ToBigInt;
 use obj::objtype;
 use pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use std::rc::Rc;
@@ -26,14 +25,14 @@ fn getframe(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 fn sys_getrefcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     let size = Rc::strong_count(&object);
-    Ok(vm.ctx.new_int(size.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(size))
 }
 
 fn sys_getsizeof(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     // TODO: implement default optional argument.
     let size = mem::size_of_val(&object.borrow());
-    Ok(vm.ctx.new_int(size.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(size))
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
@@ -62,11 +61,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_item(&sys_mod, "argv", argv(ctx));
     ctx.set_item(&sys_mod, "getrefcount", ctx.new_rustfunc(sys_getrefcount));
     ctx.set_item(&sys_mod, "getsizeof", ctx.new_rustfunc(sys_getsizeof));
-    ctx.set_item(
-        &sys_mod,
-        "maxsize",
-        ctx.new_int(std::usize::MAX.to_bigint().unwrap()),
-    );
+    ctx.set_item(&sys_mod, "maxsize", ctx.new_int(std::usize::MAX));
     ctx.set_item(&sys_mod, "path", path);
     ctx.set_item(&sys_mod, "ps1", ctx.new_str(">>>>> ".to_string()));
     ctx.set_item(&sys_mod, "ps2", ctx.new_str("..... ".to_string()));

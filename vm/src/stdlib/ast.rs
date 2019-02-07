@@ -9,9 +9,7 @@ use self::rustpython_parser::{ast, parser};
 use super::super::obj::{objstr, objtype};
 use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
-use num_bigint::ToBigInt;
 use num_complex::Complex64;
-use num_traits::One;
 use std::ops::Deref;
 
 /*
@@ -232,7 +230,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
     };
 
     // set lineno on node:
-    let lineno = ctx.new_int(statement.location.get_row().to_bigint().unwrap());
+    let lineno = ctx.new_int(statement.location.get_row());
     ctx.set_attr(&node, "lineno", lineno);
 
     node
@@ -385,7 +383,7 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
             let node = create_node(ctx, "Num");
 
             let py_n = match value {
-                ast::Number::Integer { value } => ctx.new_int(value.to_bigint().unwrap()),
+                ast::Number::Integer { value } => ctx.new_int(value.clone()),
                 ast::Number::Float { value } => ctx.new_float(*value),
                 ast::Number::Complex { real, imag } => {
                     ctx.new_complex(Complex64::new(*real, *imag))
@@ -550,7 +548,7 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
     };
 
     // TODO: retrieve correct lineno:
-    let lineno = ctx.new_int(One::one());
+    let lineno = ctx.new_int(1);
     ctx.set_attr(&node, "lineno", lineno);
 
     node

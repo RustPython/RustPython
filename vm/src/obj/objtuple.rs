@@ -9,7 +9,6 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use std::hash::{Hash, Hasher};
 
 fn tuple_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -135,7 +134,7 @@ fn tuple_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             count = count + 1;
         }
     }
-    Ok(vm.context().new_int(count.to_bigint().unwrap()))
+    Ok(vm.context().new_int(count))
 }
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -164,7 +163,7 @@ fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         element_hash.hash(&mut hasher);
     }
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -184,7 +183,7 @@ fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
     let elements = get_elements(zelf);
-    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+    Ok(vm.context().new_int(elements.len()))
 }
 
 fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

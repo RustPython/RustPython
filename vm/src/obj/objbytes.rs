@@ -4,7 +4,6 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 use std::cell::Ref;
 use std::hash::{Hash, Hasher};
@@ -70,8 +69,7 @@ fn bytes_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(a, Some(vm.ctx.bytes_type()))]);
 
     let byte_vec = get_value(a).to_vec();
-    let value = byte_vec.len().to_bigint();
-    Ok(vm.ctx.new_int(value.unwrap()))
+    Ok(vm.ctx.new_int(byte_vec.len()))
 }
 
 fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -80,7 +78,7 @@ fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     data.hash(&mut hasher);
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {

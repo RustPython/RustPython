@@ -5,7 +5,6 @@ use super::super::vm::VirtualMachine;
 use super::objiter;
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use std::cell::{Ref, RefMut};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -156,7 +155,7 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn dict_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(dict_obj, Some(vm.ctx.dict_type()))]);
     let elements = get_elements(dict_obj);
-    Ok(vm.ctx.new_int(elements.len().to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(elements.len()))
 }
 
 fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -10,7 +10,6 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 // set_item:
@@ -227,7 +226,7 @@ fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             count = count + 1;
         }
     }
-    Ok(vm.context().new_int(count.to_bigint().unwrap()))
+    Ok(vm.context().new_int(count))
 }
 
 pub fn list_extend(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -252,7 +251,7 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     for (index, element) in get_elements(list).iter().enumerate() {
         let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
         if objbool::get_value(&py_equal) {
-            return Ok(vm.context().new_int(index.to_bigint().unwrap()));
+            return Ok(vm.context().new_int(index));
         }
     }
     let needle_str = objstr::get_value(&vm.to_str(needle).unwrap());
@@ -263,7 +262,7 @@ fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let elements = get_elements(list);
-    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+    Ok(vm.context().new_int(elements.len()))
 }
 
 fn list_reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
