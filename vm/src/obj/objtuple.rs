@@ -290,6 +290,10 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let tuple_type = &context.tuple_type;
+    let tuple_doc = "tuple() -> empty tuple
+tuple(iterable) -> tuple initialized from iterable's items
+
+If the argument is a tuple, the return value is the same object.";
     context.set_attr(&tuple_type, "__add__", context.new_rustfunc(tuple_add));
     context.set_attr(&tuple_type, "__eq__", context.new_rustfunc(tuple_eq));
     context.set_attr(
@@ -313,5 +317,10 @@ pub fn init(context: &PyContext) {
     context.set_attr(&tuple_type, "__le__", context.new_rustfunc(tuple_le));
     context.set_attr(&tuple_type, "__gt__", context.new_rustfunc(tuple_gt));
     context.set_attr(&tuple_type, "__ge__", context.new_rustfunc(tuple_ge));
+    context.set_attr(
+        &tuple_type,
+        "__doc__",
+        context.new_str(tuple_doc.to_string()),
+    );
     context.set_attr(&tuple_type, "index", context.new_rustfunc(tuple_index));
 }
