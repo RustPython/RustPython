@@ -155,10 +155,11 @@ fn bytearray_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
     Ok(vm.new_bool(
-        !bytes.is_empty() && bytes
-            .iter()
-            .filter(|x| char::from(**x).is_whitespace())
-            .all(|x| char::from(*x).is_lowercase()),
+        !bytes.is_empty()
+            && bytes
+                .iter()
+                .filter(|x| char::from(**x).is_whitespace())
+                .all(|x| char::from(*x).is_lowercase()),
     ))
 }
 
@@ -172,10 +173,11 @@ fn bytearray_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
     let bytes = get_value(zelf);
     Ok(vm.new_bool(
-        !bytes.is_empty() && bytes
-            .iter()
-            .filter(|x| !char::from(**x).is_whitespace())
-            .all(|x| char::from(*x).is_uppercase()),
+        !bytes.is_empty()
+            && bytes
+                .iter()
+                .filter(|x| !char::from(**x).is_whitespace())
+                .all(|x| char::from(*x).is_uppercase()),
     ))
 }
 

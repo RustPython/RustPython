@@ -473,10 +473,11 @@ fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
     Ok(vm.ctx.new_bool(
-        !value.is_empty() && value
-            .chars()
-            .filter(|x| !x.is_ascii_whitespace())
-            .all(|c| c.is_uppercase()),
+        !value.is_empty()
+            && value
+                .chars()
+                .filter(|x| !x.is_ascii_whitespace())
+                .all(|c| c.is_uppercase()),
     ))
 }
 
@@ -484,10 +485,11 @@ fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
     Ok(vm.ctx.new_bool(
-        !value.is_empty() && value
-            .chars()
-            .filter(|x| !x.is_ascii_whitespace())
-            .all(|c| c.is_lowercase()),
+        !value.is_empty()
+            && value
+                .chars()
+                .filter(|x| !x.is_ascii_whitespace())
+                .all(|c| c.is_lowercase()),
     ))
 }
 
