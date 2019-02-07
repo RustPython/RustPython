@@ -268,6 +268,9 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let float_type = &context.float_type;
+
+    let float_doc = "Convert a string or number to a floating point number, if possible.";
+
     context.set_attr(&float_type, "__eq__", context.new_rustfunc(float_eq));
     context.set_attr(&float_type, "__lt__", context.new_rustfunc(float_lt));
     context.set_attr(&float_type, "__le__", context.new_rustfunc(float_le));
@@ -291,4 +294,9 @@ pub fn init(context: &PyContext) {
     context.set_attr(&float_type, "__pow__", context.new_rustfunc(float_pow));
     context.set_attr(&float_type, "__sub__", context.new_rustfunc(float_sub));
     context.set_attr(&float_type, "__repr__", context.new_rustfunc(float_repr));
+    context.set_attr(
+        &float_type,
+        "__doc__",
+        context.new_str(float_doc.to_string()),
+    );
 }
