@@ -70,6 +70,10 @@ pub type PyObjectWeakRef = Weak<RefCell<PyObject>>;
 /// since exceptions are also python objects.
 pub type PyResult = Result<PyObjectRef, PyObjectRef>; // A valid value, or an exception
 
+/// For attributes we do not use a dict, but a hashmap. This is probably
+/// faster, unordered, and only supports strings as keys.
+pub type PyAttributes = HashMap<String, PyObjectRef>;
+
 impl fmt::Display for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
@@ -161,14 +165,9 @@ pub fn create_type(
     name: &str,
     type_type: &PyObjectRef,
     base: &PyObjectRef,
-    dict_type: &PyObjectRef,
+    _dict_type: &PyObjectRef,
 ) -> PyObjectRef {
-    let dict = PyObject::new(
-        PyObjectPayload::Dict {
-            elements: HashMap::new(),
-        },
-        dict_type.clone(),
-    );
+    let dict = PyAttributes::new();
     objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
 }
 
@@ -411,12 +410,7 @@ impl PyContext {
     }
 
     pub fn new_object(&self) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::Instance {
-                dict: self.new_dict(),
-            },
-            self.object(),
-        )
+        self.new_instance(self.object(), None)
     }
 
     pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
@@ -482,7 +476,7 @@ impl PyContext {
     }
 
     pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
-        objtype::new(self.type_type(), name, vec![base], self.new_dict()).unwrap()
+        objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
     }
 
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
@@ -536,12 +530,7 @@ impl PyContext {
         function: F,
     ) -> PyObjectRef {
         let fget = self.new_rustfunc(function);
-        let py_obj = PyObject::new(
-            PyObjectPayload::Instance {
-                dict: self.new_dict(),
-            },
-            self.property_type(),
-        );
+        let py_obj = self.new_instance(self.property_type(), None);
         self.set_attr(&py_obj, "fget", fget.clone());
         py_obj
     }
@@ -577,13 +566,23 @@ impl PyContext {
         &self,
         function: F,
     ) -> PyObjectRef {
-        let dict = self.new_dict();
-        self.set_item(&dict, "function", self.new_rustfunc(function));
-        self.new_instance(dict, self.member_descriptor_type())
+        let mut dict = PyAttributes::new();
+        dict.insert("function".to_string(), self.new_rustfunc(function));
+        self.new_instance(self.member_descriptor_type(), Some(dict))
     }
 
-    pub fn new_instance(&self, dict: PyObjectRef, class: PyObjectRef) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Instance { dict }, class)
+    pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
+        let dict = if let Some(dict) = dict {
+            dict
+        } else {
+            PyAttributes::new()
+        };
+        PyObject::new(
+            PyObjectPayload::Instance {
+                dict: RefCell::new(dict),
+            },
+            class,
+        )
     }
 
     // Item set/get:
@@ -611,8 +610,9 @@ impl PyContext {
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
         match obj.borrow().payload {
             PyObjectPayload::Module { ref dict, .. } => self.set_item(dict, attr_name, value),
-            PyObjectPayload::Instance { ref dict } => self.set_item(dict, attr_name, value),
-            PyObjectPayload::Class { ref dict, .. } => self.set_item(dict, attr_name, value),
+            PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
+                dict.borrow_mut().insert(attr_name.to_string(), value);
+            }
             ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
         };
     }
@@ -697,7 +697,7 @@ pub trait AttributeProtocol {
 fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
     let class = class.borrow();
     match class.payload {
-        PyObjectPayload::Class { ref dict, .. } => dict.get_item(attr_name),
+        PyObjectPayload::Class { ref dict, .. } => dict.borrow().get(attr_name).map(|v| v.clone()),
         _ => panic!("Only classes should be in MRO!"),
     }
 }
@@ -705,7 +705,7 @@ fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
 fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
     let class = class.borrow();
     match class.payload {
-        PyObjectPayload::Class { ref dict, .. } => dict.contains_key(attr_name),
+        PyObjectPayload::Class { ref dict, .. } => dict.borrow().contains_key(attr_name),
         _ => panic!("Only classes should be in MRO!"),
     }
 }
@@ -726,7 +726,9 @@ impl AttributeProtocol for PyObjectRef {
                 }
                 None
             }
-            PyObjectPayload::Instance { ref dict } => dict.get_item(attr_name),
+            PyObjectPayload::Instance { ref dict } => {
+                dict.borrow().get(attr_name).map(|v| v.clone())
+            }
             _ => None,
         }
     }
@@ -738,7 +740,7 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectPayload::Class { ref mro, .. } => {
                 class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
             }
-            PyObjectPayload::Instance { ref dict } => dict.contains_key(attr_name),
+            PyObjectPayload::Instance { ref dict } => dict.borrow().contains_key(attr_name),
             _ => false,
         }
     }
@@ -931,14 +933,14 @@ pub enum PyObjectPayload {
     None,
     Class {
         name: String,
-        dict: PyObjectRef,
+        dict: RefCell<PyAttributes>,
         mro: Vec<PyObjectRef>,
     },
     WeakRef {
         referent: PyObjectWeakRef,
     },
     Instance {
-        dict: PyObjectRef,
+        dict: RefCell<PyAttributes>,
     },
     RustFunction {
         function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,

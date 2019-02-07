@@ -3,7 +3,9 @@
  */
 
 use super::super::obj::{objsequence, objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use super::super::pyobject::{
+    PyAttributes, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
+};
 use super::super::VirtualMachine;
 
 fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -15,7 +17,6 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let name = objstr::get_value(name);
-    let dict = vm.ctx.new_dict();
 
     let bases = match bases {
         Some(b) => {
@@ -28,7 +29,7 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => vec![vm.ctx.object()],
     };
 
-    objtype::new(vm.ctx.type_type(), &name, bases, dict)
+    objtype::new(vm.ctx.type_type(), &name, bases, PyAttributes::new())
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {

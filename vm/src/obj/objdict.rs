@@ -5,7 +5,7 @@ use super::super::vm::VirtualMachine;
 use super::objiter;
 use super::objstr;
 use super::objtype;
-use std::cell::{Ref, RefMut};
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
@@ -273,7 +273,7 @@ fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
     (*dict_type.borrow_mut()).payload = PyObjectPayload::Class {
         name: String::from("dict"),
-        dict: new(dict_type.clone()),
+        dict: RefCell::new(HashMap::new()),
         mro: vec![object_type],
     };
     (*dict_type.borrow_mut()).typ = Some(type_type.clone());
