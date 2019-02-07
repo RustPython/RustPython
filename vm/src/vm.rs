@@ -53,10 +53,10 @@ impl VirtualMachine {
 
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
-            builtins: builtins,
+            builtins,
             sys_module: sysmod,
             stdlib_inits,
-            ctx: ctx,
+            ctx,
             current_frame: None,
         }
     }
@@ -86,7 +86,7 @@ impl VirtualMachine {
         let pymsg = self.new_str(msg);
         let args: Vec<PyObjectRef> = vec![pymsg];
         let args = PyFuncArgs {
-            args: args,
+            args,
             kwargs: vec![],
         };
 
@@ -221,7 +221,7 @@ impl VirtualMachine {
             obj,
             method_name,
             PyFuncArgs {
-                args: args,
+                args,
                 kwargs: vec![],
             },
         )
@@ -625,8 +625,8 @@ mod tests {
     #[test]
     fn test_add_py_integers() {
         let mut vm = VirtualMachine::new();
-        let a = vm.ctx.new_int(33_i32.to_bigint().unwrap());
-        let b = vm.ctx.new_int(12_i32.to_bigint().unwrap());
+        let a = vm.ctx.new_int(33_i32);
+        let b = vm.ctx.new_int(12_i32);
         let res = vm._add(a, b).unwrap();
         let value = objint::get_value(&res);
         assert_eq!(value, 45_i32.to_bigint().unwrap());
@@ -636,7 +636,7 @@ mod tests {
     fn test_multiply_str() {
         let mut vm = VirtualMachine::new();
         let a = vm.ctx.new_str(String::from("Hello "));
-        let b = vm.ctx.new_int(4_i32.to_bigint().unwrap());
+        let b = vm.ctx.new_int(4_i32);
         let res = vm._mul(a, b).unwrap();
         let value = objstr::get_value(&res);
         assert_eq!(value, String::from("Hello Hello Hello Hello "))

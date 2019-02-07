@@ -7,7 +7,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use super::bytecode::{self, CallType, CodeObject, Instruction};
-use super::pyobject::{PyObject, PyObjectPayload, PyResult};
+use super::pyobject::PyResult;
 use super::vm::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
@@ -52,10 +52,7 @@ pub fn compile(
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(PyObject::new(
-        PyObjectPayload::Code { code: code },
-        vm.ctx.code_type(),
-    ))
+    Ok(vm.ctx.new_code_object(code))
 }
 
 pub enum Mode {
@@ -432,7 +429,7 @@ impl Compiler {
 
                 self.prepare_decorators(decorator_list)?;
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -441,7 +438,7 @@ impl Compiler {
                 });
 
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags: flags });
+                self.emit(Instruction::MakeFunction { flags });
                 self.apply_decorators(decorator_list);
 
                 self.emit(Instruction::StoreName {
@@ -477,7 +474,7 @@ impl Compiler {
 
                 let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -905,7 +902,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildList {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -913,7 +910,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildTuple {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -921,7 +918,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildSet {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -932,7 +929,7 @@ impl Compiler {
                     self.compile_expression(value)?;
                 }
                 self.emit(Instruction::BuildMap {
-                    size: size,
+                    size,
                     unpack: false,
                 });
             }
@@ -941,7 +938,7 @@ impl Compiler {
                 for element in elements {
                     self.compile_expression(element)?;
                 }
-                self.emit(Instruction::BuildSlice { size: size });
+                self.emit(Instruction::BuildSlice { size });
             }
             ast::Expression::Yield { value } => {
                 self.mark_generator();
@@ -1003,13 +1000,13 @@ impl Compiler {
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String { value: name },
                 });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags: flags });
+                self.emit(Instruction::MakeFunction { flags });
             }
             ast::Expression::Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
@@ -1286,7 +1283,7 @@ impl Compiler {
 
         // List comprehension code:
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::Code { code: code },
+            value: bytecode::Constant::Code { code },
         });
 
         // List comprehension function name:

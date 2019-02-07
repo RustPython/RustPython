@@ -9,7 +9,6 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use std::hash::{Hash, Hasher};
 
 fn tuple_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -135,7 +134,7 @@ fn tuple_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             count = count + 1;
         }
     }
-    Ok(vm.context().new_int(count.to_bigint().unwrap()))
+    Ok(vm.context().new_int(count))
 }
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -164,7 +163,7 @@ fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         element_hash.hash(&mut hasher);
     }
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -184,7 +183,7 @@ fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
     let elements = get_elements(zelf);
-    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+    Ok(vm.context().new_int(elements.len()))
 }
 
 fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -206,7 +205,7 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements: elements },
+        PyObjectPayload::Sequence { elements },
         cls.clone(),
     ))
 }
@@ -254,6 +253,21 @@ fn tuple_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     get_item(vm, tuple, &get_elements(&tuple), needle.clone())
 }
 
+pub fn tuple_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(tuple, Some(vm.ctx.tuple_type())), (needle, None)]
+    );
+    for (index, element) in get_elements(tuple).iter().enumerate() {
+        let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+        if objbool::get_value(&py_equal) {
+            return Ok(vm.context().new_int(index));
+        }
+    }
+    Err(vm.new_value_error("tuple.index(x): x not in tuple".to_string()))
+}
+
 pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -299,4 +313,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&tuple_type, "__le__", context.new_rustfunc(tuple_le));
     context.set_attr(&tuple_type, "__gt__", context.new_rustfunc(tuple_gt));
     context.set_attr(&tuple_type, "__ge__", context.new_rustfunc(tuple_ge));
+    context.set_attr(&tuple_type, "index", context.new_rustfunc(tuple_index));
 }

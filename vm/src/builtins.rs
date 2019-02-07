@@ -238,7 +238,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals,
+        locals,
         parent: None,
     };
     let scope = PyObject {
@@ -288,7 +288,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals,
+        locals,
         parent: None,
     };
     let scope = PyObject {
@@ -359,7 +359,7 @@ fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
-    Ok(vm.context().new_int(obj.get_id().to_bigint().unwrap()))
+    Ok(vm.context().new_int(obj.get_id()))
 }
 
 // builtin_input
@@ -553,9 +553,7 @@ fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         )));
     }
     match string.chars().next() {
-        Some(character) => Ok(vm
-            .context()
-            .new_int((character as i32).to_bigint().unwrap())),
+        Some(character) => Ok(vm.context().new_int(character as i32)),
         None => Err(vm.new_type_error(
             "ord() could not guess the integer representing this character".to_string(),
         )),
@@ -635,7 +633,7 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items = vm.extract_elements(iterable)?;
 
     // Start with zero and add at will:
-    let mut sum = vm.ctx.new_int(Zero::zero());
+    let mut sum = vm.ctx.new_int(0);
     for item in items {
         sum = vm._add(sum, item)?;
     }

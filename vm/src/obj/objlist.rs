@@ -10,7 +10,6 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 // set_item:
@@ -52,7 +51,7 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements: elements },
+        PyObjectPayload::Sequence { elements },
         cls.clone(),
     ))
 }
@@ -227,7 +226,7 @@ fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             count = count + 1;
         }
     }
-    Ok(vm.context().new_int(count.to_bigint().unwrap()))
+    Ok(vm.context().new_int(count))
 }
 
 pub fn list_extend(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -252,7 +251,7 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     for (index, element) in get_elements(list).iter().enumerate() {
         let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
         if objbool::get_value(&py_equal) {
-            return Ok(vm.context().new_int(index.to_bigint().unwrap()));
+            return Ok(vm.context().new_int(index));
         }
     }
     let needle_str = objstr::get_value(&vm.to_str(needle).unwrap());
@@ -263,7 +262,7 @@ fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let elements = get_elements(list);
-    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+    Ok(vm.context().new_int(elements.len()))
 }
 
 fn list_reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -366,6 +365,11 @@ fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let list_type = &context.list_type;
+
+    let list_doc = "Built-in mutable sequence.\n\n\
+                    If no argument is given, the constructor creates a new empty list.\n\
+                    The argument must be an iterable if specified.";
+
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
     context.set_attr(
         &list_type,
@@ -392,6 +396,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "__len__", context.new_rustfunc(list_len));
     context.set_attr(&list_type, "__new__", context.new_rustfunc(list_new));
     context.set_attr(&list_type, "__repr__", context.new_rustfunc(list_repr));
+    context.set_attr(&list_type, "__doc__", context.new_str(list_doc.to_string()));
     context.set_attr(&list_type, "append", context.new_rustfunc(list_append));
     context.set_attr(&list_type, "clear", context.new_rustfunc(list_clear));
     context.set_attr(&list_type, "count", context.new_rustfunc(list_count));

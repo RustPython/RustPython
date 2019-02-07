@@ -7,7 +7,6 @@ extern crate log;
 extern crate rustpython_parser;
 extern crate rustpython_vm;
 extern crate rustyline;
-extern crate xdg;
 
 use clap::{App, Arg};
 use rustpython_parser::parser;
@@ -143,6 +142,22 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
     true
 }
 
+#[cfg(not(target_family = "unix"))]
+fn get_history_path() -> PathBuf {
+    //Path buffer
+    PathBuf::from(".repl_history.txt")
+}
+
+#[cfg(target_family = "unix")]
+fn get_history_path() -> PathBuf {
+    //work around for windows dependent builds. The xdg crate is unix specific
+    //so access to the BaseDirectories struct breaks builds on python.
+    extern crate xdg;
+
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
+    xdg_dirs.place_cache_file("repl_history.txt").unwrap()
+}
+
 fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     println!(
         "Welcome to the magnificent Rust Python {} interpreter",
@@ -155,9 +170,8 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     let mut input = String::new();
     let mut rl = Editor::<()>::new();
 
-    let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
-    let repl_history_path = xdg_dirs.place_cache_file("repl_history.txt").unwrap();
-    let repl_history_path_str = repl_history_path.to_str().unwrap();
+    //retrieve a history_path_str dependent to the os
+    let repl_history_path_str = &get_history_path();
     if rl.load_history(repl_history_path_str).is_err() {
         println!("No previous history.");
     }

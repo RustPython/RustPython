@@ -20,7 +20,6 @@ use super::pyobject::{
     PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 #[derive(Clone, Debug)]
@@ -76,7 +75,7 @@ impl Frame {
             blocks: vec![],
             // save the callargs as locals
             // globals: locals.clone(),
-            locals: locals,
+            locals,
             lasti: 0,
         }
     }
@@ -121,7 +120,7 @@ impl Frame {
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.get_row().to_bigint().unwrap()),
+                        vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::list_append(
@@ -440,7 +439,7 @@ impl Frame {
                     bytecode::CallType::Positional(count) => {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
-                            args: args,
+                            args,
                             kwargs: vec![],
                         }
                     }
@@ -1036,15 +1035,13 @@ impl Frame {
 
     fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
-            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.to_bigint().unwrap()),
+            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.clone()),
             bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
             bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
             bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => {
-                PyObject::new(PyObjectPayload::Code { code: code.clone() }, vm.get_type())
-            }
+            bytecode::Constant::Code { ref code } => vm.ctx.new_code_object(code.clone()),
             bytecode::Constant::Tuple { ref elements } => vm.ctx.new_tuple(
                 elements
                     .iter()

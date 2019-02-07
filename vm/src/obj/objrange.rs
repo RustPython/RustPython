@@ -4,7 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
-use num_bigint::{BigInt, Sign, ToBigInt};
+use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
@@ -160,7 +160,7 @@ fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Range { ref range } => range.try_len(),
         _ => unreachable!(),
     } {
-        Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
+        Ok(vm.ctx.new_int(len))
     } else {
         Err(vm.new_overflow_error("Python int too large to convert to Rust usize".to_string()))
     }
@@ -181,12 +181,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match subscript.borrow().payload {
         PyObjectPayload::Integer { ref value } => {
             if let Some(int) = zrange.get(value.clone()) {
-                Ok(PyObject::new(
-                    PyObjectPayload::Integer {
-                        value: int.to_bigint().unwrap(),
-                    },
-                    vm.ctx.int_type(),
-                ))
+                Ok(vm.ctx.new_int(int))
             } else {
                 Err(vm.new_index_error("range object index out of range".to_string()))
             }

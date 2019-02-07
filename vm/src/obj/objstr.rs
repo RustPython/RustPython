@@ -6,7 +6,6 @@ use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 // rust's builtin to_lowercase isn't sufficient for casefold
@@ -308,13 +307,13 @@ fn str_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn str_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let sv = get_value(s);
-    Ok(vm.ctx.new_int(sv.chars().count().to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(sv.chars().count()))
 }
 
 fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -464,26 +463,34 @@ fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
 fn str_isspace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_whitespace = get_value(&s).chars().all(|c| c.is_ascii_whitespace());
-    Ok(vm.ctx.new_bool(is_whitespace))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_ascii_whitespace())))
 }
 
 fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_upper = get_value(&s)
-        .chars()
-        .filter(|x| !x.is_ascii_whitespace())
-        .all(|c| c.is_uppercase());
-    Ok(vm.ctx.new_bool(is_upper))
+    let value = get_value(&s);
+    Ok(vm.ctx.new_bool(
+        !value.is_empty()
+            && value
+                .chars()
+                .filter(|x| !x.is_ascii_whitespace())
+                .all(|c| c.is_uppercase()),
+    ))
 }
 
 fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_lower = get_value(&s)
-        .chars()
-        .filter(|x| !x.is_ascii_whitespace())
-        .all(|c| c.is_lowercase());
-    Ok(vm.ctx.new_bool(is_lower))
+    let value = get_value(&s);
+    Ok(vm.ctx.new_bool(
+        !value.is_empty()
+            && value
+                .chars()
+                .filter(|x| !x.is_ascii_whitespace())
+                .all(|c| c.is_lowercase()),
+    ))
 }
 
 // doesn't implement keep new line delimeter just yet
@@ -546,7 +553,7 @@ fn str_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Err(e) => return Err(vm.new_index_error(e)),
     };
     let num_occur: usize = value[start..end].matches(&sub).count();
-    Ok(vm.ctx.new_int(num_occur.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(num_occur))
 }
 
 fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -571,7 +578,7 @@ fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -594,7 +601,7 @@ fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(num) => num as i128,
         None => -1 as i128,
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 // casefold is much more aggresive than lower
@@ -785,10 +792,15 @@ fn str_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
     let mut is_titled = true;
-    for word in value.split(" ") {
-        if word != make_title(&word) {
-            is_titled = false;
-            break;
+
+    if value.is_empty() {
+        is_titled = false;
+    } else {
+        for word in value.split(" ") {
+            if word != make_title(&word) {
+                is_titled = false;
+                break;
+            }
         }
     }
     Ok(vm.ctx.new_bool(is_titled))
@@ -845,14 +857,18 @@ fn str_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn str_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_alnum = get_value(&s).chars().all(|c| c.is_alphanumeric());
-    Ok(vm.ctx.new_bool(is_alnum))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_alphanumeric())))
 }
 
 fn str_isascii(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_ascii = get_value(&s).chars().all(|c| c.is_ascii());
-    Ok(vm.ctx.new_bool(is_ascii))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_ascii())))
 }
 
 fn str_rindex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -877,7 +893,7 @@ fn str_rindex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -900,19 +916,23 @@ fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(num) => num as i128,
         None => -1 as i128,
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_isnumeric(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_numeric = get_value(&s).chars().all(|c| c.is_numeric());
-    Ok(vm.ctx.new_bool(is_numeric))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_numeric())))
 }
 
 fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_alpha = get_value(&s).chars().all(|c| c.is_alphanumeric());
-    Ok(vm.ctx.new_bool(is_alpha))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_alphanumeric())))
 }
 
 fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -923,18 +943,24 @@ fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
     ];
     let mut is_digit: bool = true;
-    for c in value.chars() {
-        if !c.is_digit(10) {
-            // checking if char is exponent
-            let char_as_uni: u16 = c as u16;
-            if valid_unicodes.contains(&char_as_uni) {
-                continue;
-            } else {
-                is_digit = false;
-                break;
+
+    if value.is_empty() {
+        is_digit = false;
+    } else {
+        for c in value.chars() {
+            if !c.is_digit(10) {
+                // checking if char is exponent
+                let char_as_uni: u16 = c as u16;
+                if valid_unicodes.contains(&char_as_uni) {
+                    continue;
+                } else {
+                    is_digit = false;
+                    break;
+                }
             }
         }
     }
+
     Ok(vm.ctx.new_bool(is_digit))
 }
 
