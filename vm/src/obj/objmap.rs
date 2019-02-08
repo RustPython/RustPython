@@ -70,6 +70,11 @@ fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let map_type = &context.map_type;
+
+    let map_doc = "map(func, *iterables) --> map object\n\n\
+                   Make an iterator that computes the function using arguments from\n\
+                   each of the iterables.  Stops when the shortest iterable is exhausted.";
+
     context.set_attr(
         &map_type,
         "__contains__",
@@ -78,4 +83,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&map_type, "__iter__", context.new_rustfunc(map_iter));
     context.set_attr(&map_type, "__new__", context.new_rustfunc(map_new));
     context.set_attr(&map_type, "__next__", context.new_rustfunc(map_next));
+    context.set_attr(&map_type, "__doc__", context.new_str(map_doc.to_string()));
 }
