@@ -126,6 +126,28 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
+fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.set_type())),
+            (other, Some(vm.ctx.set_type()))
+        ]
+    );
+    for element in get_elements(other).iter() {
+        match vm.call_method(zelf, "__contains__", vec![element.1.clone()]) {
+            Ok(value) => {
+                if !objbool::get_value(&value) {
+                    return Ok(vm.new_bool(false));
+                }
+            }
+            Err(_) => return Err(vm.new_type_error("".to_string())),
+        }
+    }
+    Ok(vm.new_bool(true))
+}
+
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -159,6 +181,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__len__", context.new_rustfunc(set_len));
     context.set_attr(&set_type, "__new__", context.new_rustfunc(set_new));
     context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
+    context.set_attr(&set_type, "__ge__", context.new_rustfunc(set_ge));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
