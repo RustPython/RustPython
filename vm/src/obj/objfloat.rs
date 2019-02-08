@@ -298,7 +298,11 @@ fn float_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 * objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot multiply {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!(
+            "Cannot multiply {} and {}",
+            i.borrow(),
+            i2.borrow()
+        )))
     }
 }
 
