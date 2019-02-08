@@ -24,6 +24,11 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type:
 
 pub fn init(context: &PyContext) {
     let type_type = &context.type_type;
+
+    let type_doc = "type(object_or_name, bases, dict)\n\
+                    type(object) -> the object's type\n\
+                    type(name, bases, dict) -> a new type";
+
     context.set_attr(&type_type, "__call__", context.new_rustfunc(type_call));
     context.set_attr(&type_type, "__new__", context.new_rustfunc(type_new));
     context.set_attr(
@@ -47,6 +52,7 @@ pub fn init(context: &PyContext) {
         "__getattribute__",
         context.new_rustfunc(type_getattribute),
     );
+    context.set_attr(&type_type, "__doc__", context.new_str(type_doc.to_string()));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
