@@ -23,6 +23,7 @@ pub struct CodeObject {
     pub kwonlyarg_names: Vec<String>,
     pub varkeywords: Option<Option<String>>, // **kwargs or **
     pub source_path: Option<String>,
+    pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
     pub is_generator: bool,
 }
@@ -34,6 +35,7 @@ impl CodeObject {
         kwonlyarg_names: Vec<String>,
         varkeywords: Option<Option<String>>,
         source_path: Option<String>,
+        first_line_number: usize,
         obj_name: String,
     ) -> CodeObject {
         CodeObject {
@@ -45,6 +47,7 @@ impl CodeObject {
             kwonlyarg_names,
             varkeywords,
             source_path,
+            first_line_number,
             obj_name,
             is_generator: false,
         }

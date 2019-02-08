@@ -79,12 +79,14 @@ impl Compiler {
     }
 
     fn push_new_code_object(&mut self, source_path: Option<String>, obj_name: String) {
+        let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             Vec::new(),
             None,
             Vec::new(),
             None,
             source_path.clone(),
+            line_number,
             obj_name,
         ));
     }
@@ -453,12 +455,14 @@ impl Compiler {
             } => {
                 self.prepare_decorators(decorator_list)?;
                 self.emit(Instruction::LoadBuildClass);
+                let line_number = self.get_source_line_number();
                 self.code_object_stack.push(CodeObject::new(
                     vec![String::from("__locals__")],
                     None,
                     vec![],
                     None,
                     self.source_path.clone(),
+                    line_number,
                     name.clone(),
                 ));
                 self.emit(Instruction::LoadName {
@@ -653,12 +657,14 @@ impl Compiler {
             });
         }
 
+        let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             args.args.clone(),
             args.vararg.clone(),
             args.kwonlyargs.clone(),
             args.kwarg.clone(),
             self.source_path.clone(),
+            line_number,
             name.to_string(),
         ));
 
@@ -1162,6 +1168,7 @@ impl Compiler {
         }
         .to_string();
 
+        let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
         self.code_object_stack.push(CodeObject::new(
             vec![".0".to_string()],
@@ -1169,6 +1176,7 @@ impl Compiler {
             vec![],
             None,
             self.source_path.clone(),
+            line_number,
             name.clone(),
         ));
 
@@ -1336,6 +1344,10 @@ impl Compiler {
 
     fn set_source_location(&mut self, location: &ast::Location) {
         self.current_source_location = location.clone();
+    }
+
+    fn get_source_line_number(&mut self) -> usize {
+        self.current_source_location.get_row()
     }
 
     fn mark_generator(&mut self) {
