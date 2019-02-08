@@ -611,6 +611,19 @@ fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
     vm.to_repr(obj)
 }
+
+fn builtin_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+
+    match vm.get_method(obj.clone(), "__reversed__") {
+        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
+        // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
+        Err(..) => Err(vm.new_type_error(format!(
+            "'{}' object is not reversible",
+            objtype::get_type_name(&obj.typ()),
+        ))),
+    }
+}
 // builtin_reversed
 // builtin_round
 
@@ -725,6 +738,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "property", ctx.property_type());
     ctx.set_attr(&py_mod, "range", ctx.range_type());
     ctx.set_attr(&py_mod, "repr", ctx.new_rustfunc(builtin_repr));
+    ctx.set_attr(&py_mod, "reversed", ctx.new_rustfunc(builtin_reversed));
     ctx.set_attr(&py_mod, "set", ctx.set_type());
     ctx.set_attr(&py_mod, "setattr", ctx.new_rustfunc(builtin_setattr));
     ctx.set_attr(&py_mod, "staticmethod", ctx.staticmethod_type());

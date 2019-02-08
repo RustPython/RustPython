@@ -52,3 +52,7 @@ assert not range(10).__contains__(-1)
 assert not range(10, 4, -2).__contains__(9)
 assert not range(10, 4, -2).__contains__(4)
 assert not range(10).__contains__('foo')
+
+# __reversed__
+assert list(range(5).__reversed__()) == [4, 3, 2, 1, 0]
+assert list(range(5, 0, -1).__reversed__()) == [1, 2, 3, 4, 5]
