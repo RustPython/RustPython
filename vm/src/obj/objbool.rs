@@ -16,12 +16,10 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
         _ => {
             if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
                 let bool_res = vm.invoke(f, PyFuncArgs::default())?;
-                let v = match bool_res.borrow().payload {
+                match bool_res.borrow().payload {
                     PyObjectPayload::Integer { ref value } => !value.is_zero(),
                     _ => return Err(vm.new_type_error(String::from("TypeError"))),
                 };
-
-                v
             } else {
                 true
             }
