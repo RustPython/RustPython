@@ -127,55 +127,18 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(vm.ctx.set_type())),
-            (other, Some(vm.ctx.set_type()))
-        ]
-    );
-    for element in get_elements(other).iter() {
-        match vm.call_method(zelf, "__contains__", vec![element.1.clone()]) {
-            Ok(value) => {
-                if !objbool::get_value(&value) {
-                    return Ok(vm.new_bool(false));
-                }
-            }
-            Err(_) => return Err(vm.new_type_error("".to_string())),
-        }
-    }
-    Ok(vm.new_bool(true))
+    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf < other})
 }
 
 fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(vm.ctx.set_type())),
-            (other, Some(vm.ctx.set_type()))
-        ]
-    );
-    let zelf_elements = get_elements(zelf);
-    let other_elements = get_elements(other);
-    if zelf_elements.len() != other_elements.len() {
-       return Ok(vm.new_bool(false));
-    }
-    for element in zelf_elements.iter() {
-        match vm.call_method(other, "__contains__", vec![element.1.clone()]) {
-            Ok(value) => {
-                if !objbool::get_value(&value) {
-                    return Ok(vm.new_bool(false));
-                }
-            }
-            Err(_) => return Err(vm.new_type_error("".to_string())),
-        }
-    }
-    Ok(vm.new_bool(true))
+    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf != other})
 }
 
 fn set_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf <= other})
+}
+
+fn set_compare_inner(vm: &mut VirtualMachine, args: PyFuncArgs, size_func: &Fn(usize, usize) -> bool) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -187,7 +150,7 @@ fn set_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let zelf_elements = get_elements(zelf);
     let other_elements = get_elements(other);
-    if zelf_elements.len() <= other_elements.len() {
+    if size_func(zelf_elements.len(), other_elements.len()) {
        return Ok(vm.new_bool(false));
     }
     for element in other_elements.iter() {
