@@ -44,10 +44,13 @@ impl Dict {
                     entry.value = value;
                     Ok(())
                 } else {
-                    panic!("Lookup returned invalied index into entries!");
+                    panic!("Lookup returned invalid index into entries!");
                 }
             }
-            LookupResult::NewIndex { i, hash_value } => {
+            LookupResult::NewIndex {
+                hash_index,
+                hash_value,
+            } => {
                 // New key:
                 let entry = DictEntry {
                     hash: hash_value,
@@ -56,7 +59,8 @@ impl Dict {
                 };
                 let index = self.entries.len();
                 self.entries.push(Some(entry));
-                self.indices.insert(i, index);
+                self.indices.insert(hash_index, index);
+                self.size += 1;
                 Ok(())
             }
         }
@@ -67,7 +71,7 @@ impl Dict {
         vm: &mut VirtualMachine,
         key: &PyObjectRef,
     ) -> Result<bool, PyObjectRef> {
-        if let LookupResult::Existing(index) = self.lookup(vm, key)? {
+        if let LookupResult::Existing(_index) = self.lookup(vm, key)? {
             Ok(true)
         } else {
             Ok(false)
@@ -80,7 +84,7 @@ impl Dict {
             if let Some(entry) = &self.entries[index] {
                 Ok(entry.value.clone())
             } else {
-                panic!("Lookup returned invalied index into entries!");
+                panic!("Lookup returned invalid index into entries!");
             }
         } else {
             let key_repr = vm.to_pystr(key)?;
@@ -96,6 +100,7 @@ impl Dict {
     ) -> Result<(), PyObjectRef> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             self.entries[index] = None;
+            self.size -= 1;
             Ok(())
         } else {
             let key_repr = vm.to_pystr(key)?;
@@ -104,7 +109,7 @@ impl Dict {
     }
 
     pub fn len(&self) -> usize {
-        self.get_items().len()
+        self.size
     }
 
     pub fn is_empty(&self) -> bool {
@@ -128,11 +133,11 @@ impl Dict {
     ) -> Result<LookupResult, PyObjectRef> {
         let hash_value = calc_hash(vm, key)?;
         let perturb = hash_value;
-        let mut i: usize = hash_value;
+        let mut hash_index: usize = hash_value;
         loop {
-            if self.indices.contains_key(&i) {
+            if self.indices.contains_key(&hash_index) {
                 // Now we have an index, lets check the key.
-                let index = self.indices[&i];
+                let index = self.indices[&hash_index];
                 if let Some(entry) = &self.entries[index] {
                     // Okay, we have an entry at this place
                     if entry.key.is(key) {
@@ -152,19 +157,28 @@ impl Dict {
                 }
             } else {
                 // Hash not in table, we are at free slot now.
-                break Ok(LookupResult::NewIndex { hash_value, i });
+                break Ok(LookupResult::NewIndex {
+                    hash_value,
+                    hash_index,
+                });
             }
 
             // Update i to next probe location:
-            i = i.wrapping_mul(5).wrapping_add(perturb).wrapping_add(1);
-            warn!("Perturb value: {}", i);
+            hash_index = hash_index
+                .wrapping_mul(5)
+                .wrapping_add(perturb)
+                .wrapping_add(1);
+            // warn!("Perturb value: {}", i);
         }
     }
 }
 
 enum LookupResult {
-    NewIndex { hash_value: usize, i: usize }, // return not found, index into indices
-    Existing(usize),                          // Existing record, index into entries
+    NewIndex {
+        hash_value: usize,
+        hash_index: usize,
+    }, // return not found, index into indices
+    Existing(usize), // Existing record, index into entries
 }
 
 fn calc_hash(vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<usize, PyObjectRef> {
@@ -194,23 +208,23 @@ mod tests {
 
         let key1 = vm.new_bool(true);
         let value1 = vm.new_str("abc".to_string());
-        dict.insert(&mut vm, &key1, value1.clone());
+        dict.insert(&mut vm, &key1, value1.clone()).unwrap();
         assert_eq!(1, dict.len());
 
         let key2 = vm.new_str("x".to_string());
         let value2 = vm.new_str("def".to_string());
-        dict.insert(&mut vm, &key2, value2.clone());
+        dict.insert(&mut vm, &key2, value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.insert(&mut vm, &key1, value2.clone());
+        dict.insert(&mut vm, &key1, value2.clone()).unwrap();
         assert_eq!(2, dict.len());
 
-        dict.delete(&mut vm, &key1);
+        dict.delete(&mut vm, &key1).unwrap();
         assert_eq!(1, dict.len());
 
-        dict.insert(&mut vm, &key1, value2);
+        dict.insert(&mut vm, &key1, value2).unwrap();
         assert_eq!(2, dict.len());
 
-        assert_eq!(true, dict.contains(&mut vm, &key1));
+        assert_eq!(true, dict.contains(&mut vm, &key1).unwrap());
     }
 }
