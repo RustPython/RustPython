@@ -274,9 +274,7 @@ fn float_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.float_type) {
-        Ok(vm
-            .ctx
-            .new_float(v1 / get_value(i2)))
+        Ok(vm.ctx.new_float(v1 / get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type) {
         Ok(vm
             .ctx
@@ -294,15 +292,13 @@ fn float_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.float_type) {
-        Ok(vm
-            .ctx
-            .new_float(v1 * get_value(i2)))
+        Ok(vm.ctx.new_float(v1 * get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type) {
         Ok(vm
             .ctx
             .new_float(v1 * objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot multiply {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -339,6 +335,10 @@ pub fn init(context: &PyContext) {
         "__doc__",
         context.new_str(float_doc.to_string()),
     );
-    context.set_attr(&float_type, "__truediv__", context.new_rustfunc(float_truediv));
+    context.set_attr(
+        &float_type,
+        "__truediv__",
+        context.new_rustfunc(float_truediv),
+    );
     context.set_attr(&float_type, "__mul__", context.new_rustfunc(float_mul));
 }
