@@ -68,9 +68,9 @@ impl RangeType {
     pub fn get(&self, index: BigInt) -> Option<BigInt> {
         let result = self.start.clone() + self.step.clone() * index;
 
-        if self.forward() && !self.is_empty() && result < self.end {
-            Some(result)
-        } else if !self.forward() && !self.is_empty() && result > self.end {
+        if (self.forward() && !self.is_empty() && result < self.end)
+            || (!self.forward() && !self.is_empty() && result > self.end)
+        {
             Some(result)
         } else {
             None
