@@ -215,6 +215,8 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__gt__", context.new_rustfunc(set_gt));
     context.set_attr(&set_type, "__le__", context.new_rustfunc(set_le));
     context.set_attr(&set_type, "__lt__", context.new_rustfunc(set_lt));
+    context.set_attr(&set_type, "issubset", context.new_rustfunc(set_le));
+    context.set_attr(&set_type, "issuperset", context.new_rustfunc(set_ge));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
