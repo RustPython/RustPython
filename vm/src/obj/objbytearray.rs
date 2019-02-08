@@ -203,11 +203,12 @@ fn bytearray_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 }
             };
 
-            if is_cased(current) && next.is_uppercase() && !prev_cased {
-                return Ok(vm.new_bool(false));
-            } else if !is_cased(current) && next.is_lowercase() {
+            if (is_cased(current) && next.is_uppercase() && !prev_cased)
+                || (!is_cased(current) && next.is_lowercase())
+            {
                 return Ok(vm.new_bool(false));
             }
+
             prev_cased = is_cased(current);
         }
 
