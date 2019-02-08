@@ -11,7 +11,7 @@ use std::collections::hash_map::HashMap;
 use super::builtins;
 use super::bytecode;
 use super::frame::Frame;
-use super::obj::objcode::copy_code;
+use super::obj::objcode;
 use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objsequence;
@@ -282,7 +282,7 @@ impl VirtualMachine {
         defaults: &PyObjectRef,
         args: PyFuncArgs,
     ) -> PyResult {
-        let code_object = copy_code(code);
+        let code_object = objcode::get_value(code);
         let scope = self.ctx.new_scope(Some(scope.clone()));
         self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
 

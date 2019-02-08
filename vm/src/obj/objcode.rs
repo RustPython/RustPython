@@ -4,7 +4,7 @@
 
 use super::super::bytecode;
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
@@ -18,15 +18,33 @@ pub fn init(context: &PyContext) {
         "co_argcount",
         context.new_member_descriptor(code_co_argcount),
     );
+    context.set_attr(
+        code_type,
+        "co_cellvars",
+        context.new_member_descriptor(code_co_cellvars),
+    );
+    context.set_attr(
+        code_type,
+        "co_consts",
+        context.new_member_descriptor(code_co_consts),
+    );
+    context.set_attr(
+        code_type,
+        "co_filename",
+        context.new_member_descriptor(code_co_filename),
+    );
+    context.set_attr(
+        code_type,
+        "co_firstlineno",
+        context.new_member_descriptor(code_co_firstlineno),
+    );
 }
 
-/// Extract rust bytecode object from a python code object.
-pub fn copy_code(code_obj: &PyObjectRef) -> bytecode::CodeObject {
-    let code_obj = code_obj.borrow();
-    if let PyObjectPayload::Code { ref code } = code_obj.payload {
+pub fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
+    if let PyObjectPayload::Code { code } = &obj.borrow().payload {
         code.clone()
     } else {
-        panic!("Must be code obj");
+        panic!("Inner error getting code {:?}", obj)
     }
 }
 
@@ -39,30 +57,24 @@ fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.code_type()))]);
 
     // Fetch actual code:
-    let code = copy_code(o);
+    let code = get_value(o);
 
-    let file = if let Some(source_path) = code.source_path {
-        format!(", file {}", source_path)
-    } else {
-        String::new()
-    };
+    let file = code.source_path.unwrap_or_else(|| String::new());
 
-    // TODO: fetch proper line info from code object
-    let line = ", line 1".to_string();
-
-    let repr = format!("<code object at .. {}{}>", file, line);
+    let repr = format!(
+        "<code object {} at 0x{:x} file {:?}, line {}>",
+        code.obj_name,
+        o.get_id(),
+        file,
+        code.first_line_number
+    );
     Ok(vm.new_str(repr))
 }
 
-fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
-    if let PyObjectPayload::Code { code } = &obj.borrow().payload {
-        code.clone()
-    } else {
-        panic!("Inner error getting code {:?}", obj)
-    }
-}
-
-fn code_co_argcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn member_code_obj(
+    vm: &mut VirtualMachine,
+    args: PyFuncArgs,
+) -> Result<bytecode::CodeObject, PyObjectRef> {
     arg_check!(
         vm,
         args,
@@ -71,6 +83,31 @@ fn code_co_argcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (_cls, Some(vm.ctx.type_type()))
         ]
     );
-    let code_obj = get_value(zelf);
+    Ok(get_value(zelf))
+}
+
+fn code_co_argcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let code_obj = member_code_obj(vm, args)?;
     Ok(vm.ctx.new_int(code_obj.arg_names.len()))
+}
+
+fn code_co_cellvars(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let _code_obj = member_code_obj(vm, args)?;
+    Ok(vm.ctx.new_tuple(vec![]))
+}
+
+fn code_co_consts(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let _code_obj = member_code_obj(vm, args)?;
+    Ok(vm.ctx.new_tuple(vec![vm.get_none()]))
+}
+
+fn code_co_filename(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let code_obj = member_code_obj(vm, args)?;
+    let source_path = code_obj.source_path.unwrap_or_else(|| String::new());
+    Ok(vm.new_str(source_path))
+}
+
+fn code_co_firstlineno(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let code_obj = member_code_obj(vm, args)?;
+    Ok(vm.ctx.new_int(code_obj.first_line_number))
 }

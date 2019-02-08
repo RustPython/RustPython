@@ -70,7 +70,7 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: objcode::copy_code(&code),
+            code: objcode::get_value(&code),
             stack: vec![],
             blocks: vec![],
             // save the callargs as locals
