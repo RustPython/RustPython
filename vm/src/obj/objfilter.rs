@@ -7,7 +7,7 @@ use super::objbool;
 use super::objiter;
 use super::objtype; // Required for arg_check! to use isinstance
 
-pub fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
