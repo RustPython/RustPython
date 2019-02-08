@@ -14,12 +14,29 @@ use std::ops::Deref;
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
     let bytes_type = &context.bytes_type;
+
+    let bytes_doc =
+        "bytes(iterable_of_ints) -> bytes\n\
+         bytes(string, encoding[, errors]) -> bytes\n\
+         bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
+         bytes(int) -> bytes object of size given by the parameter initialized with null bytes\n\
+         bytes() -> empty bytes object\n\nConstruct an immutable array of bytes from:\n  \
+         - an iterable yielding integers in range(256)\n  \
+         - a text string encoded using the specified encoding\n  \
+         - any object implementing the buffer API.\n  \
+         - an integer";
+
     context.set_attr(bytes_type, "__eq__", context.new_rustfunc(bytes_eq));
     context.set_attr(bytes_type, "__hash__", context.new_rustfunc(bytes_hash));
     context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
     context.set_attr(bytes_type, "__repr__", context.new_rustfunc(bytes_repr));
     context.set_attr(bytes_type, "__len__", context.new_rustfunc(bytes_len));
-    context.set_attr(bytes_type, "__iter__", context.new_rustfunc(bytes_iter))
+    context.set_attr(bytes_type, "__iter__", context.new_rustfunc(bytes_iter));
+    context.set_attr(
+        bytes_type,
+        "__doc__",
+        context.new_str(bytes_doc.to_string()),
+    );
 }
 
 fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -19,3 +19,5 @@ assert x > y, "tuple __gt__ failed"
 
 b = (1,2,3)
 assert b.index(2) == 1
+
+assert b.__doc__ == "tuple() -> empty tuple\ntuple(iterable) -> tuple initialized from iterable's items\n\nIf the argument is a tuple, the return value is the same object."

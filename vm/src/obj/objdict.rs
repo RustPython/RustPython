@@ -5,7 +5,7 @@ use super::super::vm::VirtualMachine;
 use super::objiter;
 use super::objstr;
 use super::objtype;
-use std::cell::{Ref, RefMut};
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
@@ -105,10 +105,7 @@ pub fn contains_key_str(dict: &PyObjectRef, key: &str) -> bool {
 
 pub fn content_contains_key_str(elements: &DictContentType, key: &str) -> bool {
     // TODO: let hash: usize = key;
-    match elements.get(key) {
-        Some(_) => true,
-        None => false,
-    }
+    elements.get(key).is_some()
 }
 
 // Python dict methods:
@@ -139,7 +136,7 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 let elem_iter = objiter::get_iter(vm, &element)?;
                 let needle = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                 let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                if let Some(_) = objiter::get_next_object(vm, &elem_iter)? {
+                if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                     return Err(err(vm));
                 }
                 set_item(&dict, &needle, &value);
@@ -276,7 +273,7 @@ fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
     (*dict_type.borrow_mut()).payload = PyObjectPayload::Class {
         name: String::from("dict"),
-        dict: new(dict_type.clone()),
+        dict: RefCell::new(HashMap::new()),
         mro: vec![object_type],
     };
     (*dict_type.borrow_mut()).typ = Some(type_type.clone());

@@ -91,8 +91,7 @@ impl VirtualMachine {
         };
 
         // Call function:
-        let exception = self.invoke(exc_type, args).unwrap();
-        exception
+        self.invoke(exc_type, args).unwrap()
     }
 
     pub fn new_type_error(&mut self, msg: String) -> PyObjectRef {

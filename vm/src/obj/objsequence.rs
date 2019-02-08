@@ -34,17 +34,17 @@ pub trait PySliceableSequence {
         // TODO: we could potentially avoid this copy and use slice
         match &(slice.borrow()).payload {
             PyObjectPayload::Slice { start, stop, step } => {
-                let start = match start {
-                    &Some(start) => self.get_pos(start),
-                    &None => 0,
+                let start = match *start {
+                    Some(start) => self.get_pos(start),
+                    None => 0,
                 };
-                let stop = match stop {
-                    &Some(stop) => self.get_pos(stop),
-                    &None => self.len() as usize,
+                let stop = match *stop {
+                    Some(stop) => self.get_pos(stop),
+                    None => self.len() as usize,
                 };
-                match step {
-                    &None | &Some(1) => self.do_slice(start, stop),
-                    &Some(num) => {
+                match *step {
+                    None | Some(1) => self.do_slice(start, stop),
+                    Some(num) => {
                         if num < 0 {
                             unimplemented!("negative step indexing not yet supported")
                         };
