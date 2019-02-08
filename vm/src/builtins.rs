@@ -677,6 +677,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "repr", ctx.new_rustfunc(builtin_repr));
     ctx.set_attr(&py_mod, "set", ctx.set_type());
     ctx.set_attr(&py_mod, "setattr", ctx.new_rustfunc(builtin_setattr));
+    ctx.set_attr(&py_mod, "slice", ctx.slice_type());
     ctx.set_attr(&py_mod, "staticmethod", ctx.staticmethod_type());
     ctx.set_attr(&py_mod, "str", ctx.str_type());
     ctx.set_attr(&py_mod, "sum", ctx.new_rustfunc(builtin_sum));

@@ -1039,11 +1039,11 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
         match objint::get_value(&b).to_i32() {
             Some(pos) => {
                 let graphemes = to_graphemes(value);
-                let idx = graphemes.get_pos(pos);
-                graphemes
-                    .get(idx)
-                    .map(|c| vm.new_str(c.to_string()))
-                    .ok_or(vm.new_index_error("string index out of range".to_string()))
+                if let Some(idx) = graphemes.get_pos(pos) {
+                    Ok(vm.new_str(graphemes[idx].to_string()))
+                } else {
+                    Err(vm.new_index_error("string index out of range".to_string()))
+                }
             }
             None => {
                 Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))

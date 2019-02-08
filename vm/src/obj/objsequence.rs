@@ -2,7 +2,8 @@ use super::super::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, T
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
-use num_traits::ToPrimitive;
+use num_bigint::BigInt;
+use num_traits::{Signed, ToPrimitive};
 use std::cell::{Ref, RefMut};
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut};
@@ -11,22 +12,35 @@ pub trait PySliceableSequence {
     fn do_slice(&self, start: usize, stop: usize) -> Self;
     fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self;
     fn len(&self) -> usize;
-    fn get_pos(&self, p: i32) -> usize {
+    fn get_pos(&self, p: i32) -> Option<usize> {
         if p < 0 {
             if -p as usize > self.len() {
-                // return something that is out of bounds so `get_item` raises an IndexError
-                self.len() + 1
+                None
             } else {
-                self.len() - ((-p) as usize)
+                Some(self.len() - ((-p) as usize))
             }
-        } else if p as usize > self.len() {
-            // This is for the slicing case where the end element is greater than the length of the
-            // sequence
-            self.len()
+        } else if p as usize >= self.len() {
+            None
         } else {
-            p as usize
+            Some(p as usize)
         }
     }
+
+    fn get_slice_pos(&self, slice_pos: &BigInt) -> usize {
+        if let Some(pos) = slice_pos.to_i32() {
+            if let Some(index) = self.get_pos(pos) {
+                // within bounds
+                return index;
+            }
+        }
+
+        if slice_pos.is_negative() {
+            0
+        } else {
+            self.len()
+        }
+    }
+
     fn get_slice_items(&self, slice: &PyObjectRef) -> Self
     where
         Self: Sized,
@@ -34,22 +48,31 @@ pub trait PySliceableSequence {
         // TODO: we could potentially avoid this copy and use slice
         match &(slice.borrow()).payload {
             PyObjectPayload::Slice { start, stop, step } => {
-                let start = match *start {
-                    Some(start) => self.get_pos(start),
-                    None => 0,
+                let start = if let Some(start) = start {
+                    self.get_slice_pos(start)
+                } else {
+                    0
                 };
-                let stop = match *stop {
-                    Some(stop) => self.get_pos(stop),
-                    None => self.len() as usize,
+                let stop = if let Some(stop) = stop {
+                    self.get_slice_pos(stop)
+                } else {
+                    self.len()
                 };
-                match *step {
-                    None | Some(1) => self.do_slice(start, stop),
-                    Some(num) => {
-                        if num < 0 {
-                            unimplemented!("negative step indexing not yet supported")
-                        };
-                        self.do_stepped_slice(start, stop, num as usize)
+                if let Some(step) = step {
+                    match step.to_i32() {
+                        Some(1) => self.do_slice(start, stop),
+                        Some(num) => self.do_stepped_slice(start, stop, num as usize),
+                        None => self.do_slice(
+                            start,
+                            if start == self.len() {
+                                start
+                            } else {
+                                start + 1
+                            },
+                        ),
                     }
+                } else {
+                    self.do_slice(start, stop)
                 }
             }
             payload => panic!("get_slice_items called with non-slice: {:?}", payload),
@@ -78,8 +101,7 @@ pub fn get_item(
     match &(subscript.borrow()).payload {
         PyObjectPayload::Integer { value } => match value.to_i32() {
             Some(value) => {
-                let pos_index = elements.to_vec().get_pos(value);
-                if pos_index < elements.len() {
+                if let Some(pos_index) = elements.to_vec().get_pos(value) {
                     let obj = elements[pos_index].clone();
                     Ok(obj)
                 } else {
