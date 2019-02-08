@@ -96,7 +96,11 @@ fn bytes_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a).to_vec() >= get_value(b).to_vec()
     } else {
-        false
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '>'",
+            a.borrow(),
+            b.borrow()
+        )));
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -111,7 +115,11 @@ fn bytes_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a).to_vec() > get_value(b).to_vec()
     } else {
-        false
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '>='",
+            a.borrow(),
+            b.borrow()
+        )));
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -126,7 +134,11 @@ fn bytes_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a).to_vec() <= get_value(b).to_vec()
     } else {
-        false
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<'",
+            a.borrow(),
+            b.borrow()
+        )));
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -141,7 +153,11 @@ fn bytes_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a).to_vec() < get_value(b).to_vec()
     } else {
-        false
+        return Err(vm.new_type_error(format!(
+            "Cannot compare {} and {} using '<='",
+            a.borrow(),
+            b.borrow()
+        )));
     };
     Ok(vm.ctx.new_bool(result))
 }
