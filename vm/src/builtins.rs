@@ -150,7 +150,7 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let filename = objstr::get_value(filename);
 
-    compile::compile(vm, &source, &mode, Some(filename))
+    compile::compile(vm, &source, &mode, filename)
 }
 
 fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -200,7 +200,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, None)?
+        compile::compile(vm, &source, &mode, "<string>".to_string())?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
@@ -246,7 +246,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, None)?
+        compile::compile(vm, &source, &mode, "<string>".to_string())?
     } else if objtype::isinstance(source, &vm.ctx.code_type()) {
         source.clone()
     } else {

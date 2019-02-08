@@ -88,11 +88,7 @@ impl Frame {
     }
 
     pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
-        let filename = if let Some(source_path) = &self.code.source_path {
-            source_path.to_string()
-        } else {
-            "<unknown>".to_string()
-        };
+        let filename = &self.code.source_path.to_string();
 
         let prev_frame = mem::replace(&mut vm.current_frame, Some(vm.ctx.new_frame(self.clone())));
 
@@ -661,13 +657,10 @@ impl Frame {
         module: &str,
         symbol: &Option<String>,
     ) -> FrameResult {
-        let current_path = match &self.code.source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
+        let current_path = {
+            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
+            source_pathbuf.pop();
+            source_pathbuf
         };
 
         let obj = import(vm, current_path, module, symbol)?;
@@ -678,13 +671,10 @@ impl Frame {
     }
 
     fn import_star(&mut self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
-        let current_path = match &self.code.source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
+        let current_path = {
+            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
+            source_pathbuf.pop();
+            source_pathbuf
         };
 
         // Grab all the names from the module and put them in the context

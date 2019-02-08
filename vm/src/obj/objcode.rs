@@ -56,16 +56,12 @@ fn code_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.code_type()))]);
 
-    // Fetch actual code:
     let code = get_value(o);
-
-    let file = code.source_path.unwrap_or_else(|| String::new());
-
     let repr = format!(
         "<code object {} at 0x{:x} file {:?}, line {}>",
         code.obj_name,
         o.get_id(),
-        file,
+        code.source_path,
         code.first_line_number
     );
     Ok(vm.new_str(repr))
@@ -103,7 +99,7 @@ fn code_co_consts(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn code_co_filename(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let code_obj = member_code_obj(vm, args)?;
-    let source_path = code_obj.source_path.unwrap_or_else(|| String::new());
+    let source_path = code_obj.source_path;
     Ok(vm.new_str(source_path))
 }
 

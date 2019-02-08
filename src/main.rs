@@ -68,7 +68,7 @@ fn main() {
     handle_exception(&mut vm, result);
 }
 
-fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: Option<String>) -> PyResult {
+fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> PyResult {
     let code_obj = compile::compile(vm, source, &compile::Mode::Exec, source_path)?;
     // trace!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
@@ -91,7 +91,7 @@ fn run_command(vm: &mut VirtualMachine, mut source: String) -> PyResult {
 
     // This works around https://github.com/RustPython/RustPython/issues/17
     source.push_str("\n");
-    _run_string(vm, &source, None)
+    _run_string(vm, &source, "<stdin>".to_string())
 }
 
 fn run_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
@@ -105,7 +105,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
     // Parse an ast from it:
     let filepath = Path::new(script_file);
     match parser::read_file(filepath) {
-        Ok(source) => _run_string(vm, &source, Some(filepath.to_str().unwrap().to_string())),
+        Ok(source) => _run_string(vm, &source, filepath.to_str().unwrap().to_string()),
         Err(msg) => {
             error!("Parsing went horribly wrong: {}", msg);
             std::process::exit(1);
@@ -114,7 +114,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
 }
 
 fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
-    match compile::compile(vm, source, &compile::Mode::Single, None) {
+    match compile::compile(vm, source, &compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
             match vm.run_code_obj(code, scope) {
                 Ok(_value) => {

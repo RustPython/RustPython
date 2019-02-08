@@ -24,10 +24,10 @@ pub fn compile(
     vm: &mut VirtualMachine,
     source: &str,
     mode: &Mode,
-    source_path: Option<String>,
+    source_path: String,
 ) -> PyResult {
     let mut compiler = Compiler::new();
-    compiler.source_path = source_path.clone();
+    compiler.source_path = Some(source_path.clone());
     compiler.push_new_code_object(source_path, "<module>".to_string());
     let syntax_error = vm.context().exceptions.syntax_error.clone();
     let result = match mode {
@@ -78,7 +78,7 @@ impl Compiler {
         }
     }
 
-    fn push_new_code_object(&mut self, source_path: Option<String>, obj_name: String) {
+    fn push_new_code_object(&mut self, source_path: String, obj_name: String) {
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             Vec::new(),
@@ -461,7 +461,7 @@ impl Compiler {
                     None,
                     vec![],
                     None,
-                    self.source_path.clone(),
+                    self.source_path.clone().unwrap(),
                     line_number,
                     name.clone(),
                 ));
@@ -663,7 +663,7 @@ impl Compiler {
             args.vararg.clone(),
             args.kwonlyargs.clone(),
             args.kwarg.clone(),
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
         ));
@@ -1175,7 +1175,7 @@ impl Compiler {
             None,
             vec![],
             None,
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
             line_number,
             name.clone(),
         ));
@@ -1364,7 +1364,7 @@ mod tests {
     use rustpython_parser::parser;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
-        compiler.push_new_code_object(Option::None, "<module>".to_string());
+        compiler.push_new_code_object("source_path".to_string(), "<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
         compiler.compile_program(&ast).unwrap();
         compiler.pop_code_object()
