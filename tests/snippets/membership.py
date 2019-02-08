@@ -13,6 +13,12 @@ assert "whatever" not in "foobar"
 # TODO: uncomment this when bytes are implemented
 # assert b"foo" in b"foobar"
 # assert b"whatever" not in b"foobar"
+assert b"1" < b"2"
+assert b"1" <= b"2"
+assert b"5" <= b"5"
+assert b"4" > b"2"
+assert not b"1" >= b"2"
+assert b"10" >= b"10"
 
 # test tuple
 assert 1 in (1, 2)
