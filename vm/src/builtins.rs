@@ -21,8 +21,7 @@ use super::pyobject::{
 use super::stdlib::io::io_open;
 
 use super::vm::VirtualMachine;
-use num_bigint::ToBigInt;
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
@@ -178,29 +177,6 @@ fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
         Err(..) => Err(vm.new_type_error("unsupported operand type(s) for divmod".to_string())),
     }
-}
-
-fn builtin_enumerate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iterable, None)],
-        optional = [(start, None)]
-    );
-    let items = vm.extract_elements(iterable)?;
-    let start = if let Some(start) = start {
-        objint::get_value(start)
-    } else {
-        Zero::zero()
-    };
-    let mut new_items = vec![];
-    for (i, item) in items.into_iter().enumerate() {
-        let element = vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_int(i.to_bigint().unwrap() + &start), item]);
-        new_items.push(element);
-    }
-    Ok(vm.ctx.new_list(new_items))
 }
 
 /// Implements `eval`.
@@ -641,32 +617,6 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_vars
-
-fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    no_kwargs!(vm, args);
-
-    // TODO: process one element at a time from iterators.
-    let mut iterables = vec![];
-    for iterable in args.args.iter() {
-        let iterable = vm.extract_elements(iterable)?;
-        iterables.push(iterable);
-    }
-
-    let minsize: usize = iterables.iter().map(|i| i.len()).min().unwrap_or(0);
-
-    let mut new_items = vec![];
-    for i in 0..minsize {
-        let items = iterables
-            .iter()
-            .map(|iterable| iterable[i].clone())
-            .collect();
-        let element = vm.ctx.new_tuple(items);
-        new_items.push(element);
-    }
-
-    Ok(vm.ctx.new_list(new_items))
-}
-
 // builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
@@ -692,7 +642,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "dict", ctx.dict_type());
     ctx.set_attr(&py_mod, "divmod", ctx.new_rustfunc(builtin_divmod));
     ctx.set_attr(&py_mod, "dir", ctx.new_rustfunc(builtin_dir));
-    ctx.set_attr(&py_mod, "enumerate", ctx.new_rustfunc(builtin_enumerate));
+    ctx.set_attr(&py_mod, "enumerate", ctx.enumerate_type());
     ctx.set_attr(&py_mod, "eval", ctx.new_rustfunc(builtin_eval));
     ctx.set_attr(&py_mod, "exec", ctx.new_rustfunc(builtin_exec));
     ctx.set_attr(&py_mod, "float", ctx.float_type());
@@ -733,7 +683,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "super", ctx.super_type());
     ctx.set_attr(&py_mod, "tuple", ctx.tuple_type());
     ctx.set_attr(&py_mod, "type", ctx.type_type());
-    ctx.set_attr(&py_mod, "zip", ctx.new_rustfunc(builtin_zip));
+    ctx.set_attr(&py_mod, "zip", ctx.zip_type());
 
     // Exceptions:
     ctx.set_attr(

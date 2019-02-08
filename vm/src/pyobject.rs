@@ -7,6 +7,7 @@ use super::obj::objbytes;
 use super::obj::objcode;
 use super::obj::objcomplex;
 use super::obj::objdict;
+use super::obj::objenumerate;
 use super::obj::objfilter;
 use super::obj::objfloat;
 use super::obj::objframe;
@@ -25,6 +26,7 @@ use super::obj::objstr;
 use super::obj::objsuper;
 use super::obj::objtuple;
 use super::obj::objtype;
+use super::obj::objzip;
 use super::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_bigint::ToBigInt;
@@ -113,6 +115,7 @@ pub struct PyContext {
     pub classmethod_type: PyObjectRef,
     pub code_type: PyObjectRef,
     pub dict_type: PyObjectRef,
+    pub enumerate_type: PyObjectRef,
     pub filter_type: PyObjectRef,
     pub float_type: PyObjectRef,
     pub frame_type: PyObjectRef,
@@ -134,6 +137,7 @@ pub struct PyContext {
     pub str_type: PyObjectRef,
     pub range_type: PyObjectRef,
     pub type_type: PyObjectRef,
+    pub zip_type: PyObjectRef,
     pub function_type: PyObjectRef,
     pub property_type: PyObjectRef,
     pub module_type: PyObjectRef,
@@ -204,8 +208,10 @@ impl PyContext {
         let bytearray_type = create_type("bytearray", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
+        let enumerate_type = create_type("enumerate", &type_type, &object_type, &dict_type);
         let filter_type = create_type("filter", &type_type, &object_type, &dict_type);
         let map_type = create_type("map", &type_type, &object_type, &dict_type);
+        let zip_type = create_type("zip", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
         let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
         let code_type = create_type("code", &type_type, &int_type, &dict_type);
@@ -246,8 +252,10 @@ impl PyContext {
             false_value,
             tuple_type,
             iter_type,
+            enumerate_type,
             filter_type,
             map_type,
+            zip_type,
             dict_type,
             none,
             str_type,
@@ -283,8 +291,10 @@ impl PyContext {
         objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
+        objenumerate::init(&context);
         objfilter::init(&context);
         objmap::init(&context);
+        objzip::init(&context);
         objbool::init(&context);
         objcode::init(&context);
         objframe::init(&context);
@@ -356,12 +366,20 @@ impl PyContext {
         self.iter_type.clone()
     }
 
+    pub fn enumerate_type(&self) -> PyObjectRef {
+        self.enumerate_type.clone()
+    }
+
     pub fn filter_type(&self) -> PyObjectRef {
         self.filter_type.clone()
     }
 
     pub fn map_type(&self) -> PyObjectRef {
         self.map_type.clone()
+    }
+
+    pub fn zip_type(&self) -> PyObjectRef {
+        self.zip_type.clone()
     }
 
     pub fn str_type(&self) -> PyObjectRef {
@@ -886,12 +904,19 @@ pub enum PyObjectPayload {
         position: usize,
         iterated_obj: PyObjectRef,
     },
+    EnumerateIterator {
+        counter: BigInt,
+        iterator: PyObjectRef,
+    },
     FilterIterator {
         predicate: PyObjectRef,
         iterator: PyObjectRef,
     },
     MapIterator {
         mapper: PyObjectRef,
+        iterators: Vec<PyObjectRef>,
+    },
+    ZipIterator {
         iterators: Vec<PyObjectRef>,
     },
     Slice {
@@ -962,8 +987,10 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Range { .. } => write!(f, "range"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
+            PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
             PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),
             PyObjectPayload::MapIterator { .. } => write!(f, "map"),
+            PyObjectPayload::ZipIterator { .. } => write!(f, "zip"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
             PyObjectPayload::Function { .. } => write!(f, "function"),
@@ -1059,8 +1086,10 @@ impl PyObject {
                 position,
                 iterated_obj.borrow_mut().str()
             ),
+            PyObjectPayload::EnumerateIterator { .. } => format!("<enumerate>"),
             PyObjectPayload::FilterIterator { .. } => format!("<filter>"),
             PyObjectPayload::MapIterator { .. } => format!("<map>"),
+            PyObjectPayload::ZipIterator { .. } => format!("<zip>"),
         }
     }
 
