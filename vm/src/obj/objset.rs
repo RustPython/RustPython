@@ -126,19 +126,23 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
-fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf < other})
+fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf != other}, false)
 }
 
-fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf != other})
+fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf < other}, false)
 }
 
 fn set_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf <= other})
+    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf <= other}, false)
 }
 
-fn set_compare_inner(vm: &mut VirtualMachine, args: PyFuncArgs, size_func: &Fn(usize, usize) -> bool) -> PyResult {
+fn set_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf < other}, true)
+}
+
+fn set_compare_inner(vm: &mut VirtualMachine, args: PyFuncArgs, size_func: &Fn(usize, usize) -> bool, swap: bool) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -148,13 +152,16 @@ fn set_compare_inner(vm: &mut VirtualMachine, args: PyFuncArgs, size_func: &Fn(u
         ]
     );
 
-    let zelf_elements = get_elements(zelf);
-    let other_elements = get_elements(other);
+    let get_zelf = |swap: bool| -> &PyObjectRef {if swap {other} else {zelf}};
+    let get_other = |swap: bool| -> &PyObjectRef {if swap {zelf} else {other}};
+
+    let zelf_elements = get_elements(get_zelf(swap));
+    let other_elements = get_elements(get_other(swap));
     if size_func(zelf_elements.len(), other_elements.len()) {
        return Ok(vm.new_bool(false));
     }
     for element in other_elements.iter() {
-        match vm.call_method(zelf, "__contains__", vec![element.1.clone()]) {
+        match vm.call_method(get_zelf(swap), "__contains__", vec![element.1.clone()]) {
             Ok(value) => {
                 if !objbool::get_value(&value) {
                     return Ok(vm.new_bool(false));
@@ -202,6 +209,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__eq__", context.new_rustfunc(set_eq));
     context.set_attr(&set_type, "__ge__", context.new_rustfunc(set_ge));
     context.set_attr(&set_type, "__gt__", context.new_rustfunc(set_gt));
+    context.set_attr(&set_type, "__le__", context.new_rustfunc(set_le));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
