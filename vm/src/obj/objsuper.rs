@@ -12,7 +12,27 @@ use super::objtype;
 
 pub fn init(context: &PyContext) {
     let super_type = &context.super_type;
+
+    let super_doc = "super() -> same as super(__class__, <first argument>)\n\
+                     super(type) -> unbound super object\n\
+                     super(type, obj) -> bound super object; requires isinstance(obj, type)\n\
+                     super(type, type2) -> bound super object; requires issubclass(type2, type)\n\
+                     Typical use to call a cooperative superclass method:\n\
+                     class C(B):\n    \
+                     def meth(self, arg):\n        \
+                     super().meth(arg)\n\
+                     This works for class methods too:\n\
+                     class C(B):\n    \
+                     @classmethod\n    \
+                     def cmeth(cls, arg):\n        \
+                     super().cmeth(arg)\n";
+
     context.set_attr(&super_type, "__init__", context.new_rustfunc(super_init));
+    context.set_attr(
+        &super_type,
+        "__doc__",
+        context.new_str(super_doc.to_string()),
+    );
 }
 
 fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
