@@ -142,6 +142,10 @@ fn set_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf < other}, true)
 }
 
+fn set_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf <= other}, true)
+}
+
 fn set_compare_inner(vm: &mut VirtualMachine, args: PyFuncArgs, size_func: &Fn(usize, usize) -> bool, swap: bool) -> PyResult {
     arg_check!(
         vm,
@@ -210,6 +214,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__ge__", context.new_rustfunc(set_ge));
     context.set_attr(&set_type, "__gt__", context.new_rustfunc(set_gt));
     context.set_attr(&set_type, "__le__", context.new_rustfunc(set_le));
+    context.set_attr(&set_type, "__lt__", context.new_rustfunc(set_lt));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
