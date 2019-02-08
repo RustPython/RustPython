@@ -23,21 +23,6 @@ pub fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-fn filter_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(filter, Some(vm.ctx.filter_type()))]);
-    // Return self:
-    Ok(filter.clone())
-}
-
-fn filter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(filter, Some(vm.ctx.filter_type())), (needle, None)]
-    );
-    objiter::contains(vm, filter, needle)
-}
-
 fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(filter, Some(vm.ctx.filter_type()))]);
 
@@ -72,12 +57,7 @@ fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let filter_type = &context.filter_type;
-    context.set_attr(
-        &filter_type,
-        "__contains__",
-        context.new_rustfunc(filter_contains),
-    );
-    context.set_attr(&filter_type, "__iter__", context.new_rustfunc(filter_iter));
+    objiter::iter_type_init(context, filter_type);
     context.set_attr(&filter_type, "__new__", context.new_rustfunc(filter_new));
     context.set_attr(&filter_type, "__next__", context.new_rustfunc(filter_next));
 }
