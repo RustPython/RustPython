@@ -67,6 +67,14 @@ impl RangeType {
     }
 
     #[inline]
+    pub fn count(&self, value: &BigInt) -> usize {
+        match self.index_of(value).is_some() {
+            true => 1,
+            false => 0,
+        }
+    }
+
+    #[inline]
     pub fn is_empty(&self) -> bool {
         (self.start <= self.end && self.step.is_negative())
             || (self.start >= self.end && self.step.is_positive())
@@ -156,6 +164,7 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(range_contains),
     );
     context.set_attr(&range_type, "index", context.new_rustfunc(range_index));
+    context.set_attr(&range_type, "count", context.new_rustfunc(range_count));
 }
 
 fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -361,6 +370,23 @@ fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 None => Err(vm.new_value_error(format!("{} is not in range", value))),
             },
             _ => Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string())),
+        }
+    } else {
+        unreachable!()
+    }
+}
+
+fn range_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.range_type())), (needle, None)]
+    );
+
+    if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
+        match needle.borrow().payload {
+            PyObjectPayload::Integer { ref value } => Ok(vm.ctx.new_int(range.count(value))),
+            _ => Ok(vm.ctx.new_int(0)),
         }
     } else {
         unreachable!()
