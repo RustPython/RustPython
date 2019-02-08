@@ -40,8 +40,6 @@ assert (True and True)
 assert not (False and fake)
 assert (True and 5) == 5
 
-assert bool.__doc__ == "bool(x) -> bool\n\nReturns True when the argument x is true, False otherwise.\nThe builtins True and False are the only two instances of the class bool.\nThe class bool is a subclass of the class int, and cannot be subclassed."
-
 # Bools are also ints.
 assert isinstance(True, int)
 assert True + True == 2
