@@ -299,6 +299,21 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn int_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type()))],
+        optional = [(_precision, None)]
+    );
+    Ok(vm.ctx.new_int(get_value(i)))
+}
+
+fn int_pass_value(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    Ok(vm.ctx.new_int(get_value(i)))
+}
+
 fn int_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -563,6 +578,12 @@ Base 0 means to interpret the base from the string as an integer literal.
     context.set_attr(&int_type, "__and__", context.new_rustfunc(int_and));
     context.set_attr(&int_type, "__divmod__", context.new_rustfunc(int_divmod));
     context.set_attr(&int_type, "__float__", context.new_rustfunc(int_float));
+    context.set_attr(&int_type, "__round__", context.new_rustfunc(int_round));
+    context.set_attr(&int_type, "__ceil__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__floor__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__index__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__trunc__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__int__", context.new_rustfunc(int_pass_value));
     context.set_attr(
         &int_type,
         "__floordiv__",
