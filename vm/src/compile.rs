@@ -24,10 +24,10 @@ pub fn compile(
     vm: &mut VirtualMachine,
     source: &str,
     mode: &Mode,
-    source_path: Option<String>,
+    source_path: String,
 ) -> PyResult {
     let mut compiler = Compiler::new();
-    compiler.source_path = source_path.clone();
+    compiler.source_path = Some(source_path.clone());
     compiler.push_new_code_object(source_path, "<module>".to_string());
     let syntax_error = vm.context().exceptions.syntax_error.clone();
     let result = match mode {
@@ -78,13 +78,15 @@ impl Compiler {
         }
     }
 
-    fn push_new_code_object(&mut self, source_path: Option<String>, obj_name: String) {
+    fn push_new_code_object(&mut self, source_path: String, obj_name: String) {
+        let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             Vec::new(),
             None,
             Vec::new(),
             None,
             source_path.clone(),
+            line_number,
             obj_name,
         ));
     }
@@ -453,12 +455,14 @@ impl Compiler {
             } => {
                 self.prepare_decorators(decorator_list)?;
                 self.emit(Instruction::LoadBuildClass);
+                let line_number = self.get_source_line_number();
                 self.code_object_stack.push(CodeObject::new(
                     vec![String::from("__locals__")],
                     None,
                     vec![],
                     None,
-                    self.source_path.clone(),
+                    self.source_path.clone().unwrap(),
+                    line_number,
                     name.clone(),
                 ));
                 self.emit(Instruction::LoadName {
@@ -653,12 +657,14 @@ impl Compiler {
             });
         }
 
+        let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             args.args.clone(),
             args.vararg.clone(),
             args.kwonlyargs.clone(),
             args.kwarg.clone(),
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
+            line_number,
             name.to_string(),
         ));
 
@@ -1162,13 +1168,15 @@ impl Compiler {
         }
         .to_string();
 
+        let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
         self.code_object_stack.push(CodeObject::new(
             vec![".0".to_string()],
             None,
             vec![],
             None,
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
+            line_number,
             name.clone(),
         ));
 
@@ -1338,6 +1346,10 @@ impl Compiler {
         self.current_source_location = location.clone();
     }
 
+    fn get_source_line_number(&mut self) -> usize {
+        self.current_source_location.get_row()
+    }
+
     fn mark_generator(&mut self) {
         self.current_code_object().is_generator = true;
     }
@@ -1352,7 +1364,7 @@ mod tests {
     use rustpython_parser::parser;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
-        compiler.push_new_code_object(Option::None, "<module>".to_string());
+        compiler.push_new_code_object("source_path".to_string(), "<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
         compiler.compile_program(&ast).unwrap();
         compiler.pop_code_object()

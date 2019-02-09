@@ -18,6 +18,11 @@ def assert_raises(expr, exc_type):
 
 assert range(2**63+1)[2**63] == 9223372036854775808
 
+# len tests
+assert len(range(10, 5)) == 0, 'Range with no elements should have length = 0'
+assert len(range(10, 5, -2)) == 3, 'Expected length 3, for elements: 10, 8, 6'
+assert len(range(5, 10, 2)) == 3, 'Expected length 3, for elements: 5, 7, 9'
+
 # index tests
 assert range(10).index(6) == 6
 assert range(4, 10).index(6) == 2
@@ -35,20 +40,24 @@ assert_raises(lambda _: range(4, 10, 2).index(5), ValueError)
 assert_raises(lambda _: range(10).index('foo'), ValueError)
 
 # __bool__
-assert range(1).__bool__()
-assert range(1, 2).__bool__()
+assert bool(range(1))
+assert bool(range(1, 2))
 
-assert not range(0).__bool__()
-assert not range(1, 1).__bool__()
+assert not bool(range(0))
+assert not bool(range(1, 1))
 
 # __contains__
-assert range(10).__contains__(6)
-assert range(4, 10).__contains__(6)
-assert range(4, 10, 2).__contains__(6)
-assert range(10, 4, -2).__contains__(10)
-assert range(10, 4, -2).__contains__(8)
+assert 6 in range(10)
+assert 6 in range(4, 10)
+assert 6 in range(4, 10, 2)
+assert 10 in range(10, 4, -2)
+assert 8 in range(10, 4, -2)
 
-assert not range(10).__contains__(-1)
-assert not range(10, 4, -2).__contains__(9)
-assert not range(10, 4, -2).__contains__(4)
-assert not range(10).__contains__('foo')
+assert -1 not in range(10)
+assert 9 not in range(10, 4, -2)
+assert 4 not in range(10, 4, -2)
+assert 'foo' not in range(10)
+
+# __reversed__
+assert list(reversed(range(5))) == [4, 3, 2, 1, 0]
+assert list(reversed(range(5, 0, -1))) == [1, 2, 3, 4, 5]

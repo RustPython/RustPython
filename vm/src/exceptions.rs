@@ -81,6 +81,7 @@ fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 #[derive(Debug)]
 pub struct ExceptionZoo {
+    pub arithmetic_error: PyObjectRef,
     pub assertion_error: PyObjectRef,
     pub attribute_error: PyObjectRef,
     pub base_exception_type: PyObjectRef,
@@ -93,12 +94,14 @@ pub struct ExceptionZoo {
     pub name_error: PyObjectRef,
     pub not_implemented_error: PyObjectRef,
     pub os_error: PyObjectRef,
+    pub overflow_error: PyObjectRef,
     pub permission_error: PyObjectRef,
     pub runtime_error: PyObjectRef,
     pub stop_iteration: PyObjectRef,
     pub syntax_error: PyObjectRef,
     pub type_error: PyObjectRef,
     pub value_error: PyObjectRef,
+    pub zero_division_error: PyObjectRef,
 }
 
 impl ExceptionZoo {
@@ -113,6 +116,8 @@ impl ExceptionZoo {
 
         let exception_type = create_type("Exception", &type_type, &base_exception_type, &dict_type);
 
+        let arithmetic_error =
+            create_type("ArithmeticError", &type_type, &exception_type, &dict_type);
         let assertion_error =
             create_type("AssertionError", &type_type, &exception_type, &dict_type);
         let attribute_error =
@@ -128,8 +133,18 @@ impl ExceptionZoo {
         let type_error = create_type("TypeError", &type_type, &exception_type, &dict_type);
         let value_error = create_type("ValueError", &type_type, &exception_type, &dict_type);
 
+        let overflow_error =
+            create_type("OverflowError", &type_type, &arithmetic_error, &dict_type);
+        let zero_division_error = create_type(
+            "ZeroDivisionError",
+            &type_type,
+            &arithmetic_error,
+            &dict_type,
+        );
+
         let module_not_found_error =
             create_type("ModuleNotFoundError", &type_type, &import_error, &dict_type);
+
         let not_implemented_error = create_type(
             "NotImplementedError",
             &type_type,
@@ -142,6 +157,7 @@ impl ExceptionZoo {
         let permission_error = create_type("PermissionError", &type_type, &os_error, &dict_type);
 
         ExceptionZoo {
+            arithmetic_error,
             assertion_error,
             attribute_error,
             base_exception_type,
@@ -154,12 +170,14 @@ impl ExceptionZoo {
             name_error,
             not_implemented_error,
             os_error,
+            overflow_error,
             permission_error,
             runtime_error,
             stop_iteration,
             syntax_error,
             type_error,
             value_error,
+            zero_division_error,
         }
     }
 }

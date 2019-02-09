@@ -9,7 +9,6 @@ use super::super::vm::VirtualMachine;
 use super::objbool;
 // use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
-use num_bigint::BigInt;
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -65,7 +64,17 @@ pub fn get_all(
     Ok(elements)
 }
 
-pub fn contains(vm: &mut VirtualMachine, iter: &PyObjectRef, needle: &PyObjectRef) -> PyResult {
+pub fn new_stop_iteration(vm: &mut VirtualMachine) -> PyObjectRef {
+    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+    vm.new_exception(stop_iteration_type, "End of iterator".to_string())
+}
+
+fn contains(vm: &mut VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(iter, Some(iter_type)), (needle, None)]
+    );
     loop {
         if let Some(element) = get_next_object(vm, iter)? {
             let equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
@@ -80,26 +89,39 @@ pub fn contains(vm: &mut VirtualMachine, iter: &PyObjectRef, needle: &PyObjectRe
     }
 }
 
+/// Common setup for iter types, adds __iter__ and __contains__ methods
+pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
+    let contains_func = {
+        let cloned_iter_type = iter_type.clone();
+        move |vm: &mut VirtualMachine, args: PyFuncArgs| {
+            contains(vm, args, cloned_iter_type.clone())
+        }
+    };
+    context.set_attr(
+        &iter_type,
+        "__contains__",
+        context.new_rustfunc(contains_func),
+    );
+    let iter_func = {
+        let cloned_iter_type = iter_type.clone();
+        move |vm: &mut VirtualMachine, args: PyFuncArgs| {
+            arg_check!(
+                vm,
+                args,
+                required = [(iter, Some(cloned_iter_type.clone()))]
+            );
+            // Return self:
+            Ok(iter.clone())
+        }
+    };
+    context.set_attr(&iter_type, "__iter__", context.new_rustfunc(iter_func));
+}
+
 // Sequence iterator:
 fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter_target, None)]);
 
     get_iter(vm, iter_target)
-}
-
-fn iter_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
-    // Return self:
-    Ok(iter.clone())
-}
-
-fn iter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iter, Some(vm.ctx.iter_type())), (needle, None)]
-    );
-    contains(vm, iter, needle)
 }
 
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -118,22 +140,16 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     *position += 1;
                     Ok(obj_ref)
                 } else {
-                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-                    let stop_iteration =
-                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-                    Err(stop_iteration)
+                    Err(new_stop_iteration(vm))
                 }
             }
 
             PyObjectPayload::Range { ref range } => {
-                if let Some(int) = range.get(BigInt::from(*position)) {
+                if let Some(int) = range.get(*position) {
                     *position += 1;
                     Ok(vm.ctx.new_int(int))
                 } else {
-                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-                    let stop_iteration =
-                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-                    Err(stop_iteration)
+                    Err(new_stop_iteration(vm))
                 }
             }
 
@@ -143,10 +159,7 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     *position += 1;
                     Ok(obj_ref)
                 } else {
-                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-                    let stop_iteration =
-                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-                    Err(stop_iteration)
+                    Err(new_stop_iteration(vm))
                 }
             }
 
@@ -168,12 +181,7 @@ pub fn init(context: &PyContext) {
                     supply its own iterator, or be a sequence.\n\
                     In the second form, the callable is called until it returns the sentinel.";
 
-    context.set_attr(
-        &iter_type,
-        "__contains__",
-        context.new_rustfunc(iter_contains),
-    );
-    context.set_attr(&iter_type, "__iter__", context.new_rustfunc(iter_iter));
+    iter_type_init(context, iter_type);
     context.set_attr(&iter_type, "__new__", context.new_rustfunc(iter_new));
     context.set_attr(&iter_type, "__next__", context.new_rustfunc(iter_next));
     context.set_attr(&iter_type, "__doc__", context.new_str(iter_doc.to_string()));

@@ -5,7 +5,7 @@ use super::super::vm::VirtualMachine;
 use super::objiter;
 use super::objtype; // Required for arg_check! to use isinstance
 
-pub fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);
     let cls = &args.args[0];
     if args.args.len() < 3 {
@@ -25,21 +25,6 @@ pub fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             cls.clone(),
         ))
     }
-}
-
-fn map_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(map, Some(vm.ctx.map_type()))]);
-    // Return self:
-    Ok(map.clone())
-}
-
-fn map_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(map, Some(vm.ctx.map_type())), (needle, None)]
-    );
-    objiter::contains(vm, map, needle)
 }
 
 fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -70,12 +55,13 @@ fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let map_type = &context.map_type;
-    context.set_attr(
-        &map_type,
-        "__contains__",
-        context.new_rustfunc(map_contains),
-    );
-    context.set_attr(&map_type, "__iter__", context.new_rustfunc(map_iter));
+
+    let map_doc = "map(func, *iterables) --> map object\n\n\
+                   Make an iterator that computes the function using arguments from\n\
+                   each of the iterables.  Stops when the shortest iterable is exhausted.";
+
+    objiter::iter_type_init(context, map_type);
     context.set_attr(&map_type, "__new__", context.new_rustfunc(map_new));
     context.set_attr(&map_type, "__next__", context.new_rustfunc(map_next));
+    context.set_attr(&map_type, "__doc__", context.new_str(map_doc.to_string()));
 }

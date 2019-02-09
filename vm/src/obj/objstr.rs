@@ -8,6 +8,7 @@ use super::objsequence::PySliceableSequence;
 use super::objtype;
 use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
+use std::ops::Range;
 // rust's builtin to_lowercase isn't sufficient for casefold
 extern crate caseless;
 extern crate unicode_segmentation;
@@ -493,7 +494,7 @@ fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-// doesn't implement keep new line delimeter just yet
+// doesn't implement keep new line delimiter just yet
 fn str_splitlines(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let elements = get_value(&s)
@@ -1003,14 +1004,23 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 impl PySliceableSequence for String {
-    fn do_slice(&self, start: usize, stop: usize) -> Self {
+    fn do_slice(&self, range: Range<usize>) -> Self {
         to_graphemes(self)
-            .get(start..stop)
+            .get(range)
             .map_or(String::default(), |c| c.join(""))
     }
 
-    fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self {
-        if let Some(s) = to_graphemes(self).get(start..stop) {
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self {
+        to_graphemes(self)
+            .get_mut(range)
+            .map_or(String::default(), |slice| {
+                slice.reverse();
+                slice.join("")
+            })
+    }
+
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self {
+        if let Some(s) = to_graphemes(self).get(range) {
             return s
                 .iter()
                 .cloned()
@@ -1018,6 +1028,23 @@ impl PySliceableSequence for String {
                 .collect::<Vec<String>>()
                 .join("");
         }
+        String::default()
+    }
+
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self {
+        if let Some(s) = to_graphemes(self).get(range) {
+            return s
+                .iter()
+                .rev()
+                .cloned()
+                .step_by(step)
+                .collect::<Vec<String>>()
+                .join("");
+        }
+        String::default()
+    }
+
+    fn empty() -> Self {
         String::default()
     }
 
@@ -1039,11 +1066,11 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
         match objint::get_value(&b).to_i32() {
             Some(pos) => {
                 let graphemes = to_graphemes(value);
-                let idx = graphemes.get_pos(pos);
-                graphemes
-                    .get(idx)
-                    .map(|c| vm.new_str(c.to_string()))
-                    .ok_or(vm.new_index_error("string index out of range".to_string()))
+                if let Some(idx) = graphemes.get_pos(pos) {
+                    Ok(vm.new_str(graphemes[idx].to_string()))
+                } else {
+                    Err(vm.new_index_error("string index out of range".to_string()))
+                }
             }
             None => {
                 Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
@@ -1052,7 +1079,8 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
     } else {
         match (*b.borrow()).payload {
             PyObjectPayload::Slice { .. } => {
-                Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string()))
+                let string = value.to_string().get_slice_items(vm, &b)?;
+                Ok(vm.new_str(string))
             }
             _ => panic!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
