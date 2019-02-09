@@ -902,6 +902,9 @@ where
                 }
                 Some(')') => {
                     let result = self.eat_single_char(Tok::Rpar);
+                    if self.nesting == 0 {
+                        panic!("Indentation error, TODO: figure out how to raise a syntax error.");
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }
