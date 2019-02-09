@@ -11,10 +11,11 @@ use super::objiter;
 use super::objstr;
 use super::objint;
 use super::objtype;
-use num_bigint::BigInt;
+use std::hash::{Hash, Hasher};
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 
-pub fn get_elements(obj: &PyObjectRef) -> HashMap<BigInt, PyObjectRef> {
+pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
     if let PyObjectPayload::Set { elements } = &obj.borrow().payload {
         elements.clone()
     } else {
@@ -24,31 +25,33 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<BigInt, PyObjectRef> {
 
 fn perform_action_with_hash(
     vm: &mut VirtualMachine,
-    elements: &mut HashMap<BigInt, PyObjectRef>,
+    elements: &mut HashMap<u64, PyObjectRef>,
     item: &PyObjectRef,
     f: &Fn(
         &mut VirtualMachine,
-        &mut HashMap<BigInt, PyObjectRef>,
-        BigInt,
+        &mut HashMap<u64, PyObjectRef>,
+        u64,
         &PyObjectRef,
     ) -> PyResult,
 ) -> PyResult {
     let hash: PyObjectRef = vm.call_method(item, "__hash__", vec![])?;
 
     let hash_value = objint::get_value(&hash);
-    let key = hash_value.clone();
+    let mut hasher = DefaultHasher::new();
+    hash_value.hash(&mut hasher);
+    let key = hasher.finish();
     f(vm, elements, key, item)
 }
 
 fn insert_into_set(
     vm: &mut VirtualMachine,
-    elements: &mut HashMap<BigInt, PyObjectRef>,
+    elements: &mut HashMap<u64, PyObjectRef>,
     item: &PyObjectRef,
 ) -> PyResult {
     fn insert(
         vm: &mut VirtualMachine,
-        elements: &mut HashMap<BigInt, PyObjectRef>,
-        key: BigInt,
+        elements: &mut HashMap<u64, PyObjectRef>,
+        key: u64,
         value: &PyObjectRef,
     ) -> PyResult {
         elements.insert(key, value.clone());
@@ -85,8 +88,8 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Set { ref mut elements } => {
             fn remove(
                 vm: &mut VirtualMachine,
-                elements: &mut HashMap<BigInt, PyObjectRef>,
-                key: BigInt,
+                elements: &mut HashMap<u64, PyObjectRef>,
+                key: u64,
                 value: &PyObjectRef,
             ) -> PyResult {
                 match elements.remove(&key) {
@@ -116,7 +119,7 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{} is not a subtype of set", cls.borrow())));
     }
 
-    let elements: HashMap<BigInt, PyObjectRef> = match iterable {
+    let elements: HashMap<u64, PyObjectRef> = match iterable {
         None => HashMap::new(),
         Some(iterable) => {
             let mut elements = HashMap::new();

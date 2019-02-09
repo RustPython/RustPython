@@ -491,7 +491,7 @@ impl PyContext {
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        let elements: HashMap<BigInt, PyObjectRef> = HashMap::new();
+        let elements: HashMap<u64, PyObjectRef> = HashMap::new();
         PyObject::new(PyObjectPayload::Set { elements: elements }, self.set_type())
     }
 
@@ -909,7 +909,7 @@ pub enum PyObjectPayload {
         elements: objdict::DictContentType,
     },
     Set {
-        elements: HashMap<BigInt, PyObjectRef>,
+        elements: HashMap<u64, PyObjectRef>,
     },
     Iterator {
         position: usize,
