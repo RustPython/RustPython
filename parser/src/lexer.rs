@@ -54,6 +54,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
 #[derive(Debug)]
 pub enum LexicalError {
     StringError,
+    NestingError,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -585,10 +586,6 @@ where
         self.location.column = 1;
     }
 
-    fn closing_bracket_is_valid(&mut self) -> bool {
-        self.nesting != 0
-    }
-
     fn inner_next(&mut self) -> Option<Spanned<Tok>> {
         if !self.pending.is_empty() {
             return Some(self.pending.remove(0));
@@ -906,9 +903,10 @@ where
                 }
                 Some(')') => {
                     let result = self.eat_single_char(Tok::Rpar);
-                    if self.closing_bracket_is_valid() {
-                        self.nesting -= 1;
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
                     }
+                    self.nesting -= 1;
                     return Some(result);
                 }
                 Some('[') => {
@@ -918,9 +916,10 @@ where
                 }
                 Some(']') => {
                     let result = self.eat_single_char(Tok::Rsqb);
-                    if self.closing_bracket_is_valid() {
-                        self.nesting -= 1;
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
                     }
+                    self.nesting -= 1;
                     return Some(result);
                 }
                 Some('{') => {
@@ -930,9 +929,10 @@ where
                 }
                 Some('}') => {
                     let result = self.eat_single_char(Tok::Rbrace);
-                    if self.closing_bracket_is_valid() {
-                        self.nesting -= 1;
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
                     }
+                    self.nesting -= 1;
                     return Some(result);
                 }
                 Some(':') => {
