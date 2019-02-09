@@ -127,6 +127,14 @@ impl RangeType {
     }
 }
 
+pub fn get_value(obj: &PyObjectRef) -> RangeType {
+    if let PyObjectPayload::Range { range } = &obj.borrow().payload {
+        range.clone()
+    } else {
+        panic!("Inner error getting range {:?}", obj);
+    }
+}
+
 pub fn init(context: &PyContext) {
     let ref range_type = context.range_type;
 
@@ -380,15 +388,14 @@ fn range_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(zelf, Some(vm.ctx.range_type())), (needle, None)]
+        required = [(zelf, Some(vm.ctx.range_type())), (item, None)]
     );
 
-    if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
-        match needle.borrow().payload {
-            PyObjectPayload::Integer { ref value } => Ok(vm.ctx.new_int(range.count(value))),
-            _ => Ok(vm.ctx.new_int(0)),
-        }
+    let range = get_value(zelf);
+
+    if objtype::isinstance(item, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_int(range.count(&objint::get_value(item))))
     } else {
-        unreachable!()
+        Ok(vm.ctx.new_int(0))
     }
 }
