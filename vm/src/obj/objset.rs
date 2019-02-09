@@ -127,26 +127,56 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf != other}, false)
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf != other },
+        false,
+    );
 }
 
 fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf < other}, false)
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf < other },
+        false,
+    );
 }
 
 fn set_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf <= other}, false)
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf <= other },
+        false,
+    );
 }
 
 fn set_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf < other}, true)
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf < other },
+        true,
+    );
 }
 
 fn set_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(vm, args, &|zelf: usize, other: usize| -> bool {zelf <= other}, true)
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf <= other },
+        true,
+    );
 }
 
-fn set_compare_inner(vm: &mut VirtualMachine, args: PyFuncArgs, size_func: &Fn(usize, usize) -> bool, swap: bool) -> PyResult {
+fn set_compare_inner(
+    vm: &mut VirtualMachine,
+    args: PyFuncArgs,
+    size_func: &Fn(usize, usize) -> bool,
+    swap: bool,
+) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -156,13 +186,25 @@ fn set_compare_inner(vm: &mut VirtualMachine, args: PyFuncArgs, size_func: &Fn(u
         ]
     );
 
-    let get_zelf = |swap: bool| -> &PyObjectRef {if swap {other} else {zelf}};
-    let get_other = |swap: bool| -> &PyObjectRef {if swap {zelf} else {other}};
+    let get_zelf = |swap: bool| -> &PyObjectRef {
+        if swap {
+            other
+        } else {
+            zelf
+        }
+    };
+    let get_other = |swap: bool| -> &PyObjectRef {
+        if swap {
+            zelf
+        } else {
+            other
+        }
+    };
 
     let zelf_elements = get_elements(get_zelf(swap));
     let other_elements = get_elements(get_other(swap));
     if size_func(zelf_elements.len(), other_elements.len()) {
-       return Ok(vm.new_bool(false));
+        return Ok(vm.new_bool(false));
     }
     for element in other_elements.iter() {
         match vm.call_method(get_zelf(swap), "__contains__", vec![element.1.clone()]) {
