@@ -98,7 +98,7 @@ impl RangeType {
         // compute the last element that is actually contained within the range
         // this is the new start
         let remainder = ((&self.end - &self.start) % &self.step).abs();
-        let start = if rem.is_zero() {
+        let start = if remainder.is_zero() {
             &self.end - &self.step
         } else {
             &self.end - &remainder
