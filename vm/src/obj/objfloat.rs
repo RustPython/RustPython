@@ -83,60 +83,68 @@ fn float_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.float_type())),
-            (other, Some(vm.ctx.float_type()))
-        ]
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf < other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_bool(v1 < get_value(i2)))
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_bool(v1 < objint::get_value(i2).to_f64().unwrap()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn float_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.float_type())),
-            (other, Some(vm.ctx.float_type()))
-        ]
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf <= other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_bool(v1 <= objint::get_value(i2).to_f64().unwrap()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn float_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.float_type())),
-            (other, Some(vm.ctx.float_type()))
-        ]
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf > other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_bool(v1 > get_value(i2)))
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_bool(v1 > objint::get_value(i2).to_f64().unwrap()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn float_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.float_type())),
-            (other, Some(vm.ctx.float_type()))
-        ]
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf >= other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_bool(v1 >= objint::get_value(i2).to_f64().unwrap()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn float_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
