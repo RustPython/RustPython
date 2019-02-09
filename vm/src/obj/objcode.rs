@@ -13,31 +13,19 @@ pub fn init(context: &PyContext) {
     let code_type = &context.code_type;
     context.set_attr(code_type, "__new__", context.new_rustfunc(code_new));
     context.set_attr(code_type, "__repr__", context.new_rustfunc(code_repr));
-    context.set_attr(
-        code_type,
-        "co_argcount",
-        context.new_member_descriptor(code_co_argcount),
-    );
-    context.set_attr(
-        code_type,
-        "co_cellvars",
-        context.new_member_descriptor(code_co_cellvars),
-    );
-    context.set_attr(
-        code_type,
-        "co_consts",
-        context.new_member_descriptor(code_co_consts),
-    );
-    context.set_attr(
-        code_type,
-        "co_filename",
-        context.new_member_descriptor(code_co_filename),
-    );
-    context.set_attr(
-        code_type,
-        "co_firstlineno",
-        context.new_member_descriptor(code_co_firstlineno),
-    );
+
+    for (name, f) in vec![
+        (
+            "co_argcount",
+            code_co_argcount as fn(&mut VirtualMachine, PyFuncArgs) -> PyResult,
+        ),
+        ("co_filename", code_co_filename),
+        ("co_firstlineno", code_co_firstlineno),
+        ("co_kwonlyargcount", code_co_kwonlyargcount),
+        ("co_name", code_co_name),
+    ] {
+        context.set_attr(code_type, name, context.new_member_descriptor(f))
+    }
 }
 
 pub fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
@@ -87,16 +75,6 @@ fn code_co_argcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(code_obj.arg_names.len()))
 }
 
-fn code_co_cellvars(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let _code_obj = member_code_obj(vm, args)?;
-    Ok(vm.ctx.new_tuple(vec![]))
-}
-
-fn code_co_consts(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let _code_obj = member_code_obj(vm, args)?;
-    Ok(vm.ctx.new_tuple(vec![vm.get_none()]))
-}
-
 fn code_co_filename(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let code_obj = member_code_obj(vm, args)?;
     let source_path = code_obj.source_path;
@@ -106,4 +84,14 @@ fn code_co_filename(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn code_co_firstlineno(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let code_obj = member_code_obj(vm, args)?;
     Ok(vm.ctx.new_int(code_obj.first_line_number))
+}
+
+fn code_co_kwonlyargcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let code_obj = member_code_obj(vm, args)?;
+    Ok(vm.ctx.new_int(code_obj.kwonlyarg_names.len()))
+}
+
+fn code_co_name(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let code_obj = member_code_obj(vm, args)?;
+    Ok(vm.new_str(code_obj.obj_name))
 }
