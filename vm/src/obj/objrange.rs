@@ -94,6 +94,22 @@ impl RangeType {
     }
 
     #[inline]
+    pub fn reversed(&self) -> Self {
+        match self.step.sign() {
+            Sign::Plus => RangeType {
+                start: &self.end - 1,
+                end: &self.start - 1,
+                step: -&self.step,
+            },
+            Sign::Minus => RangeType {
+                start: &self.end + 1,
+                end: &self.start + 1,
+                step: -&self.step,
+            },
+            Sign::NoSign => unreachable!(),
+        }
+    }
+
     pub fn repr(&self) -> String {
         if self.step == BigInt::one() {
             format!("range({}, {})", self.start, self.end)
@@ -116,6 +132,11 @@ pub fn init(context: &PyContext) {
 
     context.set_attr(&range_type, "__new__", context.new_rustfunc(range_new));
     context.set_attr(&range_type, "__iter__", context.new_rustfunc(range_iter));
+    context.set_attr(
+        &range_type,
+        "__reversed__",
+        context.new_rustfunc(range_reversed),
+    );
     context.set_attr(
         &range_type,
         "__doc__",
@@ -185,6 +206,23 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Iterator {
             position: 0,
             iterated_obj: range.clone(),
+        },
+        vm.ctx.iter_type(),
+    ))
+}
+
+fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+
+    let range = match zelf.borrow().payload {
+        PyObjectPayload::Range { ref range } => range.reversed(),
+        _ => unreachable!(),
+    };
+
+    Ok(PyObject::new(
+        PyObjectPayload::Iterator {
+            position: 0,
+            iterated_obj: PyObject::new(PyObjectPayload::Range { range }, vm.ctx.range_type()),
         },
         vm.ctx.iter_type(),
     ))
