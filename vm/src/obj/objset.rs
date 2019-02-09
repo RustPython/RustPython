@@ -7,13 +7,13 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
+use super::objint;
 use super::objiter;
 use super::objstr;
-use super::objint;
 use super::objtype;
-use std::hash::{Hash, Hasher};
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
     if let PyObjectPayload::Set { elements } = &obj.borrow().payload {
@@ -27,12 +27,7 @@ fn perform_action_with_hash(
     vm: &mut VirtualMachine,
     elements: &mut HashMap<u64, PyObjectRef>,
     item: &PyObjectRef,
-    f: &Fn(
-        &mut VirtualMachine,
-        &mut HashMap<u64, PyObjectRef>,
-        u64,
-        &PyObjectRef,
-    ) -> PyResult,
+    f: &Fn(&mut VirtualMachine, &mut HashMap<u64, PyObjectRef>, u64, &PyObjectRef) -> PyResult,
 ) -> PyResult {
     let hash: PyObjectRef = vm.call_method(item, "__hash__", vec![])?;
 
