@@ -3,14 +3,17 @@ use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
 use num_bigint::BigInt;
-use num_traits::{Signed, ToPrimitive};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::cell::{Ref, RefMut};
 use std::marker::Sized;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range};
 
 pub trait PySliceableSequence {
-    fn do_slice(&self, start: usize, stop: usize) -> Self;
-    fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self;
+    fn do_slice(&self, range: Range<usize>) -> Self;
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self;
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self;
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self;
+    fn empty() -> Self;
     fn len(&self) -> usize;
     fn get_pos(&self, p: i32) -> Option<usize> {
         if p < 0 {
@@ -41,38 +44,56 @@ pub trait PySliceableSequence {
         }
     }
 
-    fn get_slice_items(&self, slice: &PyObjectRef) -> Self
+    fn get_slice_range(&self, start: &Option<BigInt>, stop: &Option<BigInt>) -> Range<usize> {
+        let start = start.as_ref().map(|x| self.get_slice_pos(x)).unwrap_or(0);
+        let stop = stop
+            .as_ref()
+            .map(|x| self.get_slice_pos(x))
+            .unwrap_or(self.len());
+
+        start..stop
+    }
+
+    fn get_slice_items(
+        &self,
+        vm: &mut VirtualMachine,
+        slice: &PyObjectRef,
+    ) -> Result<Self, PyObjectRef>
     where
         Self: Sized,
     {
         // TODO: we could potentially avoid this copy and use slice
         match &(slice.borrow()).payload {
             PyObjectPayload::Slice { start, stop, step } => {
-                let start = if let Some(start) = start {
-                    self.get_slice_pos(start)
-                } else {
-                    0
-                };
-                let stop = if let Some(stop) = stop {
-                    self.get_slice_pos(stop)
-                } else {
-                    self.len()
-                };
-                if let Some(step) = step {
-                    match step.to_i32() {
-                        Some(1) => self.do_slice(start, stop),
-                        Some(num) => self.do_stepped_slice(start, stop, num as usize),
-                        None => self.do_slice(
-                            start,
-                            if start == self.len() {
-                                start
-                            } else {
-                                start + 1
-                            },
-                        ),
+                let step = step.clone().unwrap_or(BigInt::one());
+                if step.is_zero() {
+                    Err(vm.new_value_error("slice step cannot be zero".to_string()))
+                } else if step.is_positive() {
+                    let range = self.get_slice_range(start, stop);
+                    if range.start < range.end {
+                        match step.to_i32() {
+                            Some(1) => Ok(self.do_slice(range)),
+                            Some(num) => Ok(self.do_stepped_slice(range, num as usize)),
+                            None => Ok(self.do_slice(range.start..range.start + 1)),
+                        }
+                    } else {
+                        Ok(Self::empty())
                     }
                 } else {
-                    self.do_slice(start, stop)
+                    // calculate the range for the reverse slice, first the bounds needs to be made
+                    // exclusive around stop, the lower number
+                    let start = start.as_ref().map(|x| x + 1);
+                    let stop = stop.as_ref().map(|x| x + 1);
+                    let range = self.get_slice_range(&stop, &start);
+                    if range.start < range.end {
+                        match (-step).to_i32() {
+                            Some(1) => Ok(self.do_slice_reverse(range)),
+                            Some(num) => Ok(self.do_stepped_slice_reverse(range, num as usize)),
+                            None => Ok(self.do_slice(range.end - 1..range.end)),
+                        }
+                    } else {
+                        Ok(Self::empty())
+                    }
                 }
             }
             payload => panic!("get_slice_items called with non-slice: {:?}", payload),
@@ -81,12 +102,28 @@ pub trait PySliceableSequence {
 }
 
 impl<T: Clone> PySliceableSequence for Vec<T> {
-    fn do_slice(&self, start: usize, stop: usize) -> Self {
-        self[start..stop].to_vec()
+    fn do_slice(&self, range: Range<usize>) -> Self {
+        self[range].to_vec()
     }
-    fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self {
-        self[start..stop].iter().step_by(step).cloned().collect()
+
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self {
+        let mut slice = self[range].to_vec();
+        slice.reverse();
+        slice
     }
+
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self {
+        self[range].iter().step_by(step).cloned().collect()
+    }
+
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self {
+        self[range].iter().rev().step_by(step).cloned().collect()
+    }
+
+    fn empty() -> Self {
+        Vec::new()
+    }
+
     fn len(&self) -> usize {
         self.len()
     }
@@ -116,7 +153,7 @@ pub fn get_item(
         PyObjectPayload::Slice { .. } => Ok(PyObject::new(
             match &(sequence.borrow()).payload {
                 PyObjectPayload::Sequence { .. } => PyObjectPayload::Sequence {
-                    elements: elements.to_vec().get_slice_items(&subscript),
+                    elements: elements.to_vec().get_slice_items(vm, &subscript)?,
                 },
                 ref payload => panic!("sequence get_item called for non-sequence: {:?}", payload),
             },

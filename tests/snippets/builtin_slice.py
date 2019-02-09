@@ -15,6 +15,38 @@ assert b[-2**100:] == [1, 2]
 assert b[2**100:] == []
 assert b[::2**100] == [1]
 assert b[-10:1] == [1]
+assert b[0:0] == []
+assert b[1:0] == []
+
+try:
+    _ = b[::0]
+except ValueError:
+    pass
+else:
+    assert False, "Zero step slice should raise ValueError"
+
+assert b[::-1] == [2, 1]
+assert b[1::-1] == [2, 1]
+assert b[0::-1] == [1]
+assert b[0:-5:-1] == [1]
+assert b[:0:-1] == [2]
+assert b[5:0:-1] == [2]
+
+c = list(range(10))
+
+assert c[9:6:-3] == [9]
+assert c[9::-3] == [9, 6, 3, 0]
+assert c[9::-4] == [9, 5, 1]
+assert c[8::-2**100] == [8]
+
+assert c[7:7:-2] == []
+assert c[7:8:-2] == []
+
+d = "123456"
+
+assert d[3::-1] == "4321"
+assert d[4::-3] == "52"
+
 
 slice_a = slice(5)
 assert slice_a.start is None
