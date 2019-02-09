@@ -585,10 +585,8 @@ where
         self.location.column = 1;
     }
 
-    fn handle_unexpected_closing_bracket(&mut self) {
-        if self.nesting == 0 {
-            panic!("Unexpected right parenthesis, TODO: raise a syntax error.");
-        }
+    fn closing_bracket_is_valid(&mut self) -> bool {
+        self.nesting != 0
     }
 
     fn inner_next(&mut self) -> Option<Spanned<Tok>> {
@@ -908,8 +906,9 @@ where
                 }
                 Some(')') => {
                     let result = self.eat_single_char(Tok::Rpar);
-                    self.handle_unexpected_closing_bracket();
-                    self.nesting -= 1;
+                    if self.closing_bracket_is_valid() {                    
+                        self.nesting -= 1;
+                    }
                     return Some(result);
                 }
                 Some('[') => {
@@ -919,8 +918,9 @@ where
                 }
                 Some(']') => {
                     let result = self.eat_single_char(Tok::Rsqb);
-                    self.handle_unexpected_closing_bracket();
-                    self.nesting -= 1;
+                    if self.closing_bracket_is_valid() {                    
+                        self.nesting -= 1;
+                    }
                     return Some(result);
                 }
                 Some('{') => {
@@ -930,8 +930,9 @@ where
                 }
                 Some('}') => {
                     let result = self.eat_single_char(Tok::Rbrace);
-                    self.handle_unexpected_closing_bracket();
-                    self.nesting -= 1;
+                    if self.closing_bracket_is_valid() {                    
+                        self.nesting -= 1;
+                    }
                     return Some(result);
                 }
                 Some(':') => {
