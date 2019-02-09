@@ -15,3 +15,6 @@ assert b >= a
 assert c >= a
 assert not a >= b
 
+assert a + b == 2.5
+assert a - c == 0
+assert a / c == 1

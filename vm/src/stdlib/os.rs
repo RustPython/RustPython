@@ -53,7 +53,7 @@ pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let raw_fileno = objint::get_value(&fileno);
 
     //The File type automatically closes when it goes out of scope.
-    //To enable us to close these file desciptors (and hence prevent leaks)
+    //To enable us to close these file descriptors (and hence prevent leaks)
     //we seek to create the relevant File and simply let it pass out of scope!
     rust_file(raw_fileno.to_i64().unwrap());
 

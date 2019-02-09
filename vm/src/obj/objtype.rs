@@ -1,21 +1,22 @@
 use super::super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
+    PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objdict;
 use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 /*
  * The magical type type
  */
 
-pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
+pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type: PyObjectRef) {
     (*type_type.borrow_mut()).payload = PyObjectPayload::Class {
         name: String::from("type"),
-        dict: objdict::new(dict_type),
+        dict: RefCell::new(PyAttributes::new()),
         mro: vec![object_type],
     };
     (*type_type.borrow_mut()).typ = Some(type_type.clone());
@@ -23,6 +24,11 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
 
 pub fn init(context: &PyContext) {
     let type_type = &context.type_type;
+
+    let type_doc = "type(object_or_name, bases, dict)\n\
+                    type(object) -> the object's type\n\
+                    type(name, bases, dict) -> a new type";
+
     context.set_attr(&type_type, "__call__", context.new_rustfunc(type_call));
     context.set_attr(&type_type, "__new__", context.new_rustfunc(type_new));
     context.set_attr(
@@ -46,6 +52,7 @@ pub fn init(context: &PyContext) {
         "__getattribute__",
         context.new_rustfunc(type_getattribute),
     );
+    context.set_attr(&type_type, "__doc__", context.new_str(type_doc.to_string()));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -119,10 +126,20 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let mut bases = vm.extract_elements(bases)?;
         bases.push(vm.context().object());
         let name = objstr::get_value(name);
-        new(typ.clone(), &name, bases, dict.clone())
+        new(typ.clone(), &name, bases, py_dict_to_attributes(dict))
     } else {
         Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }
+}
+
+/// Take a python dictionary and convert it to attributes.
+fn py_dict_to_attributes(dict: &PyObjectRef) -> PyAttributes {
+    let mut attrs = PyAttributes::new();
+    for (key, value) in objdict::get_key_value_pairs(dict) {
+        let key = objstr::get_value(&key);
+        attrs.insert(key, value);
+    }
+    attrs
 }
 
 pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
@@ -204,18 +221,16 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
     }
 }
 
-pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
+pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     // Gather all members here:
-    let mut attributes: HashMap<String, PyObjectRef> = HashMap::new();
+    let mut attributes = PyAttributes::new();
 
     // Get class attributes:
     let mut base_classes = objtype::base_classes(obj);
     base_classes.reverse();
     for bc in base_classes {
         if let PyObjectPayload::Class { dict, .. } = &bc.borrow().payload {
-            let elements = objdict::get_key_value_pairs(dict);
-            for (name, value) in elements.iter() {
-                let name = objstr::get_value(name);
+            for (name, value) in dict.borrow().iter() {
                 attributes.insert(name.to_string(), value.clone());
             }
         }
@@ -223,9 +238,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> HashMap<String, PyObjectRef> {
 
     // Get instance attributes:
     if let PyObjectPayload::Instance { dict } = &obj.borrow().payload {
-        let elements = objdict::get_key_value_pairs(dict);
-        for (name, value) in elements.iter() {
-            let name = objstr::get_value(name);
+        for (name, value) in dict.borrow().iter() {
             attributes.insert(name.to_string(), value.clone());
         }
     }
@@ -279,13 +292,18 @@ fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
     Some(result)
 }
 
-pub fn new(typ: PyObjectRef, name: &str, bases: Vec<PyObjectRef>, dict: PyObjectRef) -> PyResult {
+pub fn new(
+    typ: PyObjectRef,
+    name: &str,
+    bases: Vec<PyObjectRef>,
+    dict: HashMap<String, PyObjectRef>,
+) -> PyResult {
     let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject::new(
         PyObjectPayload::Class {
             name: String::from(name),
-            dict,
+            dict: RefCell::new(dict),
             mro,
         },
         typ,
@@ -305,7 +323,7 @@ fn type_prepare(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 #[cfg(test)]
 mod tests {
     use super::{linearise_mro, new};
-    use super::{IdProtocol, PyContext, PyObjectRef};
+    use super::{HashMap, IdProtocol, PyContext, PyObjectRef};
 
     fn map_ids(obj: Option<Vec<PyObjectRef>>) -> Option<Vec<usize>> {
         match obj {
@@ -320,20 +338,8 @@ mod tests {
         let object = context.object;
         let type_type = context.type_type;
 
-        let a = new(
-            type_type.clone(),
-            "A",
-            vec![object.clone()],
-            type_type.clone(),
-        )
-        .unwrap();
-        let b = new(
-            type_type.clone(),
-            "B",
-            vec![object.clone()],
-            type_type.clone(),
-        )
-        .unwrap();
+        let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
+        let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
 
         assert_eq!(
             map_ids(linearise_mro(vec![

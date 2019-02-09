@@ -1,5 +1,5 @@
 //! This module takes care of lexing python source text. This means source
-//! code is translated into seperate tokens.
+//! code is translated into separate tokens.
 
 pub use super::token::Tok;
 use num_bigint::BigInt;

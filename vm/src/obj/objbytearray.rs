@@ -16,6 +16,20 @@ use num_traits::ToPrimitive;
 /// Fill bytearray class methods dictionary.
 pub fn init(context: &PyContext) {
     let bytearray_type = &context.bytearray_type;
+
+    let bytearray_doc =
+        "bytearray(iterable_of_ints) -> bytearray\n\
+         bytearray(string, encoding[, errors]) -> bytearray\n\
+         bytearray(bytes_or_buffer) -> mutable copy of bytes_or_buffer\n\
+         bytearray(int) -> bytes array of size given by the parameter initialized with null bytes\n\
+         bytearray() -> empty bytes array\n\n\
+         Construct a mutable bytearray object from:\n  \
+         - an iterable yielding integers in range(256)\n  \
+         - a text string encoded using the specified encoding\n  \
+         - a bytes or a buffer object\n  \
+         - any object implementing the buffer API.\n  \
+         - an integer";
+
     context.set_attr(
         &bytearray_type,
         "__eq__",
@@ -35,6 +49,11 @@ pub fn init(context: &PyContext) {
         &bytearray_type,
         "__len__",
         context.new_rustfunc(bytesarray_len),
+    );
+    context.set_attr(
+        &bytearray_type,
+        "__doc__",
+        context.new_str(bytearray_doc.to_string()),
     );
     context.set_attr(
         &bytearray_type,
@@ -203,11 +222,12 @@ fn bytearray_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 }
             };
 
-            if is_cased(current) && next.is_uppercase() && !prev_cased {
-                return Ok(vm.new_bool(false));
-            } else if !is_cased(current) && next.is_lowercase() {
+            if (is_cased(current) && next.is_uppercase() && !prev_cased)
+                || (!is_cased(current) && next.is_lowercase())
+            {
                 return Ok(vm.new_bool(false));
             }
+
             prev_cased = is_cased(current);
         }
 
