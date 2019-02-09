@@ -4,6 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
+use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -71,8 +72,13 @@ fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let other = get_value(other);
         zelf == other
     } else if objtype::isinstance(other, &vm.ctx.int_type()) {
-        let other = objint::get_value(other).to_f64().unwrap();
-        zelf == other
+        let other_int = objint::get_value(other);
+
+        if let (Some(zelf_int), Some(other_float)) = (zelf.to_bigint(), other_int.to_f64()) {
+            zelf == other_float && zelf_int == other_int
+        } else {
+            false
+        }
     } else {
         false
     };
