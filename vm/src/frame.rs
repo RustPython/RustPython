@@ -20,8 +20,7 @@ use super::pyobject::{
     PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use num_bigint::ToBigInt;
-use num_traits::ToPrimitive;
+use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]
 enum Block {
@@ -121,7 +120,7 @@ impl Frame {
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.get_row().to_bigint().unwrap()),
+                        vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::list_append(
@@ -263,22 +262,22 @@ impl Frame {
                 assert!(*size == 2 || *size == 3);
                 let elements = self.pop_multiple(*size);
 
-                let mut out: Vec<Option<i32>> = elements
+                let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
                     .map(|x| match x.borrow().payload {
-                        PyObjectPayload::Integer { ref value } => Some(value.to_i32().unwrap()),
+                        PyObjectPayload::Integer { ref value } => Some(value.clone()),
                         PyObjectPayload::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
                     })
                     .collect();
 
-                let start = out[0];
-                let stop = out[1];
-                let step = if out.len() == 3 { out[2] } else { None };
+                let start = out[0].take();
+                let stop = out[1].take();
+                let step = if out.len() == 3 { out[2].take() } else { None };
 
                 let obj = PyObject::new(
                     PyObjectPayload::Slice { start, stop, step },
-                    vm.ctx.type_type(),
+                    vm.ctx.slice_type(),
                 );
                 self.push_value(obj);
                 Ok(None)
@@ -611,7 +610,7 @@ impl Frame {
                         .iter()
                         .skip(*before)
                         .take(middle)
-                        .map(|x| x.clone())
+                        .cloned()
                         .collect();
                     let t = vm.ctx.new_list(middle_elements);
                     self.push_value(t);
@@ -887,25 +886,25 @@ impl Frame {
     ) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = match op {
-            &bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-            &bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
-            &bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            &bytecode::BinaryOperator::MatrixMultiply => {
+        let value = match *op {
+            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => {
                 vm.call_method(&a_ref, "__matmul__", vec![b_ref])
             }
-            &bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-            &bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
-            &bytecode::BinaryOperator::FloorDivide => {
+            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
+            bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => {
                 vm.call_method(&a_ref, "__floordiv__", vec![b_ref])
             }
-            &bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
-            &bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
-            &bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
-            &bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
-            &bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
-            &bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
-            &bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+            bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
         }?;
 
         self.push_value(value);
@@ -918,11 +917,11 @@ impl Frame {
         op: &bytecode::UnaryOperator,
     ) -> FrameResult {
         let a = self.pop_value();
-        let value = match op {
-            &bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
-            &bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
-            &bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
-            &bytecode::UnaryOperator::Not => {
+        let value = match *op {
+            bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
+            bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
+            bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
+            bytecode::UnaryOperator::Not => {
                 let value = objbool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)
             }
@@ -995,17 +994,17 @@ impl Frame {
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let value = match op {
-            &bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
-            &bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
-            &bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
-            &bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
-            &bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
-            &bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
-            &bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
-            &bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
-            &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+        let value = match *op {
+            bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
+            bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
+            bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
+            bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
+            bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
+            bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
+            bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
+            bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
         };
 
         self.push_value(value);
@@ -1036,7 +1035,7 @@ impl Frame {
 
     fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
-            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.to_bigint().unwrap()),
+            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.clone()),
             bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
             bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
             bytecode::Constant::String { ref value } => vm.new_str(value.clone()),

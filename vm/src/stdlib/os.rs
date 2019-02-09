@@ -4,7 +4,6 @@ use std::fs::OpenOptions;
 use std::io::ErrorKind;
 
 //3rd party imports
-use num_bigint::ToBigInt;
 use num_traits::cast::ToPrimitive;
 
 //custom imports
@@ -91,11 +90,7 @@ pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         _ => vm.new_value_error("Unhandled file IO error".to_string()),
     })?;
 
-    Ok(vm.ctx.new_int(
-        raw_file_number(handle)
-            .to_bigint()
-            .expect("Invalid file descriptor"),
-    ))
+    Ok(vm.ctx.new_int(raw_file_number(handle)))
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
@@ -103,11 +98,11 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(os_open));
     ctx.set_attr(&py_mod, "close", ctx.new_rustfunc(os_close));
 
-    ctx.set_attr(&py_mod, "O_RDONLY", ctx.new_int(0.to_bigint().unwrap()));
-    ctx.set_attr(&py_mod, "O_WRONLY", ctx.new_int(1.to_bigint().unwrap()));
-    ctx.set_attr(&py_mod, "O_RDWR", ctx.new_int(2.to_bigint().unwrap()));
-    ctx.set_attr(&py_mod, "O_NONBLOCK", ctx.new_int(4.to_bigint().unwrap()));
-    ctx.set_attr(&py_mod, "O_APPEND", ctx.new_int(8.to_bigint().unwrap()));
-    ctx.set_attr(&py_mod, "O_CREAT", ctx.new_int(512.to_bigint().unwrap()));
+    ctx.set_attr(&py_mod, "O_RDONLY", ctx.new_int(0));
+    ctx.set_attr(&py_mod, "O_WRONLY", ctx.new_int(1));
+    ctx.set_attr(&py_mod, "O_RDWR", ctx.new_int(2));
+    ctx.set_attr(&py_mod, "O_NONBLOCK", ctx.new_int(4));
+    ctx.set_attr(&py_mod, "O_APPEND", ctx.new_int(8));
+    ctx.set_attr(&py_mod, "O_CREAT", ctx.new_int(512));
     py_mod
 }

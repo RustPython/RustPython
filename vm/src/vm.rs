@@ -91,8 +91,7 @@ impl VirtualMachine {
         };
 
         // Call function:
-        let exception = self.invoke(exc_type, args).unwrap();
-        exception
+        self.invoke(exc_type, args).unwrap()
     }
 
     pub fn new_type_error(&mut self, msg: String) -> PyObjectRef {
@@ -103,6 +102,11 @@ impl VirtualMachine {
     pub fn new_os_error(&mut self, msg: String) -> PyObjectRef {
         let os_error = self.ctx.exceptions.os_error.clone();
         self.new_exception(os_error, msg)
+    }
+
+    pub fn new_overflow_error(&mut self, msg: String) -> PyObjectRef {
+        let overflow_error = self.ctx.exceptions.overflow_error.clone();
+        self.new_exception(overflow_error, msg)
     }
 
     /// Create a new python ValueError object. Useful for raising errors from
@@ -123,8 +127,13 @@ impl VirtualMachine {
     }
 
     pub fn new_not_implemented_error(&mut self, msg: String) -> PyObjectRef {
-        let value_error = self.ctx.exceptions.not_implemented_error.clone();
-        self.new_exception(value_error, msg)
+        let not_implemented_error = self.ctx.exceptions.not_implemented_error.clone();
+        self.new_exception(not_implemented_error, msg)
+    }
+
+    pub fn new_zero_division_error(&mut self, msg: String) -> PyObjectRef {
+        let zero_division_error = self.ctx.exceptions.zero_division_error.clone();
+        self.new_exception(zero_division_error, msg)
     }
 
     pub fn new_scope(&mut self, parent_scope: Option<PyObjectRef>) -> PyObjectRef {
@@ -440,9 +449,9 @@ impl VirtualMachine {
         value: &PyObjectRef,
     ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
         // Extract elements from item, if possible:
-        let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
-            objsequence::get_elements(value).to_vec()
-        } else if objtype::isinstance(value, &self.ctx.list_type()) {
+        let elements = if objtype::isinstance(value, &self.ctx.tuple_type())
+            || objtype::isinstance(value, &self.ctx.list_type())
+        {
             objsequence::get_elements(value).to_vec()
         } else {
             let iter = objiter::get_iter(self, value)?;
@@ -615,8 +624,8 @@ mod tests {
     #[test]
     fn test_add_py_integers() {
         let mut vm = VirtualMachine::new();
-        let a = vm.ctx.new_int(33_i32.to_bigint().unwrap());
-        let b = vm.ctx.new_int(12_i32.to_bigint().unwrap());
+        let a = vm.ctx.new_int(33_i32);
+        let b = vm.ctx.new_int(12_i32);
         let res = vm._add(a, b).unwrap();
         let value = objint::get_value(&res);
         assert_eq!(value, 45_i32.to_bigint().unwrap());
@@ -626,7 +635,7 @@ mod tests {
     fn test_multiply_str() {
         let mut vm = VirtualMachine::new();
         let a = vm.ctx.new_str(String::from("Hello "));
-        let b = vm.ctx.new_int(4_i32.to_bigint().unwrap());
+        let b = vm.ctx.new_int(4_i32);
         let res = vm._mul(a, b).unwrap();
         let value = objstr::get_value(&res);
         assert_eq!(value, String::from("Hello Hello Hello Hello "))

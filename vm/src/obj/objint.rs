@@ -250,7 +250,7 @@ fn int_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn int_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -366,17 +366,25 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm
-            .ctx
-            .new_float(v1.to_f64().unwrap() / get_value(i2).to_f64().unwrap()))
+
+    let v1 = get_value(i)
+        .to_f64()
+        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?;
+
+    let v2 = if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        get_value(i2)
+            .to_f64()
+            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm
-            .ctx
-            .new_float(v1.to_f64().unwrap() / objfloat::get_value(i2)))
+        objfloat::get_value(i2)
     } else {
-        Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())))
+        return Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())));
+    };
+
+    if v2 == 0.0 {
+        Err(vm.new_zero_division_error("integer division by zero".to_string()))
+    } else {
+        Ok(vm.ctx.new_float(v1 / v2))
     }
 }
 
@@ -388,7 +396,13 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(v1 % get_value(i2)))
+        let v2 = get_value(i2);
+
+        if v2 != BigInt::zero() {
+            Ok(vm.ctx.new_int(v1 % get_value(i2)))
+        } else {
+            Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!("Cannot modulo {} and {}", i.borrow(), i2.borrow())))
     }
@@ -414,7 +428,7 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2).to_u32().unwrap();
-        Ok(vm.ctx.new_int(v1.pow(v2).to_bigint().unwrap()))
+        Ok(vm.ctx.new_int(v1.pow(v2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))
@@ -513,7 +527,7 @@ fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
     let v = get_value(i);
     let bits = v.bits();
-    Ok(vm.ctx.new_int(bits.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(bits))
 }
 
 fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

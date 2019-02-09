@@ -10,7 +10,6 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 // set_item:
@@ -22,9 +21,12 @@ fn set_item(
 ) -> PyResult {
     if objtype::isinstance(&idx, &vm.ctx.int_type()) {
         let value = objint::get_value(&idx).to_i32().unwrap();
-        let pos_index = l.get_pos(value);
-        l[pos_index] = obj;
-        Ok(vm.get_none())
+        if let Some(pos_index) = l.get_pos(value) {
+            l[pos_index] = obj;
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_index_error("list index out of range".to_string()))
+        }
     } else {
         panic!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
@@ -172,7 +174,7 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(o2, &vm.ctx.list_type()) {
         let e1 = get_elements(o);
         let e2 = get_elements(o2);
-        let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();
+        let elements = e1.iter().chain(e2.iter()).cloned().collect();
         Ok(vm.ctx.new_list(elements))
     } else {
         Err(vm.new_type_error(format!("Cannot add {} and {}", o.borrow(), o2.borrow())))
@@ -224,10 +226,10 @@ fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     for element in elements.iter() {
         let is_eq = vm._eq(element, value.clone())?;
         if objbool::boolval(vm, is_eq)? {
-            count = count + 1;
+            count += 1;
         }
     }
-    Ok(vm.context().new_int(count.to_bigint().unwrap()))
+    Ok(vm.context().new_int(count))
 }
 
 pub fn list_extend(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -252,7 +254,7 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     for (index, element) in get_elements(list).iter().enumerate() {
         let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
         if objbool::get_value(&py_equal) {
-            return Ok(vm.context().new_int(index.to_bigint().unwrap()));
+            return Ok(vm.context().new_int(index));
         }
     }
     let needle_str = objstr::get_value(&vm.to_str(needle).unwrap());
@@ -263,7 +265,7 @@ fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let elements = get_elements(list);
-    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+    Ok(vm.context().new_int(elements.len()))
 }
 
 fn list_reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

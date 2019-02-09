@@ -21,8 +21,7 @@ use super::pyobject::{
 use super::stdlib::io::io_open;
 
 use super::vm::VirtualMachine;
-use num_bigint::ToBigInt;
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
@@ -136,11 +135,11 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mode = {
         let mode = objstr::get_value(mode);
-        if mode == String::from("exec") {
+        if mode == "exec" {
             compile::Mode::Exec
-        } else if mode == "eval".to_string() {
+        } else if mode == "eval" {
             compile::Mode::Eval
-        } else if mode == "single".to_string() {
+        } else if mode == "single" {
             compile::Mode::Single
         } else {
             return Err(
@@ -178,29 +177,6 @@ fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
         Err(..) => Err(vm.new_type_error("unsupported operand type(s) for divmod".to_string())),
     }
-}
-
-fn builtin_enumerate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iterable, None)],
-        optional = [(start, None)]
-    );
-    let items = vm.extract_elements(iterable)?;
-    let start = if let Some(start) = start {
-        objint::get_value(start)
-    } else {
-        Zero::zero()
-    };
-    let mut new_items = vec![];
-    for (i, item) in items.into_iter().enumerate() {
-        let element = vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_int(i.to_bigint().unwrap() + &start), item]);
-        new_items.push(element);
-    }
-    Ok(vm.ctx.new_list(new_items))
 }
 
 /// Implements `eval`.
@@ -359,7 +335,7 @@ fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
-    Ok(vm.context().new_int(obj.get_id().to_bigint().unwrap()))
+    Ok(vm.context().new_int(obj.get_id()))
 }
 
 // builtin_input
@@ -553,9 +529,7 @@ fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         )));
     }
     match string.chars().next() {
-        Some(character) => Ok(vm
-            .context()
-            .new_int((character as i32).to_bigint().unwrap())),
+        Some(character) => Ok(vm.context().new_int(character as i32)),
         None => Err(vm.new_type_error(
             "ord() could not guess the integer representing this character".to_string(),
         )),
@@ -635,7 +609,7 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items = vm.extract_elements(iterable)?;
 
     // Start with zero and add at will:
-    let mut sum = vm.ctx.new_int(Zero::zero());
+    let mut sum = vm.ctx.new_int(0);
     for item in items {
         sum = vm._add(sum, item)?;
     }
@@ -643,32 +617,6 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_vars
-
-fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    no_kwargs!(vm, args);
-
-    // TODO: process one element at a time from iterators.
-    let mut iterables = vec![];
-    for iterable in args.args.iter() {
-        let iterable = vm.extract_elements(iterable)?;
-        iterables.push(iterable);
-    }
-
-    let minsize: usize = iterables.iter().map(|i| i.len()).min().unwrap_or(0);
-
-    let mut new_items = vec![];
-    for i in 0..minsize {
-        let items = iterables
-            .iter()
-            .map(|iterable| iterable[i].clone())
-            .collect();
-        let element = vm.ctx.new_tuple(items);
-        new_items.push(element);
-    }
-
-    Ok(vm.ctx.new_list(new_items))
-}
-
 // builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
@@ -694,7 +642,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "dict", ctx.dict_type());
     ctx.set_attr(&py_mod, "divmod", ctx.new_rustfunc(builtin_divmod));
     ctx.set_attr(&py_mod, "dir", ctx.new_rustfunc(builtin_dir));
-    ctx.set_attr(&py_mod, "enumerate", ctx.new_rustfunc(builtin_enumerate));
+    ctx.set_attr(&py_mod, "enumerate", ctx.enumerate_type());
     ctx.set_attr(&py_mod, "eval", ctx.new_rustfunc(builtin_eval));
     ctx.set_attr(&py_mod, "exec", ctx.new_rustfunc(builtin_exec));
     ctx.set_attr(&py_mod, "float", ctx.float_type());
@@ -729,13 +677,14 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "repr", ctx.new_rustfunc(builtin_repr));
     ctx.set_attr(&py_mod, "set", ctx.set_type());
     ctx.set_attr(&py_mod, "setattr", ctx.new_rustfunc(builtin_setattr));
+    ctx.set_attr(&py_mod, "slice", ctx.slice_type());
     ctx.set_attr(&py_mod, "staticmethod", ctx.staticmethod_type());
     ctx.set_attr(&py_mod, "str", ctx.str_type());
     ctx.set_attr(&py_mod, "sum", ctx.new_rustfunc(builtin_sum));
     ctx.set_attr(&py_mod, "super", ctx.super_type());
     ctx.set_attr(&py_mod, "tuple", ctx.tuple_type());
     ctx.set_attr(&py_mod, "type", ctx.type_type());
-    ctx.set_attr(&py_mod, "zip", ctx.new_rustfunc(builtin_zip));
+    ctx.set_attr(&py_mod, "zip", ctx.zip_type());
 
     // Exceptions:
     ctx.set_attr(
@@ -744,6 +693,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         ctx.exceptions.base_exception_type.clone(),
     );
     ctx.set_attr(&py_mod, "Exception", ctx.exceptions.exception_type.clone());
+    ctx.set_attr(
+        &py_mod,
+        "ArithmeticError",
+        ctx.exceptions.arithmetic_error.clone(),
+    );
     ctx.set_attr(
         &py_mod,
         "AssertionError",
@@ -755,6 +709,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         ctx.exceptions.attribute_error.clone(),
     );
     ctx.set_attr(&py_mod, "NameError", ctx.exceptions.name_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "OverflowError",
+        ctx.exceptions.overflow_error.clone(),
+    );
     ctx.set_attr(
         &py_mod,
         "RuntimeError",
@@ -773,6 +732,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         &py_mod,
         "StopIteration",
         ctx.exceptions.stop_iteration.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
+        "ZeroDivisionError",
+        ctx.exceptions.zero_division_error.clone(),
     );
 
     py_mod

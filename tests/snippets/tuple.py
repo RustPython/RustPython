@@ -15,3 +15,7 @@ assert x * -1 == ()  # integers less than zero treated as 0
 
 assert y < x, "tuple __lt__ failed"
 assert x > y, "tuple __gt__ failed"
+
+
+b = (1,2,3)
+assert b.index(2) == 1

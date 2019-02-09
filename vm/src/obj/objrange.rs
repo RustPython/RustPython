@@ -4,9 +4,10 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
-use num_bigint::{BigInt, ToBigInt};
+use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::ops::Mul;
 
 #[derive(Debug, Clone)]
 pub struct RangeType {
@@ -19,24 +20,49 @@ pub struct RangeType {
 
 impl RangeType {
     #[inline]
+    pub fn try_len(&self) -> Option<usize> {
+        match self.step.sign() {
+            Sign::Plus if self.start < self.end => ((&self.end - &self.start - 1usize)
+                / &self.step)
+                .to_usize()
+                .map(|sz| sz + 1),
+            Sign::Minus if self.start > self.end => ((&self.start - &self.end - 1usize)
+                / (-&self.step))
+                .to_usize()
+                .map(|sz| sz + 1),
+            _ => Some(0),
+        }
+    }
+
+    #[inline]
     pub fn len(&self) -> usize {
-        ((self.end.clone() - self.start.clone()) / self.step.clone())
-            .abs()
-            .to_usize()
-            .unwrap()
+        self.try_len().unwrap()
+    }
+
+    #[inline]
+    fn offset(&self, value: &BigInt) -> Option<BigInt> {
+        match self.step.sign() {
+            Sign::Plus if value >= &self.start && value < &self.end => Some(value - &self.start),
+            Sign::Minus if value <= &self.start && value > &self.end => Some(&self.start - value),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn contains(&self, value: &BigInt) -> bool {
+        match self.offset(value) {
+            Some(ref offset) => offset.is_multiple_of(&self.step),
+            None => false,
+        }
     }
 
     #[inline]
     pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
-        if value < &self.start || value >= &self.end {
-            return None;
-        }
-
-        let offset = value - &self.start;
-        if offset.is_multiple_of(&self.step) {
-            Some(offset / &self.step)
-        } else {
-            None
+        match self.offset(value) {
+            Some(ref offset) if offset.is_multiple_of(&self.step) => {
+                Some((offset / &self.step).abs())
+            }
+            Some(_) | None => None,
         }
     }
 
@@ -52,15 +78,27 @@ impl RangeType {
     }
 
     #[inline]
-    pub fn get(&self, index: BigInt) -> Option<BigInt> {
-        let result = self.start.clone() + self.step.clone() * index;
+    pub fn get<'a, T>(&'a self, index: T) -> Option<BigInt>
+    where
+        &'a BigInt: Mul<T, Output = BigInt>,
+    {
+        let result = &self.start + &self.step * index;
 
-        if self.forward() && !self.is_empty() && result < self.end {
-            Some(result)
-        } else if !self.forward() && !self.is_empty() && result > self.end {
+        if (self.forward() && !self.is_empty() && result < self.end)
+            || (!self.forward() && !self.is_empty() && result > self.end)
+        {
             Some(result)
         } else {
             None
+        }
+    }
+
+    #[inline]
+    pub fn repr(&self) -> String {
+        if self.step == BigInt::one() {
+            format!("range({}, {})", self.start, self.end)
+        } else {
+            format!("range({}, {}, {})", self.start, self.end, self.step)
         }
     }
 }
@@ -74,6 +112,13 @@ pub fn init(context: &PyContext) {
         &range_type,
         "__getitem__",
         context.new_rustfunc(range_getitem),
+    );
+    context.set_attr(&range_type, "__repr__", context.new_rustfunc(range_repr));
+    context.set_attr(&range_type, "__bool__", context.new_rustfunc(range_bool));
+    context.set_attr(
+        &range_type,
+        "__contains__",
+        context.new_rustfunc(range_contains),
     );
     context.set_attr(&range_type, "index", context.new_rustfunc(range_index));
 }
@@ -134,12 +179,14 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
-    let len = match zelf.borrow().payload {
-        PyObjectPayload::Range { ref range } => range.len(),
+    if let Some(len) = match zelf.borrow().payload {
+        PyObjectPayload::Range { ref range } => range.try_len(),
         _ => unreachable!(),
-    };
-
-    Ok(vm.ctx.new_int(len.to_bigint().unwrap()))
+    } {
+        Ok(vm.ctx.new_int(len))
+    } else {
+        Err(vm.new_overflow_error("Python int too large to convert to Rust usize".to_string()))
+    }
 }
 
 fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -156,20 +203,19 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match subscript.borrow().payload {
         PyObjectPayload::Integer { ref value } => {
-            if let Some(int) = zrange.get(value.clone()) {
-                Ok(PyObject::new(
-                    PyObjectPayload::Integer {
-                        value: int.to_bigint().unwrap(),
-                    },
-                    vm.ctx.int_type(),
-                ))
+            if let Some(int) = zrange.get(value) {
+                Ok(vm.ctx.new_int(int))
             } else {
                 Err(vm.new_index_error("range object index out of range".to_string()))
             }
         }
-        PyObjectPayload::Slice { start, stop, step } => {
+        PyObjectPayload::Slice {
+            ref start,
+            ref stop,
+            ref step,
+        } => {
             let new_start = if let Some(int) = start {
-                if let Some(i) = zrange.get(int.into()) {
+                if let Some(i) = zrange.get(int) {
                     i
                 } else {
                     zrange.start.clone()
@@ -179,7 +225,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
 
             let new_end = if let Some(int) = stop {
-                if let Some(i) = zrange.get(int.into()) {
+                if let Some(i) = zrange.get(int) {
                     i
                 } else {
                     zrange.end
@@ -189,7 +235,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
 
             let new_step = if let Some(int) = step {
-                (int as i64) * zrange.step
+                int * zrange.step
             } else {
                 zrange.step
             };
@@ -207,6 +253,45 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
 
         _ => Err(vm.new_type_error("range indices must be integer or slice".to_string())),
+    }
+}
+
+fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+
+    let s = match zelf.borrow().payload {
+        PyObjectPayload::Range { ref range } => range.repr(),
+        _ => unreachable!(),
+    };
+
+    Ok(vm.ctx.new_str(s))
+}
+
+fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+
+    let len = match zelf.borrow().payload {
+        PyObjectPayload::Range { ref range } => range.len(),
+        _ => unreachable!(),
+    };
+
+    Ok(vm.ctx.new_bool(len > 0))
+}
+
+fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.range_type())), (needle, None)]
+    );
+
+    if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
+        Ok(vm.ctx.new_bool(match needle.borrow().payload {
+            PyObjectPayload::Integer { ref value } => range.contains(value),
+            _ => false,
+        }))
+    } else {
+        unreachable!()
     }
 }
 

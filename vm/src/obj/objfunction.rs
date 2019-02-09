@@ -1,6 +1,6 @@
 use super::super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
@@ -110,12 +110,7 @@ fn classmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("classmethod.__new__ {:?}", args.args);
     arg_check!(vm, args, required = [(cls, None), (callable, None)]);
 
-    let py_obj = PyObject::new(
-        PyObjectPayload::Instance {
-            dict: vm.ctx.new_dict(),
-        },
-        cls.clone(),
-    );
+    let py_obj = vm.ctx.new_instance(cls.clone(), None);
     vm.ctx.set_attr(&py_obj, "function", callable.clone());
     Ok(py_obj)
 }
@@ -148,12 +143,7 @@ fn staticmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("staticmethod.__new__ {:?}", args.args);
     arg_check!(vm, args, required = [(cls, None), (callable, None)]);
 
-    let py_obj = PyObject::new(
-        PyObjectPayload::Instance {
-            dict: vm.ctx.new_dict(),
-        },
-        cls.clone(),
-    );
+    let py_obj = vm.ctx.new_instance(cls.clone(), None);
     vm.ctx.set_attr(&py_obj, "function", callable.clone());
     Ok(py_obj)
 }

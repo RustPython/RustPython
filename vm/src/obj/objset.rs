@@ -11,7 +11,6 @@ use super::objbool;
 use super::objiter;
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use std::collections::HashMap;
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
@@ -67,15 +66,10 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(iterable) => {
             let mut elements = HashMap::new();
             let iterator = objiter::get_iter(vm, iterable)?;
-            loop {
-                match vm.call_method(&iterator, "__next__", vec![]) {
-                    Ok(v) => {
-                        // TODO: should we use the hash function here?
-                        let key = v.get_id();
-                        elements.insert(key, v);
-                    }
-                    _ => break,
-                }
+            while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+                // TODO: should we use the hash function here?
+                let key = v.get_id();
+                elements.insert(key, v);
             }
             elements
         }
@@ -91,7 +85,7 @@ fn set_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.len called with: {:?}", args);
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let elements = get_elements(s);
-    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+    Ok(vm.context().new_int(elements.len()))
 }
 
 fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -152,6 +146,11 @@ fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let set_type = &context.set_type;
+
+    let set_doc = "set() -> new empty set object\n\
+                   set(iterable) -> new set object\n\n\
+                   Build an unordered collection of unique elements.";
+
     context.set_attr(
         &set_type,
         "__contains__",
@@ -160,15 +159,26 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__len__", context.new_rustfunc(set_len));
     context.set_attr(&set_type, "__new__", context.new_rustfunc(set_new));
     context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
+    context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
     let frozenset_type = &context.frozenset_type;
+
+    let frozenset_doc = "frozenset() -> empty frozenset object\n\
+                         frozenset(iterable) -> frozenset object\n\n\
+                         Build an immutable unordered collection of unique elements.";
+
     context.set_attr(
         &frozenset_type,
         "__contains__",
         context.new_rustfunc(set_contains),
     );
     context.set_attr(&frozenset_type, "__len__", context.new_rustfunc(set_len));
+    context.set_attr(
+        &frozenset_type,
+        "__doc__",
+        context.new_str(frozenset_doc.to_string()),
+    );
     context.set_attr(
         &frozenset_type,
         "__repr__",
