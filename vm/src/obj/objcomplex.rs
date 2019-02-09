@@ -3,8 +3,10 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objfloat;
+use super::objint;
 use super::objtype;
 use num_complex::Complex64;
+use num_traits::ToPrimitive;
 
 pub fn init(context: &PyContext) {
     let complex_type = &context.complex_type;
@@ -15,6 +17,8 @@ pub fn init(context: &PyContext) {
 
     context.set_attr(&complex_type, "__abs__", context.new_rustfunc(complex_abs));
     context.set_attr(&complex_type, "__add__", context.new_rustfunc(complex_add));
+    context.set_attr(&complex_type, "__eq__", context.new_rustfunc(complex_eq));
+    context.set_attr(&complex_type, "__neg__", context.new_rustfunc(complex_neg));
     context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
     context.set_attr(
         &complex_type,
@@ -98,6 +102,34 @@ fn complex_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let v1 = get_value(i);
     Ok(vm.ctx.new_complex(v1.conj()))
+}
+
+fn complex_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.complex_type())), (other, None)]
+    );
+
+    let z = get_value(zelf);
+    let result = if objtype::isinstance(other, &vm.ctx.complex_type()) {
+        z == get_value(other)
+    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
+        match objint::get_value(other).to_f64() {
+            Some(f) => z.im == 0.0f64 && z.re == f,
+            None => false,
+        }
+    } else if objtype::isinstance(other, &vm.ctx.float_type()) {
+        z.im == 0.0 && z.re == objfloat::get_value(other)
+    } else {
+        false
+    };
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn complex_neg(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
+    Ok(vm.ctx.new_complex(-get_value(zelf)))
 }
 
 fn complex_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
