@@ -503,7 +503,7 @@ impl Frame {
                 let exception = match argc {
                     1 => self.pop_value(),
                     0 | 2 | 3 => panic!("Not implemented!"),
-                    _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
+                    _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
                 if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);

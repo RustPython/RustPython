@@ -177,7 +177,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     }
 
     loop {
-        // TODO: modules dont support getattr / setattr yet
+        // TODO: modules don't support getattr / setattr yet
         //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps1") {
         //        Ok(value) => objstr::get_value(&value),
         //        Err(_) => ">>>>> ".to_string(),
