@@ -730,6 +730,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
     ctx.set_attr(
         &py_mod,
+        "FileNotFoundError",
+        ctx.exceptions.file_not_found_error.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
         "StopIteration",
         ctx.exceptions.stop_iteration.clone(),
     );
