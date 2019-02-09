@@ -906,7 +906,7 @@ where
                 }
                 Some(')') => {
                     let result = self.eat_single_char(Tok::Rpar);
-                    if self.closing_bracket_is_valid() {                    
+                    if self.closing_bracket_is_valid() {
                         self.nesting -= 1;
                     }
                     return Some(result);
@@ -918,7 +918,7 @@ where
                 }
                 Some(']') => {
                     let result = self.eat_single_char(Tok::Rsqb);
-                    if self.closing_bracket_is_valid() {                    
+                    if self.closing_bracket_is_valid() {
                         self.nesting -= 1;
                     }
                     return Some(result);
@@ -930,7 +930,7 @@ where
                 }
                 Some('}') => {
                     let result = self.eat_single_char(Tok::Rbrace);
-                    if self.closing_bracket_is_valid() {                    
+                    if self.closing_bracket_is_valid() {
                         self.nesting -= 1;
                     }
                     return Some(result);
