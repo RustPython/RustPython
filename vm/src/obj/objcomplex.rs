@@ -112,6 +112,7 @@ fn complex_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let z = get_value(zelf);
+
     let result = if objtype::isinstance(other, &vm.ctx.complex_type()) {
         z == get_value(other)
     } else if objtype::isinstance(other, &vm.ctx.int_type()) {
@@ -122,8 +123,9 @@ fn complex_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(other, &vm.ctx.float_type()) {
         z.im == 0.0 && z.re == objfloat::get_value(other)
     } else {
-        false
+        return Ok(vm.ctx.not_implemented());
     };
+
     Ok(vm.ctx.new_bool(result))
 }
 

@@ -14,7 +14,7 @@ assert not complex(1, 1).__eq__(1.0)
 assert not complex(1, 0).__eq__(1.5)
 assert complex(1, 0).__eq__(True)
 assert not complex(1, 2).__eq__(complex(1, 1))
-#assert complex(1, 2).__eq__('foo') == NotImplemented
+assert complex(1, 2).__eq__('foo') == NotImplemented
 
 # __neg__
 

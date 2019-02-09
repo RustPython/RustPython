@@ -685,6 +685,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "type", ctx.type_type());
     ctx.set_attr(&py_mod, "zip", ctx.zip_type());
 
+    // Constants
+    ctx.set_attr(&py_mod, "NotImplemented", ctx.not_implemented.clone());
+
     // Exceptions:
     ctx.set_attr(
         &py_mod,
