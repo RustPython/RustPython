@@ -494,7 +494,7 @@ fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-// doesn't implement keep new line delimeter just yet
+// doesn't implement keep new line delimiter just yet
 fn str_splitlines(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let elements = get_value(&s)

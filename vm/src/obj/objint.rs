@@ -58,7 +58,7 @@ pub fn to_int(
         match i32::from_str_radix(&s, base) {
             Ok(v) => v.to_bigint().unwrap(),
             Err(err) => {
-                trace!("Error occured during int conversion {:?}", err);
+                trace!("Error occurred during int conversion {:?}", err);
                 return Err(vm.new_value_error(format!(
                     "invalid literal for int() with base {}: '{}'",
                     base, s
