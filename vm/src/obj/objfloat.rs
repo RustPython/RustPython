@@ -90,7 +90,9 @@ fn float_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_bool(v1 < get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_bool(v1 < objint::get_value(i2).to_f64().unwrap()))
+        Ok(vm
+            .ctx
+            .new_bool(v1 < objint::get_value(i2).to_f64().unwrap()))
     } else {
         Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
     }
@@ -107,7 +109,9 @@ fn float_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_bool(v1 <= objint::get_value(i2).to_f64().unwrap()))
+        Ok(vm
+            .ctx
+            .new_bool(v1 <= objint::get_value(i2).to_f64().unwrap()))
     } else {
         Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
     }
@@ -124,7 +128,9 @@ fn float_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_bool(v1 > get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_bool(v1 > objint::get_value(i2).to_f64().unwrap()))
+        Ok(vm
+            .ctx
+            .new_bool(v1 > objint::get_value(i2).to_f64().unwrap()))
     } else {
         Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
     }
@@ -141,7 +147,9 @@ fn float_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_bool(v1 >= objint::get_value(i2).to_f64().unwrap()))
+        Ok(vm
+            .ctx
+            .new_bool(v1 >= objint::get_value(i2).to_f64().unwrap()))
     } else {
         Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
     }
