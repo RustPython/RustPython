@@ -71,7 +71,10 @@ fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let type_name = objtype::get_type_name(&exc.typ());
     let msg = if let Some(m) = exc.get_attr("msg") {
-        objstr::get_value(&m)
+        match vm.to_pystr(&m) {
+            Ok(msg) => msg,
+            _ => "".to_string(),
+        }
     } else {
         panic!("Error message must be set");
     };
