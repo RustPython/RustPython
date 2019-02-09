@@ -585,6 +585,12 @@ where
         self.location.column = 1;
     }
 
+    fn handle_unexpected_closing_bracket(&mut self) {
+        if self.nesting == 0 {
+            panic!("Unexpected right parenthesis, TODO: raise a syntax error.");
+        }
+    }
+
     fn inner_next(&mut self) -> Option<Spanned<Tok>> {
         if !self.pending.is_empty() {
             return Some(self.pending.remove(0));
@@ -902,9 +908,7 @@ where
                 }
                 Some(')') => {
                     let result = self.eat_single_char(Tok::Rpar);
-                    if self.nesting == 0 {
-                        panic!("Unexpected right parenthesis, TODO: raise a syntax error.");
-                    }
+                    self.handle_unexpected_closing_bracket();
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -915,6 +919,7 @@ where
                 }
                 Some(']') => {
                     let result = self.eat_single_char(Tok::Rsqb);
+                    self.handle_unexpected_closing_bracket();
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -925,6 +930,7 @@ where
                 }
                 Some('}') => {
                     let result = self.eat_single_char(Tok::Rbrace);
+                    self.handle_unexpected_closing_bracket();
                     self.nesting -= 1;
                     return Some(result);
                 }
