@@ -105,12 +105,10 @@ impl RangeType {
         };
 
         match self.step.sign() {
-            Sign::Plus => {
-                RangeType {
-                    start,
-                    end: &self.start - 1,
-                    step: -&self.step,
-                }
+            Sign::Plus => RangeType {
+                start,
+                end: &self.start - 1,
+                step: -&self.step,
             },
             Sign::Minus => RangeType {
                 start,
