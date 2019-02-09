@@ -8,6 +8,7 @@ use super::objfloat;
 use super::objstr;
 use super::objtype;
 use num_bigint::{BigInt, ToBigInt};
+use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 use std::hash::{Hash, Hasher};
 
@@ -289,7 +290,13 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(get_value(i) / get_value(i2)))
+        let (v1, v2) = (get_value(i), get_value(i2));
+
+        if v2 != BigInt::zero() {
+            Ok(vm.ctx.new_int(v1 / v2))
+        } else {
+            Err(vm.new_zero_division_error("integer floordiv by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!(
             "Cannot floordiv {} and {}",
@@ -462,11 +469,20 @@ fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
+
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        let r1 = int_floordiv(vm, args.clone());
-        let r2 = int_mod(vm, args.clone());
-        Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
+        let v1 = get_value(i);
+        let v2 = get_value(i2);
+
+        if v2 != BigInt::zero() {
+            let (r1, r2) = v1.div_rem(&v2);
+
+            Ok(vm
+                .ctx
+                .new_tuple(vec![vm.ctx.new_int(r1), vm.ctx.new_int(r2)]))
+        } else {
+            Err(vm.new_zero_division_error("integer divmod by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!(
             "Cannot divmod power {} and {}",
