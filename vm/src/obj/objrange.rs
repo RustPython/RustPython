@@ -105,8 +105,22 @@ impl RangeType {
 
 pub fn init(context: &PyContext) {
     let ref range_type = context.range_type;
+
+    let range_doc = "range(stop) -> range object\n\
+                     range(start, stop[, step]) -> range object\n\n\
+                     Return an object that produces a sequence of integers from start (inclusive)\n\
+                     to stop (exclusive) by step.  range(i, j) produces i, i+1, i+2, ..., j-1.\n\
+                     start defaults to 0, and stop is omitted!  range(4) produces 0, 1, 2, 3.\n\
+                     These are exactly the valid indices for a list of 4 elements.\n\
+                     When step is given, it specifies the increment (or decrement).";
+
     context.set_attr(&range_type, "__new__", context.new_rustfunc(range_new));
     context.set_attr(&range_type, "__iter__", context.new_rustfunc(range_iter));
+    context.set_attr(
+        &range_type,
+        "__doc__",
+        context.new_str(range_doc.to_string()),
+    );
     context.set_attr(&range_type, "__len__", context.new_rustfunc(range_len));
     context.set_attr(
         &range_type,
