@@ -51,12 +51,11 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject, &self.ctx.int_type()) {
             let v = objint::get_value(self.pyobject);
             serializer.serialize_i64(v.to_i64().unwrap())
-        // Allthough this may seem nice, it does not give the right result:
+        // Although this may seem nice, it does not give the right result:
         // v.serialize(serializer)
-        } else if objtype::isinstance(self.pyobject, &self.ctx.list_type()) {
-            let elements = objsequence::get_elements(self.pyobject);
-            serialize_seq_elements(serializer, &elements)
-        } else if objtype::isinstance(self.pyobject, &self.ctx.tuple_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.ctx.list_type())
+            || objtype::isinstance(self.pyobject, &self.ctx.tuple_type())
+        {
             let elements = objsequence::get_elements(self.pyobject);
             serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.ctx.dict_type()) {

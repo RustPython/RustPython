@@ -8,6 +8,7 @@ use super::objfloat;
 use super::objstr;
 use super::objtype;
 use num_bigint::{BigInt, ToBigInt};
+use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 use std::hash::{Hash, Hasher};
 
@@ -58,7 +59,7 @@ pub fn to_int(
         match i32::from_str_radix(&s, base) {
             Ok(v) => v.to_bigint().unwrap(),
             Err(err) => {
-                trace!("Error occured during int conversion {:?}", err);
+                trace!("Error occurred during int conversion {:?}", err);
                 return Err(vm.new_value_error(format!(
                     "invalid literal for int() with base {}: '{}'",
                     base, s
@@ -289,7 +290,13 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(get_value(i) / get_value(i2)))
+        let (v1, v2) = (get_value(i), get_value(i2));
+
+        if v2 != BigInt::zero() {
+            Ok(vm.ctx.new_int(v1 / v2))
+        } else {
+            Err(vm.new_zero_division_error("integer floordiv by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!(
             "Cannot floordiv {} and {}",
@@ -297,6 +304,21 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             i2.borrow()
         )))
     }
+}
+
+fn int_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type()))],
+        optional = [(_precision, None)]
+    );
+    Ok(vm.ctx.new_int(get_value(i)))
+}
+
+fn int_pass_value(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    Ok(vm.ctx.new_int(get_value(i)))
 }
 
 fn int_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -366,17 +388,25 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm
-            .ctx
-            .new_float(v1.to_f64().unwrap() / get_value(i2).to_f64().unwrap()))
+
+    let v1 = get_value(i)
+        .to_f64()
+        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?;
+
+    let v2 = if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        get_value(i2)
+            .to_f64()
+            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm
-            .ctx
-            .new_float(v1.to_f64().unwrap() / objfloat::get_value(i2)))
+        objfloat::get_value(i2)
     } else {
-        Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())))
+        return Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())));
+    };
+
+    if v2 == 0.0 {
+        Err(vm.new_zero_division_error("integer division by zero".to_string()))
+    } else {
+        Ok(vm.ctx.new_float(v1 / v2))
     }
 }
 
@@ -388,7 +418,13 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(v1 % get_value(i2)))
+        let v2 = get_value(i2);
+
+        if v2 != BigInt::zero() {
+            Ok(vm.ctx.new_int(v1 % get_value(i2)))
+        } else {
+            Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!("Cannot modulo {} and {}", i.borrow(), i2.borrow())))
     }
@@ -433,11 +469,20 @@ fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
+
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        let r1 = int_floordiv(vm, args.clone());
-        let r2 = int_mod(vm, args.clone());
-        Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
+        let v1 = get_value(i);
+        let v2 = get_value(i2);
+
+        if v2 != BigInt::zero() {
+            let (r1, r2) = v1.div_rem(&v2);
+
+            Ok(vm
+                .ctx
+                .new_tuple(vec![vm.ctx.new_int(r1), vm.ctx.new_int(r2)]))
+        } else {
+            Err(vm.new_zero_division_error("integer divmod by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!(
             "Cannot divmod power {} and {}",
@@ -549,6 +594,12 @@ Base 0 means to interpret the base from the string as an integer literal.
     context.set_attr(&int_type, "__and__", context.new_rustfunc(int_and));
     context.set_attr(&int_type, "__divmod__", context.new_rustfunc(int_divmod));
     context.set_attr(&int_type, "__float__", context.new_rustfunc(int_float));
+    context.set_attr(&int_type, "__round__", context.new_rustfunc(int_round));
+    context.set_attr(&int_type, "__ceil__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__floor__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__index__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__trunc__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__int__", context.new_rustfunc(int_pass_value));
     context.set_attr(
         &int_type,
         "__floordiv__",

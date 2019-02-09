@@ -11,7 +11,7 @@ use std::collections::hash_map::HashMap;
 use super::builtins;
 use super::bytecode;
 use super::frame::Frame;
-use super::obj::objcode::copy_code;
+use super::obj::objcode;
 use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objsequence;
@@ -104,6 +104,11 @@ impl VirtualMachine {
         self.new_exception(os_error, msg)
     }
 
+    pub fn new_overflow_error(&mut self, msg: String) -> PyObjectRef {
+        let overflow_error = self.ctx.exceptions.overflow_error.clone();
+        self.new_exception(overflow_error, msg)
+    }
+
     /// Create a new python ValueError object. Useful for raising errors from
     /// python functions implemented in rust.
     pub fn new_value_error(&mut self, msg: String) -> PyObjectRef {
@@ -122,8 +127,13 @@ impl VirtualMachine {
     }
 
     pub fn new_not_implemented_error(&mut self, msg: String) -> PyObjectRef {
-        let value_error = self.ctx.exceptions.not_implemented_error.clone();
-        self.new_exception(value_error, msg)
+        let not_implemented_error = self.ctx.exceptions.not_implemented_error.clone();
+        self.new_exception(not_implemented_error, msg)
+    }
+
+    pub fn new_zero_division_error(&mut self, msg: String) -> PyObjectRef {
+        let zero_division_error = self.ctx.exceptions.zero_division_error.clone();
+        self.new_exception(zero_division_error, msg)
     }
 
     pub fn new_scope(&mut self, parent_scope: Option<PyObjectRef>) -> PyObjectRef {
@@ -272,7 +282,7 @@ impl VirtualMachine {
         defaults: &PyObjectRef,
         args: PyFuncArgs,
     ) -> PyResult {
-        let code_object = copy_code(code);
+        let code_object = objcode::get_value(code);
         let scope = self.ctx.new_scope(Some(scope.clone()));
         self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
 
@@ -439,9 +449,9 @@ impl VirtualMachine {
         value: &PyObjectRef,
     ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
         // Extract elements from item, if possible:
-        let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
-            objsequence::get_elements(value).to_vec()
-        } else if objtype::isinstance(value, &self.ctx.list_type()) {
+        let elements = if objtype::isinstance(value, &self.ctx.tuple_type())
+            || objtype::isinstance(value, &self.ctx.list_type())
+        {
             objsequence::get_elements(value).to_vec()
         } else {
             let iter = objiter::get_iter(self, value)?;

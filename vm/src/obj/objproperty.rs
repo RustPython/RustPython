@@ -8,6 +8,35 @@ use super::objtype;
 
 pub fn init(context: &PyContext) {
     let property_type = &context.property_type;
+
+    let property_doc =
+        "Property attribute.\n\n  \
+         fget\n    \
+         function to be used for getting an attribute value\n  \
+         fset\n    \
+         function to be used for setting an attribute value\n  \
+         fdel\n    \
+         function to be used for del\'ing an attribute\n  \
+         doc\n    \
+         docstring\n\n\
+         Typical use is to define a managed attribute x:\n\n\
+         class C(object):\n    \
+         def getx(self): return self._x\n    \
+         def setx(self, value): self._x = value\n    \
+         def delx(self): del self._x\n    \
+         x = property(getx, setx, delx, \"I\'m the \'x\' property.\")\n\n\
+         Decorators make defining new properties or modifying existing ones easy:\n\n\
+         class C(object):\n    \
+         @property\n    \
+         def x(self):\n        \"I am the \'x\' property.\"\n        \
+         return self._x\n    \
+         @x.setter\n    \
+         def x(self, value):\n        \
+         self._x = value\n    \
+         @x.deleter\n    \
+         def x(self):\n        \
+         del self._x";
+
     context.set_attr(
         &property_type,
         "__get__",
@@ -17,6 +46,11 @@ pub fn init(context: &PyContext) {
         &property_type,
         "__new__",
         context.new_rustfunc(property_new),
+    );
+    context.set_attr(
+        &property_type,
+        "__doc__",
+        context.new_str(property_doc.to_string()),
     );
     // TODO: how to handle __set__ ?
 }

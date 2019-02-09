@@ -21,9 +21,12 @@ fn set_item(
 ) -> PyResult {
     if objtype::isinstance(&idx, &vm.ctx.int_type()) {
         let value = objint::get_value(&idx).to_i32().unwrap();
-        let pos_index = l.get_pos(value);
-        l[pos_index] = obj;
-        Ok(vm.get_none())
+        if let Some(pos_index) = l.get_pos(value) {
+            l[pos_index] = obj;
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_index_error("list index out of range".to_string()))
+        }
     } else {
         panic!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
