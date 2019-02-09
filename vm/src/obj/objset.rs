@@ -9,6 +9,7 @@ use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objiter;
 use super::objstr;
+use super::objint;
 use super::objtype;
 use num_bigint::BigInt;
 use std::collections::HashMap;
@@ -32,20 +33,11 @@ fn perform_action_with_hash(
         &PyObjectRef,
     ) -> PyResult,
 ) -> PyResult {
-    let hash_result: PyResult = vm.call_method(item, "__hash__", vec![]);
-    match hash_result {
-        Ok(hash_object) => {
-            let hash = hash_object.borrow();
-            match hash.payload {
-                PyObjectPayload::Integer { ref value } => {
-                    let key = value.clone();
-                    f(vm, elements, key, item)
-                }
-                _ => Err(vm.new_type_error(format!("__hash__ method should return an integer"))),
-            }
-        }
-        Err(error) => Err(error),
-    }
+    let hash: PyObjectRef = vm.call_method(item, "__hash__", vec![])?;
+
+    let hash_value = objint::get_value(&hash);
+    let key = hash_value.clone();
+    f(vm, elements, key, item)
 }
 
 fn insert_into_set(
