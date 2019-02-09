@@ -22,6 +22,10 @@ pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult 
     // return Err(type_error);
 }
 
+pub fn call_next(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
+    vm.call_method(iter_obj, "__next__", vec![])
+}
+
 /*
  * Helper function to retrieve the next object (or none) from an iterator.
  */
@@ -29,7 +33,7 @@ pub fn get_next_object(
     vm: &mut VirtualMachine,
     iter_obj: &PyObjectRef,
 ) -> Result<Option<PyObjectRef>, PyObjectRef> {
-    let next_obj: PyResult = vm.call_method(iter_obj, "__next__", vec![]);
+    let next_obj: PyResult = call_next(vm, iter_obj);
 
     match next_obj {
         Ok(value) => Ok(Some(value)),
@@ -60,6 +64,59 @@ pub fn get_all(
     Ok(elements)
 }
 
+pub fn new_stop_iteration(vm: &mut VirtualMachine) -> PyObjectRef {
+    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
+    vm.new_exception(stop_iteration_type, "End of iterator".to_string())
+}
+
+fn contains(vm: &mut VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(iter, Some(iter_type)), (needle, None)]
+    );
+    loop {
+        if let Some(element) = get_next_object(vm, iter)? {
+            let equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+            if objbool::get_value(&equal) {
+                return Ok(vm.new_bool(true));
+            } else {
+                continue;
+            }
+        } else {
+            return Ok(vm.new_bool(false));
+        }
+    }
+}
+
+/// Common setup for iter types, adds __iter__ and __contains__ methods
+pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
+    let contains_func = {
+        let cloned_iter_type = iter_type.clone();
+        move |vm: &mut VirtualMachine, args: PyFuncArgs| {
+            contains(vm, args, cloned_iter_type.clone())
+        }
+    };
+    context.set_attr(
+        &iter_type,
+        "__contains__",
+        context.new_rustfunc(contains_func),
+    );
+    let iter_func = {
+        let cloned_iter_type = iter_type.clone();
+        move |vm: &mut VirtualMachine, args: PyFuncArgs| {
+            arg_check!(
+                vm,
+                args,
+                required = [(iter, Some(cloned_iter_type.clone()))]
+            );
+            // Return self:
+            Ok(iter.clone())
+        }
+    };
+    context.set_attr(&iter_type, "__iter__", context.new_rustfunc(iter_func));
+}
+
 // Sequence iterator:
 fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter_target, None)]);
@@ -67,44 +124,15 @@ fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     get_iter(vm, iter_target)
 }
 
-fn iter_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
-    // Return self:
-    Ok(iter.clone())
-}
-
-fn iter_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iter, Some(vm.ctx.iter_type())), (needle, None)]
-    );
-    loop {
-        match vm.call_method(&iter, "__next__", vec![]) {
-            Ok(element) => match vm.call_method(needle, "__eq__", vec![element.clone()]) {
-                Ok(value) => {
-                    if objbool::get_value(&value) {
-                        return Ok(vm.new_bool(true));
-                    } else {
-                        continue;
-                    }
-                }
-                Err(_) => return Err(vm.new_type_error("".to_string())),
-            },
-            Err(_) => return Ok(vm.new_bool(false)),
-        }
-    }
-}
-
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
     if let PyObjectPayload::Iterator {
         ref mut position,
-        iterated_obj: ref iterated_obj_ref,
+        iterated_obj: ref mut iterated_obj_ref,
     } = iter.borrow_mut().payload
     {
-        let iterated_obj = &*iterated_obj_ref.borrow_mut();
+        let iterated_obj = iterated_obj_ref.borrow_mut();
         match iterated_obj.payload {
             PyObjectPayload::Sequence { ref elements } => {
                 if *position < elements.len() {
@@ -112,12 +140,29 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     *position += 1;
                     Ok(obj_ref)
                 } else {
-                    let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
-                    let stop_iteration =
-                        vm.new_exception(stop_iteration_type, "End of iterator".to_string());
-                    Err(stop_iteration)
+                    Err(new_stop_iteration(vm))
                 }
             }
+
+            PyObjectPayload::Range { ref range } => {
+                if let Some(int) = range.get(*position) {
+                    *position += 1;
+                    Ok(vm.ctx.new_int(int))
+                } else {
+                    Err(new_stop_iteration(vm))
+                }
+            }
+
+            PyObjectPayload::Bytes { ref value } => {
+                if *position < value.len() {
+                    let obj_ref = vm.ctx.new_int(value[*position]);
+                    *position += 1;
+                    Ok(obj_ref)
+                } else {
+                    Err(new_stop_iteration(vm))
+                }
+            }
+
             _ => {
                 panic!("NOT IMPL");
             }
@@ -128,13 +173,8 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let ref iter_type = context.iter_type;
-    context.set_attr(
-        &iter_type,
-        "__contains__",
-        context.new_rustfunc(iter_contains),
-    );
-    context.set_attr(&iter_type, "__iter__", context.new_rustfunc(iter_iter));
+    let iter_type = &context.iter_type;
+    iter_type_init(context, iter_type);
     context.set_attr(&iter_type, "__new__", context.new_rustfunc(iter_new));
     context.set_attr(&iter_type, "__next__", context.new_rustfunc(iter_next));
 }

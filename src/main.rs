@@ -68,8 +68,8 @@ fn main() {
     handle_exception(&mut vm, result);
 }
 
-fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: Option<String>) -> PyResult {
-    let code_obj = compile::compile(vm, source, compile::Mode::Exec, source_path)?;
+fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> PyResult {
+    let code_obj = compile::compile(vm, source, &compile::Mode::Exec, source_path)?;
     // trace!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
     let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
@@ -91,7 +91,7 @@ fn run_command(vm: &mut VirtualMachine, mut source: String) -> PyResult {
 
     // This works around https://github.com/RustPython/RustPython/issues/17
     source.push_str("\n");
-    _run_string(vm, &source, None)
+    _run_string(vm, &source, "<stdin>".to_string())
 }
 
 fn run_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
@@ -105,7 +105,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
     // Parse an ast from it:
     let filepath = Path::new(script_file);
     match parser::read_file(filepath) {
-        Ok(source) => _run_string(vm, &source, Some(filepath.to_str().unwrap().to_string())),
+        Ok(source) => _run_string(vm, &source, filepath.to_str().unwrap().to_string()),
         Err(msg) => {
             error!("Parsing went horribly wrong: {}", msg);
             std::process::exit(1);
@@ -114,7 +114,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
 }
 
 fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
-    match compile::compile(vm, source, compile::Mode::Single, None) {
+    match compile::compile(vm, source, &compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
             match vm.run_code_obj(code, scope) {
                 Ok(_value) => {
@@ -142,6 +142,22 @@ fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool
     true
 }
 
+#[cfg(not(target_family = "unix"))]
+fn get_history_path() -> PathBuf {
+    //Path buffer
+    PathBuf::from(".repl_history.txt")
+}
+
+#[cfg(target_family = "unix")]
+fn get_history_path() -> PathBuf {
+    //work around for windows dependent builds. The xdg crate is unix specific
+    //so access to the BaseDirectories struct breaks builds on python.
+    extern crate xdg;
+
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("rustpython").unwrap();
+    xdg_dirs.place_cache_file("repl_history.txt").unwrap()
+}
+
 fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     println!(
         "Welcome to the magnificent Rust Python {} interpreter",
@@ -154,14 +170,14 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     let mut input = String::new();
     let mut rl = Editor::<()>::new();
 
-    // TODO: Store the history in a proper XDG directory
-    let repl_history_path = ".repl_history.txt";
-    if rl.load_history(repl_history_path).is_err() {
+    //retrieve a history_path_str dependent to the os
+    let repl_history_path_str = &get_history_path();
+    if rl.load_history(repl_history_path_str).is_err() {
         println!("No previous history.");
     }
 
     loop {
-        // TODO: modules dont support getattr / setattr yet
+        // TODO: modules don't support getattr / setattr yet
         //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps1") {
         //        Ok(value) => objstr::get_value(&value),
         //        Err(_) => ">>>>> ".to_string(),
@@ -220,7 +236,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
             }
         };
     }
-    rl.save_history(repl_history_path).unwrap();
+    rl.save_history(repl_history_path_str).unwrap();
 
     Ok(vm.get_none())
 }

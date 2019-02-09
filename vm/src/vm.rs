@@ -11,7 +11,7 @@ use std::collections::hash_map::HashMap;
 use super::builtins;
 use super::bytecode;
 use super::frame::Frame;
-use super::obj::objcode::copy_code;
+use super::obj::objcode;
 use super::obj::objgenerator;
 use super::obj::objiter;
 use super::obj::objsequence;
@@ -53,10 +53,10 @@ impl VirtualMachine {
 
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
-            builtins: builtins,
+            builtins,
             sys_module: sysmod,
             stdlib_inits,
-            ctx: ctx,
+            ctx,
             current_frame: None,
         }
     }
@@ -86,18 +86,27 @@ impl VirtualMachine {
         let pymsg = self.new_str(msg);
         let args: Vec<PyObjectRef> = vec![pymsg];
         let args = PyFuncArgs {
-            args: args,
+            args,
             kwargs: vec![],
         };
 
         // Call function:
-        let exception = self.invoke(exc_type, args).unwrap();
-        exception
+        self.invoke(exc_type, args).unwrap()
     }
 
     pub fn new_type_error(&mut self, msg: String) -> PyObjectRef {
         let type_error = self.ctx.exceptions.type_error.clone();
         self.new_exception(type_error, msg)
+    }
+
+    pub fn new_os_error(&mut self, msg: String) -> PyObjectRef {
+        let os_error = self.ctx.exceptions.os_error.clone();
+        self.new_exception(os_error, msg)
+    }
+
+    pub fn new_overflow_error(&mut self, msg: String) -> PyObjectRef {
+        let overflow_error = self.ctx.exceptions.overflow_error.clone();
+        self.new_exception(overflow_error, msg)
     }
 
     /// Create a new python ValueError object. Useful for raising errors from
@@ -118,8 +127,13 @@ impl VirtualMachine {
     }
 
     pub fn new_not_implemented_error(&mut self, msg: String) -> PyObjectRef {
-        let value_error = self.ctx.exceptions.not_implemented_error.clone();
-        self.new_exception(value_error, msg)
+        let not_implemented_error = self.ctx.exceptions.not_implemented_error.clone();
+        self.new_exception(not_implemented_error, msg)
+    }
+
+    pub fn new_zero_division_error(&mut self, msg: String) -> PyObjectRef {
+        let zero_division_error = self.ctx.exceptions.zero_division_error.clone();
+        self.new_exception(zero_division_error, msg)
     }
 
     pub fn new_scope(&mut self, parent_scope: Option<PyObjectRef>) -> PyObjectRef {
@@ -159,7 +173,7 @@ impl VirtualMachine {
     pub fn get_builtin_scope(&mut self) -> PyObjectRef {
         let a2 = &*self.builtins.borrow();
         match a2.payload {
-            PyObjectPayload::Module { name: _, ref dict } => dict.clone(),
+            PyObjectPayload::Module { ref dict, .. } => dict.clone(),
             _ => {
                 panic!("OMG");
             }
@@ -206,7 +220,7 @@ impl VirtualMachine {
             obj,
             method_name,
             PyFuncArgs {
-                args: args,
+                args,
                 kwargs: vec![],
             },
         )
@@ -245,11 +259,7 @@ impl VirtualMachine {
                 ref scope,
                 ref defaults,
             } => self.invoke_python_function(code, scope, defaults, args),
-            PyObjectPayload::Class {
-                name: _,
-                dict: _,
-                mro: _,
-            } => self.call_method_pyargs(&func_ref, "__call__", args),
+            PyObjectPayload::Class { .. } => self.call_method_pyargs(&func_ref, "__call__", args),
             PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,
@@ -272,7 +282,7 @@ impl VirtualMachine {
         defaults: &PyObjectRef,
         args: PyFuncArgs,
     ) -> PyResult {
-        let code_object = copy_code(code);
+        let code_object = objcode::get_value(code);
         let scope = self.ctx.new_scope(Some(scope.clone()));
         self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
 
@@ -439,9 +449,9 @@ impl VirtualMachine {
         value: &PyObjectRef,
     ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
         // Extract elements from item, if possible:
-        let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
-            objsequence::get_elements(value).to_vec()
-        } else if objtype::isinstance(value, &self.ctx.list_type()) {
+        let elements = if objtype::isinstance(value, &self.ctx.tuple_type())
+            || objtype::isinstance(value, &self.ctx.list_type())
+        {
             objsequence::get_elements(value).to_vec()
         } else {
             let iter = objiter::get_iter(self, value)?;
@@ -549,27 +559,27 @@ impl VirtualMachine {
     }
 
     pub fn _add(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__add__", vec![b])
+        self.call_or_unsupported(a, b, "__add__", "__radd__", "+")
     }
 
     pub fn _mul(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__mul__", vec![b])
+        self.call_or_unsupported(a, b, "__mul__", "__rmul__", "*")
     }
 
     pub fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__truediv__", vec![b])
+        self.call_or_unsupported(a, b, "__truediv__", "__rtruediv__", "/")
     }
 
     pub fn _pow(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__pow__", vec![b])
+        self.call_or_unsupported(a, b, "__pow__", "__rpow__", "**")
     }
 
     pub fn _modulo(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__mod__", vec![b])
+        self.call_or_unsupported(a, b, "__mod__", "__rmod__", "%")
     }
 
     pub fn _xor(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(&a, "__xor__", vec![b])
+        self.call_or_unsupported(a, b, "__xor__", "__rxor__", "^")
     }
 
     pub fn _or(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
@@ -614,8 +624,8 @@ mod tests {
     #[test]
     fn test_add_py_integers() {
         let mut vm = VirtualMachine::new();
-        let a = vm.ctx.new_int(33_i32.to_bigint().unwrap());
-        let b = vm.ctx.new_int(12_i32.to_bigint().unwrap());
+        let a = vm.ctx.new_int(33_i32);
+        let b = vm.ctx.new_int(12_i32);
         let res = vm._add(a, b).unwrap();
         let value = objint::get_value(&res);
         assert_eq!(value, 45_i32.to_bigint().unwrap());
@@ -625,7 +635,7 @@ mod tests {
     fn test_multiply_str() {
         let mut vm = VirtualMachine::new();
         let a = vm.ctx.new_str(String::from("Hello "));
-        let b = vm.ctx.new_int(4_i32.to_bigint().unwrap());
+        let b = vm.ctx.new_int(4_i32);
         let res = vm._mul(a, b).unwrap();
         let value = objstr::get_value(&res);
         assert_eq!(value, String::from("Hello Hello Hello Hello "))

@@ -20,8 +20,7 @@ use super::pyobject::{
     PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use num_bigint::ToBigInt;
-use num_traits::ToPrimitive;
+use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]
 enum Block {
@@ -71,12 +70,12 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: objcode::copy_code(&code),
+            code: objcode::get_value(&code),
             stack: vec![],
             blocks: vec![],
             // save the callargs as locals
             // globals: locals.clone(),
-            locals: locals,
+            locals,
             lasti: 0,
         }
     }
@@ -89,11 +88,7 @@ impl Frame {
     }
 
     pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
-        let filename = if let Some(source_path) = &self.code.source_path {
-            source_path.to_string()
-        } else {
-            "<unknown>".to_string()
-        };
+        let filename = &self.code.source_path.to_string();
 
         let prev_frame = mem::replace(&mut vm.current_frame, Some(vm.ctx.new_frame(self.clone())));
 
@@ -121,7 +116,7 @@ impl Frame {
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.get_row().to_bigint().unwrap()),
+                        vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::list_append(
@@ -263,22 +258,22 @@ impl Frame {
                 assert!(*size == 2 || *size == 3);
                 let elements = self.pop_multiple(*size);
 
-                let mut out: Vec<Option<i32>> = elements
+                let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
                     .map(|x| match x.borrow().payload {
-                        PyObjectPayload::Integer { ref value } => Some(value.to_i32().unwrap()),
+                        PyObjectPayload::Integer { ref value } => Some(value.clone()),
                         PyObjectPayload::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
                     })
                     .collect();
 
-                let start = out[0];
-                let stop = out[1];
-                let step = if out.len() == 3 { out[2] } else { None };
+                let start = out[0].take();
+                let stop = out[1].take();
+                let step = if out.len() == 3 { out[2].take() } else { None };
 
                 let obj = PyObject::new(
                     PyObjectPayload::Slice { start, stop, step },
-                    vm.ctx.type_type(),
+                    vm.ctx.slice_type(),
                 );
                 self.push_value(obj);
                 Ok(None)
@@ -440,7 +435,7 @@ impl Frame {
                     bytecode::CallType::Positional(count) => {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
-                            args: args,
+                            args,
                             kwargs: vec![],
                         }
                     }
@@ -504,7 +499,7 @@ impl Frame {
                 let exception = match argc {
                     1 => self.pop_value(),
                     0 | 2 | 3 => panic!("Not implemented!"),
-                    _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
+                    _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
                 if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);
@@ -522,7 +517,7 @@ impl Frame {
 
             bytecode::Instruction::Break => {
                 let block = self.unwind_loop(vm);
-                if let Block::Loop { start: _, end } = block {
+                if let Block::Loop { end, .. } = block {
                     self.jump(end);
                 }
                 Ok(None)
@@ -533,7 +528,7 @@ impl Frame {
             }
             bytecode::Instruction::Continue => {
                 let block = self.unwind_loop(vm);
-                if let Block::Loop { start, end: _ } = block {
+                if let Block::Loop { start, .. } = block {
                     self.jump(start);
                 } else {
                     assert!(false);
@@ -611,7 +606,7 @@ impl Frame {
                         .iter()
                         .skip(*before)
                         .take(middle)
-                        .map(|x| x.clone())
+                        .cloned()
                         .collect();
                     let t = vm.ctx.new_list(middle_elements);
                     self.push_value(t);
@@ -662,13 +657,10 @@ impl Frame {
         module: &str,
         symbol: &Option<String>,
     ) -> FrameResult {
-        let current_path = match &self.code.source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
+        let current_path = {
+            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
+            source_pathbuf.pop();
+            source_pathbuf
         };
 
         let obj = import(vm, current_path, module, symbol)?;
@@ -679,13 +671,10 @@ impl Frame {
     }
 
     fn import_star(&mut self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
-        let current_path = match &self.code.source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
+        let current_path = {
+            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
+            source_pathbuf.pop();
+            source_pathbuf
         };
 
         // Grab all the names from the module and put them in the context
@@ -708,8 +697,7 @@ impl Frame {
                     // TODO: execute finally handler
                 }
                 Some(Block::With {
-                    end: _,
-                    context_manager,
+                    context_manager, ..
                 }) => {
                     match self.with_exit(vm, &context_manager, None) {
                         Ok(..) => {}
@@ -728,13 +716,12 @@ impl Frame {
         loop {
             let block = self.pop_block();
             match block {
-                Some(Block::Loop { start: _, end: __ }) => break block.unwrap(),
+                Some(Block::Loop { .. }) => break block.unwrap(),
                 Some(Block::TryExcept { .. }) => {
                     // TODO: execute finally handler
                 }
                 Some(Block::With {
-                    end: _,
-                    context_manager,
+                    context_manager, ..
                 }) => match self.with_exit(vm, &context_manager, None) {
                     Ok(..) => {}
                     Err(exc) => {
@@ -889,25 +876,25 @@ impl Frame {
     ) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = match op {
-            &bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-            &bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
-            &bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            &bytecode::BinaryOperator::MatrixMultiply => {
+        let value = match *op {
+            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => {
                 vm.call_method(&a_ref, "__matmul__", vec![b_ref])
             }
-            &bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-            &bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
-            &bytecode::BinaryOperator::FloorDivide => {
+            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
+            bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => {
                 vm.call_method(&a_ref, "__floordiv__", vec![b_ref])
             }
-            &bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
-            &bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
-            &bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
-            &bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
-            &bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
-            &bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
-            &bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+            bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
         }?;
 
         self.push_value(value);
@@ -920,11 +907,11 @@ impl Frame {
         op: &bytecode::UnaryOperator,
     ) -> FrameResult {
         let a = self.pop_value();
-        let value = match op {
-            &bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
-            &bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
-            &bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
-            &bytecode::UnaryOperator::Not => {
+        let value = match *op {
+            bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
+            bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
+            bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
+            bytecode::UnaryOperator::Not => {
                 let value = objbool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)
             }
@@ -997,17 +984,17 @@ impl Frame {
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let value = match op {
-            &bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
-            &bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
-            &bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
-            &bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
-            &bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
-            &bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
-            &bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
-            &bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
-            &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+        let value = match *op {
+            bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
+            bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
+            bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
+            bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
+            bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
+            bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
+            bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
+            bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
         };
 
         self.push_value(value);
@@ -1038,15 +1025,13 @@ impl Frame {
 
     fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
-            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.to_bigint().unwrap()),
+            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.clone()),
             bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
             bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
             bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => {
-                PyObject::new(PyObjectPayload::Code { code: code.clone() }, vm.get_type())
-            }
+            bytecode::Constant::Code { ref code } => vm.ctx.new_code_object(code.clone()),
             bytecode::Constant::Tuple { ref elements } => vm.ctx.new_tuple(
                 elements
                     .iter()

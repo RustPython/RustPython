@@ -10,7 +10,7 @@ use super::super::vm::VirtualMachine;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
-    let ref frame_type = context.frame_type;
+    let frame_type = &context.frame_type;
     context.set_attr(&frame_type, "__new__", context.new_rustfunc(frame_new));
     context.set_attr(&frame_type, "__repr__", context.new_rustfunc(frame_repr));
     context.set_attr(&frame_type, "f_locals", context.new_property(frame_flocals));
@@ -19,12 +19,12 @@ pub fn init(context: &PyContext) {
 
 fn frame_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_cls, None)]);
-    Err(vm.new_type_error(format!("Cannot directly create frame object")))
+    Err(vm.new_type_error("Cannot directly create frame object".to_string()))
 }
 
 fn frame_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_frame, Some(vm.ctx.frame_type()))]);
-    let repr = format!("<frame object at .. >");
+    let repr = "<frame object at .. >".to_string();
     Ok(vm.new_str(repr))
 }
 

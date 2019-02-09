@@ -4,7 +4,6 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 use std::cell::Ref;
 use std::hash::{Hash, Hasher};
@@ -14,12 +13,30 @@ use std::ops::Deref;
 
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
-    let ref bytes_type = context.bytes_type;
+    let bytes_type = &context.bytes_type;
+
+    let bytes_doc =
+        "bytes(iterable_of_ints) -> bytes\n\
+         bytes(string, encoding[, errors]) -> bytes\n\
+         bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
+         bytes(int) -> bytes object of size given by the parameter initialized with null bytes\n\
+         bytes() -> empty bytes object\n\nConstruct an immutable array of bytes from:\n  \
+         - an iterable yielding integers in range(256)\n  \
+         - a text string encoded using the specified encoding\n  \
+         - any object implementing the buffer API.\n  \
+         - an integer";
+
     context.set_attr(bytes_type, "__eq__", context.new_rustfunc(bytes_eq));
     context.set_attr(bytes_type, "__hash__", context.new_rustfunc(bytes_hash));
     context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
     context.set_attr(bytes_type, "__repr__", context.new_rustfunc(bytes_repr));
     context.set_attr(bytes_type, "__len__", context.new_rustfunc(bytes_len));
+    context.set_attr(bytes_type, "__iter__", context.new_rustfunc(bytes_iter));
+    context.set_attr(
+        bytes_type,
+        "__doc__",
+        context.new_str(bytes_doc.to_string()),
+    );
 }
 
 fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -47,10 +64,7 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
 
-    Ok(PyObject::new(
-        PyObjectPayload::Bytes { value: value },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(PyObjectPayload::Bytes { value }, cls.clone()))
 }
 
 fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -72,8 +86,7 @@ fn bytes_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(a, Some(vm.ctx.bytes_type()))]);
 
     let byte_vec = get_value(a).to_vec();
-    let value = byte_vec.len().to_bigint();
-    Ok(vm.ctx.new_int(value.unwrap()))
+    Ok(vm.ctx.new_int(byte_vec.len()))
 }
 
 fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -82,7 +95,7 @@ fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     data.hash(&mut hasher);
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
@@ -100,4 +113,18 @@ fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(obj);
     let data = String::from_utf8(value.to_vec()).unwrap();
     Ok(vm.new_str(format!("b'{}'", data)))
+}
+
+fn bytes_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
+
+    let iter_obj = PyObject::new(
+        PyObjectPayload::Iterator {
+            position: 0,
+            iterated_obj: obj.clone(),
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
 }

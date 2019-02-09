@@ -11,7 +11,7 @@ use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 
-// Hack to comment out wasm-bindgen's typescript definitons
+// Hack to comment out wasm-bindgen's typescript definitions
 #[wasm_bindgen(typescript_custom_section)]
 const TS_CMT_START: &'static str = "/*";
 
@@ -123,7 +123,7 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
         source.push('\n');
     }
 
-    let code_obj = compile::compile(vm, &source, compile::Mode::Exec, None)?;
+    let code_obj = compile::compile(vm, &source, &compile::Mode::Exec, "<string>".to_string())?;
 
     vm.run_code_obj(code_obj, vars)
 }
@@ -141,7 +141,7 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
 ///
 /// -   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
 ///     accessed in Python with the variable `js_vars`. Functions do work, and
-///     recieve the Python kwargs as the `this` argument.
+///     receive the Python kwargs as the `this` argument.
 /// -   `stdout?`: `(out: string) => void`: A function to replace the native print
 ///     function, by default `console.log`.
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {

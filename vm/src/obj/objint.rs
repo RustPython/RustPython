@@ -8,6 +8,7 @@ use super::objfloat;
 use super::objstr;
 use super::objtype;
 use num_bigint::{BigInt, ToBigInt};
+use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 use std::hash::{Hash, Hasher};
 
@@ -58,7 +59,7 @@ pub fn to_int(
         match i32::from_str_radix(&s, base) {
             Ok(v) => v.to_bigint().unwrap(),
             Err(err) => {
-                trace!("Error occured during int conversion {:?}", err);
+                trace!("Error occurred during int conversion {:?}", err);
                 return Err(vm.new_value_error(format!(
                     "invalid literal for int() with base {}: '{}'",
                     base, s
@@ -88,6 +89,20 @@ impl FromPyObjectRef for BigInt {
     fn from_pyobj(obj: &PyObjectRef) -> BigInt {
         get_value(obj)
     }
+}
+
+fn int_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
+    let result = !BigInt::from_pyobj(zelf).is_zero();
+    Ok(vm.ctx.new_bool(result))
+}
+
+fn int_invert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
+
+    let result = !BigInt::from_pyobj(zelf);
+
+    Ok(vm.ctx.new_int(result))
 }
 
 fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -170,13 +185,73 @@ fn int_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
+fn int_lshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+
+    if !objtype::isinstance(i2, &vm.ctx.int_type()) {
+        return Err(vm.new_type_error(format!(
+            "unsupported operand type(s) for << '{}' and '{}'",
+            objtype::get_type_name(&i.typ()),
+            objtype::get_type_name(&i2.typ())
+        )));
+    }
+
+    if let Some(n_bits) = get_value(i2).to_usize() {
+        return Ok(vm.ctx.new_int(get_value(i) << n_bits));
+    }
+
+    // i2 failed `to_usize()` conversion
+    match get_value(i2) {
+        ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+        ref v if *v > BigInt::from(usize::max_value()) => {
+            // TODO: raise OverflowError
+            panic!("Failed converting {} to rust usize", get_value(i2));
+        }
+        _ => panic!("Failed converting {} to rust usize", get_value(i2)),
+    }
+}
+
+fn int_rshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+
+    if !objtype::isinstance(i2, &vm.ctx.int_type()) {
+        return Err(vm.new_type_error(format!(
+            "unsupported operand type(s) for >> '{}' and '{}'",
+            objtype::get_type_name(&i.typ()),
+            objtype::get_type_name(&i2.typ())
+        )));
+    }
+
+    if let Some(n_bits) = get_value(i2).to_usize() {
+        return Ok(vm.ctx.new_int(get_value(i) >> n_bits));
+    }
+
+    // i2 failed `to_usize()` conversion
+    match get_value(i2) {
+        ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+        ref v if *v > BigInt::from(usize::max_value()) => {
+            // TODO: raise OverflowError
+            panic!("Failed converting {} to rust usize", get_value(i2));
+        }
+        _ => panic!("Failed converting {} to rust usize", get_value(i2)),
+    }
+}
+
 fn int_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
     let value = BigInt::from_pyobj(zelf);
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn int_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -215,7 +290,13 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(get_value(i) / get_value(i2)))
+        let (v1, v2) = (get_value(i), get_value(i2));
+
+        if v2 != BigInt::zero() {
+            Ok(vm.ctx.new_int(v1 / v2))
+        } else {
+            Err(vm.new_zero_division_error("integer floordiv by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!(
             "Cannot floordiv {} and {}",
@@ -223,6 +304,21 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             i2.borrow()
         )))
     }
+}
+
+fn int_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type()))],
+        optional = [(_precision, None)]
+    );
+    Ok(vm.ctx.new_int(get_value(i)))
+}
+
+fn int_pass_value(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    Ok(vm.ctx.new_int(get_value(i)))
 }
 
 fn int_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -292,17 +388,25 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm
-            .ctx
-            .new_float(v1.to_f64().unwrap() / get_value(i2).to_f64().unwrap()))
+
+    let v1 = get_value(i)
+        .to_f64()
+        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?;
+
+    let v2 = if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        get_value(i2)
+            .to_f64()
+            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm
-            .ctx
-            .new_float(v1.to_f64().unwrap() / objfloat::get_value(i2)))
+        objfloat::get_value(i2)
     } else {
-        Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())))
+        return Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())));
+    };
+
+    if v2 == 0.0 {
+        Err(vm.new_zero_division_error("integer division by zero".to_string()))
+    } else {
+        Ok(vm.ctx.new_float(v1 / v2))
     }
 }
 
@@ -314,7 +418,13 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(v1 % get_value(i2)))
+        let v2 = get_value(i2);
+
+        if v2 != BigInt::zero() {
+            Ok(vm.ctx.new_int(v1 % get_value(i2)))
+        } else {
+            Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!("Cannot modulo {} and {}", i.borrow(), i2.borrow())))
     }
@@ -340,7 +450,7 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let v1 = get_value(i);
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2).to_u32().unwrap();
-        Ok(vm.ctx.new_int(v1.pow(v2).to_bigint().unwrap()))
+        Ok(vm.ctx.new_int(v1.pow(v2)))
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))
@@ -359,11 +469,20 @@ fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
+
     if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        let r1 = int_floordiv(vm, args.clone());
-        let r2 = int_mod(vm, args.clone());
-        Ok(vm.ctx.new_tuple(vec![r1.unwrap(), r2.unwrap()]))
+        let v1 = get_value(i);
+        let v2 = get_value(i2);
+
+        if v2 != BigInt::zero() {
+            let (r1, r2) = v1.div_rem(&v2);
+
+            Ok(vm
+                .ctx
+                .new_tuple(vec![vm.ctx.new_int(r1), vm.ctx.new_int(r2)]))
+        } else {
+            Err(vm.new_zero_division_error("integer divmod by zero".to_string()))
+        }
     } else {
         Err(vm.new_type_error(format!(
             "Cannot divmod power {} and {}",
@@ -385,6 +504,23 @@ fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(vm.ctx.new_int(v1 ^ v2))
     } else {
         Err(vm.new_type_error(format!("Cannot xor {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
+fn int_rxor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+    );
+
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        let right_val = get_value(i);
+        let left_val = get_value(i2);
+
+        Ok(vm.ctx.new_int(left_val ^ right_val))
+    } else {
+        Err(vm.new_type_error(format!("Cannot rxor {} and {}", i.borrow(), i2.borrow())))
     }
 }
 
@@ -422,11 +558,32 @@ fn int_bit_length(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
     let v = get_value(i);
     let bits = v.bits();
-    Ok(vm.ctx.new_int(bits.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(bits))
+}
+
+fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
+    let v = get_value(i);
+    Ok(vm.ctx.new_int(v))
 }
 
 pub fn init(context: &PyContext) {
-    let ref int_type = context.int_type;
+    let int_doc = "int(x=0) -> integer
+int(x, base=10) -> integer
+
+Convert a number or string to an integer, or return 0 if no arguments
+are given.  If x is a number, return x.__int__().  For floating point
+numbers, this truncates towards zero.
+
+If x is not a number or if base is given, then x must be a string,
+bytes, or bytearray instance representing an integer literal in the
+given base.  The literal can be preceded by '+' or '-' and be surrounded
+by whitespace.  The base defaults to 10.  Valid bases are 0 and 2-36.
+Base 0 means to interpret the base from the string as an integer literal.
+>>> int('0b100', base=0)
+4";
+    let int_type = &context.int_type;
+
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
     context.set_attr(&int_type, "__lt__", context.new_rustfunc(int_lt));
     context.set_attr(&int_type, "__le__", context.new_rustfunc(int_le));
@@ -437,12 +594,20 @@ pub fn init(context: &PyContext) {
     context.set_attr(&int_type, "__and__", context.new_rustfunc(int_and));
     context.set_attr(&int_type, "__divmod__", context.new_rustfunc(int_divmod));
     context.set_attr(&int_type, "__float__", context.new_rustfunc(int_float));
+    context.set_attr(&int_type, "__round__", context.new_rustfunc(int_round));
+    context.set_attr(&int_type, "__ceil__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__floor__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__index__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__trunc__", context.new_rustfunc(int_pass_value));
+    context.set_attr(&int_type, "__int__", context.new_rustfunc(int_pass_value));
     context.set_attr(
         &int_type,
         "__floordiv__",
         context.new_rustfunc(int_floordiv),
     );
     context.set_attr(&int_type, "__hash__", context.new_rustfunc(int_hash));
+    context.set_attr(&int_type, "__lshift__", context.new_rustfunc(int_lshift));
+    context.set_attr(&int_type, "__rshift__", context.new_rustfunc(int_rshift));
     context.set_attr(&int_type, "__new__", context.new_rustfunc(int_new));
     context.set_attr(&int_type, "__mod__", context.new_rustfunc(int_mod));
     context.set_attr(&int_type, "__mul__", context.new_rustfunc(int_mul));
@@ -455,9 +620,14 @@ pub fn init(context: &PyContext) {
     context.set_attr(&int_type, "__format__", context.new_rustfunc(int_format));
     context.set_attr(&int_type, "__truediv__", context.new_rustfunc(int_truediv));
     context.set_attr(&int_type, "__xor__", context.new_rustfunc(int_xor));
+    context.set_attr(&int_type, "__rxor__", context.new_rustfunc(int_rxor));
+    context.set_attr(&int_type, "__bool__", context.new_rustfunc(int_bool));
+    context.set_attr(&int_type, "__invert__", context.new_rustfunc(int_invert));
     context.set_attr(
         &int_type,
         "bit_length",
         context.new_rustfunc(int_bit_length),
     );
+    context.set_attr(&int_type, "__doc__", context.new_str(int_doc.to_string()));
+    context.set_attr(&int_type, "conjugate", context.new_rustfunc(int_conjugate));
 }

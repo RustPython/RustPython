@@ -7,7 +7,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use super::bytecode::{self, CallType, CodeObject, Instruction};
-use super::pyobject::{PyObject, PyObjectPayload, PyResult};
+use super::pyobject::PyResult;
 use super::vm::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
@@ -23,11 +23,11 @@ struct Compiler {
 pub fn compile(
     vm: &mut VirtualMachine,
     source: &str,
-    mode: Mode,
-    source_path: Option<String>,
+    mode: &Mode,
+    source_path: String,
 ) -> PyResult {
     let mut compiler = Compiler::new();
-    compiler.source_path = source_path.clone();
+    compiler.source_path = Some(source_path.clone());
     compiler.push_new_code_object(source_path, "<module>".to_string());
     let syntax_error = vm.context().exceptions.syntax_error.clone();
     let result = match mode {
@@ -45,17 +45,13 @@ pub fn compile(
         },
     };
 
-    match result {
-        Err(msg) => return Err(vm.new_exception(syntax_error.clone(), msg)),
-        _ => {}
+    if let Err(msg) = result {
+        return Err(vm.new_exception(syntax_error.clone(), msg));
     }
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(PyObject::new(
-        PyObjectPayload::Code { code: code },
-        vm.ctx.code_type(),
-    ))
+    Ok(vm.ctx.new_code_object(code))
 }
 
 pub enum Mode {
@@ -82,13 +78,15 @@ impl Compiler {
         }
     }
 
-    fn push_new_code_object(&mut self, source_path: Option<String>, obj_name: String) {
+    fn push_new_code_object(&mut self, source_path: String, obj_name: String) {
+        let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             Vec::new(),
             None,
             Vec::new(),
             None,
             source_path.clone(),
+            line_number,
             obj_name,
         ));
     }
@@ -112,7 +110,7 @@ impl Compiler {
 
     fn compile_program_single(&mut self, program: &ast::Program) -> Result<(), String> {
         for statement in &program.statements {
-            if let &ast::Statement::Expression { ref expression } = &statement.node {
+            if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
                 self.emit(Instruction::PrintExpr);
             } else {
@@ -128,7 +126,7 @@ impl Compiler {
 
     // Compile statement in eval mode:
     fn compile_statement_eval(&mut self, statement: &ast::LocatedStatement) -> Result<(), String> {
-        if let &ast::Statement::Expression { ref expression } = &statement.node {
+        if let ast::Statement::Expression { ref expression } = statement.node {
             self.compile_expression(expression)?;
             self.emit(Instruction::ReturnValue);
             Ok(())
@@ -432,7 +430,7 @@ impl Compiler {
 
                 self.prepare_decorators(decorator_list)?;
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -441,7 +439,7 @@ impl Compiler {
                 });
 
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags: flags });
+                self.emit(Instruction::MakeFunction { flags });
                 self.apply_decorators(decorator_list);
 
                 self.emit(Instruction::StoreName {
@@ -457,12 +455,14 @@ impl Compiler {
             } => {
                 self.prepare_decorators(decorator_list)?;
                 self.emit(Instruction::LoadBuildClass);
+                let line_number = self.get_source_line_number();
                 self.code_object_stack.push(CodeObject::new(
                     vec![String::from("__locals__")],
                     None,
                     vec![],
                     None,
-                    self.source_path.clone(),
+                    self.source_path.clone().unwrap(),
+                    line_number,
                     name.clone(),
                 ));
                 self.emit(Instruction::LoadName {
@@ -477,7 +477,7 @@ impl Compiler {
 
                 let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String {
@@ -500,7 +500,7 @@ impl Compiler {
                     self.compile_expression(base)?;
                 }
 
-                if keywords.len() > 0 {
+                if !keywords.is_empty() {
                     let mut kwarg_names = vec![];
                     for keyword in keywords {
                         if let Some(name) = &keyword.name {
@@ -592,7 +592,7 @@ impl Compiler {
             ast::Statement::Assign { targets, value } => {
                 self.compile_expression(value)?;
 
-                for (i, target) in targets.into_iter().enumerate() {
+                for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
                         self.emit(Instruction::Duplicate);
                     }
@@ -627,7 +627,7 @@ impl Compiler {
                             self.emit(Instruction::DeleteSubscript);
                         }
                         _ => {
-                            return Err(format!("Invalid delete statement"));
+                            return Err("Invalid delete statement".to_string());
                         }
                     }
                 }
@@ -641,10 +641,10 @@ impl Compiler {
 
     fn enter_function(
         &mut self,
-        name: &String,
+        name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, String> {
-        let have_kwargs = args.defaults.len() > 0;
+        let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
             let size = args.defaults.len();
@@ -657,31 +657,33 @@ impl Compiler {
             });
         }
 
+        let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             args.args.clone(),
             args.vararg.clone(),
             args.kwonlyargs.clone(),
             args.kwarg.clone(),
-            self.source_path.clone(),
-            name.clone(),
+            self.source_path.clone().unwrap(),
+            line_number,
+            name.to_string(),
         ));
 
         let mut flags = bytecode::FunctionOpArg::empty();
         if have_kwargs {
-            flags = flags | bytecode::FunctionOpArg::HAS_DEFAULTS;
+            flags |= bytecode::FunctionOpArg::HAS_DEFAULTS;
         }
 
         Ok(flags)
     }
 
-    fn prepare_decorators(&mut self, decorator_list: &Vec<ast::Expression>) -> Result<(), String> {
+    fn prepare_decorators(&mut self, decorator_list: &[ast::Expression]) -> Result<(), String> {
         for decorator in decorator_list {
             self.compile_expression(decorator)?;
         }
         Ok(())
     }
 
-    fn apply_decorators(&mut self, decorator_list: &Vec<ast::Expression>) {
+    fn apply_decorators(&mut self, decorator_list: &[ast::Expression]) {
         // Apply decorators:
         for _ in decorator_list {
             self.emit(Instruction::CallFunction {
@@ -780,7 +782,7 @@ impl Compiler {
                     let f = false_label.unwrap_or_else(|| self.new_label());
                     self.compile_test(a, None, Some(f), context)?;
                     self.compile_test(b, true_label, false_label, context)?;
-                    if let None = false_label {
+                    if false_label.is_none() {
                         self.set_label(f);
                     }
                 }
@@ -788,7 +790,7 @@ impl Compiler {
                     let t = true_label.unwrap_or_else(|| self.new_label());
                     self.compile_test(a, Some(t), None, context)?;
                     self.compile_test(b, true_label, false_label, context)?;
-                    if let None = true_label {
+                    if true_label.is_none() {
                         self.set_label(t);
                     }
                 }
@@ -838,21 +840,21 @@ impl Compiler {
                 self.compile_test(expression, None, None, EvalContext::Expression)?
             }
             ast::Expression::Binop { a, op, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
 
                 // Perform operation:
                 self.compile_op(op);
             }
             ast::Expression::Subscript { a, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
                 self.emit(Instruction::BinaryOperation {
                     op: bytecode::BinaryOperator::Subscript,
                 });
             }
             ast::Expression::Unop { op, a } => {
-                self.compile_expression(&*a)?;
+                self.compile_expression(a)?;
 
                 // Perform operation:
                 let i = match op {
@@ -865,14 +867,14 @@ impl Compiler {
                 self.emit(i);
             }
             ast::Expression::Attribute { value, name } => {
-                self.compile_expression(&*value)?;
+                self.compile_expression(value)?;
                 self.emit(Instruction::LoadAttr {
                     name: name.to_string(),
                 });
             }
             ast::Expression::Compare { a, op, b } => {
-                self.compile_expression(&*a)?;
-                self.compile_expression(&*b)?;
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
 
                 let i = match op {
                     ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
@@ -905,7 +907,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildList {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -913,7 +915,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildTuple {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -921,7 +923,7 @@ impl Compiler {
                 let size = elements.len();
                 let must_unpack = self.gather_elements(elements)?;
                 self.emit(Instruction::BuildSet {
-                    size: size,
+                    size,
                     unpack: must_unpack,
                 });
             }
@@ -932,7 +934,7 @@ impl Compiler {
                     self.compile_expression(value)?;
                 }
                 self.emit(Instruction::BuildMap {
-                    size: size,
+                    size,
                     unpack: false,
                 });
             }
@@ -941,7 +943,7 @@ impl Compiler {
                 for element in elements {
                     self.compile_expression(element)?;
                 }
-                self.emit(Instruction::BuildSlice { size: size });
+                self.emit(Instruction::BuildSlice { size });
             }
             ast::Expression::Yield { value } => {
                 self.mark_generator();
@@ -1003,13 +1005,13 @@ impl Compiler {
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code: code },
+                    value: bytecode::Constant::Code { code },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String { value: name },
                 });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags: flags });
+                self.emit(Instruction::MakeFunction { flags });
             }
             ast::Expression::Comprehension { kind, generators } => {
                 self.compile_comprehension(kind, generators)?;
@@ -1036,8 +1038,8 @@ impl Compiler {
     fn compile_call(
         &mut self,
         function: &ast::Expression,
-        args: &Vec<ast::Expression>,
-        keywords: &Vec<ast::Keyword>,
+        args: &[ast::Expression],
+        keywords: &[ast::Keyword],
     ) -> Result<(), String> {
         self.compile_expression(function)?;
         let count = args.len() + keywords.len();
@@ -1054,7 +1056,7 @@ impl Compiler {
             });
 
             // Create an optional map with kw-args:
-            if keywords.len() > 0 {
+            if !keywords.is_empty() {
                 for keyword in keywords {
                     if let Some(name) = &keyword.name {
                         self.emit(Instruction::LoadConst {
@@ -1090,7 +1092,7 @@ impl Compiler {
             }
         } else {
             // Keyword arguments:
-            if keywords.len() > 0 {
+            if !keywords.is_empty() {
                 let mut kwarg_names = vec![];
                 for keyword in keywords {
                     if let Some(name) = &keyword.name {
@@ -1123,7 +1125,7 @@ impl Compiler {
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(&mut self, elements: &Vec<ast::Expression>) -> Result<bool, String> {
+    fn gather_elements(&mut self, elements: &[ast::Expression]) -> Result<bool, String> {
         // First determine if we have starred elements:
         let has_stars = elements.iter().any(|e| {
             if let ast::Expression::Starred { .. } = e {
@@ -1153,10 +1155,10 @@ impl Compiler {
     fn compile_comprehension(
         &mut self,
         kind: &ast::ComprehensionKind,
-        generators: &Vec<ast::Comprehension>,
+        generators: &[ast::Comprehension],
     ) -> Result<(), String> {
         // We must have at least one generator:
-        assert!(generators.len() > 0);
+        assert!(!generators.is_empty());
 
         let name = match kind {
             ast::ComprehensionKind::GeneratorExpression { .. } => "<genexpr>",
@@ -1166,13 +1168,15 @@ impl Compiler {
         }
         .to_string();
 
+        let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
         self.code_object_stack.push(CodeObject::new(
             vec![".0".to_string()],
             None,
             vec![],
             None,
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
+            line_number,
             name.clone(),
         ));
 
@@ -1201,8 +1205,7 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
-            let first = loop_labels.len() == 0;
-            if first {
+            if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
                     name: String::from(".0"),
@@ -1287,7 +1290,7 @@ impl Compiler {
 
         // List comprehension code:
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::Code { code: code },
+            value: bytecode::Constant::Code { code },
         });
 
         // List comprehension function name:
@@ -1343,6 +1346,10 @@ impl Compiler {
         self.current_source_location = location.clone();
     }
 
+    fn get_source_line_number(&mut self) -> usize {
+        self.current_source_location.get_row()
+    }
+
     fn mark_generator(&mut self) {
         self.current_code_object().is_generator = true;
     }
@@ -1357,7 +1364,7 @@ mod tests {
     use rustpython_parser::parser;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
-        compiler.push_new_code_object(Option::None, "<module>".to_string());
+        compiler.push_new_code_object("source_path".to_string(), "<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
         compiler.compile_program(&ast).unwrap();
         compiler.pop_code_object()

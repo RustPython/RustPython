@@ -1,5 +1,5 @@
 //! This module takes care of lexing python source text. This means source
-//! code is translated into seperate tokens.
+//! code is translated into separate tokens.
 
 pub use super::token::Tok;
 use num_bigint::BigInt;
@@ -54,6 +54,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
 #[derive(Debug)]
 pub enum LexicalError {
     StringError,
+    NestingError,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -64,10 +65,7 @@ pub struct Location {
 
 impl Location {
     pub fn new(row: usize, column: usize) -> Self {
-        Location {
-            row: row,
-            column: column,
-        }
+        Location { row, column }
     }
 
     pub fn get_row(&self) -> usize {
@@ -126,8 +124,7 @@ pub type Spanned<Tok> = Result<(Location, Tok, Location), LexicalError>;
 pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = Spanned<Tok>> + 'a {
     let nlh = NewlineHandler::new(source.chars());
     let lch = LineContinationHandler::new(nlh);
-    let lexer = Lexer::new(lch);
-    lexer
+    Lexer::new(lch)
 }
 
 // The newline handler is an iterator which collapses different newline
@@ -144,7 +141,7 @@ where
 {
     pub fn new(source: T) -> Self {
         let mut nlh = NewlineHandler {
-            source: source,
+            source,
             chr0: None,
             chr1: None,
         };
@@ -200,7 +197,7 @@ where
 {
     pub fn new(source: T) -> Self {
         let mut nlh = LineContinationHandler {
-            source: source,
+            source,
             chr0: None,
             chr1: None,
         };
@@ -313,7 +310,7 @@ where
         if keywords.contains_key(&name) {
             Ok((start_pos, keywords.remove(&name).unwrap(), end_pos))
         } else {
-            Ok((start_pos, Tok::Name { name: name }, end_pos))
+            Ok((start_pos, Tok::Name { name }, end_pos))
         }
     }
 
@@ -358,7 +355,7 @@ where
 
         let end_pos = self.get_pos();
         let value = BigInt::from_str_radix(&value_text, radix).unwrap();
-        Ok((start_pos, Tok::Int { value: value }, end_pos))
+        Ok((start_pos, Tok::Int { value }, end_pos))
     }
 
     fn lex_normal_number(&mut self) -> Spanned<Tok> {
@@ -410,7 +407,7 @@ where
                 ))
             } else {
                 let end_pos = self.get_pos();
-                Ok((start_pos, Tok::Float { value: value }, end_pos))
+                Ok((start_pos, Tok::Float { value }, end_pos))
             }
         } else {
             // Parse trailing 'j':
@@ -418,18 +415,11 @@ where
                 self.next_char();
                 let end_pos = self.get_pos();
                 let imag = f64::from_str(&value_text).unwrap();
-                Ok((
-                    start_pos,
-                    Tok::Complex {
-                        real: 0.0,
-                        imag: imag,
-                    },
-                    end_pos,
-                ))
+                Ok((start_pos, Tok::Complex { real: 0.0, imag }, end_pos))
             } else {
                 let end_pos = self.get_pos();
                 let value = value_text.parse::<BigInt>().unwrap();
-                Ok((start_pos, Tok::Int { value: value }, end_pos))
+                Ok((start_pos, Tok::Int { value }, end_pos))
             }
         }
     }
@@ -439,9 +429,7 @@ where
         self.next_char();
         loop {
             match self.chr0 {
-                Some('\n') => {
-                    return;
-                }
+                Some('\n') => return,
                 Some(_) => {}
                 None => return,
             }
@@ -548,33 +536,33 @@ where
             }
         };
 
-        return Ok((start_pos, tok, end_pos));
+        Ok((start_pos, tok, end_pos))
     }
 
     fn is_char(&self) -> bool {
         match self.chr0 {
-            Some('a'...'z') | Some('A'...'Z') | Some('_') | Some('0'...'9') => return true,
-            _ => return false,
+            Some('a'...'z') | Some('A'...'Z') | Some('_') | Some('0'...'9') => true,
+            _ => false,
         }
     }
 
     fn is_number(&self, radix: u32) -> bool {
         match radix {
             2 => match self.chr0 {
-                Some('0'...'1') => return true,
-                _ => return false,
+                Some('0'...'1') => true,
+                _ => false,
             },
             8 => match self.chr0 {
-                Some('0'...'7') => return true,
-                _ => return false,
+                Some('0'...'7') => true,
+                _ => false,
             },
             10 => match self.chr0 {
-                Some('0'...'9') => return true,
-                _ => return false,
+                Some('0'...'9') => true,
+                _ => false,
             },
             16 => match self.chr0 {
-                Some('0'...'9') | Some('a'...'f') | Some('A'...'F') => return true,
-                _ => return false,
+                Some('0'...'9') | Some('a'...'f') | Some('A'...'F') => true,
+                _ => false,
             },
             x => unimplemented!("Radix not implemented: {}", x),
         }
@@ -915,6 +903,9 @@ where
                 }
                 Some(')') => {
                     let result = self.eat_single_char(Tok::Rpar);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -925,6 +916,9 @@ where
                 }
                 Some(']') => {
                     let result = self.eat_single_char(Tok::Rsqb);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -935,6 +929,9 @@ where
                 }
                 Some('}') => {
                     let result = self.eat_single_char(Tok::Rbrace);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }

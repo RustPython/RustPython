@@ -11,7 +11,6 @@ use super::super::pyobject::{
     TypeProtocol,
 };
 use super::super::VirtualMachine;
-use num_bigint::ToBigInt;
 use num_traits::cast::ToPrimitive;
 
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
@@ -52,12 +51,11 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else if objtype::isinstance(self.pyobject, &self.ctx.int_type()) {
             let v = objint::get_value(self.pyobject);
             serializer.serialize_i64(v.to_i64().unwrap())
-        // Allthough this may seem nice, it does not give the right result:
+        // Although this may seem nice, it does not give the right result:
         // v.serialize(serializer)
-        } else if objtype::isinstance(self.pyobject, &self.ctx.list_type()) {
-            let elements = objsequence::get_elements(self.pyobject);
-            serialize_seq_elements(serializer, &elements)
-        } else if objtype::isinstance(self.pyobject, &self.ctx.tuple_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.ctx.list_type())
+            || objtype::isinstance(self.pyobject, &self.ctx.tuple_type())
+        {
             let elements = objsequence::get_elements(self.pyobject);
             serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.ctx.dict_type()) {
@@ -119,7 +117,7 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
             {
                 // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
                 // implement those for now
-                Ok(self.ctx.new_int(value.to_bigint().unwrap()))
+                Ok(self.ctx.new_int(value))
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
@@ -128,7 +126,7 @@ impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
             {
                 // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
                 // implement those for now
-                Ok(self.ctx.new_int(value.to_bigint().unwrap()))
+                Ok(self.ctx.new_int(value))
             }
 
             fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
@@ -223,10 +221,8 @@ fn loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .get_item("JSONDecodeError")
             .unwrap();
         let exc = vm.new_exception(json_decode_error, format!("{}", err));
-        vm.ctx
-            .set_item(&exc, "lineno", vm.ctx.new_int(err.line().into()));
-        vm.ctx
-            .set_item(&exc, "colno", vm.ctx.new_int(err.column().into()));
+        vm.ctx.set_item(&exc, "lineno", vm.ctx.new_int(err.line()));
+        vm.ctx.set_item(&exc, "colno", vm.ctx.new_int(err.column()));
         exc
     })
 }
