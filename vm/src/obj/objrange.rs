@@ -95,14 +95,25 @@ impl RangeType {
 
     #[inline]
     pub fn reversed(&self) -> Self {
+        // compute the last element that is actually contained within the range
+        // this is the new start
+        let remainder = ((&self.end - &self.start) % &self.step).abs();
+        let start = if rem.is_zero() {
+            &self.end - &self.step
+        } else {
+            &self.end - &remainder
+        };
+
         match self.step.sign() {
-            Sign::Plus => RangeType {
-                start: &self.end - 1,
-                end: &self.start - 1,
-                step: -&self.step,
+            Sign::Plus => {
+                RangeType {
+                    start,
+                    end: &self.start - 1,
+                    step: -&self.step,
+                }
             },
             Sign::Minus => RangeType {
-                start: &self.end + 1,
+                start,
                 end: &self.start + 1,
                 step: -&self.step,
             },
