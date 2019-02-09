@@ -7,3 +7,4 @@ __pycache__
 .repl_history.txt
 .vscode
 wasm-pack.log
+.idea/
