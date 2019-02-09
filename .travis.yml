@@ -16,6 +16,7 @@ env:
 cache: cargo
 
 matrix:
+  fast_finish: true
   include:
     # To test the snippets, we use Travis' Python environment (because
     # installing rust ourselves is a lot easier than installing Python)
@@ -86,9 +87,20 @@ matrix:
       env:
         - REGULAR_TEST=false
         - DEPLOY_DEMO=true
+    - name: cargo-clippy
+      language: rust
+      rust: stable
+      cache: cargo
+      before_script:
+        - rustup component add clippy
+      script:
+        - cargo clippy
+      env:
+        - REGULAR_TEST=true
   allow_failures:
     - rust: nightly
       env: REGULAR_TEST=true
+    - name: cargo-clippy
 
 deploy:
   - provider: pages
