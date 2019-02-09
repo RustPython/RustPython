@@ -61,3 +61,4 @@ assert 'foo' not in range(10)
 # __reversed__
 assert list(reversed(range(5))) == [4, 3, 2, 1, 0]
 assert list(reversed(range(5, 0, -1))) == [1, 2, 3, 4, 5]
+assert list(reversed(range(1,10,5))) == [6, 1]
