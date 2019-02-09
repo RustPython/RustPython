@@ -13,6 +13,7 @@ pub fn init(context: &PyContext) {
         "Create a complex number from a real part and an optional imaginary part.\n\n\
          This is equivalent to (real + imag*1j) where imag defaults to 0.";
 
+    context.set_attr(&complex_type, "__abs__", context.new_rustfunc(complex_abs));
     context.set_attr(&complex_type, "__add__", context.new_rustfunc(complex_add));
     context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
     context.set_attr(
@@ -68,6 +69,13 @@ fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Complex { value },
         cls.clone(),
     ))
+}
+
+fn complex_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
+
+    let Complex64 { re, im } = get_value(zelf);
+    Ok(vm.ctx.new_float(re.hypot(im)))
 }
 
 fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
