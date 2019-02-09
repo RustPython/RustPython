@@ -428,11 +428,9 @@ where
         self.next_char();
         loop {
             match self.chr0 {
-                Some('\n') => {
-                    return;
-                }
+                Some('\n') => return,
                 Some(_) => {}
-                None => return,
+                None => return
             }
             self.next_char();
         }
