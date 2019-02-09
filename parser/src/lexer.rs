@@ -430,7 +430,7 @@ where
             match self.chr0 {
                 Some('\n') => return,
                 Some(_) => {}
-                None => return
+                None => return,
             }
             self.next_char();
         }
