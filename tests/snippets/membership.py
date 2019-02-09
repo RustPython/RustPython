@@ -19,7 +19,7 @@ assert b"5" <= b"5"
 assert b"4" > b"2"
 assert not b"1" >= b"2"
 assert b"10" >= b"10"
-try
+try:
     bytes() > 2
 except TypeError:
     pass
