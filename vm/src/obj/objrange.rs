@@ -7,6 +7,7 @@ use super::objtype;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::ops::Mul;
 
 #[derive(Debug, Clone)]
 pub struct RangeType {
@@ -77,8 +78,11 @@ impl RangeType {
     }
 
     #[inline]
-    pub fn get(&self, index: BigInt) -> Option<BigInt> {
-        let result = self.start.clone() + self.step.clone() * index;
+    pub fn get<'a, T>(&'a self, index: T) -> Option<BigInt>
+    where
+        &'a BigInt: Mul<T, Output = BigInt>,
+    {
+        let result = &self.start + &self.step * index;
 
         if (self.forward() && !self.is_empty() && result < self.end)
             || (!self.forward() && !self.is_empty() && result > self.end)
@@ -199,15 +203,19 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match subscript.borrow().payload {
         PyObjectPayload::Integer { ref value } => {
-            if let Some(int) = zrange.get(value.clone()) {
+            if let Some(int) = zrange.get(value) {
                 Ok(vm.ctx.new_int(int))
             } else {
                 Err(vm.new_index_error("range object index out of range".to_string()))
             }
         }
-        PyObjectPayload::Slice { start, stop, step } => {
+        PyObjectPayload::Slice {
+            ref start,
+            ref stop,
+            ref step,
+        } => {
             let new_start = if let Some(int) = start {
-                if let Some(i) = zrange.get(int.into()) {
+                if let Some(i) = zrange.get(int) {
                     i
                 } else {
                     zrange.start.clone()
@@ -217,7 +225,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
 
             let new_end = if let Some(int) = stop {
-                if let Some(i) = zrange.get(int.into()) {
+                if let Some(i) = zrange.get(int) {
                     i
                 } else {
                     zrange.end
@@ -227,7 +235,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
 
             let new_step = if let Some(int) = step {
-                (int as i64) * zrange.step
+                int * zrange.step
             } else {
                 zrange.step
             };

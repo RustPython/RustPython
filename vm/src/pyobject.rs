@@ -22,6 +22,7 @@ use super::obj::objobject;
 use super::obj::objproperty;
 use super::obj::objrange;
 use super::obj::objset;
+use super::obj::objslice;
 use super::obj::objstr;
 use super::obj::objsuper;
 use super::obj::objtuple;
@@ -136,6 +137,7 @@ pub struct PyContext {
     pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
     pub range_type: PyObjectRef,
+    pub slice_type: PyObjectRef,
     pub type_type: PyObjectRef,
     pub zip_type: PyObjectRef,
     pub function_type: PyObjectRef,
@@ -216,6 +218,7 @@ impl PyContext {
         let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
         let code_type = create_type("code", &type_type, &int_type, &dict_type);
         let range_type = create_type("range", &type_type, &object_type, &dict_type);
+        let slice_type = create_type("slice", &type_type, &object_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
@@ -260,6 +263,7 @@ impl PyContext {
             none,
             str_type,
             range_type,
+            slice_type,
             object: object_type,
             function_type,
             super_type,
@@ -288,6 +292,7 @@ impl PyContext {
         objmemory::init(&context);
         objstr::init(&context);
         objrange::init(&context);
+        objslice::init(&context);
         objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
@@ -344,6 +349,10 @@ impl PyContext {
 
     pub fn range_type(&self) -> PyObjectRef {
         self.range_type.clone()
+    }
+
+    pub fn slice_type(&self) -> PyObjectRef {
+        self.slice_type.clone()
     }
 
     pub fn frozenset_type(&self) -> PyObjectRef {
@@ -920,9 +929,9 @@ pub enum PyObjectPayload {
         iterators: Vec<PyObjectRef>,
     },
     Slice {
-        start: Option<i32>,
-        stop: Option<i32>,
-        step: Option<i32>,
+        start: Option<BigInt>,
+        stop: Option<BigInt>,
+        step: Option<BigInt>,
     },
     Range {
         range: objrange::RangeType,

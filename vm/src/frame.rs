@@ -20,7 +20,7 @@ use super::pyobject::{
     PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use num_traits::ToPrimitive;
+use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]
 enum Block {
@@ -262,22 +262,22 @@ impl Frame {
                 assert!(*size == 2 || *size == 3);
                 let elements = self.pop_multiple(*size);
 
-                let mut out: Vec<Option<i32>> = elements
+                let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
                     .map(|x| match x.borrow().payload {
-                        PyObjectPayload::Integer { ref value } => Some(value.to_i32().unwrap()),
+                        PyObjectPayload::Integer { ref value } => Some(value.clone()),
                         PyObjectPayload::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
                     })
                     .collect();
 
-                let start = out[0];
-                let stop = out[1];
-                let step = if out.len() == 3 { out[2] } else { None };
+                let start = out[0].take();
+                let stop = out[1].take();
+                let step = if out.len() == 3 { out[2].take() } else { None };
 
                 let obj = PyObject::new(
                     PyObjectPayload::Slice { start, stop, step },
-                    vm.ctx.type_type(),
+                    vm.ctx.slice_type(),
                 );
                 self.push_value(obj);
                 Ok(None)
