@@ -7,6 +7,7 @@ use super::objtype;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::ops::Mul;
 
 #[derive(Debug, Clone)]
 pub struct RangeType {
@@ -77,8 +78,11 @@ impl RangeType {
     }
 
     #[inline]
-    pub fn get(&self, index: BigInt) -> Option<BigInt> {
-        let result = self.start.clone() + self.step.clone() * index;
+    pub fn get<'a, T>(&'a self, index: T) -> Option<BigInt>
+    where
+        &'a BigInt: Mul<T, Output = BigInt>,
+    {
+        let result = &self.start + &self.step * index;
 
         if (self.forward() && !self.is_empty() && result < self.end)
             || (!self.forward() && !self.is_empty() && result > self.end)
@@ -90,6 +94,31 @@ impl RangeType {
     }
 
     #[inline]
+    pub fn reversed(&self) -> Self {
+        // compute the last element that is actually contained within the range
+        // this is the new start
+        let remainder = ((&self.end - &self.start) % &self.step).abs();
+        let start = if remainder.is_zero() {
+            &self.end - &self.step
+        } else {
+            &self.end - &remainder
+        };
+
+        match self.step.sign() {
+            Sign::Plus => RangeType {
+                start,
+                end: &self.start - 1,
+                step: -&self.step,
+            },
+            Sign::Minus => RangeType {
+                start,
+                end: &self.start + 1,
+                step: -&self.step,
+            },
+            Sign::NoSign => unreachable!(),
+        }
+    }
+
     pub fn repr(&self) -> String {
         if self.step == BigInt::one() {
             format!("range({}, {})", self.start, self.end)
@@ -101,8 +130,27 @@ impl RangeType {
 
 pub fn init(context: &PyContext) {
     let ref range_type = context.range_type;
+
+    let range_doc = "range(stop) -> range object\n\
+                     range(start, stop[, step]) -> range object\n\n\
+                     Return an object that produces a sequence of integers from start (inclusive)\n\
+                     to stop (exclusive) by step.  range(i, j) produces i, i+1, i+2, ..., j-1.\n\
+                     start defaults to 0, and stop is omitted!  range(4) produces 0, 1, 2, 3.\n\
+                     These are exactly the valid indices for a list of 4 elements.\n\
+                     When step is given, it specifies the increment (or decrement).";
+
     context.set_attr(&range_type, "__new__", context.new_rustfunc(range_new));
     context.set_attr(&range_type, "__iter__", context.new_rustfunc(range_iter));
+    context.set_attr(
+        &range_type,
+        "__reversed__",
+        context.new_rustfunc(range_reversed),
+    );
+    context.set_attr(
+        &range_type,
+        "__doc__",
+        context.new_str(range_doc.to_string()),
+    );
     context.set_attr(&range_type, "__len__", context.new_rustfunc(range_len));
     context.set_attr(
         &range_type,
@@ -172,6 +220,23 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
+fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+
+    let range = match zelf.borrow().payload {
+        PyObjectPayload::Range { ref range } => range.reversed(),
+        _ => unreachable!(),
+    };
+
+    Ok(PyObject::new(
+        PyObjectPayload::Iterator {
+            position: 0,
+            iterated_obj: PyObject::new(PyObjectPayload::Range { range }, vm.ctx.range_type()),
+        },
+        vm.ctx.iter_type(),
+    ))
+}
+
 fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
@@ -199,15 +264,19 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match subscript.borrow().payload {
         PyObjectPayload::Integer { ref value } => {
-            if let Some(int) = zrange.get(value.clone()) {
+            if let Some(int) = zrange.get(value) {
                 Ok(vm.ctx.new_int(int))
             } else {
                 Err(vm.new_index_error("range object index out of range".to_string()))
             }
         }
-        PyObjectPayload::Slice { start, stop, step } => {
+        PyObjectPayload::Slice {
+            ref start,
+            ref stop,
+            ref step,
+        } => {
             let new_start = if let Some(int) = start {
-                if let Some(i) = zrange.get(int.into()) {
+                if let Some(i) = zrange.get(int) {
                     i
                 } else {
                     zrange.start.clone()
@@ -217,7 +286,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
 
             let new_end = if let Some(int) = stop {
-                if let Some(i) = zrange.get(int.into()) {
+                if let Some(i) = zrange.get(int) {
                     i
                 } else {
                     zrange.end
@@ -227,7 +296,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
 
             let new_step = if let Some(int) = step {
-                (int as i64) * zrange.step
+                int * zrange.step
             } else {
                 zrange.step
             };

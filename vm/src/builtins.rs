@@ -150,7 +150,7 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let filename = objstr::get_value(filename);
 
-    compile::compile(vm, &source, &mode, Some(filename))
+    compile::compile(vm, &source, &mode, filename)
 }
 
 fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -200,7 +200,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, None)?
+        compile::compile(vm, &source, &mode, "<string>".to_string())?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
@@ -246,7 +246,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, None)?
+        compile::compile(vm, &source, &mode, "<string>".to_string())?
     } else if objtype::isinstance(source, &vm.ctx.code_type()) {
         source.clone()
     } else {
@@ -587,8 +587,38 @@ fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
     vm.to_repr(obj)
 }
+
+fn builtin_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+
+    match vm.get_method(obj.clone(), "__reversed__") {
+        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
+        // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
+        Err(..) => Err(vm.new_type_error(format!(
+            "'{}' object is not reversible",
+            objtype::get_type_name(&obj.typ()),
+        ))),
+    }
+}
 // builtin_reversed
-// builtin_round
+
+fn builtin_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(number, Some(vm.ctx.object()))],
+        optional = [(ndigits, None)]
+    );
+    if let Some(ndigits) = ndigits {
+        let ndigits = vm.call_method(ndigits, "__int__", vec![])?;
+        let rounded = vm.call_method(number, "__round__", vec![ndigits])?;
+        Ok(rounded)
+    } else {
+        // without a parameter, the result type is coerced to int
+        let rounded = &vm.call_method(number, "__round__", vec![])?;
+        Ok(vm.ctx.new_int(objint::get_value(rounded)))
+    }
+}
 
 fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -675,8 +705,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "property", ctx.property_type());
     ctx.set_attr(&py_mod, "range", ctx.range_type());
     ctx.set_attr(&py_mod, "repr", ctx.new_rustfunc(builtin_repr));
+    ctx.set_attr(&py_mod, "reversed", ctx.new_rustfunc(builtin_reversed));
+    ctx.set_attr(&py_mod, "round", ctx.new_rustfunc(builtin_round));
     ctx.set_attr(&py_mod, "set", ctx.set_type());
     ctx.set_attr(&py_mod, "setattr", ctx.new_rustfunc(builtin_setattr));
+    ctx.set_attr(&py_mod, "slice", ctx.slice_type());
     ctx.set_attr(&py_mod, "staticmethod", ctx.staticmethod_type());
     ctx.set_attr(&py_mod, "str", ctx.str_type());
     ctx.set_attr(&py_mod, "sum", ctx.new_rustfunc(builtin_sum));
@@ -730,6 +763,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
     ctx.set_attr(&py_mod, "IndexError", ctx.exceptions.index_error.clone());
     ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "FileNotFoundError",
+        ctx.exceptions.file_not_found_error.clone(),
+    );
     ctx.set_attr(
         &py_mod,
         "StopIteration",

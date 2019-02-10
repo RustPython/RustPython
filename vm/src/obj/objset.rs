@@ -6,7 +6,7 @@ use super::super::pyobject::{
     IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objiter;
 use super::objstr;
@@ -94,7 +94,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(o);
     let s = if elements.is_empty() {
         "set()".to_string()
-    } else {
+    } else if let Some(_guard) = ReprGuard::enter(o) {
         let mut str_parts = vec![];
         for elem in elements.values() {
             let part = vm.to_repr(elem)?;
@@ -102,6 +102,8 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
 
         format!("{{{}}}", str_parts.join(", "))
+    } else {
+        "set(...)".to_string()
     };
     Ok(vm.new_str(s))
 }
@@ -124,6 +126,99 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     Ok(vm.new_bool(false))
+}
+
+fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf != other },
+        false,
+    );
+}
+
+fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf < other },
+        false,
+    );
+}
+
+fn set_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf <= other },
+        false,
+    );
+}
+
+fn set_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf < other },
+        true,
+    );
+}
+
+fn set_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    return set_compare_inner(
+        vm,
+        args,
+        &|zelf: usize, other: usize| -> bool { zelf <= other },
+        true,
+    );
+}
+
+fn set_compare_inner(
+    vm: &mut VirtualMachine,
+    args: PyFuncArgs,
+    size_func: &Fn(usize, usize) -> bool,
+    swap: bool,
+) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.set_type())),
+            (other, Some(vm.ctx.set_type()))
+        ]
+    );
+
+    let get_zelf = |swap: bool| -> &PyObjectRef {
+        if swap {
+            other
+        } else {
+            zelf
+        }
+    };
+    let get_other = |swap: bool| -> &PyObjectRef {
+        if swap {
+            zelf
+        } else {
+            other
+        }
+    };
+
+    let zelf_elements = get_elements(get_zelf(swap));
+    let other_elements = get_elements(get_other(swap));
+    if size_func(zelf_elements.len(), other_elements.len()) {
+        return Ok(vm.new_bool(false));
+    }
+    for element in other_elements.iter() {
+        match vm.call_method(get_zelf(swap), "__contains__", vec![element.1.clone()]) {
+            Ok(value) => {
+                if !objbool::get_value(&value) {
+                    return Ok(vm.new_bool(false));
+                }
+            }
+            Err(_) => return Err(vm.new_type_error("".to_string())),
+        }
+    }
+    Ok(vm.new_bool(true))
 }
 
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -159,6 +254,13 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__len__", context.new_rustfunc(set_len));
     context.set_attr(&set_type, "__new__", context.new_rustfunc(set_new));
     context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
+    context.set_attr(&set_type, "__eq__", context.new_rustfunc(set_eq));
+    context.set_attr(&set_type, "__ge__", context.new_rustfunc(set_ge));
+    context.set_attr(&set_type, "__gt__", context.new_rustfunc(set_gt));
+    context.set_attr(&set_type, "__le__", context.new_rustfunc(set_le));
+    context.set_attr(&set_type, "__lt__", context.new_rustfunc(set_lt));
+    context.set_attr(&set_type, "issubset", context.new_rustfunc(set_le));
+    context.set_attr(&set_type, "issuperset", context.new_rustfunc(set_ge));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 

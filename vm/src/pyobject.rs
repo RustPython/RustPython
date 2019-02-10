@@ -22,6 +22,7 @@ use super::obj::objobject;
 use super::obj::objproperty;
 use super::obj::objrange;
 use super::obj::objset;
+use super::obj::objslice;
 use super::obj::objstr;
 use super::obj::objsuper;
 use super::obj::objtuple;
@@ -137,6 +138,7 @@ pub struct PyContext {
     pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
     pub range_type: PyObjectRef,
+    pub slice_type: PyObjectRef,
     pub type_type: PyObjectRef,
     pub zip_type: PyObjectRef,
     pub function_type: PyObjectRef,
@@ -217,6 +219,7 @@ impl PyContext {
         let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
         let code_type = create_type("code", &type_type, &int_type, &dict_type);
         let range_type = create_type("range", &type_type, &object_type, &dict_type);
+        let slice_type = create_type("slice", &type_type, &object_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
@@ -267,6 +270,7 @@ impl PyContext {
             not_implemented,
             str_type,
             range_type,
+            slice_type,
             object: object_type,
             function_type,
             super_type,
@@ -295,6 +299,7 @@ impl PyContext {
         objmemory::init(&context);
         objstr::init(&context);
         objrange::init(&context);
+        objslice::init(&context);
         objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
@@ -351,6 +356,10 @@ impl PyContext {
 
     pub fn range_type(&self) -> PyObjectRef {
         self.range_type.clone()
+    }
+
+    pub fn slice_type(&self) -> PyObjectRef {
+        self.slice_type.clone()
     }
 
     pub fn frozenset_type(&self) -> PyObjectRef {
@@ -930,9 +939,9 @@ pub enum PyObjectPayload {
         iterators: Vec<PyObjectRef>,
     },
     Slice {
-        start: Option<i32>,
-        stop: Option<i32>,
-        step: Option<i32>,
+        start: Option<BigInt>,
+        stop: Option<BigInt>,
+        step: Option<BigInt>,
     },
     Range {
         range: objrange::RangeType,
@@ -1033,77 +1042,6 @@ impl PyObject {
             // dict: HashMap::new(),  // dict,
         }
         .into_ref()
-    }
-
-    /// Deprecated method, please call `vm.to_pystr`
-    pub fn str(&self) -> String {
-        match self.payload {
-            PyObjectPayload::String { ref value } => value.clone(),
-            PyObjectPayload::Integer { ref value } => format!("{:?}", value),
-            PyObjectPayload::Float { ref value } => format!("{:?}", value),
-            PyObjectPayload::Complex { ref value } => format!("{:?}", value),
-            PyObjectPayload::Bytes { ref value } => format!("b'{:?}'", value),
-            PyObjectPayload::MemoryView { ref obj } => format!("b'{:?}'", obj),
-            PyObjectPayload::Sequence { ref elements } => format!(
-                "(/[{}]/)",
-                elements
-                    .iter()
-                    .map(|elem| elem.borrow().str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectPayload::Dict { ref elements } => format!(
-                "{{ {} }}",
-                elements
-                    .iter()
-                    .map(|elem| format!("{}: ...", elem.0))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectPayload::Set { ref elements } => format!(
-                "{{ {} }}",
-                elements
-                    .iter()
-                    .map(|elem| elem.1.borrow().str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectPayload::WeakRef { .. } => String::from("weakref"),
-            PyObjectPayload::None => String::from("None"),
-            PyObjectPayload::NotImplemented => String::from("NotImplemented"),
-            PyObjectPayload::Class {
-                ref name,
-                dict: ref _dict,
-                ..
-            } => format!("<class '{}'>", name),
-            PyObjectPayload::Instance { .. } => "<instance>".to_string(),
-            PyObjectPayload::Code { .. } => "<code>".to_string(),
-            PyObjectPayload::Function { .. } => "<func>".to_string(),
-            PyObjectPayload::Generator { .. } => "<generator>".to_string(),
-            PyObjectPayload::Frame { .. } => "<frame>".to_string(),
-            PyObjectPayload::BoundMethod { .. } => "<bound-method>".to_string(),
-            PyObjectPayload::RustFunction { .. } => "<rustfunc>".to_string(),
-            PyObjectPayload::Module { ref name, .. } => format!("<module '{}'>", name),
-            PyObjectPayload::Scope { ref scope } => format!("<scope '{:?}'>", scope),
-            PyObjectPayload::Slice {
-                ref start,
-                ref stop,
-                ref step,
-            } => format!("<slice '{:?}:{:?}:{:?}'>", start, stop, step),
-            PyObjectPayload::Range { ref range } => format!("<range '{:?}'>", range),
-            PyObjectPayload::Iterator {
-                ref position,
-                ref iterated_obj,
-            } => format!(
-                "<iter pos {} in {}>",
-                position,
-                iterated_obj.borrow_mut().str()
-            ),
-            PyObjectPayload::EnumerateIterator { .. } => format!("<enumerate>"),
-            PyObjectPayload::FilterIterator { .. } => format!("<filter>"),
-            PyObjectPayload::MapIterator { .. } => format!("<map>"),
-            PyObjectPayload::ZipIterator { .. } => format!("<zip>"),
-        }
     }
 
     // Move this object into a reference object, transferring ownership.

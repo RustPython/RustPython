@@ -22,6 +22,7 @@ pub mod objproperty;
 pub mod objrange;
 pub mod objsequence;
 pub mod objset;
+pub mod objslice;
 pub mod objstr;
 pub mod objsuper;
 pub mod objtuple;

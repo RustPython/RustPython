@@ -1,5 +1,5 @@
 //! This module takes care of lexing python source text. This means source
-//! code is translated into seperate tokens.
+//! code is translated into separate tokens.
 
 pub use super::token::Tok;
 use num_bigint::BigInt;
@@ -54,6 +54,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
 #[derive(Debug)]
 pub enum LexicalError {
     StringError,
+    NestingError,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -428,9 +429,7 @@ where
         self.next_char();
         loop {
             match self.chr0 {
-                Some('\n') => {
-                    return;
-                }
+                Some('\n') => return,
                 Some(_) => {}
                 None => return,
             }
@@ -904,6 +903,9 @@ where
                 }
                 Some(')') => {
                     let result = self.eat_single_char(Tok::Rpar);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -914,6 +916,9 @@ where
                 }
                 Some(']') => {
                     let result = self.eat_single_char(Tok::Rsqb);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -924,6 +929,9 @@ where
                 }
                 Some('}') => {
                     let result = self.eat_single_char(Tok::Rbrace);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }

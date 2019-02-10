@@ -56,7 +56,7 @@ impl VirtualMachine {
         }
     }
 
-    // Can we get rid of the code paramter?
+    // Can we get rid of the code parameter?
 
     fn make_frame(&self, code: PyCodeObject, callargs: HashMap<String, Rc<NativeType>>, globals: Option<HashMap<String, Rc<NativeType>>>) -> Frame {
         //populate the globals and locals
@@ -345,7 +345,7 @@ impl VirtualMachine {
                 let exception = match argc {
                     1 => curr_frame.stack.pop().unwrap(),
                     0 | 2 | 3 => panic!("Not implemented!"),
-                    _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3")
+                    _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3")
                 };
                 panic!("{:?}", exception);
             }

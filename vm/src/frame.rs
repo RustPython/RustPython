@@ -20,7 +20,7 @@ use super::pyobject::{
     PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use num_traits::ToPrimitive;
+use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]
 enum Block {
@@ -70,7 +70,7 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: objcode::copy_code(&code),
+            code: objcode::get_value(&code),
             stack: vec![],
             blocks: vec![],
             // save the callargs as locals
@@ -88,11 +88,7 @@ impl Frame {
     }
 
     pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
-        let filename = if let Some(source_path) = &self.code.source_path {
-            source_path.to_string()
-        } else {
-            "<unknown>".to_string()
-        };
+        let filename = &self.code.source_path.to_string();
 
         let prev_frame = mem::replace(&mut vm.current_frame, Some(vm.ctx.new_frame(self.clone())));
 
@@ -262,22 +258,22 @@ impl Frame {
                 assert!(*size == 2 || *size == 3);
                 let elements = self.pop_multiple(*size);
 
-                let mut out: Vec<Option<i32>> = elements
+                let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
                     .map(|x| match x.borrow().payload {
-                        PyObjectPayload::Integer { ref value } => Some(value.to_i32().unwrap()),
+                        PyObjectPayload::Integer { ref value } => Some(value.clone()),
                         PyObjectPayload::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
                     })
                     .collect();
 
-                let start = out[0];
-                let stop = out[1];
-                let step = if out.len() == 3 { out[2] } else { None };
+                let start = out[0].take();
+                let stop = out[1].take();
+                let step = if out.len() == 3 { out[2].take() } else { None };
 
                 let obj = PyObject::new(
                     PyObjectPayload::Slice { start, stop, step },
-                    vm.ctx.type_type(),
+                    vm.ctx.slice_type(),
                 );
                 self.push_value(obj);
                 Ok(None)
@@ -503,7 +499,7 @@ impl Frame {
                 let exception = match argc {
                     1 => self.pop_value(),
                     0 | 2 | 3 => panic!("Not implemented!"),
-                    _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
+                    _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
                 if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);
@@ -661,13 +657,10 @@ impl Frame {
         module: &str,
         symbol: &Option<String>,
     ) -> FrameResult {
-        let current_path = match &self.code.source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
+        let current_path = {
+            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
+            source_pathbuf.pop();
+            source_pathbuf
         };
 
         let obj = import(vm, current_path, module, symbol)?;
@@ -678,13 +671,10 @@ impl Frame {
     }
 
     fn import_star(&mut self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
-        let current_path = match &self.code.source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
+        let current_path = {
+            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
+            source_pathbuf.pop();
+            source_pathbuf
         };
 
         // Grab all the names from the module and put them in the context
@@ -1095,7 +1085,7 @@ impl fmt::Debug for Frame {
         let stack_str = self
             .stack
             .iter()
-            .map(|elem| format!("\n  > {}", elem.borrow().str()))
+            .map(|elem| format!("\n  > {:?}", elem.borrow()))
             .collect::<Vec<_>>()
             .join("");
         let block_str = self
@@ -1109,9 +1099,7 @@ impl fmt::Debug for Frame {
                 PyObjectPayload::Dict { ref elements } => {
                     objdict::get_key_value_pairs_from_content(elements)
                         .iter()
-                        .map(|elem| {
-                            format!("\n  {} = {}", elem.0.borrow().str(), elem.1.borrow().str())
-                        })
+                        .map(|elem| format!("\n  {:?} = {:?}", elem.0.borrow(), elem.1.borrow()))
                         .collect::<Vec<_>>()
                         .join("")
                 }

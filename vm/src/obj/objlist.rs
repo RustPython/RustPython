@@ -1,7 +1,7 @@
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -21,9 +21,12 @@ fn set_item(
 ) -> PyResult {
     if objtype::isinstance(&idx, &vm.ctx.int_type()) {
         let value = objint::get_value(&idx).to_i32().unwrap();
-        let pos_index = l.get_pos(value);
-        l[pos_index] = obj;
-        Ok(vm.get_none())
+        if let Some(pos_index) = l.get_pos(value) {
+            l[pos_index] = obj;
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_index_error("list index out of range".to_string()))
+        }
     } else {
         panic!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
@@ -181,14 +184,18 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
-    let elements = get_elements(o);
-    let mut str_parts = vec![];
-    for elem in elements.iter() {
-        let s = vm.to_repr(elem)?;
-        str_parts.push(objstr::get_value(&s));
-    }
+    let s = if let Some(_guard) = ReprGuard::enter(o) {
+        let elements = get_elements(o);
+        let mut str_parts = vec![];
+        for elem in elements.iter() {
+            let s = vm.to_repr(elem)?;
+            str_parts.push(objstr::get_value(&s));
+        }
+        format!("[{}]", str_parts.join(", "))
+    } else {
+        "[...]".to_string()
+    };
 
-    let s = format!("[{}]", str_parts.join(", "));
     Ok(vm.new_str(s))
 }
 
