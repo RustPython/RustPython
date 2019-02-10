@@ -131,6 +131,7 @@ pub struct PyContext {
     pub map_type: PyObjectRef,
     pub memoryview_type: PyObjectRef,
     pub none: PyObjectRef,
+    pub not_implemented: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
     pub staticmethod_type: PyObjectRef,
@@ -226,6 +227,11 @@ impl PyContext {
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
+        let not_implemented = PyObject::new(
+            PyObjectPayload::NotImplemented,
+            create_type("NotImplementedType", &type_type, &object_type, &dict_type),
+        );
+
         let true_value = PyObject::new(
             PyObjectPayload::Integer { value: One::one() },
             bool_type.clone(),
@@ -261,6 +267,7 @@ impl PyContext {
             zip_type,
             dict_type,
             none,
+            not_implemented,
             str_type,
             range_type,
             slice_type,
@@ -431,6 +438,9 @@ impl PyContext {
 
     pub fn none(&self) -> PyObjectRef {
         self.none.clone()
+    }
+    pub fn not_implemented(&self) -> PyObjectRef {
+        self.not_implemented.clone()
     }
     pub fn object(&self) -> PyObjectRef {
         self.object.clone()
@@ -965,6 +975,7 @@ pub enum PyObjectPayload {
         dict: PyObjectRef,
     },
     None,
+    NotImplemented,
     Class {
         name: String,
         dict: RefCell<PyAttributes>,
@@ -1011,6 +1022,7 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Module { .. } => write!(f, "module"),
             PyObjectPayload::Scope { .. } => write!(f, "scope"),
             PyObjectPayload::None => write!(f, "None"),
+            PyObjectPayload::NotImplemented => write!(f, "NotImplemented"),
             PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
             PyObjectPayload::Instance { .. } => write!(f, "instance"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
