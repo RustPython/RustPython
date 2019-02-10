@@ -89,8 +89,8 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             ) -> PyResult {
                 match elements.remove(&key) {
                     None => {
-                        let item = value.borrow();
-                        Err(vm.new_key_error(item.str()))
+                        let item_str = format!("{:?}", value.borrow());
+                        Err(vm.new_key_error(item_str))
                     }
                     Some(_) => Ok(vm.get_none()),
                 }
