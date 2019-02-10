@@ -6,7 +6,7 @@ use super::super::pyobject::{
     IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objiter;
 use super::objstr;
@@ -94,7 +94,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(o);
     let s = if elements.is_empty() {
         "set()".to_string()
-    } else {
+    } else if let Some(_guard) = ReprGuard::enter(o) {
         let mut str_parts = vec![];
         for elem in elements.values() {
             let part = vm.to_repr(elem)?;
@@ -102,6 +102,8 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
 
         format!("{{{}}}", str_parts.join(", "))
+    } else {
+        "set(...)".to_string()
     };
     Ok(vm.new_str(s))
 }

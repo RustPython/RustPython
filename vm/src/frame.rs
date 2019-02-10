@@ -1085,7 +1085,7 @@ impl fmt::Debug for Frame {
         let stack_str = self
             .stack
             .iter()
-            .map(|elem| format!("\n  > {}", elem.borrow().str()))
+            .map(|elem| format!("\n  > {:?}", elem.borrow()))
             .collect::<Vec<_>>()
             .join("");
         let block_str = self
@@ -1099,9 +1099,7 @@ impl fmt::Debug for Frame {
                 PyObjectPayload::Dict { ref elements } => {
                     objdict::get_key_value_pairs_from_content(elements)
                         .iter()
-                        .map(|elem| {
-                            format!("\n  {} = {}", elem.0.borrow().str(), elem.1.borrow().str())
-                        })
+                        .map(|elem| format!("\n  {:?} = {:?}", elem.0.borrow(), elem.1.borrow()))
                         .collect::<Vec<_>>()
                         .join("")
                 }
