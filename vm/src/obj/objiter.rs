@@ -174,7 +174,15 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let iter_type = &context.iter_type;
+
+    let iter_doc = "iter(iterable) -> iterator\n\
+                    iter(callable, sentinel) -> iterator\n\n\
+                    Get an iterator from an object.  In the first form, the argument must\n\
+                    supply its own iterator, or be a sequence.\n\
+                    In the second form, the callable is called until it returns the sentinel.";
+
     iter_type_init(context, iter_type);
     context.set_attr(&iter_type, "__new__", context.new_rustfunc(iter_new));
     context.set_attr(&iter_type, "__next__", context.new_rustfunc(iter_next));
+    context.set_attr(&iter_type, "__doc__", context.new_str(iter_doc.to_string()));
 }
