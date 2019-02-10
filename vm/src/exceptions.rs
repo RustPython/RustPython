@@ -73,7 +73,7 @@ fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let msg = if let Some(m) = exc.get_attr("msg") {
         match vm.to_pystr(&m) {
             Ok(msg) => msg,
-            _ => "".to_string(),
+            _ => "<exception str() failed>".to_string(),
         }
     } else {
         panic!("Error message must be set");
