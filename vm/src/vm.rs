@@ -13,6 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 use super::builtins;
 use super::bytecode;
 use super::frame::Frame;
+use super::obj::objbool;
 use super::obj::objcode;
 use super::obj::objgenerator;
 use super::obj::objiter;
@@ -616,7 +617,8 @@ impl VirtualMachine {
 
     pub fn _ne(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__ne__", "__ne__", |vm, a, b| {
-            Ok(vm.new_bool(!a.is(&b)))
+            let eq = vm._eq(a, b)?;
+            objbool::not(vm, &eq)
         })
     }
 

@@ -3,7 +3,6 @@ use super::super::pyobject::{
     TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
-use super::objbool;
 use super::objstr;
 use super::objtype;
 use std::cell::RefCell;
@@ -29,20 +28,19 @@ fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(zelf, Some(vm.ctx.object())), (other, None)]
+        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
     );
-    Ok(vm.ctx.new_bool(zelf.is(other)))
+    Ok(vm.ctx.not_implemented())
 }
 
 fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(zelf, Some(vm.ctx.object())), (other, None)]
+        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
     );
 
-    let eq = vm._eq(zelf.clone(), other.clone())?;
-    objbool::not(vm, &eq)
+    Ok(vm.ctx.not_implemented())
 }
 
 fn object_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
