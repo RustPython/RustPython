@@ -33,6 +33,9 @@ class Hashable(object):
     def __repr__(self):
         return repr(self.obj)
 
+    def __hash__(self):
+        return id(self)
+
 
 recursive = set()
 recursive.add(Hashable(recursive))
