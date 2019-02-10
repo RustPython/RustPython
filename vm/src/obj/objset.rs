@@ -166,7 +166,7 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(set, Some(vm.ctx.set_type())), (needle, None)]
     );
     for element in get_elements(set).iter() {
-        match vm.call_method(needle, "__eq__", vec![element.1.clone()]) {
+        match vm._eq(needle.clone(), element.1.clone()) {
             Ok(value) => {
                 if objbool::get_value(&value) {
                     return Ok(vm.new_bool(true));
