@@ -226,7 +226,10 @@ impl Frame {
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
                 let elements = self.get_elements(vm, *size, *unpack)?;
-                let py_obj = vm.ctx.new_set(elements);
+                let py_obj = vm.ctx.new_set();
+                for item in elements {
+                    vm.call_method(&py_obj, "add", vec![item])?;
+                }
                 self.push_value(py_obj);
                 Ok(None)
             }

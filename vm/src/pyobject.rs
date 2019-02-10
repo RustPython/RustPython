@@ -498,9 +498,11 @@ impl PyContext {
         PyObject::new(PyObjectPayload::Sequence { elements }, self.list_type())
     }
 
-    pub fn new_set(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        let elements = objset::sequence_to_hashmap(&elements);
-        PyObject::new(PyObjectPayload::Set { elements }, self.set_type())
+    pub fn new_set(&self) -> PyObjectRef {
+        // Initialized empty, as calling __hash__ is required for adding each object to the set
+        // which requires a VM context - this is done in the objset code itself.
+        let elements: HashMap<u64, PyObjectRef> = HashMap::new();
+        PyObject::new(PyObjectPayload::Set { elements: elements }, self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
@@ -917,7 +919,7 @@ pub enum PyObjectPayload {
         elements: objdict::DictContentType,
     },
     Set {
-        elements: HashMap<usize, PyObjectRef>,
+        elements: HashMap<u64, PyObjectRef>,
     },
     Iterator {
         position: usize,
