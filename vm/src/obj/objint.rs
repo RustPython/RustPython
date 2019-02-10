@@ -111,14 +111,19 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    let zelf = BigInt::from_pyobj(zelf);
     let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
-        let zelf = BigInt::from_pyobj(zelf);
         let other = BigInt::from_pyobj(other);
         zelf == other
     } else if objtype::isinstance(other, &vm.ctx.float_type()) {
-        let zelf = BigInt::from_pyobj(zelf).to_f64().unwrap();
-        let other = objfloat::get_value(other);
-        zelf == other
+        let other_float = objfloat::get_value(other);
+
+        if let (Some(zelf_float), Some(other_int)) = (zelf.to_f64(), other_float.to_bigint()) {
+            zelf_float == other_float && zelf == other_int
+        } else {
+            false
+        }
     } else {
         false
     };
