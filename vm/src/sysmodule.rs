@@ -126,16 +126,16 @@ settrace() -- set the global debug tracing function
 
     ctx.set_item(&modules, sys_name, sys_mod.clone());
 
-    ctx.set_item(&sys_mod, "modules", modules);
-    ctx.set_item(&sys_mod, "argv", argv(ctx));
-    ctx.set_item(&sys_mod, "getrefcount", ctx.new_rustfunc(sys_getrefcount));
-    ctx.set_item(&sys_mod, "getsizeof", ctx.new_rustfunc(sys_getsizeof));
-    ctx.set_item(&sys_mod, "maxsize", ctx.new_int(std::usize::MAX));
-    ctx.set_item(&sys_mod, "path", path);
-    ctx.set_item(&sys_mod, "ps1", ctx.new_str(">>>>> ".to_string()));
-    ctx.set_item(&sys_mod, "ps2", ctx.new_str("..... ".to_string()));
-    ctx.set_item(&sys_mod, "__doc__", ctx.new_str(sys_doc.to_string()));
-    ctx.set_item(&sys_mod, "_getframe", ctx.new_rustfunc(getframe));
+    ctx.set_attr(&sys_mod, "modules", modules);
+    ctx.set_attr(&sys_mod, "argv", argv(ctx));
+    ctx.set_attr(&sys_mod, "getrefcount", ctx.new_rustfunc(sys_getrefcount));
+    ctx.set_attr(&sys_mod, "getsizeof", ctx.new_rustfunc(sys_getsizeof));
+    ctx.set_attr(&sys_mod, "maxsize", ctx.new_int(std::usize::MAX));
+    ctx.set_attr(&sys_mod, "path", path);
+    ctx.set_attr(&sys_mod, "ps1", ctx.new_str(">>>>> ".to_string()));
+    ctx.set_attr(&sys_mod, "ps2", ctx.new_str("..... ".to_string()));
+    ctx.set_attr(&sys_mod, "__doc__", ctx.new_str(sys_doc.to_string()));
+    ctx.set_attr(&sys_mod, "_getframe", ctx.new_rustfunc(getframe));
 
     sys_mod
 }

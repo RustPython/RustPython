@@ -44,7 +44,13 @@ fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictCont
     })
 }
 
-pub fn set_item(dict: &PyObjectRef, needle: &PyObjectRef, value: &PyObjectRef) {
+pub fn set_item(
+    dict: &PyObjectRef,
+    _vm: &mut VirtualMachine,
+    needle: &PyObjectRef,
+    value: &PyObjectRef,
+) {
+    // TODO: use vm to call eventual __hash__ and __eq__methods.
     let mut elements = get_mut_elements(dict);
     set_item_in_content(&mut elements, needle, value);
 }
@@ -121,7 +127,7 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(dict_obj) = dict_obj {
         if objtype::isinstance(&dict_obj, &vm.ctx.dict_type()) {
             for (needle, value) in get_key_value_pairs(&dict_obj) {
-                set_item(&dict, &needle, &value);
+                set_item(&dict, vm, &needle, &value);
             }
         } else {
             let iter = objiter::get_iter(vm, dict_obj)?;
@@ -139,12 +145,13 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                     return Err(err(vm));
                 }
-                set_item(&dict, &needle, &value);
+                set_item(&dict, vm, &needle, &value);
             }
         }
     }
     for (needle, value) in args.kwargs {
-        set_item(&dict, &vm.new_str(needle), &value);
+        let py_needle = vm.new_str(needle);
+        set_item(&dict, vm, &py_needle, &value);
     }
     Ok(dict)
 }
@@ -249,7 +256,7 @@ fn dict_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    set_item(dict, needle, value);
+    set_item(dict, vm, needle, value);
 
     Ok(vm.get_none())
 }

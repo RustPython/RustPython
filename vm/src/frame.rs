@@ -247,11 +247,11 @@ impl Frame {
                         // Take all key-value pairs from the dict:
                         let dict_elements = objdict::get_key_value_pairs(&obj);
                         for (key, value) in dict_elements.iter() {
-                            objdict::set_item(&map_obj, key, value);
+                            objdict::set_item(&map_obj, vm, key, value);
                         }
                     } else {
                         let key = self.pop_value();
-                        objdict::set_item(&map_obj, &key, &obj);
+                        objdict::set_item(&map_obj, vm, &key, &obj);
                     }
                 }
                 self.push_value(map_obj);
