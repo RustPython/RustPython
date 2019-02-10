@@ -101,8 +101,7 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_callable(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    // TODO: is this a sufficiently thorough check?
-    let is_callable = obj.has_attr("__call__");
+    let is_callable = obj.typ().has_attr("__call__");
     Ok(vm.new_bool(is_callable))
 }
 
