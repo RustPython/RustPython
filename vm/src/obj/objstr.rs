@@ -26,7 +26,9 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&str_type, "__getitem__", context.new_rustfunc(str_getitem));
     context.set_attr(&str_type, "__gt__", context.new_rustfunc(str_gt));
+    context.set_attr(&str_type, "__ge__", context.new_rustfunc(str_ge));
     context.set_attr(&str_type, "__lt__", context.new_rustfunc(str_lt));
+    context.set_attr(&str_type, "__le__", context.new_rustfunc(str_le));
     context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
     context.set_attr(&str_type, "__len__", context.new_rustfunc(str_len));
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
@@ -126,30 +128,60 @@ fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.str_type())),
-            (other, Some(vm.ctx.str_type()))
-        ]
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf > other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 > get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
+fn str_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn str_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.str_type())),
-            (other, Some(vm.ctx.str_type()))
-        ]
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf < other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 < get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
+fn str_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

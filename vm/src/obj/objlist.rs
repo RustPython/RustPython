@@ -1,7 +1,7 @@
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -184,14 +184,18 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
-    let elements = get_elements(o);
-    let mut str_parts = vec![];
-    for elem in elements.iter() {
-        let s = vm.to_repr(elem)?;
-        str_parts.push(objstr::get_value(&s));
-    }
+    let s = if let Some(_guard) = ReprGuard::enter(o) {
+        let elements = get_elements(o);
+        let mut str_parts = vec![];
+        for elem in elements.iter() {
+            let s = vm.to_repr(elem)?;
+            str_parts.push(objstr::get_value(&s));
+        }
+        format!("[{}]", str_parts.join(", "))
+    } else {
+        "[...]".to_string()
+    };
 
-    let s = format!("[{}]", str_parts.join(", "));
     Ok(vm.new_str(s))
 }
 

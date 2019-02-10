@@ -3,17 +3,19 @@
  */
 
 use super::super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
+use super::objint;
 use super::objiter;
 use super::objstr;
 use super::objtype;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 
-pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
+pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
     if let PyObjectPayload::Set { elements } = &obj.borrow().payload {
         elements.clone()
     } else {
@@ -21,13 +23,36 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
     }
 }
 
-pub fn sequence_to_hashmap(iterable: &[PyObjectRef]) -> HashMap<usize, PyObjectRef> {
-    let mut elements = HashMap::new();
-    for item in iterable {
-        let key = item.get_id();
-        elements.insert(key, item.clone());
+fn perform_action_with_hash(
+    vm: &mut VirtualMachine,
+    elements: &mut HashMap<u64, PyObjectRef>,
+    item: &PyObjectRef,
+    f: &Fn(&mut VirtualMachine, &mut HashMap<u64, PyObjectRef>, u64, &PyObjectRef) -> PyResult,
+) -> PyResult {
+    let hash: PyObjectRef = vm.call_method(item, "__hash__", vec![])?;
+
+    let hash_value = objint::get_value(&hash);
+    let mut hasher = DefaultHasher::new();
+    hash_value.hash(&mut hasher);
+    let key = hasher.finish();
+    f(vm, elements, key, item)
+}
+
+fn insert_into_set(
+    vm: &mut VirtualMachine,
+    elements: &mut HashMap<u64, PyObjectRef>,
+    item: &PyObjectRef,
+) -> PyResult {
+    fn insert(
+        vm: &mut VirtualMachine,
+        elements: &mut HashMap<u64, PyObjectRef>,
+        key: u64,
+        value: &PyObjectRef,
+    ) -> PyResult {
+        elements.insert(key, value.clone());
+        Ok(vm.get_none())
     }
-    elements
+    perform_action_with_hash(vm, elements, item, &insert)
 }
 
 fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -39,12 +64,40 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let mut mut_obj = s.borrow_mut();
 
-    if let PyObjectPayload::Set { ref mut elements } = mut_obj.payload {
-        let key = item.get_id();
-        elements.insert(key, item.clone());
-        Ok(vm.get_none())
-    } else {
-        Err(vm.new_type_error("set.add is called with no list".to_string()))
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => insert_into_set(vm, elements, item),
+        _ => Err(vm.new_type_error("set.add is called with no item".to_string())),
+    }
+}
+
+fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("set.remove called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.set_type())), (item, None)]
+    );
+    let mut mut_obj = s.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            fn remove(
+                vm: &mut VirtualMachine,
+                elements: &mut HashMap<u64, PyObjectRef>,
+                key: u64,
+                value: &PyObjectRef,
+            ) -> PyResult {
+                match elements.remove(&key) {
+                    None => {
+                        let item_str = format!("{:?}", value.borrow());
+                        Err(vm.new_key_error(item_str))
+                    }
+                    Some(_) => Ok(vm.get_none()),
+                }
+            }
+            perform_action_with_hash(vm, elements, item, &remove)
+        }
+        _ => Err(vm.new_type_error("set.remove is called with no item".to_string())),
     }
 }
 
@@ -61,15 +114,13 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{} is not a subtype of set", cls.borrow())));
     }
 
-    let elements = match iterable {
+    let elements: HashMap<u64, PyObjectRef> = match iterable {
         None => HashMap::new(),
         Some(iterable) => {
             let mut elements = HashMap::new();
             let iterator = objiter::get_iter(vm, iterable)?;
             while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                // TODO: should we use the hash function here?
-                let key = v.get_id();
-                elements.insert(key, v);
+                insert_into_set(vm, &mut elements, &v).unwrap();
             }
             elements
         }
@@ -94,7 +145,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(o);
     let s = if elements.is_empty() {
         "set()".to_string()
-    } else {
+    } else if let Some(_guard) = ReprGuard::enter(o) {
         let mut str_parts = vec![];
         for elem in elements.values() {
             let part = vm.to_repr(elem)?;
@@ -102,6 +153,8 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
 
         format!("{{{}}}", str_parts.join(", "))
+    } else {
+        "set(...)".to_string()
     };
     Ok(vm.new_str(s))
 }
@@ -261,6 +314,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "issuperset", context.new_rustfunc(set_ge));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
+    context.set_attr(&set_type, "remove", context.new_rustfunc(set_remove));
 
     let frozenset_type = &context.frozenset_type;
 

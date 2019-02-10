@@ -38,3 +38,7 @@ except IndexError:
     pass
 else:
     assert False, "IndexError was not raised"
+
+recursive = []
+recursive.append(recursive)
+assert repr(recursive) == "[[...]]"

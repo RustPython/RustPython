@@ -226,7 +226,10 @@ impl Frame {
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
                 let elements = self.get_elements(vm, *size, *unpack)?;
-                let py_obj = vm.ctx.new_set(elements);
+                let py_obj = vm.ctx.new_set();
+                for item in elements {
+                    vm.call_method(&py_obj, "add", vec![item])?;
+                }
                 self.push_value(py_obj);
                 Ok(None)
             }
@@ -1085,7 +1088,7 @@ impl fmt::Debug for Frame {
         let stack_str = self
             .stack
             .iter()
-            .map(|elem| format!("\n  > {}", elem.borrow().str()))
+            .map(|elem| format!("\n  > {:?}", elem.borrow()))
             .collect::<Vec<_>>()
             .join("");
         let block_str = self
@@ -1099,9 +1102,7 @@ impl fmt::Debug for Frame {
                 PyObjectPayload::Dict { ref elements } => {
                     objdict::get_key_value_pairs_from_content(elements)
                         .iter()
-                        .map(|elem| {
-                            format!("\n  {} = {}", elem.0.borrow().str(), elem.1.borrow().str())
-                        })
+                        .map(|elem| format!("\n  {:?} = {:?}", elem.0.borrow(), elem.1.borrow()))
                         .collect::<Vec<_>>()
                         .join("")
                 }

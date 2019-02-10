@@ -39,6 +39,15 @@ assert_raises(lambda _: range(4, 10, 2).index(5), ValueError)
 # index raises value error if needle is not an int
 assert_raises(lambda _: range(10).index('foo'), ValueError)
 
+# count tests
+assert range(10).count(2) == 1
+assert range(10).count(11) == 0
+assert range(10).count(-1) == 0
+assert range(9, 12).count(10) == 1
+assert range(4, 10, 2).count(4) == 1
+assert range(4, 10, 2).count(7) == 0
+assert range(10).count("foo") == 0
+
 # __bool__
 assert bool(range(1))
 assert bool(range(1, 2))
@@ -61,3 +70,4 @@ assert 'foo' not in range(10)
 # __reversed__
 assert list(reversed(range(5))) == [4, 3, 2, 1, 0]
 assert list(reversed(range(5, 0, -1))) == [1, 2, 3, 4, 5]
+assert list(reversed(range(1,10,5))) == [6, 1]
