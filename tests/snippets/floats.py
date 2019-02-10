@@ -18,3 +18,24 @@ assert not a >= b
 assert a + b == 2.5
 assert a - c == 0
 assert a / c == 1
+
+assert a < 5
+assert a <= 5
+try:
+    assert a < 'a'
+except TypeError:
+    pass
+try:
+    assert a <= 'a'
+except TypeError:
+    pass
+assert a > 1
+assert a >= 1
+try:
+    assert a > 'a'
+except TypeError:
+    pass
+try:
+    assert a >= 'a'
+except TypeError:
+    pass
