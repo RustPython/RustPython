@@ -182,6 +182,9 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&range_type, "index", context.new_rustfunc(range_index));
     context.set_attr(&range_type, "count", context.new_rustfunc(range_count));
+    context.set_attr(&range_type, "start", context.new_property(range_start));
+    context.set_attr(&range_type, "stop", context.new_property(range_stop));
+    context.set_attr(&range_type, "step", context.new_property(range_step));
 }
 
 fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -394,4 +397,19 @@ fn range_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         Ok(vm.ctx.new_int(0))
     }
+}
+
+fn range_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+    Ok(vm.ctx.new_int(get_value(zelf).start))
+}
+
+fn range_stop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+    Ok(vm.ctx.new_int(get_value(zelf).end))
+}
+
+fn range_step(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+    Ok(vm.ctx.new_int(get_value(zelf).step))
 }
