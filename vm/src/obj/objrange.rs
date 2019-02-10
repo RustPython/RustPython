@@ -7,6 +7,7 @@ use super::objtype;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use std::cell::Ref;
 use std::ops::Mul;
 
 #[derive(Debug, Clone)]
@@ -98,19 +99,17 @@ impl RangeType {
         // compute the last element that is actually contained within the range
         // this is the new start
         let remainder = ((&self.end - &self.start) % &self.step).abs();
-        let start = if rem.is_zero() {
+        let start = if remainder.is_zero() {
             &self.end - &self.step
         } else {
             &self.end - &remainder
         };
 
         match self.step.sign() {
-            Sign::Plus => {
-                RangeType {
-                    start,
-                    end: &self.start - 1,
-                    step: -&self.step,
-                }
+            Sign::Plus => RangeType {
+                start,
+                end: &self.start - 1,
+                step: -&self.step,
             },
             Sign::Minus => RangeType {
                 start,
@@ -225,11 +224,7 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
-    let range = match zelf.borrow().payload {
-        PyObjectPayload::Range { ref range } => range.reversed(),
-        _ => unreachable!(),
-    };
-
+    let range = get_range(zelf).reversed();
     Ok(PyObject::new(
         PyObjectPayload::Iterator {
             position: 0,
@@ -242,10 +237,7 @@ fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
-    if let Some(len) = match zelf.borrow().payload {
-        PyObjectPayload::Range { ref range } => range.try_len(),
-        _ => unreachable!(),
-    } {
+    if let Some(len) = get_range(zelf).try_len() {
         Ok(vm.ctx.new_int(len))
     } else {
         Err(vm.new_overflow_error("Python int too large to convert to Rust usize".to_string()))
@@ -258,15 +250,11 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.range_type())), (subscript, None)]
     );
-    let zrange = if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
-        range.clone()
-    } else {
-        unreachable!()
-    };
+    let range = get_range(zelf).clone();
 
     match subscript.borrow().payload {
         PyObjectPayload::Integer { ref value } => {
-            if let Some(int) = zrange.get(value) {
+            if let Some(int) = range.get(value) {
                 Ok(vm.ctx.new_int(int))
             } else {
                 Err(vm.new_index_error("range object index out of range".to_string()))
@@ -278,29 +266,29 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             ref step,
         } => {
             let new_start = if let Some(int) = start {
-                if let Some(i) = zrange.get(int) {
+                if let Some(i) = range.get(int) {
                     i
                 } else {
-                    zrange.start.clone()
+                    range.start.clone()
                 }
             } else {
-                zrange.start.clone()
+                range.start.clone()
             };
 
             let new_end = if let Some(int) = stop {
-                if let Some(i) = zrange.get(int) {
+                if let Some(i) = range.get(int) {
                     i
                 } else {
-                    zrange.end
+                    range.end
                 }
             } else {
-                zrange.end
+                range.end
             };
 
             let new_step = if let Some(int) = step {
-                int * zrange.step
+                int * range.step
             } else {
-                zrange.step
+                range.step
             };
 
             Ok(PyObject::new(
@@ -321,24 +309,12 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
-
-    let s = match zelf.borrow().payload {
-        PyObjectPayload::Range { ref range } => range.repr(),
-        _ => unreachable!(),
-    };
-
-    Ok(vm.ctx.new_str(s))
+    Ok(vm.ctx.new_str(get_range(zelf).repr()))
 }
 
 fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
-
-    let len = match zelf.borrow().payload {
-        PyObjectPayload::Range { ref range } => range.len(),
-        _ => unreachable!(),
-    };
-
-    Ok(vm.ctx.new_bool(len > 0))
+    Ok(vm.ctx.new_bool(!get_range(zelf).is_empty()))
 }
 
 fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -347,15 +323,11 @@ fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.range_type())), (needle, None)]
     );
-
-    if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
-        Ok(vm.ctx.new_bool(match needle.borrow().payload {
-            PyObjectPayload::Integer { ref value } => range.contains(value),
-            _ => false,
-        }))
-    } else {
-        unreachable!()
-    }
+    let range = get_range(zelf);
+    Ok(vm.ctx.new_bool(match needle.borrow().payload {
+        PyObjectPayload::Integer { ref value } => range.contains(value),
+        _ => false,
+    }))
 }
 
 fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -364,16 +336,22 @@ fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.range_type())), (needle, None)]
     );
-
-    if let PyObjectPayload::Range { ref range } = zelf.borrow().payload {
-        match needle.borrow().payload {
-            PyObjectPayload::Integer { ref value } => match range.index_of(value) {
-                Some(idx) => Ok(vm.ctx.new_int(idx)),
-                None => Err(vm.new_value_error(format!("{} is not in range", value))),
-            },
-            _ => Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string())),
-        }
-    } else {
-        unreachable!()
+    let range = get_range(zelf);
+    match needle.borrow().payload {
+        PyObjectPayload::Integer { ref value } => match range.index_of(value) {
+            Some(idx) => Ok(vm.ctx.new_int(idx)),
+            None => Err(vm.new_value_error(format!("{} is not in range", value))),
+        },
+        _ => Err(vm.new_value_error("sequence.index(x): x not in sequence".to_string())),
     }
+}
+
+fn get_range<'a>(obj: &'a PyObjectRef) -> Ref<'a, RangeType> {
+    Ref::map(obj.borrow(), |x| {
+        if let PyObjectPayload::Range { ref range } = x.payload {
+            range
+        } else {
+            panic!("Inner error getting rangetype")
+        }
+    })
 }
