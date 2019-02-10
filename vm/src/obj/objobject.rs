@@ -40,7 +40,8 @@ fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.object())), (other, None)]
     );
-    let eq = vm.call_method(zelf, "__eq__", vec![other.clone()])?;
+
+    let eq = vm._eq(zelf.clone(), other.clone())?;
     objbool::not(vm, &eq)
 }
 
