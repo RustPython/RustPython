@@ -287,7 +287,7 @@ fn unpack_u64(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
 fn unpack_f32(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_f32::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_float(v as f64)),
+        Ok(v) => Ok(vm.ctx.new_float(f64::from(v))),
     }
 }
 

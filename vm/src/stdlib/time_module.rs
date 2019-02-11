@@ -17,7 +17,7 @@ fn time_sleep(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn duration_to_f64(d: Duration) -> f64 {
-    (d.as_secs() as f64) + ((d.subsec_nanos() as f64) / 1e9)
+    (d.as_secs() as f64) + (f64::from(d.subsec_nanos()) / 1e9)
 }
 
 fn time_time(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
