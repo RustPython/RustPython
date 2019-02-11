@@ -57,7 +57,19 @@ fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let filter_type = &context.filter_type;
+
     objiter::iter_type_init(context, filter_type);
+
+    let filter_doc =
+        "filter(function or None, iterable) --> filter object\n\n\
+         Return an iterator yielding those items of iterable for which function(item)\n\
+         is true. If function is None, return the items that are true.";
+
     context.set_attr(&filter_type, "__new__", context.new_rustfunc(filter_new));
+    context.set_attr(
+        &filter_type,
+        "__doc__",
+        context.new_str(filter_doc.to_string()),
+    );
     context.set_attr(&filter_type, "__next__", context.new_rustfunc(filter_next));
 }

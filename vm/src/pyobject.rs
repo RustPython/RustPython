@@ -131,6 +131,7 @@ pub struct PyContext {
     pub map_type: PyObjectRef,
     pub memoryview_type: PyObjectRef,
     pub none: PyObjectRef,
+    pub not_implemented: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
     pub staticmethod_type: PyObjectRef,
@@ -233,6 +234,11 @@ impl PyContext {
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
+        let not_implemented = PyObject::new(
+            PyObjectPayload::NotImplemented,
+            create_type("NotImplementedType", &type_type, &object_type, &dict_type),
+        );
+
         let true_value = PyObject::new(
             PyObjectPayload::Integer { value: One::one() },
             bool_type.clone(),
@@ -268,6 +274,7 @@ impl PyContext {
             zip_type,
             dict_type,
             none,
+            not_implemented,
             str_type,
             range_type,
             slice_type,
@@ -444,6 +451,9 @@ impl PyContext {
     pub fn none(&self) -> PyObjectRef {
         self.none.clone()
     }
+    pub fn not_implemented(&self) -> PyObjectRef {
+        self.not_implemented.clone()
+    }
     pub fn object(&self) -> PyObjectRef {
         self.object.clone()
     }
@@ -500,9 +510,11 @@ impl PyContext {
         PyObject::new(PyObjectPayload::Sequence { elements }, self.list_type())
     }
 
-    pub fn new_set(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        let elements = objset::sequence_to_hashmap(&elements);
-        PyObject::new(PyObjectPayload::Set { elements }, self.set_type())
+    pub fn new_set(&self) -> PyObjectRef {
+        // Initialized empty, as calling __hash__ is required for adding each object to the set
+        // which requires a VM context - this is done in the objset code itself.
+        let elements: HashMap<u64, PyObjectRef> = HashMap::new();
+        PyObject::new(PyObjectPayload::Set { elements: elements }, self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
@@ -919,7 +931,7 @@ pub enum PyObjectPayload {
         elements: objdict::DictContentType,
     },
     Set {
-        elements: HashMap<usize, PyObjectRef>,
+        elements: HashMap<u64, PyObjectRef>,
     },
     Iterator {
         position: usize,
@@ -977,6 +989,7 @@ pub enum PyObjectPayload {
         dict: PyObjectRef,
     },
     None,
+    NotImplemented,
     Class {
         name: String,
         dict: RefCell<PyAttributes>,
@@ -1023,6 +1036,7 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Module { .. } => write!(f, "module"),
             PyObjectPayload::Scope { .. } => write!(f, "scope"),
             PyObjectPayload::None => write!(f, "None"),
+            PyObjectPayload::NotImplemented => write!(f, "NotImplemented"),
             PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
             PyObjectPayload::Instance { .. } => write!(f, "instance"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
@@ -1042,76 +1056,6 @@ impl PyObject {
             // dict: HashMap::new(),  // dict,
         }
         .into_ref()
-    }
-
-    /// Deprecated method, please call `vm.to_pystr`
-    pub fn str(&self) -> String {
-        match self.payload {
-            PyObjectPayload::String { ref value } => value.clone(),
-            PyObjectPayload::Integer { ref value } => format!("{:?}", value),
-            PyObjectPayload::Float { ref value } => format!("{:?}", value),
-            PyObjectPayload::Complex { ref value } => format!("{:?}", value),
-            PyObjectPayload::Bytes { ref value } => format!("b'{:?}'", value),
-            PyObjectPayload::MemoryView { ref obj } => format!("b'{:?}'", obj),
-            PyObjectPayload::Sequence { ref elements } => format!(
-                "(/[{}]/)",
-                elements
-                    .iter()
-                    .map(|elem| elem.borrow().str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectPayload::Dict { ref elements } => format!(
-                "{{ {} }}",
-                elements
-                    .iter()
-                    .map(|elem| format!("{}: ...", elem.0))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectPayload::Set { ref elements } => format!(
-                "{{ {} }}",
-                elements
-                    .iter()
-                    .map(|elem| elem.1.borrow().str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectPayload::WeakRef { .. } => String::from("weakref"),
-            PyObjectPayload::None => String::from("None"),
-            PyObjectPayload::Class {
-                ref name,
-                dict: ref _dict,
-                ..
-            } => format!("<class '{}'>", name),
-            PyObjectPayload::Instance { .. } => "<instance>".to_string(),
-            PyObjectPayload::Code { .. } => "<code>".to_string(),
-            PyObjectPayload::Function { .. } => "<func>".to_string(),
-            PyObjectPayload::Generator { .. } => "<generator>".to_string(),
-            PyObjectPayload::Frame { .. } => "<frame>".to_string(),
-            PyObjectPayload::BoundMethod { .. } => "<bound-method>".to_string(),
-            PyObjectPayload::RustFunction { .. } => "<rustfunc>".to_string(),
-            PyObjectPayload::Module { ref name, .. } => format!("<module '{}'>", name),
-            PyObjectPayload::Scope { ref scope } => format!("<scope '{:?}'>", scope),
-            PyObjectPayload::Slice {
-                ref start,
-                ref stop,
-                ref step,
-            } => format!("<slice '{:?}:{:?}:{:?}'>", start, stop, step),
-            PyObjectPayload::Range { ref range } => format!("<range '{:?}'>", range),
-            PyObjectPayload::Iterator {
-                ref position,
-                ref iterated_obj,
-            } => format!(
-                "<iter pos {} in {}>",
-                position,
-                iterated_obj.borrow_mut().str()
-            ),
-            PyObjectPayload::EnumerateIterator { .. } => format!("<enumerate>"),
-            PyObjectPayload::FilterIterator { .. } => format!("<filter>"),
-            PyObjectPayload::MapIterator { .. } => format!("<map>"),
-            PyObjectPayload::ZipIterator { .. } => format!("<zip>"),
-        }
     }
 
     // Move this object into a reference object, transferring ownership.
