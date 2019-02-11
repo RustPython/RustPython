@@ -77,7 +77,7 @@ fn contains(vm: &mut VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -
     );
     loop {
         if let Some(element) = get_next_object(vm, iter)? {
-            let equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+            let equal = vm._eq(needle.clone(), element.clone())?;
             if objbool::get_value(&equal) {
                 return Ok(vm.new_bool(true));
             } else {

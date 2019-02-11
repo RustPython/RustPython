@@ -256,7 +256,7 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for (index, element) in get_elements(list).iter().enumerate() {
-        let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+        let py_equal = vm._eq(needle.clone(), element.clone())?;
         if objbool::get_value(&py_equal) {
             return Ok(vm.context().new_int(index));
         }
@@ -296,7 +296,7 @@ fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for element in get_elements(list).iter() {
-        match vm.call_method(needle, "__eq__", vec![element.clone()]) {
+        match vm._eq(needle.clone(), element.clone()) {
             Ok(value) => {
                 if objbool::get_value(&value) {
                     return Ok(vm.new_bool(true));
