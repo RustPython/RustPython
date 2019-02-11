@@ -28,32 +28,6 @@ pub struct CodeObject {
     pub is_generator: bool,
 }
 
-impl CodeObject {
-    pub fn new(
-        arg_names: Vec<String>,
-        varargs: Option<Option<String>>,
-        kwonlyarg_names: Vec<String>,
-        varkeywords: Option<Option<String>>,
-        source_path: String,
-        first_line_number: usize,
-        obj_name: String,
-    ) -> CodeObject {
-        CodeObject {
-            instructions: Vec::new(),
-            label_map: HashMap::new(),
-            locations: Vec::new(),
-            arg_names,
-            varargs,
-            kwonlyarg_names,
-            varkeywords,
-            source_path,
-            first_line_number,
-            obj_name,
-            is_generator: false,
-        }
-    }
-}
-
 bitflags! {
     pub struct FunctionOpArg: u8 {
         const HAS_DEFAULTS = 0x01;
@@ -259,6 +233,32 @@ pub enum BlockType {
     Except,
 }
 */
+
+impl CodeObject {
+    pub fn new(
+        arg_names: Vec<String>,
+        varargs: Option<Option<String>>,
+        kwonlyarg_names: Vec<String>,
+        varkeywords: Option<Option<String>>,
+        source_path: String,
+        first_line_number: usize,
+        obj_name: String,
+    ) -> CodeObject {
+        CodeObject {
+            instructions: Vec::new(),
+            label_map: HashMap::new(),
+            locations: Vec::new(),
+            arg_names,
+            varargs,
+            kwonlyarg_names,
+            varkeywords,
+            source_path,
+            first_line_number,
+            obj_name,
+            is_generator: false,
+        }
+    }
+}
 
 impl fmt::Debug for CodeObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
