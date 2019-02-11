@@ -277,16 +277,16 @@ fn list_insert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (element, None)
         ]
     );
-    let int_position = match objint::get_value(insert_position).to_i64() {
+    let int_position = match objint::get_value(insert_position).to_isize() {
         Some(i) => i,
         None => {
             return Err(
-                vm.new_overflow_error("Python int too large to convert to Rust i64".to_string())
+                vm.new_overflow_error("Python int too large to convert to Rust isize".to_string())
             );
         }
     };
     let mut vec = get_mut_elements(list);
-    let vec_len = vec.len().to_i64().unwrap();
+    let vec_len = vec.len().to_isize().unwrap();
     // This unbounded position can be < 0 or > vec.len()
     let unbounded_position = if int_position < 0 {
         vec_len + int_position
