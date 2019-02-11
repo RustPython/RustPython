@@ -129,7 +129,7 @@ fn tuple_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
     let mut count: usize = 0;
     for element in elements.iter() {
-        let is_eq = vm._eq(element, value.clone())?;
+        let is_eq = vm._eq(element.clone(), value.clone())?;
         if objbool::boolval(vm, is_eq)? {
             count += 1;
         }

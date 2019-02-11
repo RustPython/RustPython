@@ -8,14 +8,18 @@ assert abs(complex(1.5, 2.5)) == 2.9154759474226504
 
 assert complex(1, -1) == complex(1, -1)
 assert complex(1, 0) == 1
-assert not complex(1, 1) == 1
+assert 1 == complex(1, 0)
+assert complex(1, 1) != 1
+assert 1 != complex(1, 1)
 assert complex(1, 0) == 1.0
-assert not complex(1, 1) == 1.0
-assert not complex(1, 0) == 1.5
+assert 1.0 == complex(1, 0)
+assert complex(1, 1) != 1.0
+assert 1.0 != complex(1, 1)
+assert complex(1, 0) != 1.5
+assert not 1.0 != complex(1, 0)
 assert bool(complex(1, 0))
-assert not complex(1, 2) == complex(1, 1)
-# Currently broken - see issue #419
-# assert complex(1, 2) != 'foo'
+assert complex(1, 2) != complex(1, 1)
+assert complex(1, 2) != 'foo'
 assert complex(1, 2).__eq__('foo') == NotImplemented
 
 # __neg__

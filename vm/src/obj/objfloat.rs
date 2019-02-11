@@ -80,7 +80,7 @@ fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             false
         }
     } else {
-        false
+        return Ok(vm.ctx.not_implemented());
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -181,7 +181,7 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 + objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -198,11 +198,7 @@ fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let r2 = float_mod(vm, args.clone())?;
         Ok(vm.ctx.new_tuple(vec![r1, r2]))
     } else {
-        Err(vm.new_type_error(format!(
-            "Cannot divmod power {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -221,11 +217,7 @@ fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot floordiv {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )));
+        return Ok(vm.ctx.not_implemented());
     };
 
     if v2 != 0.0 {
@@ -249,7 +241,7 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 - objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -268,7 +260,7 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else {
-        return Err(vm.new_type_error(format!("Cannot mod {} and {}", i.borrow(), i2.borrow())));
+        return Ok(vm.ctx.not_implemented());
     };
 
     if v2 != 0.0 {
@@ -300,7 +292,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let result = v1.powf(objint::get_value(i2).to_f64().unwrap());
         Ok(vm.ctx.new_float(result))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 

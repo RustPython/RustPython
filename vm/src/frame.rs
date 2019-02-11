@@ -988,8 +988,8 @@ impl Frame {
         let b = self.pop_value();
         let a = self.pop_value();
         let value = match *op {
-            bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
-            bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
+            bytecode::ComparisonOperator::Equal => vm._eq(a, b)?,
+            bytecode::ComparisonOperator::NotEqual => vm._ne(a, b)?,
             bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
             bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
             bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
