@@ -10,7 +10,7 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let cls = &args.args[0];
     let iterables = &args.args[1..];
     let iterators = iterables
-        .into_iter()
+        .iter()
         .map(|iterable| objiter::get_iter(vm, iterable))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(PyObject::new(

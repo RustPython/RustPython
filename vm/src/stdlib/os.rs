@@ -20,7 +20,7 @@ use super::super::vm::VirtualMachine;
 pub fn raw_file_number(handle: File) -> i64 {
     use std::os::unix::io::IntoRawFd;
 
-    handle.into_raw_fd() as i64
+    i64::from(handle.into_raw_fd())
 }
 
 #[cfg(target_family = "unix")]

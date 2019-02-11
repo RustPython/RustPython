@@ -430,14 +430,12 @@ impl VirtualMachine {
 
             // We have sufficient defaults, so iterate over the corresponding names and use
             // the default if we don't already have a value
-            let mut default_index = 0;
-            for i in required_args..nexpected_args {
+            for (default_index, i) in (required_args..nexpected_args).enumerate() {
                 let arg_name = &code_object.arg_names[i];
                 if !scope.contains_key(arg_name) {
                     self.ctx
                         .set_item(scope, arg_name, available_defaults[default_index].clone());
                 }
-                default_index += 1;
             }
         };
 
