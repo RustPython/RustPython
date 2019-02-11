@@ -29,7 +29,7 @@ fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let locals = vm.get_locals();
     let key_value_pairs = objdict::get_key_value_pairs(&locals);
     for (key, value) in key_value_pairs {
-        objdict::set_item(&d, &key, &value);
+        objdict::set_item(&d, vm, &key, &value);
     }
     d
 }
@@ -656,7 +656,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
     ctx.set_attr(&py_mod, "__name__", ctx.new_str(String::from("__main__")));
 
-    ctx.set_item(&py_mod, "abs", ctx.new_rustfunc(builtin_abs));
+    ctx.set_attr(&py_mod, "abs", ctx.new_rustfunc(builtin_abs));
     ctx.set_attr(&py_mod, "all", ctx.new_rustfunc(builtin_all));
     ctx.set_attr(&py_mod, "any", ctx.new_rustfunc(builtin_any));
     ctx.set_attr(&py_mod, "bin", ctx.new_rustfunc(builtin_bin));
