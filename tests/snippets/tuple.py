@@ -24,3 +24,6 @@ recursive_list = []
 recursive = (recursive_list,)
 recursive_list.append(recursive)
 assert repr(recursive) == "([(...)],)"
+
+assert (None, "", 1).index(1) == 2
+assert 1 in (None, "", 1)
