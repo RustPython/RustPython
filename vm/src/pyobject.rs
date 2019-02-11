@@ -142,6 +142,7 @@ pub struct PyContext {
     pub type_type: PyObjectRef,
     pub zip_type: PyObjectRef,
     pub function_type: PyObjectRef,
+    pub builtin_function_or_method_type: PyObjectRef,
     pub property_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
@@ -193,6 +194,12 @@ impl PyContext {
         let classmethod_type = create_type("classmethod", &type_type, &object_type, &dict_type);
         let staticmethod_type = create_type("staticmethod", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
+        let builtin_function_or_method_type = create_type(
+            "builtin_function_or_method",
+            &type_type,
+            &object_type,
+            &dict_type,
+        );
         let property_type = create_type("property", &type_type, &object_type, &dict_type);
         let super_type = create_type("super", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
@@ -273,6 +280,7 @@ impl PyContext {
             slice_type,
             object: object_type,
             function_type,
+            builtin_function_or_method_type,
             super_type,
             property_type,
             generator_type,
@@ -408,6 +416,10 @@ impl PyContext {
 
     pub fn function_type(&self) -> PyObjectRef {
         self.function_type.clone()
+    }
+
+    pub fn builtin_function_or_method_type(&self) -> PyObjectRef {
+        self.builtin_function_or_method_type.clone()
     }
 
     pub fn property_type(&self) -> PyObjectRef {
@@ -546,7 +558,7 @@ impl PyContext {
             PyObjectPayload::RustFunction {
                 function: Box::new(function),
             },
-            self.function_type(),
+            self.builtin_function_or_method_type(),
         )
     }
 
@@ -556,7 +568,7 @@ impl PyContext {
     ) -> PyObjectRef {
         PyObject::new(
             PyObjectPayload::RustFunction { function },
-            self.function_type(),
+            self.builtin_function_or_method_type(),
         )
     }
 
