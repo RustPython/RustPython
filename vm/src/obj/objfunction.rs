@@ -22,12 +22,6 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(bind_method),
     );
 
-    context.set_attr(
-        &builtin_function_or_method_type,
-        "__code__",
-        context.new_member_descriptor(function_code),
-    );
-
     let member_descriptor_type = &context.member_descriptor_type;
     context.set_attr(
         &member_descriptor_type,
