@@ -10,7 +10,6 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 // set_item:
