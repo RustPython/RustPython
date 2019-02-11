@@ -19,6 +19,7 @@ pub fn init(context: &PyContext) {
             "co_argcount",
             code_co_argcount as fn(&mut VirtualMachine, PyFuncArgs) -> PyResult,
         ),
+        ("co_consts", code_co_consts),
         ("co_filename", code_co_filename),
         ("co_firstlineno", code_co_firstlineno),
         ("co_kwonlyargcount", code_co_kwonlyargcount),
@@ -89,6 +90,15 @@ fn code_co_firstlineno(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn code_co_kwonlyargcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let code_obj = member_code_obj(vm, args)?;
     Ok(vm.ctx.new_int(code_obj.kwonlyarg_names.len()))
+}
+
+fn code_co_consts(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let code_obj = member_code_obj(vm, args)?;
+    let consts = code_obj
+        .get_constants()
+        .map(|x| vm.ctx.unwrap_constant(x))
+        .collect();
+    Ok(vm.ctx.new_tuple(consts))
 }
 
 fn code_co_name(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

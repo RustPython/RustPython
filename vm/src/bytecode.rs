@@ -258,6 +258,16 @@ impl CodeObject {
             is_generator: false,
         }
     }
+
+    pub fn get_constants<'a>(&'a self) -> impl Iterator<Item = &'a Constant> {
+        self.instructions.iter().filter_map(|x| {
+            if let Instruction::LoadConst { value } = x {
+                Some(value)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 impl fmt::Debug for CodeObject {
