@@ -655,6 +655,26 @@ impl PyContext {
             ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
         };
     }
+
+    pub fn unwrap_constant(&mut self, value: &bytecode::Constant) -> PyObjectRef {
+        match *value {
+            bytecode::Constant::Integer { ref value } => self.new_int(value.clone()),
+            bytecode::Constant::Float { ref value } => self.new_float(*value),
+            bytecode::Constant::Complex { ref value } => self.new_complex(*value),
+            bytecode::Constant::String { ref value } => self.new_str(value.clone()),
+            bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
+            bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
+            bytecode::Constant::Code { ref code } => self.new_code_object(code.clone()),
+            bytecode::Constant::Tuple { ref elements } => {
+                let elements = elements
+                    .iter()
+                    .map(|value| self.unwrap_constant(value))
+                    .collect();
+                self.new_tuple(elements)
+            }
+            bytecode::Constant::None => self.none(),
+        }
+    }
 }
 
 /// This is an actual python object. It consists of a `typ` which is the

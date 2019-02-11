@@ -169,7 +169,7 @@ impl Frame {
 
         match &instruction {
             bytecode::Instruction::LoadConst { ref value } => {
-                let obj = self.unwrap_constant(vm, value);
+                let obj = vm.ctx.unwrap_constant(value);
                 self.push_value(obj);
                 Ok(None)
             }
@@ -1024,25 +1024,6 @@ impl Frame {
         let name = vm.ctx.new_str(attr_name.to_string());
         vm.del_attr(&parent, name)?;
         Ok(None)
-    }
-
-    fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
-        match *value {
-            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.clone()),
-            bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
-            bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
-            bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
-            bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
-            bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => vm.ctx.new_code_object(code.clone()),
-            bytecode::Constant::Tuple { ref elements } => vm.ctx.new_tuple(
-                elements
-                    .iter()
-                    .map(|value| self.unwrap_constant(vm, value))
-                    .collect(),
-            ),
-            bytecode::Constant::None => vm.ctx.none(),
-        }
     }
 
     pub fn get_lineno(&self) -> ast::Location {
