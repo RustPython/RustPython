@@ -49,7 +49,7 @@ pub trait PySliceableSequence {
         let stop = stop
             .as_ref()
             .map(|x| self.get_slice_pos(x))
-            .unwrap_or(self.len());
+            .unwrap_or_else(|| self.len());
 
         start..stop
     }
@@ -65,7 +65,7 @@ pub trait PySliceableSequence {
         // TODO: we could potentially avoid this copy and use slice
         match &(slice.borrow()).payload {
             PyObjectPayload::Slice { start, stop, step } => {
-                let step = step.clone().unwrap_or(BigInt::one());
+                let step = step.clone().unwrap_or_else(BigInt::one);
                 if step.is_zero() {
                     Err(vm.new_value_error("slice step cannot be zero".to_string()))
                 } else if step.is_positive() {
