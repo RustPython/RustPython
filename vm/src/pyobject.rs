@@ -736,7 +736,7 @@ pub trait AttributeProtocol {
 fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
     let class = class.borrow();
     match class.payload {
-        PyObjectPayload::Class { ref dict, .. } => dict.borrow().get(attr_name).map(|v| v.clone()),
+        PyObjectPayload::Class { ref dict, .. } => dict.borrow().get(attr_name).cloned(),
         _ => panic!("Only classes should be in MRO!"),
     }
 }
@@ -766,7 +766,7 @@ impl AttributeProtocol for PyObjectRef {
                 None
             }
             PyObjectPayload::Instance { ref dict } => {
-                dict.borrow().get(attr_name).map(|v| v.clone())
+                dict.borrow().get(attr_name).cloned()
             }
             _ => None,
         }

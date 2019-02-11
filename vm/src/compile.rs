@@ -163,7 +163,7 @@ impl Compiler {
                         _ => {
                             self.emit(Instruction::Import {
                                 name: module.clone(),
-                                symbol: symbol.clone().map(|s| s.clone()),
+                                symbol: symbol.clone(),
                             });
                             self.emit(Instruction::StoreName {
                                 name: match alias {
