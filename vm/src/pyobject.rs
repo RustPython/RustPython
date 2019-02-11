@@ -765,9 +765,7 @@ impl AttributeProtocol for PyObjectRef {
                 }
                 None
             }
-            PyObjectPayload::Instance { ref dict } => {
-                dict.borrow().get(attr_name).cloned()
-            }
+            PyObjectPayload::Instance { ref dict } => dict.borrow().get(attr_name).cloned(),
             _ => None,
         }
     }
