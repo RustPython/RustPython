@@ -110,7 +110,7 @@ fn os_error(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"io".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module(&"os".to_string(), ctx.new_scope(None));
     ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(os_open));
     ctx.set_attr(&py_mod, "close", ctx.new_rustfunc(os_close));
     ctx.set_attr(&py_mod, "error", ctx.new_rustfunc(os_error));
