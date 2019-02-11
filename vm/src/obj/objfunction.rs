@@ -15,7 +15,7 @@ pub fn init(context: &PyContext) {
         context.new_member_descriptor(function_code),
     );
 
-    let builtin_function_or_method_type = &context.builtin_function_or_method_type();
+    let builtin_function_or_method_type = &context.builtin_function_or_method_type;
     context.set_attr(
         &builtin_function_or_method_type,
         "__get__",
