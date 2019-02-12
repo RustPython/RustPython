@@ -77,7 +77,7 @@ pub fn import(
                 let import_error = vm.context().exceptions.import_error.clone();
                 Err(vm.new_exception(import_error, format!("cannot import name '{}'", symbol)))
             },
-            |obj| Ok(obj),
+            Ok,
         )
     } else {
         Ok(module)

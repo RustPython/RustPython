@@ -189,10 +189,7 @@ fn json_dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial serialisation case
     arg_check!(vm, args, required = [(obj, None)]);
     let res = {
-        let serializer = PyObjectSerializer {
-            pyobject: obj,
-            vm: vm,
-        };
+        let serializer = PyObjectSerializer { pyobject: obj, vm };
         serde_json::to_string(&serializer)
     };
     let string = res.map_err(|err| vm.new_type_error(format!("{}", err)))?;
@@ -204,7 +201,7 @@ fn json_loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial deserialisation case
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
     let res = {
-        let de = PyObjectDeserializer { vm: vm };
+        let de = PyObjectDeserializer { vm };
         // TODO: Support deserializing string sub-classes
         de.deserialize(&mut serde_json::Deserializer::from_str(&objstr::get_value(
             &string,

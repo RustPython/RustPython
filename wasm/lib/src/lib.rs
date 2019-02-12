@@ -145,7 +145,7 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
 /// -   `stdout?`: `(out: string) => void`: A function to replace the native print
 ///     function, by default `console.log`.
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
-    let options = options.unwrap_or_else(|| Object::new());
+    let options = options.unwrap_or_else(Object::new);
     let js_vars = {
         let prop = Reflect::get(&options, &"vars".into())?;
         if prop.is_undefined() {
@@ -199,7 +199,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
         vm.ctx.new_rustfunc_from_box(print_fn),
     );
 
-    let mut vars = base_scope(&mut vm);
+    let vars = base_scope(&mut vm);
 
     let injections = vm.new_dict();
 
@@ -217,7 +217,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
         }
     }
 
-    vm.ctx.set_item(&mut vars, "js_vars", injections);
+    vm.ctx.set_item(&vars, "js_vars", injections);
 
     eval(&mut vm, source, vars)
         .map(|value| py_to_js(&mut vm, value))

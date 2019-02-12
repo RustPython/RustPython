@@ -14,7 +14,7 @@ fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let function = &args.args[1];
         let iterables = &args.args[2..];
         let iterators = iterables
-            .into_iter()
+            .iter()
             .map(|iterable| objiter::get_iter(vm, iterable))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PyObject::new(

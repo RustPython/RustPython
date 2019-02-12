@@ -42,8 +42,8 @@ impl RangeType {
     #[inline]
     fn offset(&self, value: &BigInt) -> Option<BigInt> {
         match self.step.sign() {
-            Sign::Plus if value >= &self.start && value < &self.end => Some(value - &self.start),
-            Sign::Minus if value <= &self.start && value > &self.end => Some(&self.start - value),
+            Sign::Plus if *value >= self.start && *value < self.end => Some(value - &self.start),
+            Sign::Minus if *value <= self.start && *value > self.end => Some(&self.start - value),
             _ => None,
         }
     }
@@ -68,9 +68,10 @@ impl RangeType {
 
     #[inline]
     pub fn count(&self, value: &BigInt) -> usize {
-        match self.index_of(value).is_some() {
-            true => 1,
-            false => 0,
+        if self.index_of(value).is_some() {
+            1
+        } else {
+            0
         }
     }
 
@@ -145,7 +146,7 @@ pub fn get_value(obj: &PyObjectRef) -> RangeType {
 }
 
 pub fn init(context: &PyContext) {
-    let ref range_type = context.range_type;
+    let range_type = &context.range_type;
 
     let range_doc = "range(stop) -> range object\n\
                      range(start, stop[, step]) -> range object\n\n\
@@ -198,7 +199,7 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let start = if let Some(_) = second {
+    let start = if second.is_some() {
         objint::get_value(first)
     } else {
         BigInt::zero()

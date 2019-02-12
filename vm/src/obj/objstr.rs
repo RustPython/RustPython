@@ -9,6 +9,7 @@ use super::objtype;
 use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
+use std::str::FromStr;
 // rust's builtin to_lowercase isn't sufficient for casefold
 extern crate caseless;
 extern crate unicode_segmentation;
@@ -1068,6 +1069,10 @@ impl PySliceableSequence for String {
 
     fn len(&self) -> usize {
         to_graphemes(self).len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
     }
 }
 
