@@ -9,6 +9,7 @@ use super::objtype;
 use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
+use std::str::FromStr;
 // rust's builtin to_lowercase isn't sufficient for casefold
 extern crate caseless;
 extern crate unicode_segmentation;
