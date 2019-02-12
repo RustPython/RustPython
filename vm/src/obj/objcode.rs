@@ -14,7 +14,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(code_type, "__new__", context.new_rustfunc(code_new));
     context.set_attr(code_type, "__repr__", context.new_rustfunc(code_repr));
 
-    for (name, f) in vec![
+    for (name, f) in &[
         (
             "co_argcount",
             code_co_argcount as fn(&mut VirtualMachine, PyFuncArgs) -> PyResult,
