@@ -18,6 +18,7 @@ use super::obj::objiter;
 use super::obj::objlist;
 use super::obj::objmap;
 use super::obj::objmemory;
+use super::obj::objnone;
 use super::obj::objobject;
 use super::obj::objproperty;
 use super::obj::objrange;
@@ -318,6 +319,7 @@ impl PyContext {
         objbool::init(&context);
         objcode::init(&context);
         objframe::init(&context);
+        objnone::init(&context);
         exceptions::init(&context);
         context
     }
