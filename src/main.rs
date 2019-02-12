@@ -195,7 +195,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
                 debug!("You entered {:?}", input);
                 if shell_exec(vm, &input, vars.clone()) {
                     // Line was complete.
-                    rl.add_history_entry(input.trim_end().as_ref());
+                    rl.add_history_entry(input.trim_end());
                     input = String::new();
                 } else {
                     loop {
@@ -208,7 +208,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
                             Ok(line) => {
                                 if line.len() == 0 {
                                     if shell_exec(vm, &input, vars.clone()) {
-                                        rl.add_history_entry(input.trim_end().as_ref());
+                                        rl.add_history_entry(input.trim_end());
                                         input = String::new();
                                         break;
                                     }
