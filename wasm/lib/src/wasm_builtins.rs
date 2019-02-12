@@ -10,6 +10,7 @@ extern crate web_sys;
 
 use crate::js_to_py;
 use js_sys::Array;
+use rustpython_vm::obj::{objstr, objtype};
 use rustpython_vm::pyobject::{PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{JsCast, JsValue};
@@ -31,6 +32,32 @@ pub fn print_to_html(text: &str, selector: &str) -> Result<(), JsValue> {
 }
 
 pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
+    // Handle 'sep' kwarg:
+    let sep_arg = args.get_optional_kwarg("sep");
+    if let Some(ref obj) = sep_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "sep must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let sep_str = sep_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+
+    // Handle 'end' kwarg:
+    let end_arg = args.get_optional_kwarg("end");
+    if let Some(ref obj) = end_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "end must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let end_str = end_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+
+    // No need to handle 'flush' kwarg, irrelevant when writing to String
+
     let mut output = String::new();
     let mut first = true;
     for a in args.args {
