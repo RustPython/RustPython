@@ -43,6 +43,46 @@ fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
+fn object_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
+    );
+
+    Ok(vm.ctx.not_implemented())
+}
+
+fn object_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
+    );
+
+    Ok(vm.ctx.not_implemented())
+}
+
+fn object_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
+    );
+
+    Ok(vm.ctx.not_implemented())
+}
+
+fn object_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
+    );
+
+    Ok(vm.ctx.not_implemented())
+}
+
 fn object_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_zelf, Some(vm.ctx.object()))]);
 
@@ -107,6 +147,10 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__init__", context.new_rustfunc(object_init));
     context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
     context.set_attr(&object, "__ne__", context.new_rustfunc(object_ne));
+    context.set_attr(&object, "__lt__", context.new_rustfunc(object_lt));
+    context.set_attr(&object, "__le__", context.new_rustfunc(object_le));
+    context.set_attr(&object, "__gt__", context.new_rustfunc(object_gt));
+    context.set_attr(&object, "__ge__", context.new_rustfunc(object_ge));
     context.set_attr(&object, "__delattr__", context.new_rustfunc(object_delattr));
     context.set_attr(
         &object,
