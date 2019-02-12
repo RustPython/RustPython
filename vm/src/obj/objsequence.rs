@@ -293,7 +293,7 @@ pub fn seq_mul(elements: &[PyObjectRef], product: &PyObjectRef) -> Vec<PyObjectR
     let mut new_elements = Vec::with_capacity(new_len);
 
     for _ in 0..counter {
-        new_elements.extend(elements.clone().to_owned());
+        new_elements.extend(elements.to_owned());
     }
 
     new_elements
