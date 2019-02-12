@@ -603,7 +603,7 @@ impl VirtualMachine {
 
     pub fn _and(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__and__", "__rand__", |vm, a, b| {
-            Err(vm.new_unsupported_operand_error(a, b, "^"))
+            Err(vm.new_unsupported_operand_error(a, b, "&"))
         })
     }
 
