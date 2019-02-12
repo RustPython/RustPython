@@ -119,7 +119,7 @@ fn float_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_bool(v1 <= objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -138,7 +138,7 @@ fn float_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_bool(v1 > objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -157,7 +157,7 @@ fn float_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_bool(v1 >= objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
