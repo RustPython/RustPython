@@ -281,10 +281,13 @@ fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(obj, None), (format_spec, Some(vm.ctx.str_type()))]
+        required = [(obj, None)],
+        optional = [(format_spec, Some(vm.ctx.str_type()))]
     );
-
-    vm.call_method(obj, "__format__", vec![format_spec.clone()])
+    let format_spec = format_spec
+        .cloned()
+        .unwrap_or_else(|| vm.new_str("".to_string()));
+    vm.call_method(obj, "__format__", vec![format_spec])
 }
 
 fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

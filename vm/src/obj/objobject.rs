@@ -84,7 +84,14 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.object())), (format_spec, Some(vm.ctx.str_type()))]);
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (obj, Some(vm.ctx.object())),
+            (format_spec, Some(vm.ctx.str_type()))
+        ]
+    );
     if objstr::get_value(format_spec).is_empty() {
         vm.to_str(obj)
     } else {
