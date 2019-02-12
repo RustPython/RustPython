@@ -169,7 +169,7 @@ impl Frame {
 
         match &instruction {
             bytecode::Instruction::LoadConst { ref value } => {
-                let obj = self.unwrap_constant(vm, value);
+                let obj = vm.ctx.unwrap_constant(value);
                 self.push_value(obj);
                 Ok(None)
             }
@@ -226,7 +226,10 @@ impl Frame {
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
                 let elements = self.get_elements(vm, *size, *unpack)?;
-                let py_obj = vm.ctx.new_set(elements);
+                let py_obj = vm.ctx.new_set();
+                for item in elements {
+                    vm.call_method(&py_obj, "add", vec![item])?;
+                }
                 self.push_value(py_obj);
                 Ok(None)
             }
@@ -244,11 +247,11 @@ impl Frame {
                         // Take all key-value pairs from the dict:
                         let dict_elements = objdict::get_key_value_pairs(&obj);
                         for (key, value) in dict_elements.iter() {
-                            objdict::set_item(&map_obj, key, value);
+                            objdict::set_item(&map_obj, vm, key, value);
                         }
                     } else {
                         let key = self.pop_value();
-                        objdict::set_item(&map_obj, &key, &obj);
+                        objdict::set_item(&map_obj, vm, &key, &obj);
                     }
                 }
                 self.push_value(map_obj);
@@ -985,8 +988,8 @@ impl Frame {
         let b = self.pop_value();
         let a = self.pop_value();
         let value = match *op {
-            bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
-            bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
+            bytecode::ComparisonOperator::Equal => vm._eq(a, b)?,
+            bytecode::ComparisonOperator::NotEqual => vm._ne(a, b)?,
             bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
             bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
             bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
@@ -1021,25 +1024,6 @@ impl Frame {
         let name = vm.ctx.new_str(attr_name.to_string());
         vm.del_attr(&parent, name)?;
         Ok(None)
-    }
-
-    fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
-        match *value {
-            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.clone()),
-            bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
-            bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
-            bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
-            bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
-            bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => vm.ctx.new_code_object(code.clone()),
-            bytecode::Constant::Tuple { ref elements } => vm.ctx.new_tuple(
-                elements
-                    .iter()
-                    .map(|value| self.unwrap_constant(vm, value))
-                    .collect(),
-            ),
-            bytecode::Constant::None => vm.ctx.none(),
-        }
     }
 
     pub fn get_lineno(&self) -> ast::Location {
@@ -1085,7 +1069,7 @@ impl fmt::Debug for Frame {
         let stack_str = self
             .stack
             .iter()
-            .map(|elem| format!("\n  > {}", elem.borrow().str()))
+            .map(|elem| format!("\n  > {:?}", elem.borrow()))
             .collect::<Vec<_>>()
             .join("");
         let block_str = self
@@ -1099,9 +1083,7 @@ impl fmt::Debug for Frame {
                 PyObjectPayload::Dict { ref elements } => {
                     objdict::get_key_value_pairs_from_content(elements)
                         .iter()
-                        .map(|elem| {
-                            format!("\n  {} = {}", elem.0.borrow().str(), elem.1.borrow().str())
-                        })
+                        .map(|elem| format!("\n  {:?} = {:?}", elem.0.borrow(), elem.1.borrow()))
                         .collect::<Vec<_>>()
                         .join("")
                 }

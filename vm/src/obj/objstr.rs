@@ -26,7 +26,9 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&str_type, "__getitem__", context.new_rustfunc(str_getitem));
     context.set_attr(&str_type, "__gt__", context.new_rustfunc(str_gt));
+    context.set_attr(&str_type, "__ge__", context.new_rustfunc(str_ge));
     context.set_attr(&str_type, "__lt__", context.new_rustfunc(str_lt));
+    context.set_attr(&str_type, "__le__", context.new_rustfunc(str_le));
     context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
     context.set_attr(&str_type, "__len__", context.new_rustfunc(str_len));
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
@@ -126,30 +128,60 @@ fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.str_type())),
-            (other, Some(vm.ctx.str_type()))
-        ]
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf > other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 > get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
+fn str_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn str_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.str_type())),
-            (other, Some(vm.ctx.str_type()))
-        ]
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf < other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 < get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
+fn str_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -791,18 +823,13 @@ fn str_ljust(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn str_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
-    let mut is_titled = true;
 
-    if value.is_empty() {
-        is_titled = false;
+    let is_titled = if value.is_empty() {
+        false
     } else {
-        for word in value.split(' ') {
-            if word != make_title(&word) {
-                is_titled = false;
-                break;
-            }
-        }
-    }
+        value.split(' ').all(|word| word == make_title(word))
+    };
+
     Ok(vm.ctx.new_bool(is_titled))
 }
 
@@ -942,24 +969,15 @@ fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let valid_unicodes: [u16; 10] = [
         0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
     ];
-    let mut is_digit: bool = true;
 
-    if value.is_empty() {
-        is_digit = false;
+    let is_digit = if value.is_empty() {
+        false
     } else {
-        for c in value.chars() {
-            if !c.is_digit(10) {
-                // checking if char is exponent
-                let char_as_uni: u16 = c as u16;
-                if valid_unicodes.contains(&char_as_uni) {
-                    continue;
-                } else {
-                    is_digit = false;
-                    break;
-                }
-            }
-        }
-    }
+        value
+            .chars()
+            .filter(|c| !c.is_digit(10))
+            .all(|c| valid_unicodes.contains(&(c as u16)))
+    };
 
     Ok(vm.ctx.new_bool(is_digit))
 }

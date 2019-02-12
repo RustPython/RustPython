@@ -4,6 +4,7 @@ use super::super::pyobject::{
 use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
+use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -71,10 +72,15 @@ fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let other = get_value(other);
         zelf == other
     } else if objtype::isinstance(other, &vm.ctx.int_type()) {
-        let other = objint::get_value(other).to_f64().unwrap();
-        zelf == other
+        let other_int = objint::get_value(other);
+
+        if let (Some(zelf_int), Some(other_float)) = (zelf.to_bigint(), other_int.to_f64()) {
+            zelf == other_float && zelf_int == other_int
+        } else {
+            false
+        }
     } else {
-        false
+        return Ok(vm.ctx.not_implemented());
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -83,60 +89,76 @@ fn float_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.float_type())),
-            (other, Some(vm.ctx.float_type()))
-        ]
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf < other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_bool(v1 < get_value(i2)))
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm
+            .ctx
+            .new_bool(v1 < objint::get_value(i2).to_f64().unwrap()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn float_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.float_type())),
-            (other, Some(vm.ctx.float_type()))
-        ]
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf <= other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm
+            .ctx
+            .new_bool(v1 <= objint::get_value(i2).to_f64().unwrap()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn float_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.float_type())),
-            (other, Some(vm.ctx.float_type()))
-        ]
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf > other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_bool(v1 > get_value(i2)))
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm
+            .ctx
+            .new_bool(v1 > objint::get_value(i2).to_f64().unwrap()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn float_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.float_type())),
-            (other, Some(vm.ctx.float_type()))
-        ]
+        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf >= other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm
+            .ctx
+            .new_bool(v1 >= objint::get_value(i2).to_f64().unwrap()))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn float_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -159,7 +181,7 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 + objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -176,11 +198,7 @@ fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let r2 = float_mod(vm, args.clone())?;
         Ok(vm.ctx.new_tuple(vec![r1, r2]))
     } else {
-        Err(vm.new_type_error(format!(
-            "Cannot divmod power {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -199,11 +217,7 @@ fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot floordiv {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )));
+        return Ok(vm.ctx.not_implemented());
     };
 
     if v2 != 0.0 {
@@ -227,7 +241,7 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(v1 - objint::get_value(i2).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -246,7 +260,7 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else {
-        return Err(vm.new_type_error(format!("Cannot mod {} and {}", i.borrow(), i2.borrow())));
+        return Ok(vm.ctx.not_implemented());
     };
 
     if v2 != 0.0 {
@@ -278,7 +292,7 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let result = v1.powf(objint::get_value(i2).to_f64().unwrap());
         Ok(vm.ctx.new_float(result))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 

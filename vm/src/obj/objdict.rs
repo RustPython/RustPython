@@ -1,7 +1,7 @@
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objiter;
 use super::objstr;
 use super::objtype;
@@ -44,7 +44,13 @@ fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictCont
     })
 }
 
-pub fn set_item(dict: &PyObjectRef, needle: &PyObjectRef, value: &PyObjectRef) {
+pub fn set_item(
+    dict: &PyObjectRef,
+    _vm: &mut VirtualMachine,
+    needle: &PyObjectRef,
+    value: &PyObjectRef,
+) {
+    // TODO: use vm to call eventual __hash__ and __eq__methods.
     let mut elements = get_mut_elements(dict);
     set_item_in_content(&mut elements, needle, value);
 }
@@ -121,7 +127,7 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(dict_obj) = dict_obj {
         if objtype::isinstance(&dict_obj, &vm.ctx.dict_type()) {
             for (needle, value) in get_key_value_pairs(&dict_obj) {
-                set_item(&dict, &needle, &value);
+                set_item(&dict, vm, &needle, &value);
             }
         } else {
             let iter = objiter::get_iter(vm, dict_obj)?;
@@ -139,12 +145,13 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                     return Err(err(vm));
                 }
-                set_item(&dict, &needle, &value);
+                set_item(&dict, vm, &needle, &value);
             }
         }
     }
     for (needle, value) in args.kwargs {
-        set_item(&dict, &vm.new_str(needle), &value);
+        let py_needle = vm.new_str(needle);
+        set_item(&dict, vm, &py_needle, &value);
     }
     Ok(dict)
 }
@@ -158,16 +165,21 @@ fn dict_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(dict_obj, Some(vm.ctx.dict_type()))]);
 
-    let elements = get_key_value_pairs(dict_obj);
-    let mut str_parts = vec![];
-    for (key, value) in elements {
-        let s = vm.to_repr(&value)?;
-        let key_str = objstr::get_value(&key);
-        let value_str = objstr::get_value(&s);
-        str_parts.push(format!("{}: {}", key_str, value_str));
-    }
+    let s = if let Some(_guard) = ReprGuard::enter(dict_obj) {
+        let elements = get_key_value_pairs(dict_obj);
+        let mut str_parts = vec![];
+        for (key, value) in elements {
+            let key_repr = vm.to_repr(&key)?;
+            let value_repr = vm.to_repr(&value)?;
+            let key_str = objstr::get_value(&key_repr);
+            let value_str = objstr::get_value(&value_repr);
+            str_parts.push(format!("{}: {}", key_str, value_str));
+        }
 
-    let s = format!("{{{}}}", str_parts.join(", "));
+        format!("{{{}}}", str_parts.join(", "))
+    } else {
+        "{...}".to_string()
+    };
     Ok(vm.new_str(s))
 }
 
@@ -244,7 +256,7 @@ fn dict_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    set_item(dict, needle, value);
+    set_item(dict, vm, needle, value);
 
     Ok(vm.get_none())
 }

@@ -1,7 +1,7 @@
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -184,14 +184,18 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
-    let elements = get_elements(o);
-    let mut str_parts = vec![];
-    for elem in elements.iter() {
-        let s = vm.to_repr(elem)?;
-        str_parts.push(objstr::get_value(&s));
-    }
+    let s = if let Some(_guard) = ReprGuard::enter(o) {
+        let elements = get_elements(o);
+        let mut str_parts = vec![];
+        for elem in elements.iter() {
+            let s = vm.to_repr(elem)?;
+            str_parts.push(objstr::get_value(&s));
+        }
+        format!("[{}]", str_parts.join(", "))
+    } else {
+        "[...]".to_string()
+    };
 
-    let s = format!("[{}]", str_parts.join(", "));
     Ok(vm.new_str(s))
 }
 
@@ -224,7 +228,7 @@ fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
     let mut count: usize = 0;
     for element in elements.iter() {
-        let is_eq = vm._eq(element, value.clone())?;
+        let is_eq = vm._eq(element.clone(), value.clone())?;
         if objbool::boolval(vm, is_eq)? {
             count += 1;
         }
@@ -252,13 +256,46 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for (index, element) in get_elements(list).iter().enumerate() {
-        let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+        let py_equal = vm._eq(needle.clone(), element.clone())?;
         if objbool::get_value(&py_equal) {
             return Ok(vm.context().new_int(index));
         }
     }
     let needle_str = objstr::get_value(&vm.to_str(needle).unwrap());
     Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
+}
+
+fn list_insert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.insert called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (list, Some(vm.ctx.list_type())),
+            (insert_position, Some(vm.ctx.int_type())),
+            (element, None)
+        ]
+    );
+    let int_position = match objint::get_value(insert_position).to_isize() {
+        Some(i) => i,
+        None => {
+            return Err(
+                vm.new_overflow_error("Python int too large to convert to Rust isize".to_string())
+            );
+        }
+    };
+    let mut vec = get_mut_elements(list);
+    let vec_len = vec.len().to_isize().unwrap();
+    // This unbounded position can be < 0 or > vec.len()
+    let unbounded_position = if int_position < 0 {
+        vec_len + int_position
+    } else {
+        int_position
+    };
+    // Bound it by [0, vec.len()]
+    let position = unbounded_position.max(0).min(vec_len).to_usize().unwrap();
+    vec.insert(position, element.clone());
+    Ok(vm.get_none())
 }
 
 fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -292,7 +329,7 @@ fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for element in get_elements(list).iter() {
-        match vm.call_method(needle, "__eq__", vec![element.clone()]) {
+        match vm._eq(needle.clone(), element.clone()) {
             Ok(value) => {
                 if objbool::get_value(&value) {
                     return Ok(vm.new_bool(true));
@@ -405,6 +442,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "count", context.new_rustfunc(list_count));
     context.set_attr(&list_type, "extend", context.new_rustfunc(list_extend));
     context.set_attr(&list_type, "index", context.new_rustfunc(list_index));
+    context.set_attr(&list_type, "insert", context.new_rustfunc(list_insert));
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
     context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));

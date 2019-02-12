@@ -111,16 +111,21 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    let zelf = BigInt::from_pyobj(zelf);
     let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
-        let zelf = BigInt::from_pyobj(zelf);
         let other = BigInt::from_pyobj(other);
         zelf == other
     } else if objtype::isinstance(other, &vm.ctx.float_type()) {
-        let zelf = BigInt::from_pyobj(zelf).to_f64().unwrap();
-        let other = objfloat::get_value(other);
-        zelf == other
+        let other_float = objfloat::get_value(other);
+
+        if let (Some(zelf_float), Some(other_int)) = (zelf.to_f64(), other_float.to_bigint()) {
+            zelf_float == other_float && zelf == other_int
+        } else {
+            false
+        }
     } else {
-        false
+        return Ok(vm.ctx.not_implemented());
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -298,11 +303,7 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             Err(vm.new_zero_division_error("integer floordiv by zero".to_string()))
         }
     } else {
-        Err(vm.new_type_error(format!(
-            "Cannot floordiv {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -353,11 +354,7 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(i.to_f64().unwrap() - objfloat::get_value(i2)))
     } else {
-        Err(vm.new_not_implemented_error(format!(
-            "Cannot substract {} and {}",
-            _i.borrow(),
-            i2.borrow()
-        )))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -374,11 +371,7 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_float(get_value(i).to_f64().unwrap() * objfloat::get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!(
-            "Cannot multiply {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -400,7 +393,7 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
         objfloat::get_value(i2)
     } else {
-        return Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())));
+        return Ok(vm.ctx.not_implemented());
     };
 
     if v2 == 0.0 {
@@ -426,7 +419,7 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
         }
     } else {
-        Err(vm.new_type_error(format!("Cannot modulo {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -455,11 +448,7 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))
     } else {
-        Err(vm.new_type_error(format!(
-            "Cannot raise power {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -484,11 +473,7 @@ fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             Err(vm.new_zero_division_error("integer divmod by zero".to_string()))
         }
     } else {
-        Err(vm.new_type_error(format!(
-            "Cannot divmod power {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -503,7 +488,7 @@ fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 ^ v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot xor {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -520,7 +505,7 @@ fn int_rxor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
         Ok(vm.ctx.new_int(left_val ^ right_val))
     } else {
-        Err(vm.new_type_error(format!("Cannot rxor {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -535,7 +520,7 @@ fn int_or(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 | v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot or {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -550,7 +535,7 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 & v2))
     } else {
-        Err(vm.new_type_error(format!("Cannot and {} and {}", i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
 }
 

@@ -1,7 +1,7 @@
 use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -129,7 +129,7 @@ fn tuple_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
     let mut count: usize = 0;
     for element in elements.iter() {
-        let is_eq = vm._eq(element, value.clone())?;
+        let is_eq = vm._eq(element.clone(), value.clone())?;
         if objbool::boolval(vm, is_eq)? {
             count += 1;
         }
@@ -213,18 +213,22 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
 
-    let elements = get_elements(zelf);
+    let s = if let Some(_guard) = ReprGuard::enter(zelf) {
+        let elements = get_elements(zelf);
 
-    let mut str_parts = vec![];
-    for elem in elements.iter() {
-        let s = vm.to_repr(elem)?;
-        str_parts.push(objstr::get_value(&s));
-    }
+        let mut str_parts = vec![];
+        for elem in elements.iter() {
+            let s = vm.to_repr(elem)?;
+            str_parts.push(objstr::get_value(&s));
+        }
 
-    let s = if str_parts.len() == 1 {
-        format!("({},)", str_parts[0])
+        if str_parts.len() == 1 {
+            format!("({},)", str_parts[0])
+        } else {
+            format!("({})", str_parts.join(", "))
+        }
     } else {
-        format!("({})", str_parts.join(", "))
+        "(...)".to_string()
     };
     Ok(vm.new_str(s))
 }
@@ -260,7 +264,7 @@ pub fn tuple_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(tuple, Some(vm.ctx.tuple_type())), (needle, None)]
     );
     for (index, element) in get_elements(tuple).iter().enumerate() {
-        let py_equal = vm.call_method(needle, "__eq__", vec![element.clone()])?;
+        let py_equal = vm._eq(needle.clone(), element.clone())?;
         if objbool::get_value(&py_equal) {
             return Ok(vm.context().new_int(index));
         }
@@ -275,7 +279,7 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(tuple, Some(vm.ctx.tuple_type())), (needle, None)]
     );
     for element in get_elements(tuple).iter() {
-        match vm.call_method(needle, "__eq__", vec![element.clone()]) {
+        match vm._eq(needle.clone(), element.clone()) {
             Ok(value) => {
                 if objbool::get_value(&value) {
                     return Ok(vm.new_bool(true));

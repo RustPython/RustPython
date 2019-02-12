@@ -2,6 +2,7 @@
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::ErrorKind;
+// use std::env;
 
 //3rd party imports
 use num_traits::cast::ToPrimitive;
@@ -10,6 +11,7 @@ use num_traits::cast::ToPrimitive;
 use super::super::obj::objint;
 use super::super::obj::objstr;
 use super::super::obj::objtype;
+// use super::super::obj::objdict;
 
 use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
@@ -18,7 +20,7 @@ use super::super::vm::VirtualMachine;
 pub fn raw_file_number(handle: File) -> i64 {
     use std::os::unix::io::IntoRawFd;
 
-    handle.into_raw_fd() as i64
+    i64::from(handle.into_raw_fd())
 }
 
 #[cfg(target_family = "unix")]
@@ -40,10 +42,7 @@ pub fn rust_file(raw_fileno: i64) -> File {
     use std::ffi::c_void;
     use std::os::windows::io::FromRawHandle;
 
-    //TODO: This is untested and (very) unsafe handling or
-    //raw pointers - This should be patched urgently by
-    //comparison to the cpython handling of the equivalent fileno
-    //fields for windows
+    //This seems to work as expected but further testing is required.
     unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
 }
 
@@ -93,10 +92,28 @@ pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(raw_file_number(handle)))
 }
 
+fn os_error(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [],
+        optional = [(message, Some(vm.ctx.str_type()))]
+    );
+
+    let msg = if let Some(val) = message {
+        objstr::get_value(&val)
+    } else {
+        "".to_string()
+    };
+
+    Err(vm.new_os_error(msg))
+}
+
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"io".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module(&"os".to_string(), ctx.new_scope(None));
     ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(os_open));
     ctx.set_attr(&py_mod, "close", ctx.new_rustfunc(os_close));
+    ctx.set_attr(&py_mod, "error", ctx.new_rustfunc(os_error));
 
     ctx.set_attr(&py_mod, "O_RDONLY", ctx.new_int(0));
     ctx.set_attr(&py_mod, "O_WRONLY", ctx.new_int(1));
