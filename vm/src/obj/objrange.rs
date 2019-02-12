@@ -42,8 +42,8 @@ impl RangeType {
     #[inline]
     fn offset(&self, value: &BigInt) -> Option<BigInt> {
         match self.step.sign() {
-            Sign::Plus if value >= &self.start && value < &self.end => Some(value - &self.start),
-            Sign::Minus if value <= &self.start && value > &self.end => Some(&self.start - value),
+            Sign::Plus if *value >= self.start && *value < self.end => Some(value - &self.start),
+            Sign::Minus if *value <= self.start && *value > self.end => Some(&self.start - value),
             _ => None,
         }
     }
