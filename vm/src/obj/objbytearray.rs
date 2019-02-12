@@ -214,12 +214,10 @@ fn bytearray_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             let current = char::from(*c);
             let next = if let Some(k) = iter.peek() {
                 char::from(**k)
+            } else if current.is_uppercase() {
+                return Ok(vm.new_bool(!prev_cased));
             } else {
-                if current.is_uppercase() {
-                    return Ok(vm.new_bool(!prev_cased));
-                } else {
-                    return Ok(vm.new_bool(prev_cased));
-                }
+                return Ok(vm.new_bool(prev_cased));
             };
 
             if (is_cased(current) && next.is_uppercase() && !prev_cased)
