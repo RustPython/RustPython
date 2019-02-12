@@ -199,7 +199,7 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let start = if let Some(_) = second {
+    let start = if second.is_some() {
         objint::get_value(first)
     } else {
         BigInt::zero()
