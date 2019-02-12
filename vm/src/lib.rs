@@ -9,6 +9,7 @@
 extern crate bitflags;
 #[macro_use]
 extern crate lazy_static;
+extern crate lexical;
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
