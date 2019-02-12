@@ -145,7 +145,7 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
 /// -   `stdout?`: `(out: string) => void`: A function to replace the native print
 ///     function, by default `console.log`.
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
-    let options = options.unwrap_or_else(|| Object::new());
+    let options = options.unwrap_or_else(Object::new);
     let js_vars = {
         let prop = Reflect::get(&options, &"vars".into())?;
         if prop.is_undefined() {
