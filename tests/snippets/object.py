@@ -9,3 +9,7 @@ assert not myobj != myobj
 
 assert MyObject().__eq__(MyObject()) == NotImplemented
 assert MyObject().__ne__(MyObject()) == NotImplemented
+assert MyObject().__lt__(MyObject()) == NotImplemented
+assert MyObject().__le__(MyObject()) == NotImplemented
+assert MyObject().__gt__(MyObject()) == NotImplemented
+assert MyObject().__ge__(MyObject()) == NotImplemented

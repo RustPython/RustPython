@@ -620,20 +620,28 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _lt(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__lt__", vec![b])
+    pub fn _lt(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__lt__", "__lt__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, "<"))
+        })
     }
 
-    pub fn _le(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__le__", vec![b])
+    pub fn _le(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__le__", "__le__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, "<="))
+        })
     }
 
-    pub fn _gt(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__gt__", vec![b])
+    pub fn _gt(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__gt__", "__gt__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, ">"))
+        })
     }
 
-    pub fn _ge(&mut self, a: &PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_method(a, "__ge__", vec![b])
+    pub fn _ge(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__ge__", "__ge__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, ">="))
+        })
     }
 }
 
