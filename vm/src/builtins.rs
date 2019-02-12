@@ -421,7 +421,7 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         } else {
             y.clone()
         };
-        let order = vm.call_method(&x_key, "__gt__", vec![y_key.clone()])?;
+        let order = vm._gt(x_key.clone(), y_key.clone())?;
 
         if !objbool::get_value(&order) {
             x = y.clone();
@@ -471,7 +471,7 @@ fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         } else {
             y.clone()
         };
-        let order = vm.call_method(&x_key, "__gt__", vec![y_key.clone()])?;
+        let order = vm._gt(x_key.clone(), y_key.clone())?;
 
         if objbool::get_value(&order) {
             x = y.clone();
