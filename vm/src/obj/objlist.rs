@@ -219,6 +219,12 @@ fn list_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn list_copy(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.list_type()))]);
+    let elements = get_elements(zelf);
+    Ok(vm.ctx.new_list(elements.clone()))
+}
+
 fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -439,6 +445,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "__doc__", context.new_str(list_doc.to_string()));
     context.set_attr(&list_type, "append", context.new_rustfunc(list_append));
     context.set_attr(&list_type, "clear", context.new_rustfunc(list_clear));
+    context.set_attr(&list_type, "copy", context.new_rustfunc(list_copy));
     context.set_attr(&list_type, "count", context.new_rustfunc(list_count));
     context.set_attr(&list_type, "extend", context.new_rustfunc(list_extend));
     context.set_attr(&list_type, "index", context.new_rustfunc(list_index));

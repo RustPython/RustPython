@@ -67,3 +67,11 @@ except OverflowError:
     pass
 else:
     assert False, "OverflowError was not raised"
+
+x = [[], 2, {}]
+y = x.copy()
+assert x is not y
+assert x == y
+assert all(a is b for a, b in zip(x, y))
+y.append(4)
+assert x != y
