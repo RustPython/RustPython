@@ -265,6 +265,39 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
 }
 
+fn list_insert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("list.insert called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (list, Some(vm.ctx.list_type())),
+            (insert_position, Some(vm.ctx.int_type())),
+            (element, None)
+        ]
+    );
+    let int_position = match objint::get_value(insert_position).to_isize() {
+        Some(i) => i,
+        None => {
+            return Err(
+                vm.new_overflow_error("Python int too large to convert to Rust isize".to_string())
+            );
+        }
+    };
+    let mut vec = get_mut_elements(list);
+    let vec_len = vec.len().to_isize().unwrap();
+    // This unbounded position can be < 0 or > vec.len()
+    let unbounded_position = if int_position < 0 {
+        vec_len + int_position
+    } else {
+        int_position
+    };
+    // Bound it by [0, vec.len()]
+    let position = unbounded_position.max(0).min(vec_len).to_usize().unwrap();
+    vec.insert(position, element.clone());
+    Ok(vm.get_none())
+}
+
 fn list_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("list.len called with: {:?}", args);
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
@@ -409,6 +442,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "count", context.new_rustfunc(list_count));
     context.set_attr(&list_type, "extend", context.new_rustfunc(list_extend));
     context.set_attr(&list_type, "index", context.new_rustfunc(list_index));
+    context.set_attr(&list_type, "insert", context.new_rustfunc(list_insert));
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
     context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));
