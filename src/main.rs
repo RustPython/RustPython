@@ -206,7 +206,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
                         //};
                         match rl.readline(&ps2) {
                             Ok(line) => {
-                                if line.len() == 0 {
+                                if line.is_empty() {
                                     if shell_exec(vm, &input, vars.clone()) {
                                         rl.add_history_entry(input.trim_end());
                                         input = String::new();
