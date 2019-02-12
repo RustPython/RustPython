@@ -15,6 +15,7 @@ pub trait PySliceableSequence {
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self;
     fn empty() -> Self;
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
     fn get_pos(&self, p: i32) -> Option<usize> {
         if p < 0 {
             if -p as usize > self.len() {
@@ -126,6 +127,10 @@ impl<T: Clone> PySliceableSequence for Vec<T> {
 
     fn len(&self) -> usize {
         self.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
     }
 }
 

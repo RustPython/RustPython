@@ -1070,6 +1070,10 @@ impl PySliceableSequence for String {
     fn len(&self) -> usize {
         to_graphemes(self).len()
     }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
 }
 
 /// Convert a string-able `value` to a vec of graphemes
