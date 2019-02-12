@@ -11,7 +11,7 @@ extern crate web_sys;
 use crate::js_to_py;
 use js_sys::Array;
 use rustpython_vm::obj::{objstr, objtype};
-use rustpython_vm::pyobject::{PyFuncArgs, PyObjectRef, PyResult};
+use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{console, window, HtmlTextAreaElement};
@@ -33,7 +33,9 @@ pub fn print_to_html(text: &str, selector: &str) -> Result<(), JsValue> {
 
 pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
     // Handle 'sep' kwarg:
-    let sep_arg = args.get_optional_kwarg("sep");
+    let sep_arg = args
+        .get_optional_kwarg("sep")
+        .filter(|obj| !obj.is(&vm.get_none()));
     if let Some(ref obj) = sep_arg {
         if !objtype::isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
@@ -45,7 +47,9 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
     let sep_str = sep_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
 
     // Handle 'end' kwarg:
-    let end_arg = args.get_optional_kwarg("end");
+    let end_arg = args
+        .get_optional_kwarg("end")
+        .filter(|obj| !obj.is(&vm.get_none()));
     if let Some(ref obj) = end_arg {
         if !objtype::isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
@@ -63,10 +67,17 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
     for a in args.args {
         if first {
             first = false;
+        } else if let Some(ref sep_str) = sep_str {
+            output.push_str(sep_str);
         } else {
-            output.push_str(" ");
+            output.push(' ');
         }
         output.push_str(&vm.to_pystr(&a)?);
+    }
+
+    if let Some(end_str) = end_str {
+        output.push_str(end_str.as_ref())
+    } else {
         output.push('\n');
     }
     Ok(output)

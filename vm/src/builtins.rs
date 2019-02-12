@@ -572,7 +572,9 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
 
     // Handle 'sep' kwarg:
-    let sep_arg = args.get_optional_kwarg("sep");
+    let sep_arg = args
+        .get_optional_kwarg("sep")
+        .filter(|obj| !obj.is(&vm.get_none()));
     if let Some(ref obj) = sep_arg {
         if !objtype::isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
@@ -584,7 +586,9 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let sep_str = sep_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
 
     // Handle 'end' kwarg:
-    let end_arg = args.get_optional_kwarg("end");
+    let end_arg = args
+        .get_optional_kwarg("end")
+        .filter(|obj| !obj.is(&vm.get_none()));
     if let Some(ref obj) = end_arg {
         if !objtype::isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
