@@ -2,7 +2,9 @@ use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objbytes;
 use super::objint;
+use super::objstr;
 use super::objtype;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
@@ -23,9 +25,35 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let val = if objtype::isinstance(arg, &vm.ctx.float_type()) {
         get_value(arg)
     } else if objtype::isinstance(arg, &vm.ctx.int_type()) {
-        objint::get_value(arg).to_f64().unwrap()
+        match objint::get_value(arg).to_f64() {
+            Some(f) => f,
+            None => {
+                return Err(vm.new_overflow_error("int too large to convert to float".to_string()));
+            }
+        }
+    } else if objtype::isinstance(arg, &vm.ctx.str_type()) {
+        match lexical::try_parse(objstr::get_value(arg)) {
+            Ok(f) => f,
+            Err(_) => {
+                let arg_repr = vm.to_pystr(arg)?;
+                return Err(
+                    vm.new_value_error(format!("could not convert string to float: {}", arg_repr))
+                );
+            }
+        }
+    } else if objtype::isinstance(arg, &vm.ctx.bytes_type()) {
+        match lexical::try_parse(objbytes::get_value(arg).as_slice()) {
+            Ok(f) => f,
+            Err(_) => {
+                let arg_repr = vm.to_pystr(arg)?;
+                return Err(
+                    vm.new_value_error(format!("could not convert string to float: {}", arg_repr))
+                );
+            }
+        }
     } else {
-        return Err(vm.new_type_error("Cannot construct int".to_string()));
+        let type_name = objtype::get_type_name(&arg.typ());
+        return Err(vm.new_type_error(format!("can't convert {} to float", type_name)));
     };
     set_value(zelf, val);
     Ok(vm.get_none())
