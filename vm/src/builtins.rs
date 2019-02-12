@@ -570,27 +570,64 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
+
+    // Handle 'sep' kwarg:
+    let sep_arg = args.get_optional_kwarg("sep");
+    if let Some(ref obj) = sep_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "sep must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let sep_str = sep_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+
+    // Handle 'end' kwarg:
+    let end_arg = args.get_optional_kwarg("end");
+    if let Some(ref obj) = end_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "end must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let end_str = end_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+
+    // Handle 'flush' kwarg:
+    let flush = if let Some(flush) = &args.get_optional_kwarg("flush") {
+        objbool::boolval(vm, flush.clone()).unwrap()
+    } else {
+        false
+    };
+
+    let stdout = io::stdout();
+    let mut stdout_lock = stdout.lock();
     let mut first = true;
     for a in &args.args {
         if first {
             first = false;
+        } else if let Some(ref sep_str) = sep_str {
+            write!(stdout_lock, "{}", sep_str).unwrap();
         } else {
-            print!(" ");
+            write!(stdout_lock, " ").unwrap();
         }
         let v = vm.to_str(&a)?;
-        let s = objstr::get_value(&v);
-        print!("{}", s);
+        let s = objstr::get_value_as_ref(&v);
+        write!(stdout_lock, "{}", s).unwrap();
     }
 
-    // Handle 'end' kwarg:
-    if let Some(end_value) = &args.get_optional_kwarg("end") {
-        let end_str = objstr::get_value(end_value);
-        print!("{}", end_str);
+    if let Some(end_str) = end_str {
+        write!(stdout_lock, "{}", end_str).unwrap();
     } else {
-        println!();
+        writeln!(stdout_lock).unwrap();
     }
 
-    io::stdout().flush().unwrap();
+    if flush {
+        stdout_lock.flush().unwrap();
+    }
+
     Ok(vm.get_none())
 }
 

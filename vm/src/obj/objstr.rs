@@ -7,6 +7,7 @@ use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
 use num_traits::ToPrimitive;
+use std::cell::Ref;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
@@ -108,6 +109,16 @@ pub fn get_value(obj: &PyObjectRef) -> String {
     } else {
         panic!("Inner error getting str");
     }
+}
+
+pub fn get_value_as_ref(obj: &PyObjectRef) -> Ref<str> {
+    Ref::map(obj.borrow(), |py_obj| {
+        if let PyObjectPayload::String { value } = &py_obj.payload {
+            value.as_ref()
+        } else {
+            panic!("Inner error getting str");
+        }
+    })
 }
 
 fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
