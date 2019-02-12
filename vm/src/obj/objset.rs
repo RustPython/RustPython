@@ -180,48 +180,48 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(
+    set_compare_inner(
         vm,
         args,
         &|zelf: usize, other: usize| -> bool { zelf != other },
         false,
-    );
+    )
 }
 
 fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(
+    set_compare_inner(
         vm,
         args,
         &|zelf: usize, other: usize| -> bool { zelf < other },
         false,
-    );
+    )
 }
 
 fn set_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(
+    set_compare_inner(
         vm,
         args,
         &|zelf: usize, other: usize| -> bool { zelf <= other },
         false,
-    );
+    )
 }
 
 fn set_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(
+    set_compare_inner(
         vm,
         args,
         &|zelf: usize, other: usize| -> bool { zelf < other },
         true,
-    );
+    )
 }
 
 fn set_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    return set_compare_inner(
+    set_compare_inner(
         vm,
         args,
         &|zelf: usize, other: usize| -> bool { zelf <= other },
         true,
-    );
+    )
 }
 
 fn set_compare_inner(
