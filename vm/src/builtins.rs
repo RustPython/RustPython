@@ -571,7 +571,7 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
     let mut first = true;
-    for a in args.args {
+    for a in &args.args {
         if first {
             first = false;
         } else {
@@ -581,7 +581,15 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let s = objstr::get_value(&v);
         print!("{}", s);
     }
-    println!();
+
+    // Handle 'end' kwarg:
+    if let Some(end_value) = &args.get_optional_kwarg("end") {
+        let end_str = objstr::get_value(end_value);
+        print!("{}", end_str);
+    } else {
+        println!();
+    }
+
     io::stdout().flush().unwrap();
     Ok(vm.get_none())
 }
