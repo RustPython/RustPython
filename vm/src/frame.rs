@@ -197,7 +197,7 @@ impl Frame {
             }
             bytecode::Instruction::Rotate { amount } => {
                 // Shuffles top of stack amount down
-                if amount < &2 {
+                if *amount < 2 {
                     panic!("Can only rotate two or more values");
                 }
 
