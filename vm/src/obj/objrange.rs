@@ -68,9 +68,10 @@ impl RangeType {
 
     #[inline]
     pub fn count(&self, value: &BigInt) -> usize {
-        match self.index_of(value).is_some() {
-            true => 1,
-            false => 0,
+        if self.index_of(value).is_some() {
+            1
+        } else {
+            0
         }
     }
 
