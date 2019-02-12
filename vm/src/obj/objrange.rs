@@ -146,7 +146,7 @@ pub fn get_value(obj: &PyObjectRef) -> RangeType {
 }
 
 pub fn init(context: &PyContext) {
-    let ref range_type = context.range_type;
+    let range_type = &context.range_type;
 
     let range_doc = "range(stop) -> range object\n\
                      range(start, stop[, step]) -> range object\n\n\
