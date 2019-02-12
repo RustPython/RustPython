@@ -83,6 +83,22 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
 }
 
+fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (obj, Some(vm.ctx.object())),
+            (format_spec, Some(vm.ctx.str_type()))
+        ]
+    );
+    if objstr::get_value(format_spec).is_empty() {
+        vm.to_str(obj)
+    } else {
+        Err(vm.new_type_error("unsupported format string passed to object.__format__".to_string()))
+    }
+}
+
 pub fn init(context: &PyContext) {
     let object = &context.object;
     let object_doc = "The most base type";
@@ -100,6 +116,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
     context.set_attr(&object, "__str__", context.new_rustfunc(object_str));
     context.set_attr(&object, "__repr__", context.new_rustfunc(object_repr));
+    context.set_attr(&object, "__format__", context.new_rustfunc(object_format));
     context.set_attr(
         &object,
         "__getattribute__",
