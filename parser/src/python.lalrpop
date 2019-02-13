@@ -663,7 +663,7 @@ Test: ast::Expression = {
 };
 
 LambdaDef: ast::Expression = {
-    "lambda" <p:TypedArgsList?> ":" <b:Expression> =>
+    "lambda" <p:TypedArgsList?> ":" <b:Test> =>
         ast::Expression::Lambda {
             args: p.unwrap_or(Default::default()),
             body:Box::new(b)
