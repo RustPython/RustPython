@@ -11,7 +11,6 @@ use super::super::pyobject::{
     TypeProtocol,
 };
 use super::super::VirtualMachine;
-use std::rc::Rc;
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module("_weakref", ctx.new_scope(None));
@@ -25,10 +24,11 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
 
 fn ref_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: check first argument for subclass of `ref`.
-    arg_check!(vm, args, required = [(cls, None), (referent, None)]);
-    let referent = Rc::downgrade(referent);
+    arg_check!(vm, args, required = [(cls, None), (referent, None)],
+        optional = [(callback, None)]);
+    let referent = PyObjectRef::downgrade(referent);
     Ok(PyObject::new(
-        PyObjectPayload::WeakRef { referent },
+        PyObjectPayload::WeakRef { referent, callback: callback.cloned() },
         cls.clone(),
     ))
 }
@@ -47,7 +47,7 @@ fn ref_call(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn get_value(obj: &PyObjectRef) -> PyObjectWeakRef {
-    if let PyObjectPayload::WeakRef { referent } = &obj.borrow().payload {
+    if let PyObjectPayload::WeakRef { referent, .. } = &obj.borrow().payload {
         referent.clone()
     } else {
         panic!("Inner error getting weak ref {:?}", obj);

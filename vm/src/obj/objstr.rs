@@ -1,6 +1,6 @@
 use super::super::format::{FormatParseError, FormatPart, FormatString};
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objint;
@@ -1126,8 +1126,8 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
 
 // help get optional string indices
 fn get_slice(
-    start: Option<&std::rc::Rc<std::cell::RefCell<PyObject>>>,
-    end: Option<&std::rc::Rc<std::cell::RefCell<PyObject>>>,
+    start: Option<&PyObjectRef>,
+    end: Option<&PyObjectRef>,
     len: usize,
 ) -> Result<(usize, usize), String> {
     let start_idx = match start {

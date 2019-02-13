@@ -38,6 +38,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::{Rc, Weak};
+use std::ops::Deref;
 
 /* Python objects and references.
 
@@ -54,20 +55,48 @@ Basically reference counting, but then done by rust.
  */
 
 /*
-The PyRef type implements
+The PyObjectRef type implements
 https://doc.rust-lang.org/std/cell/index.html#introducing-mutability-inside-of-something-immutable
 */
-pub type PyRef<T> = Rc<RefCell<T>>;
 
 /// The `PyObjectRef` is one of the most used types. It is a reference to a
 /// python object. A single python object can have multiple references, and
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = PyRef<PyObject>;
+#[derive(Debug, Clone)]
+pub struct PyObjectRef {
+    rc: Rc<RefCell<PyObject>>
+}
 
-/// Same as PyObjectRef, except for being a weak reference.
-pub type PyObjectWeakRef = Weak<RefCell<PyObject>>;
+impl PyObjectRef {
+    pub fn downgrade(this: &Self) -> PyObjectWeakRef {
+        PyObjectWeakRef { weak: Rc::downgrade(&this.rc) }
+    }
+
+    pub fn strong_count(this: &Self) -> usize {
+        Rc::strong_count(&this.rc)
+    }
+}
+
+impl Deref for PyObjectRef {
+    type Target = RefCell<PyObject>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.rc
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PyObjectWeakRef {
+    weak: Weak<RefCell<PyObject>>
+}
+
+impl PyObjectWeakRef {
+    pub fn upgrade(&self) -> Option<PyObjectRef> {
+        self.weak.upgrade().map(|x| PyObjectRef { rc:x })
+    }
+}
 
 /// Use this type for function which return a python object or and exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -164,11 +193,7 @@ pub struct Scope {
 }
 
 fn _nothing() -> PyObjectRef {
-    PyObject {
-        payload: PyObjectPayload::None,
-        typ: None,
-    }
-    .into_ref()
+    PyObject::new_no_type(PyObjectPayload::None)
 }
 
 pub fn create_type(
@@ -535,12 +560,12 @@ impl PyContext {
 
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
         let locals = self.new_dict();
+        self.new_scope_with_locals(parent, locals)
+    }
+
+    pub fn new_scope_with_locals(&self, parent: Option<PyObjectRef>, locals: PyObjectRef) -> PyObjectRef {
         let scope = Scope { locals, parent };
-        PyObject {
-            payload: PyObjectPayload::Scope { scope },
-            typ: None,
-        }
-        .into_ref()
+        PyObject::new_no_type(PyObjectPayload::Scope { scope })
     }
 
     pub fn new_module(&self, name: &str, scope: PyObjectRef) -> PyObjectRef {
@@ -697,6 +722,7 @@ impl PyContext {
 pub struct PyObject {
     pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
+    pub weak_refs: Vec<PyObjectRef>
     // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
 }
 
@@ -1015,6 +1041,7 @@ pub enum PyObjectPayload {
     },
     WeakRef {
         referent: PyObjectWeakRef,
+        callback: Option<PyObjectRef>,
     },
     Instance {
         dict: RefCell<PyAttributes>,
@@ -1072,13 +1099,24 @@ impl PyObject {
             payload,
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
+            weak_refs: Vec::new()
+        }
+        .into_ref()
+    }
+
+    fn new_no_type(payload: PyObjectPayload) -> PyObjectRef {
+        PyObject {
+            payload,
+            typ: None,
+            // dict: HashMap::new(),  // dict,
+            weak_refs: Vec::new()
         }
         .into_ref()
     }
 
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
-        Rc::new(RefCell::new(self))
+        PyObjectRef { rc: Rc::new(RefCell::new(self)) }
     }
 }
 

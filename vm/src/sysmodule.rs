@@ -1,6 +1,5 @@
 use obj::objtype;
 use pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use std::rc::Rc;
 use std::{env, mem};
 use vm::VirtualMachine;
 
@@ -24,7 +23,7 @@ fn getframe(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 
 fn sys_getrefcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
-    let size = Rc::strong_count(&object);
+    let size = PyObjectRef::strong_count(object);
     Ok(vm.ctx.new_int(size))
 }
 

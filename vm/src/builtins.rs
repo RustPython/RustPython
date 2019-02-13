@@ -16,8 +16,8 @@ use super::obj::objstr;
 use super::obj::objtype;
 
 use super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, Scope, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use super::stdlib::io::io_open;
 
@@ -265,17 +265,7 @@ fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObject
     };
 
     // TODO: handle optional globals
-    // Construct new scope:
-    let scope_inner = Scope {
-        locals,
-        parent: None,
-    };
-
-    PyObject {
-        payload: PyObjectPayload::Scope { scope: scope_inner },
-        typ: None,
-    }
-    .into_ref()
+    vm.ctx.new_scope_with_locals(None, locals)
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
