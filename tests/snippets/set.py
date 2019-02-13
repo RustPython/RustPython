@@ -40,3 +40,8 @@ class Hashable(object):
 recursive = set()
 recursive.add(Hashable(recursive))
 assert repr(recursive) == "{set(...)}"
+
+a = set([1, 2, 3])
+assert len(a) == 3
+a.clear()
+assert len(a) == 0
