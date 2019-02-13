@@ -9,7 +9,7 @@ use super::compile;
 use super::pyobject::{DictProtocol, PyResult};
 use super::util;
 use super::vm::VirtualMachine;
-use obj::{objsequence, objstr};
+use crate::obj::{objsequence, objstr};
 
 fn import_uncached_module(
     vm: &mut VirtualMachine,
