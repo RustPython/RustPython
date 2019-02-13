@@ -103,17 +103,13 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn set_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.clear called");
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.set_type()))]
-    );
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let mut mut_obj = s.borrow_mut();
     match mut_obj.payload {
         PyObjectPayload::Set { ref mut elements } => {
             elements.clear();
             Ok(vm.get_none())
-        },
+        }
         _ => Err(vm.new_type_error("".to_string())),
     }
 }
