@@ -77,12 +77,9 @@ fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> Py
 }
 
 fn handle_exception(vm: &mut VirtualMachine, result: PyResult) {
-    match result {
-        Ok(_value) => {}
-        Err(err) => {
-            print_exception(vm, &err);
-            std::process::exit(1);
-        }
+    if let Err(err) = result {
+        print_exception(vm, &err);
+        std::process::exit(1);
     }
 }
 
@@ -90,7 +87,7 @@ fn run_command(vm: &mut VirtualMachine, mut source: String) -> PyResult {
     debug!("Running command {}", source);
 
     // This works around https://github.com/RustPython/RustPython/issues/17
-    source.push_str("\n");
+    source.push('\n');
     _run_string(vm, &source, "<stdin>".to_string())
 }
 
@@ -116,13 +113,8 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
 fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
     match compile::compile(vm, source, &compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
-            match vm.run_code_obj(code, scope) {
-                Ok(_value) => {
-                    // Printed already.
-                }
-                Err(err) => {
-                    print_exception(vm, &err);
-                }
+            if let Err(err) = vm.run_code_obj(code, scope) {
+                print_exception(vm, &err);
             }
         }
         Err(err) => {
