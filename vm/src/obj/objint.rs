@@ -116,14 +116,23 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
         let other = BigInt::from_pyobj(other);
         zelf == other
-    } else if objtype::isinstance(other, &vm.ctx.float_type()) {
-        let other_float = objfloat::get_value(other);
+    } else {
+        return Ok(vm.ctx.not_implemented());
+    };
+    Ok(vm.ctx.new_bool(result))
+}
 
-        if let (Some(zelf_float), Some(other_int)) = (zelf.to_f64(), other_float.to_bigint()) {
-            zelf_float == other_float && zelf == other_int
-        } else {
-            false
-        }
+fn int_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
+    );
+
+    let zelf = BigInt::from_pyobj(zelf);
+    let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
+        let other = BigInt::from_pyobj(other);
+        zelf != other
     } else {
         return Ok(vm.ctx.not_implemented());
     };
@@ -578,6 +587,7 @@ Base 0 means to interpret the base from the string as an integer literal.
     let int_type = &context.int_type;
 
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
+    context.set_attr(&int_type, "__ne__", context.new_rustfunc(int_ne));
     context.set_attr(&int_type, "__lt__", context.new_rustfunc(int_lt));
     context.set_attr(&int_type, "__le__", context.new_rustfunc(int_le));
     context.set_attr(&int_type, "__gt__", context.new_rustfunc(int_gt));
