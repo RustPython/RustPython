@@ -203,10 +203,12 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(|err| {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            vm.new_exception(syntax_error, err.description().to_string())
-        })?
+        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(
+            |err| {
+                let syntax_error = vm.context().exceptions.syntax_error.clone();
+                vm.new_exception(syntax_error, err.description().to_string())
+            },
+        )?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
@@ -252,10 +254,12 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(|err| {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            vm.new_exception(syntax_error, err.description().to_string())
-        })?
+        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(
+            |err| {
+                let syntax_error = vm.context().exceptions.syntax_error.clone();
+                vm.new_exception(syntax_error, err.description().to_string())
+            },
+        )?
     } else if objtype::isinstance(source, &vm.ctx.code_type()) {
         source.clone()
     } else {

@@ -123,29 +123,36 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
     }
 }
 
-fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: PyObjectRef) -> bool {
-    match compile::compile(source, &compile::Mode::Single, "<stdin>".to_string(), vm.ctx.code_type()) {
+fn shell_exec(
+    vm: &mut VirtualMachine,
+    source: &str,
+    scope: PyObjectRef,
+) -> Result<(), CompileError> {
+    match compile::compile(
+        source,
+        &compile::Mode::Single,
+        "<stdin>".to_string(),
+        vm.ctx.code_type(),
+    ) {
         Ok(code) => {
             if let Err(err) = vm.run_code_obj(code, scope) {
                 print_exception(vm, &err);
             }
+            Ok(())
         }
         // Don't inject syntax errors for line continuation
-        Err(CompileError::Parse(ParseError::EOF(_))) => {
-            return false;
-        }
+        Err(err @ CompileError::Parse(ParseError::EOF(_))) => Err(err),
         Err(err) => {
             let syntax_error = vm.context().exceptions.syntax_error.clone();
             let exc = vm.new_exception(syntax_error, format!("{}", err));
             print_exception(vm, &exc);
+            Err(err)
         }
-    };
-    true
+    }
 }
 
 #[cfg(not(target_family = "unix"))]
 fn get_history_path() -> PathBuf {
-    //Path buffer
     PathBuf::from(".repl_history.txt")
 }
 
@@ -169,57 +176,34 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
 
     // Read a single line:
     let mut input = String::new();
-    let mut rl = Editor::<()>::new();
+    let mut repl = Editor::<()>::new();
 
-    //retrieve a history_path_str dependent to the os
+    // Retrieve a `history_path_str` dependent on the OS
     let repl_history_path_str = &get_history_path();
-    if rl.load_history(repl_history_path_str).is_err() {
+    if repl.load_history(repl_history_path_str).is_err() {
         println!("No previous history.");
     }
 
+    let ps1 = &objstr::get_value(&vm.sys_module.get_attr("ps1").unwrap());
+    let ps2 = &objstr::get_value(&vm.sys_module.get_attr("ps2").unwrap());
+    let mut prompt = ps1;
+
     loop {
-        // TODO: modules don't support getattr / setattr yet
-        //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps1") {
-        //        Ok(value) => objstr::get_value(&value),
-        //        Err(_) => ">>>>> ".to_string(),
-        //};
-
-        // We can customize the prompt:
-        let ps1 = objstr::get_value(&vm.sys_module.get_attr("ps1").unwrap());
-        let ps2 = objstr::get_value(&vm.sys_module.get_attr("ps2").unwrap());
-
-        match rl.readline(&ps1) {
+        match repl.readline(prompt) {
             Ok(line) => {
+                debug!("You entered {:?}", line);
                 input.push_str(&line);
                 input.push_str("\n");
+                repl.add_history_entry(line.trim_end().as_ref());
 
-                debug!("You entered {:?}", input);
-                if shell_exec(vm, &input, vars.clone()) {
-                    // Line was complete.
-                    rl.add_history_entry(input.trim_end());
-                    input = String::new();
-                } else {
-                    loop {
-                        // until an empty line is pressed AND the code is complete
-                        //let prompt = match vm.get_attribute(vm.sys_module.clone(), "ps2") {
-                        //        Ok(value) => objstr::get_value(&value),
-                        //        Err(_) => "..... ".to_string(),
-                        //};
-                        match rl.readline(&ps2) {
-                            Ok(line) => {
-                                if line.is_empty() {
-                                    if shell_exec(vm, &input, vars.clone()) {
-                                        rl.add_history_entry(input.trim_end());
-                                        input = String::new();
-                                        break;
-                                    }
-                                } else {
-                                    input.push_str(&line);
-                                    input.push_str("\n");
-                                }
-                            }
-                            Err(msg) => panic!("Error: {:?}", msg),
-                        }
+                match shell_exec(vm, &input, vars.clone()) {
+                    Err(CompileError::Parse(ParseError::EOF(_))) => {
+                        prompt = ps2;
+                        continue;
+                    }
+                    _ => {
+                        prompt = ps1;
+                        input = String::new();
                     }
                 }
             }
@@ -237,7 +221,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
             }
         };
     }
-    rl.save_history(repl_history_path_str).unwrap();
+    repl.save_history(repl_history_path_str).unwrap();
 
     Ok(vm.get_none())
 }

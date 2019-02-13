@@ -12,7 +12,12 @@ pub fn eval(
     scope: PyObjectRef,
     source_path: &str,
 ) -> PyResult {
-    match compile::compile(source, &compile::Mode::Eval, source_path.to_string(), vm.ctx.code_type()) {
+    match compile::compile(
+        source,
+        &compile::Mode::Eval,
+        source_path.to_string(),
+        vm.ctx.code_type(),
+    ) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)

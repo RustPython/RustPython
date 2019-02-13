@@ -3,7 +3,7 @@
 extern crate lalrpop_util;
 use self::lalrpop_util::ParseError as InnerError;
 
-use lexer::{Location, LexicalError};
+use lexer::{LexicalError, Location};
 use token::Tok;
 
 use std::error::Error;
@@ -13,7 +13,7 @@ use std::fmt;
 type TokSpan = (Location, Tok, Location);
 
 /// Represents an error during parsing
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ParseError {
     /// Parser encountered an unexpected end of input
     EOF(Option<Location>),
@@ -35,7 +35,7 @@ impl From<InnerError<Location, Tok, LexicalError>> for ParseError {
             InnerError::InvalidToken { location } => ParseError::EOF(Some(location)),
             InnerError::ExtraToken { token } => ParseError::ExtraToken(token),
             // Inner field is a unit-like enum `LexicalError::StringError` with no useful info
-            InnerError::User { ..} =>  ParseError::Other,
+            InnerError::User { .. } => ParseError::Other,
             InnerError::UnrecognizedToken { token, expected } => {
                 match token {
                     Some(tok) => ParseError::UnrecognizedToken(tok, expected),
@@ -59,8 +59,10 @@ impl fmt::Display for ParseError {
             }
             ParseError::ExtraToken(ref t_span) => {
                 write!(f, "Got extraneous token: {:?} at: {:?}", t_span.1, t_span.0)
-            },
-            ParseError::InvalidToken(ref location) => write!(f, "Got invalid token at: {:?}", location),
+            }
+            ParseError::InvalidToken(ref location) => {
+                write!(f, "Got invalid token at: {:?}", location)
+            }
             ParseError::UnrecognizedToken(ref t_span, _) => {
                 write!(f, "Got unexpected token: {:?} at {:?}", t_span.1, t_span.0)
             }
