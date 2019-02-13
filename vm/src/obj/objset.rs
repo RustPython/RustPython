@@ -101,6 +101,19 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn set_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("set.clear called");
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
+    let mut mut_obj = s.borrow_mut();
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            elements.clear();
+            Ok(vm.get_none())
+        }
+        _ => Err(vm.new_type_error("".to_string())),
+    }
+}
+
 /* Create a new object of sub-type of set */
 fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -315,6 +328,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
     context.set_attr(&set_type, "remove", context.new_rustfunc(set_remove));
+    context.set_attr(&set_type, "clear", context.new_rustfunc(set_clear));
 
     let frozenset_type = &context.frozenset_type;
 
