@@ -134,11 +134,13 @@ fn int_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.int_type())),
-            (other, Some(vm.ctx.int_type()))
-        ]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+        return Ok(vm.ctx.not_implemented());
+    }
+
     let zelf = BigInt::from_pyobj(zelf);
     let other = BigInt::from_pyobj(other);
     let result = zelf < other;
@@ -149,11 +151,13 @@ fn int_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.int_type())),
-            (other, Some(vm.ctx.int_type()))
-        ]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+        return Ok(vm.ctx.not_implemented());
+    }
+
     let zelf = BigInt::from_pyobj(zelf);
     let other = BigInt::from_pyobj(other);
     let result = zelf <= other;
@@ -164,11 +168,13 @@ fn int_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.int_type())),
-            (other, Some(vm.ctx.int_type()))
-        ]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+        return Ok(vm.ctx.not_implemented());
+    }
+
     let zelf = BigInt::from_pyobj(zelf);
     let other = BigInt::from_pyobj(other);
     let result = zelf > other;
@@ -179,11 +185,13 @@ fn int_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.int_type())),
-            (other, Some(vm.ctx.int_type()))
-        ]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+        return Ok(vm.ctx.not_implemented());
+    }
+
     let zelf = BigInt::from_pyobj(zelf);
     let other = BigInt::from_pyobj(other);
     let result = zelf >= other;
