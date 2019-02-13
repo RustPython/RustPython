@@ -104,5 +104,13 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "O_NONBLOCK", ctx.new_int(4));
     ctx.set_attr(&py_mod, "O_APPEND", ctx.new_int(8));
     ctx.set_attr(&py_mod, "O_CREAT", ctx.new_int(512));
+
+    if cfg!(windows) {
+        ctx.set_attr(&py_mod, "name", ctx.new_str("nt".to_string()));
+    } else {
+        // Assume we're on a POSIX system
+        ctx.set_attr(&py_mod, "name", ctx.new_str("posix".to_string()));
+    }
+
     py_mod
 }
