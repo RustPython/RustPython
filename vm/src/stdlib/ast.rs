@@ -571,13 +571,8 @@ fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(source, Some(vm.ctx.str_type()))]);
 
     let source_string = objstr::get_value(source);
-    let internal_ast = match parser::parse_program(&source_string) {
-        Ok(ast) => ast,
-        Err(msg) => {
-            return Err(vm.new_value_error(msg));
-        }
-    };
-
+    let internal_ast = parser::parse_program(&source_string)
+        .map_err(|err| vm.new_value_error(format!("{}", err)))?;
     // source.clone();
     let ast_node = program_to_ast(&vm.ctx, &internal_ast);
     Ok(ast_node)
