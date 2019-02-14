@@ -26,3 +26,15 @@ assert complex(1, 2).__eq__('foo') == NotImplemented
 
 assert -complex(1, -1) == complex(-1, 1)
 assert -complex(0, 0) == complex(0, 0)
+
+# real
+
+a = complex(3, 4)
+b = 4j
+assert a.real == 3
+assert b.real == 0
+
+# imag
+
+assert a.imag == 4
+assert b.imag == 4

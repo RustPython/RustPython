@@ -20,6 +20,8 @@ pub fn init(context: &PyContext) {
     context.set_attr(&complex_type, "__eq__", context.new_rustfunc(complex_eq));
     context.set_attr(&complex_type, "__neg__", context.new_rustfunc(complex_neg));
     context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
+    context.set_attr(&complex_type, "real", context.new_property(complex_real));
+    context.set_attr(&complex_type, "imag", context.new_property(complex_imag));
     context.set_attr(
         &complex_type,
         "__doc__",
@@ -73,6 +75,18 @@ fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Complex { value },
         cls.clone(),
     ))
+}
+
+fn complex_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
+    let Complex64 { re, im: _ } = get_value(zelf);
+    Ok(vm.ctx.new_float(re))
+}
+
+fn complex_imag(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
+    let Complex64 { re: _, im } = get_value(zelf);
+    Ok(vm.ctx.new_float(im))
 }
 
 fn complex_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
