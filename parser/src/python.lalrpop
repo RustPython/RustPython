@@ -1017,7 +1017,7 @@ Bytes: Vec<u8> = {
     <s:bytes+> => {
         s.into_iter().flatten().collect::<Vec<u8>>()
     },
-}
+};
 
 Identifier: String = <s:name> => s;
 
