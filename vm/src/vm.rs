@@ -478,11 +478,25 @@ impl VirtualMachine {
     // get_attribute should be used for full attribute access (usually from user code).
     pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: PyObjectRef) -> PyResult {
         trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
-        self.call_method(&obj, "__getattribute__", vec![attr_name])
+        self.call_or_unsupported(
+            obj,
+            attr_name,
+            "__getattribute__",
+            "__rgetattribute__",
+            |vm, obj, attr_name| {
+                Err(vm.new_unsupported_operand_error(obj, attr_name, "__getattribute__"))
+            },
+        )
     }
 
     pub fn del_attr(&mut self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult {
-        self.call_method(&obj, "__delattr__", vec![attr_name])
+        self.call_or_unsupported(
+            obj.clone(),
+            attr_name,
+            "__delattr__",
+            "__rdelattr__",
+            |vm, obj, attr_name| Err(vm.new_unsupported_operand_error(obj, attr_name, "delattr")),
+        )
     }
 
     // get_method should be used for internal access to magic methods (by-passing
