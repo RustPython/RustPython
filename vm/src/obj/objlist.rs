@@ -409,6 +409,19 @@ fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type())), (needle, None)]
+    );
+
+    let mut elements = get_mut_elements(list);
+    let i = elements.iter().position(|r| objbool::get_value(&vm._eq(needle.clone(), r.clone()).unwrap())).unwrap();
+    elements.remove(i);
+    Ok(vm.get_none())
+}
+
 pub fn init(context: &PyContext) {
     let list_type = &context.list_type;
 
@@ -453,4 +466,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
     context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));
+    context.set_attr(&list_type, "remove", context.new_rustfunc(list_remove));
 }
