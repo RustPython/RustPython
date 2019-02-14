@@ -648,7 +648,7 @@ fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(ind))
 }
 
-// casefold is much more aggresive than lower
+// casefold is much more aggressive than lower
 fn str_casefold(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);

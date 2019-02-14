@@ -42,7 +42,7 @@ pub struct Frame {
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame
     stack: Vec<PyObjectRef>, // The main data frame of the stack machine
-    blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
+    blocks: Vec<Block>,      // Block frames, for controlling loops and exceptions
     pub locals: PyObjectRef, // Variables
     pub lasti: usize,        // index of last instruction ran
 }
