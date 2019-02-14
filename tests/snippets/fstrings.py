@@ -7,3 +7,4 @@ assert f"{foo}foo" == 'barfoo'
 assert f"foo{foo}foo" == 'foobarfoo'
 assert f"{{foo}}" == '{foo}'
 assert f"{ {foo} }" == "{'bar'}"
+assert f"{f'{{}}'}" == '{}' # don't include escaped braces in nested f-strings

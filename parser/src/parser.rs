@@ -102,7 +102,7 @@ pub enum FStringError {
 }
 
 impl From<FStringError> for ParseError<lexer::Location, token::Tok, lexer::LexicalError> {
-    fn from(err: FStringError) -> Self {
+    fn from(_err: FStringError) -> Self {
         // TODO: we should have our own top-level ParseError to properly propagate f-string (and
         // other) syntax errors
         ParseError::User {
@@ -126,12 +126,12 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
                 escaped = false;
             }
             '{' => {
-                if let Some((_, '{')) = chars.peek() {
-                    escaped = true;
-                    continue;
-                }
-
                 if depth == 0 {
+                    if let Some((_, '{')) = chars.peek() {
+                        escaped = true;
+                        continue;
+                    }
+
                     values.push(ast::StringGroup::Constant {
                         value: mem::replace(&mut content, String::new()),
                     });
@@ -141,12 +141,12 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
                 depth += 1;
             }
             '}' => {
-                if let Some((_, '}')) = chars.peek() {
-                    escaped = true;
-                    continue;
-                }
-
                 if depth == 0 {
+                    if let Some((_, '}')) = chars.peek() {
+                        escaped = true;
+                        continue;
+                    }
+
                     return Err(FStringError::UnopenedRbrace);
                 }
 
