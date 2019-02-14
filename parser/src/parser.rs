@@ -1,6 +1,7 @@
 extern crate lalrpop_util;
 
 use std::iter;
+use std::mem;
 
 use super::ast;
 use super::error::ParseError;
@@ -67,6 +68,97 @@ pub fn parse_expression(source: &str) -> Result<ast::Expression, ParseError> {
     do_lalr_parsing!(source, Expression, StartExpression)
 }
 
+// TODO: consolidate these with ParseError
+pub enum FStringError {
+    UnclosedLbrace,
+    UnopenedRbrace,
+    InvalidExpression,
+}
+
+impl From<FStringError>
+    for lalrpop_util::ParseError<lexer::Location, token::Tok, lexer::LexicalError>
+{
+    fn from(_err: FStringError) -> Self {
+        lalrpop_util::ParseError::User {
+            error: lexer::LexicalError::StringError,
+        }
+    }
+}
+
+pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
+    let mut values = vec![];
+    let mut start = 0;
+    let mut depth = 0;
+    let mut escaped = false;
+    let mut content = String::new();
+
+    let mut chars = source.char_indices().peekable();
+    while let Some((pos, ch)) = chars.next() {
+        match ch {
+            '{' | '}' if escaped => {
+                content.push(ch);
+                escaped = false;
+            }
+            '{' => {
+                if depth == 0 {
+                    if let Some((_, '{')) = chars.peek() {
+                        escaped = true;
+                        continue;
+                    }
+
+                    values.push(ast::StringGroup::Constant {
+                        value: mem::replace(&mut content, String::new()),
+                    });
+
+                    start = pos + 1;
+                }
+                depth += 1;
+            }
+            '}' => {
+                if depth == 0 {
+                    if let Some((_, '}')) = chars.peek() {
+                        escaped = true;
+                        continue;
+                    }
+
+                    return Err(FStringError::UnopenedRbrace);
+                }
+
+                depth -= 1;
+                if depth == 0 {
+                    values.push(ast::StringGroup::FormattedValue {
+                        value: Box::new(match parse_expression(source[start..pos].trim()) {
+                            Ok(expr) => expr,
+                            Err(_) => return Err(FStringError::InvalidExpression),
+                        }),
+                    });
+                }
+            }
+            ch => {
+                if depth == 0 {
+                    content.push(ch);
+                }
+            }
+        }
+    }
+
+    if depth != 0 {
+        return Err(FStringError::UnclosedLbrace);
+    }
+
+    if !content.is_empty() {
+        values.push(ast::StringGroup::Constant { value: content })
+    }
+
+    Ok(match values.len() {
+        0 => ast::StringGroup::Constant {
+            value: "".to_string(),
+        },
+        1 => values.into_iter().next().unwrap(),
+        _ => ast::StringGroup::Joined { values },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::ast;
@@ -96,7 +188,9 @@ mod tests {
                                 name: String::from("print"),
                             }),
                             args: vec![ast::Expression::String {
-                                value: String::from("Hello world"),
+                                value: ast::StringGroup::Constant {
+                                    value: String::from("Hello world")
+                                }
                             }],
                             keywords: vec![],
                         },
@@ -122,7 +216,9 @@ mod tests {
                             }),
                             args: vec![
                                 ast::Expression::String {
-                                    value: String::from("Hello world"),
+                                    value: ast::StringGroup::Constant {
+                                        value: String::from("Hello world"),
+                                    }
                                 },
                                 ast::Expression::Number {
                                     value: ast::Number::Integer {
@@ -153,7 +249,9 @@ mod tests {
                                 name: String::from("my_func"),
                             }),
                             args: vec![ast::Expression::String {
-                                value: String::from("positional"),
+                                value: ast::StringGroup::Constant {
+                                    value: String::from("positional"),
+                                }
                             }],
                             keywords: vec![ast::Keyword {
                                 name: Some("keyword".to_string()),
@@ -348,7 +446,9 @@ mod tests {
                                     vararg: None,
                                     kwarg: None,
                                     defaults: vec![ast::Expression::String {
-                                        value: "default".to_string()
+                                        value: ast::StringGroup::Constant {
+                                            value: "default".to_string()
+                                        }
                                     }],
                                     kw_defaults: vec![],
                                 },
