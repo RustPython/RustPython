@@ -125,6 +125,9 @@ pub enum Instruction {
     Raise {
         argc: usize,
     },
+    BuildString {
+        size: usize,
+    },
     BuildTuple {
         size: usize,
         unpack: bool,
@@ -164,6 +167,7 @@ pub enum Instruction {
         after: usize,
     },
     Unpack,
+    FormatValue,
 }
 
 #[derive(Debug, Clone, PartialEq)]

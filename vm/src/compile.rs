@@ -980,11 +980,7 @@ impl Compiler {
                 });
             }
             ast::Expression::String { value } => {
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: value.to_string(),
-                    },
-                });
+                self.compile_string(value)?;
             }
             ast::Expression::Bytes { value } => {
                 self.emit(Instruction::LoadConst {
@@ -1313,6 +1309,29 @@ impl Compiler {
         self.emit(Instruction::CallFunction {
             typ: CallType::Positional(1),
         });
+        Ok(())
+    }
+
+    fn compile_string(&mut self, string: &ast::StringGroup) -> Result<(), String> {
+        match string {
+            ast::StringGroup::Joined { values } => {
+                for value in values {
+                    self.compile_string(value)?;
+                }
+                self.emit(Instruction::BuildString { size: values.len() })
+            }
+            ast::StringGroup::Constant { value } => {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: value.to_string(),
+                    },
+                });
+            }
+            ast::StringGroup::FormattedValue { value } => {
+                self.compile_expression(value)?;
+                self.emit(Instruction::FormatValue);
+            }
+        }
         Ok(())
     }
 

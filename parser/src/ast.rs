@@ -197,7 +197,7 @@ pub enum Expression {
         elements: Vec<Expression>,
     },
     String {
-        value: String,
+        value: StringGroup,
     },
     Bytes {
         value: Vec<u8>,
@@ -311,4 +311,11 @@ pub enum Number {
     Integer { value: BigInt },
     Float { value: f64 },
     Complex { real: f64, imag: f64 },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum StringGroup {
+    Constant { value: String },
+    FormattedValue { value: Box<Expression> },
+    Joined { values: Vec<StringGroup> },
 }

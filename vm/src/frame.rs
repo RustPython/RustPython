@@ -218,6 +218,16 @@ impl Frame {
                 }
                 Ok(None)
             }
+            bytecode::Instruction::BuildString { size } => {
+                let s = self
+                    .pop_multiple(*size)
+                    .into_iter()
+                    .map(|pyobj| objstr::get_value(&pyobj))
+                    .collect::<String>();
+                let str_obj = vm.ctx.new_str(s);
+                self.push_value(str_obj);
+                Ok(None)
+            }
             bytecode::Instruction::BuildList { size, unpack } => {
                 let elements = self.get_elements(vm, *size, *unpack)?;
                 let list_obj = vm.ctx.new_list(elements);
@@ -628,6 +638,12 @@ impl Frame {
                 for element in elements.into_iter().rev() {
                     self.push_value(element);
                 }
+                Ok(None)
+            }
+            bytecode::Instruction::FormatValue => {
+                let value = self.pop_value();
+                let formatted = vm.to_pystr(&value)?;
+                self.push_value(vm.new_str(formatted));
                 Ok(None)
             }
         }

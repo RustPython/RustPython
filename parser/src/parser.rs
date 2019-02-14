@@ -4,7 +4,10 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use std::iter;
+use std::mem;
 use std::path::Path;
+
+use self::lalrpop_util::ParseError;
 
 use super::ast;
 use super::lexer;
@@ -90,6 +93,96 @@ pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, String> {
 /// ```
 pub fn parse_expression(source: &str) -> Result<ast::Expression, String> {
     do_lalr_parsing!(source, Expression, StartExpression)
+}
+
+pub enum FStringError {
+    UnclosedLbrace,
+    UnopenedRbrace,
+    InvalidExpression,
+}
+
+impl From<FStringError> for ParseError<lexer::Location, token::Tok, lexer::LexicalError> {
+    fn from(err: FStringError) -> Self {
+        // TODO: we should have our own top-level ParseError to properly propagate f-string (and
+        // other) syntax errors
+        ParseError::User {
+            error: lexer::LexicalError::StringError,
+        }
+    }
+}
+
+pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
+    let mut values = vec![];
+    let mut start = 0;
+    let mut depth = 0;
+    let mut escaped = false;
+    let mut content = String::new();
+
+    let mut chars = source.char_indices().peekable();
+    while let Some((pos, ch)) = chars.next() {
+        match ch {
+            '{' | '}' if escaped => {
+                content.push(ch);
+                escaped = false;
+            }
+            '{' => {
+                if let Some((_, '{')) = chars.peek() {
+                    escaped = true;
+                    continue;
+                }
+
+                if depth == 0 {
+                    values.push(ast::StringGroup::Constant {
+                        value: mem::replace(&mut content, String::new()),
+                    });
+
+                    start = pos + 1;
+                }
+                depth += 1;
+            }
+            '}' => {
+                if let Some((_, '}')) = chars.peek() {
+                    escaped = true;
+                    continue;
+                }
+
+                if depth == 0 {
+                    return Err(FStringError::UnopenedRbrace);
+                }
+
+                depth -= 1;
+                if depth == 0 {
+                    values.push(ast::StringGroup::FormattedValue {
+                        value: Box::new(match parse_expression(source[start..pos].trim()) {
+                            Ok(expr) => expr,
+                            Err(_) => return Err(FStringError::InvalidExpression),
+                        }),
+                    });
+                }
+            }
+            ch => {
+                if depth == 0 {
+                    content.push(ch);
+                }
+            }
+        }
+    }
+
+    if depth != 0 {
+        return Err(FStringError::UnclosedLbrace);
+    }
+
+    if !content.is_empty() {
+        values.push(ast::StringGroup::Constant { value: content })
+    }
+
+    Ok(match values.len() {
+        0 => ast::StringGroup::Constant {
+            value: "".to_string(),
+        },
+        1 => values.into_iter().next().unwrap(),
+        _ => ast::StringGroup::Joined { values },
+    })
 }
 
 #[cfg(test)]

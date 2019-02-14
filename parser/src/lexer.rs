@@ -274,7 +274,6 @@ where
         let mut saw_f = false;
         loop {
             // Detect r"", f"", b"" and u""
-            // TODO: handle f-strings
             if !(saw_b || saw_u || saw_f) && (self.chr0 == Some('b') || self.chr0 == Some('B')) {
                 saw_b = true;
             } else if !(saw_b || saw_r || saw_u || saw_f)
@@ -442,7 +441,7 @@ where
         is_bytes: bool,
         is_raw: bool,
         _is_unicode: bool,
-        _is_fstring: bool,
+        is_fstring: bool,
     ) -> Spanned<Tok> {
         let quote_char = self.next_char().unwrap();
         let mut string_content = String::new();
@@ -533,6 +532,7 @@ where
         } else {
             Tok::String {
                 value: string_content,
+                is_fstring,
             }
         };
 
