@@ -33,6 +33,7 @@ mod macros;
 mod builtins;
 pub mod bytecode;
 pub mod compile;
+pub mod error;
 pub mod eval;
 mod exceptions;
 pub mod format;
@@ -43,6 +44,7 @@ pub mod pyobject;
 pub mod stdlib;
 mod sysmodule;
 mod traceback;
+pub mod util;
 mod vm;
 
 // pub use self::pyobject::Executor;

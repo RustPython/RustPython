@@ -1,5 +1,7 @@
 extern crate rustpython_parser;
 
+use std::error::Error;
+
 use super::compile;
 use super::pyobject::{PyObjectRef, PyResult};
 use super::vm::VirtualMachine;
@@ -10,12 +12,20 @@ pub fn eval(
     scope: PyObjectRef,
     source_path: &str,
 ) -> PyResult {
-    match compile::compile(vm, source, &compile::Mode::Eval, source_path.to_string()) {
+    match compile::compile(
+        source,
+        &compile::Mode::Eval,
+        source_path.to_string(),
+        vm.ctx.code_type(),
+    ) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)
         }
-        Err(err) => Err(err),
+        Err(err) => {
+            let syntax_error = vm.context().exceptions.syntax_error.clone();
+            return Err(vm.new_exception(syntax_error, err.description().to_string()));
+        }
     }
 }
 

@@ -9,6 +9,7 @@ use js_sys::{Array, Object, Reflect, TypeError};
 use rustpython_vm::compile;
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
+use std::error::Error;
 use wasm_bindgen::{prelude::*, JsCast};
 
 // Hack to comment out wasm-bindgen's typescript definitions
@@ -123,7 +124,16 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
         source.push('\n');
     }
 
-    let code_obj = compile::compile(vm, &source, &compile::Mode::Exec, "<string>".to_string())?;
+    let code_obj = compile::compile(
+        &source,
+        &compile::Mode::Exec,
+        "<string>".to_string(),
+        vm.ctx.code_type(),
+    )
+    .map_err(|err| {
+        let syntax_error = vm.context().exceptions.syntax_error.clone();
+        vm.new_exception(syntax_error, err.description().to_string())
+    })?;
 
     vm.run_code_obj(code_obj, vars)
 }
