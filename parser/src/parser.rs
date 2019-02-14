@@ -188,7 +188,9 @@ mod tests {
                                 name: String::from("print"),
                             }),
                             args: vec![ast::Expression::String {
-                                value: String::from("Hello world"),
+                                value: ast::StringGroup::Constant {
+                                    value: String::from("Hello world")
+                                }
                             }],
                             keywords: vec![],
                         },
@@ -214,7 +216,9 @@ mod tests {
                             }),
                             args: vec![
                                 ast::Expression::String {
-                                    value: String::from("Hello world"),
+                                    value: ast::StringGroup::Constant {
+                                        value: String::from("Hello world"),
+                                    }
                                 },
                                 ast::Expression::Number {
                                     value: ast::Number::Integer {
@@ -245,7 +249,9 @@ mod tests {
                                 name: String::from("my_func"),
                             }),
                             args: vec![ast::Expression::String {
-                                value: String::from("positional"),
+                                value: ast::StringGroup::Constant {
+                                    value: String::from("positional"),
+                                }
                             }],
                             keywords: vec![ast::Keyword {
                                 name: Some("keyword".to_string()),
@@ -440,7 +446,9 @@ mod tests {
                                     vararg: None,
                                     kwarg: None,
                                     defaults: vec![ast::Expression::String {
-                                        value: "default".to_string()
+                                        value: ast::StringGroup::Constant {
+                                            value: "default".to_string()
+                                        }
                                     }],
                                     kw_defaults: vec![],
                                 },

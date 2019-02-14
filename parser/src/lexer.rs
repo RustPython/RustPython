@@ -1108,9 +1108,11 @@ mod tests {
             vec![
                 Tok::String {
                     value: "\\\\".to_string(),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: "\\".to_string(),
+                    is_fstring: false,
                 }
             ]
         );
@@ -1402,21 +1404,27 @@ mod tests {
             vec![
                 Tok::String {
                     value: String::from("double"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("single"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("can't"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\\\""),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\t\r\n"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\\g"),
+                    is_fstring: false,
                 },
             ]
         );
@@ -1434,6 +1442,7 @@ mod tests {
                     vec![
                         Tok::String {
                             value: String::from("abcdef"),
+                            is_fstring: false,
                         },
                     ]
                 )
