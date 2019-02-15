@@ -438,19 +438,17 @@ fn div_ints(vm: &mut VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
     } else {
         let (quotient, mut rem) = i1.div_rem(i2);
         let mut divisor = i2.clone();
-        let mut rem_part = 0.0;
 
-        if let Some(mut quotient) = quotient.to_f64() {
-            loop {
+        if let Some(quotient) = quotient.to_f64() {
+            let rem_part = loop {
                 if let (Some(rem), Some(divisor)) = (rem.to_f64(), divisor.to_f64()) {
-                    rem_part += rem / divisor;
-                    break;
+                    break rem / divisor;
                 } else {
                     // try with smaller numbers
                     rem /= 2;
                     divisor /= 2;
                 }
-            }
+            };
 
             Ok(vm.ctx.new_float(quotient + rem_part))
         } else {
