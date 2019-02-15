@@ -304,6 +304,31 @@ fn set_union(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
+fn set_intersection(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.set_type())),
+            (other, Some(vm.ctx.set_type()))
+        ]
+    );
+
+    let mut elements = HashMap::new();
+
+    for element in get_elements(zelf).iter() {
+        let value = vm.call_method(other, "__contains__", vec![element.1.clone()])?;
+        if objbool::get_value(&value) {
+            elements.insert(element.0.clone(), element.1.clone());
+        }
+    }
+
+    Ok(PyObject::new(
+        PyObjectPayload::Set { elements },
+        vm.ctx.set_type(),
+    ))
+}
+
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -346,6 +371,12 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "issuperset", context.new_rustfunc(set_ge));
     context.set_attr(&set_type, "union", context.new_rustfunc(set_union));
     context.set_attr(&set_type, "__or__", context.new_rustfunc(set_union));
+    context.set_attr(
+        &set_type,
+        "intersection",
+        context.new_rustfunc(set_intersection),
+    );
+    context.set_attr(&set_type, "__and__", context.new_rustfunc(set_intersection));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
     context.set_attr(&set_type, "remove", context.new_rustfunc(set_remove));

@@ -50,3 +50,9 @@ assert set([1,2,3]).union(set([1,2,3,4,5])) == set([1,2,3,4,5])
 
 assert set([1,2,3]) | set([4,5]) == set([1,2,3,4,5])
 assert set([1,2,3]) | set([1,2,3,4,5]) == set([1,2,3,4,5])
+
+assert set([1,2,3]).intersection(set([1,2])) == set([1,2])
+assert set([1,2,3]).intersection(set([5,6])) == set([])
+
+assert set([1,2,3]) & set([4,5]) == set([])
+assert set([1,2,3]) & set([1,2,3,4,5]) == set([1,2,3])
