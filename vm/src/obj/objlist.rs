@@ -417,10 +417,16 @@ fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let mut elements = get_mut_elements(list);
-    let i = elements
-        .iter()
-        .position(|r| objbool::get_value(&vm._eq(needle.clone(), r.clone()).unwrap()));
-    if let Some(index) = i {
+    let mut ri: Option<usize> = None;
+    for (index, element) in elements.iter().enumerate() {
+        let py_equal = vm._eq(needle.clone(), element.clone())?;
+        if objbool::get_value(&py_equal) {
+            ri = Some(index);
+            break;
+        }
+    }
+
+    if let Some(index) = ri {
         elements.remove(index);
         Ok(vm.get_none())
     } else {
