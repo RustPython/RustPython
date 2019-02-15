@@ -75,3 +75,16 @@ assert x == y
 assert all(a is b for a, b in zip(x, y))
 y.append(4)
 assert x != y
+
+a = [1, 2, 3]
+assert len(a) == 3
+a.remove(1)
+assert len(a) == 2
+assert not 1 in a
+
+try:
+    a.remove(10)
+except ValueError:
+    pass
+else:
+    assert False, "Remove not exist element should raise ValueError"
