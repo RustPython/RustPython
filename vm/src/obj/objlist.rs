@@ -417,9 +417,16 @@ fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let mut elements = get_mut_elements(list);
-    let i = elements.iter().position(|r| objbool::get_value(&vm._eq(needle.clone(), r.clone()).unwrap())).unwrap();
-    elements.remove(i);
-    Ok(vm.get_none())
+    let i = elements
+        .iter()
+        .position(|r| objbool::get_value(&vm._eq(needle.clone(), r.clone()).unwrap()));
+    if i.is_some() {
+        elements.remove(i.unwrap());
+        Ok(vm.get_none())
+    } else {
+        let needle_str = objstr::get_value(&vm.to_str(needle).unwrap());
+        Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
+    }
 }
 
 pub fn init(context: &PyContext) {
