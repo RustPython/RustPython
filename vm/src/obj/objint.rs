@@ -406,22 +406,10 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    let v1 = get_value(zelf)
-        .to_f64()
-        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?;
-
-    let v2 = if objtype::isinstance(other, &vm.ctx.int_type()) {
-        get_value(other)
-            .to_f64()
-            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
+    if objtype::isinstance(other, &vm.ctx.int_type()) {
+        div_ints(vm, &get_value(zelf), &get_value(other))
     } else {
-        return Ok(vm.ctx.not_implemented());
-    };
-
-    if v2 == 0.0 {
-        Err(vm.new_zero_division_error("integer division by zero".to_string()))
-    } else {
-        Ok(vm.ctx.new_float(v1 / v2))
+        Ok(vm.ctx.not_implemented())
     }
 }
 
@@ -432,22 +420,42 @@ fn int_rtruediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    let v1 = get_value(zelf)
-        .to_f64()
-        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?;
-
-    let v2 = if objtype::isinstance(other, &vm.ctx.int_type()) {
-        get_value(other)
-            .to_f64()
-            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
+    if objtype::isinstance(other, &vm.ctx.int_type()) {
+        div_ints(vm, &get_value(other), &get_value(zelf))
     } else {
-        return Ok(vm.ctx.not_implemented());
-    };
+        Ok(vm.ctx.not_implemented())
+    }
+}
 
-    if v1 == 0.0 {
-        Err(vm.new_zero_division_error("integer division by zero".to_string()))
+#[inline]
+fn div_ints(vm: &mut VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
+    if i2.is_zero() {
+        return Err(vm.new_zero_division_error("integer division by zero".to_string()));
+    }
+
+    if let (Some(f1), Some(f2)) = (i1.to_f64(), i2.to_f64()) {
+        Ok(vm.ctx.new_float(f1 / f2))
     } else {
-        Ok(vm.ctx.new_float(v2 / v1))
+        let (quotient, mut rem) = i1.div_rem(i2);
+        let mut divisor = i2.clone();
+        let mut rem_part = 0.0;
+
+        if let Some(mut quotient) = quotient.to_f64() {
+            loop {
+                if let (Some(rem), Some(divisor)) = (rem.to_f64(), divisor.to_f64()) {
+                    rem_part += rem / divisor;
+                    break;
+                } else {
+                    // try with smaller numbers
+                    rem /= 2;
+                    divisor /= 2;
+                }
+            }
+
+            Ok(vm.ctx.new_float(quotient + rem_part))
+        } else {
+            Err(vm.new_overflow_error("int too large to convert to float".to_string()))
+        }
     }
 }
 
