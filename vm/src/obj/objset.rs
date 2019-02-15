@@ -305,6 +305,23 @@ fn set_union(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn set_intersection(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_combine_inner(vm, args, SetCombineOperation::Intersection)
+}
+
+fn set_difference(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_combine_inner(vm, args, SetCombineOperation::Difference)
+}
+
+enum SetCombineOperation {
+    Intersection,
+    Difference,
+}
+
+fn set_combine_inner(
+    vm: &mut VirtualMachine,
+    args: PyFuncArgs,
+    op: SetCombineOperation,
+) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -318,7 +335,11 @@ fn set_intersection(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     for element in get_elements(zelf).iter() {
         let value = vm.call_method(other, "__contains__", vec![element.1.clone()])?;
-        if objbool::get_value(&value) {
+        let should_add = match op {
+            SetCombineOperation::Intersection => objbool::get_value(&value),
+            SetCombineOperation::Difference => !objbool::get_value(&value),
+        };
+        if should_add {
             elements.insert(element.0.clone(), element.1.clone());
         }
     }
@@ -377,6 +398,12 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(set_intersection),
     );
     context.set_attr(&set_type, "__and__", context.new_rustfunc(set_intersection));
+    context.set_attr(
+        &set_type,
+        "difference",
+        context.new_rustfunc(set_difference),
+    );
+    context.set_attr(&set_type, "__sub__", context.new_rustfunc(set_difference));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
     context.set_attr(&set_type, "remove", context.new_rustfunc(set_remove));
