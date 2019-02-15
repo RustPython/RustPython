@@ -68,3 +68,18 @@ assert set([1,2,3]).symmetric_difference(set([5,6])) == set([1,2,3,5,6])
 
 assert set([1,2,3]) ^ set([4,5]) == set([1,2,3,4,5])
 assert set([1,2,3]) ^ set([1,2,3,4,5]) == set([4,5])
+
+try:
+	set([[]])
+except TypeError:
+	pass
+else:
+	assert False, "TypeError was not raised"
+
+try:
+	set().add([])
+except TypeError:
+	pass
+else:
+	assert False, "TypeError was not raised"
+
