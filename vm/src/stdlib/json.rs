@@ -119,7 +119,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
+        // The JSON deserializer always uses the i64/u64 deserializers, so we only need to
         // implement those for now
         Ok(self.vm.ctx.new_int(value))
     }
@@ -128,7 +128,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        // The JSON deserialiser always uses the i64/u64 deserialisers, so we only need to
+        // The JSON deserializer always uses the i64/u64 deserializers, so we only need to
         // implement those for now
         Ok(self.vm.ctx.new_int(value))
     }
@@ -198,7 +198,7 @@ fn json_dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implement json.loads
 fn json_loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    // TODO: Implement non-trivial deserialisation case
+    // TODO: Implement non-trivial deserialization case
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
     let res = {
         let de = PyObjectDeserializer { vm };
