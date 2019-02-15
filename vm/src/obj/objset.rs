@@ -101,6 +101,32 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn set_discard(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("set.discard called with: {:?}", args);
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.set_type())), (item, None)]
+    );
+    let mut mut_obj = s.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            fn discard(
+                vm: &mut VirtualMachine,
+                elements: &mut HashMap<u64, PyObjectRef>,
+                key: u64,
+                _value: &PyObjectRef,
+            ) -> PyResult {
+                elements.remove(&key);
+                Ok(vm.get_none())
+            }
+            perform_action_with_hash(vm, elements, item, &discard)
+        }
+        _ => Err(vm.new_type_error("set.discard is called with no item".to_string())),
+    }
+}
+
 fn set_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.clear called");
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
@@ -449,6 +475,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
     context.set_attr(&set_type, "remove", context.new_rustfunc(set_remove));
+    context.set_attr(&set_type, "discard", context.new_rustfunc(set_discard));
     context.set_attr(&set_type, "clear", context.new_rustfunc(set_clear));
 
     let frozenset_type = &context.frozenset_type;
