@@ -219,6 +219,25 @@ fn set_compare_inner(
     Ok(vm.new_bool(true))
 }
 
+fn set_union(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.set_type())),
+            (other, Some(vm.ctx.set_type()))
+        ]
+    );
+
+    let mut elements = get_elements(zelf).clone();
+    elements.extend(get_elements(other).clone());
+
+    Ok(PyObject::new(
+        PyObjectPayload::Set { elements },
+        vm.ctx.set_type(),
+    ))
+}
+
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -259,6 +278,8 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "__lt__", context.new_rustfunc(set_lt));
     context.set_attr(&set_type, "issubset", context.new_rustfunc(set_le));
     context.set_attr(&set_type, "issuperset", context.new_rustfunc(set_ge));
+    context.set_attr(&set_type, "union", context.new_rustfunc(set_union));
+    context.set_attr(&set_type, "__or__", context.new_rustfunc(set_union));
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
