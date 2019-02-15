@@ -83,3 +83,10 @@ except TypeError:
 else:
 	assert False, "TypeError was not raised"
 
+a = set([1,2,3])
+b = a.copy()
+assert len(a) == 3
+assert len(b) == 3
+b.clear()
+assert len(a) == 3
+assert len(b) == 0

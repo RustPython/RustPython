@@ -152,6 +152,13 @@ fn set_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.context().new_int(elements.len()))
 }
 
+fn set_copy(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("set.copy called with: {:?}", args);
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
+    let elements = get_elements(s);
+    Ok(PyObject::new(PyObjectPayload::Set { elements }, vm.ctx.set_type()))
+}
+
 fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.set_type()))]);
 
@@ -450,6 +457,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
     context.set_attr(&set_type, "remove", context.new_rustfunc(set_remove));
     context.set_attr(&set_type, "clear", context.new_rustfunc(set_clear));
+    context.set_attr(&set_type, "copy", context.new_rustfunc(set_copy));
 
     let frozenset_type = &context.frozenset_type;
 
