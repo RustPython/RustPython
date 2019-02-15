@@ -420,11 +420,11 @@ fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let i = elements
         .iter()
         .position(|r| objbool::get_value(&vm._eq(needle.clone(), r.clone()).unwrap()));
-    if i.is_some() {
-        elements.remove(i.unwrap());
+    if let Some(index) = i {
+        elements.remove(index);
         Ok(vm.get_none())
     } else {
-        let needle_str = objstr::get_value(&vm.to_str(needle).unwrap());
+        let needle_str = objstr::get_value(&vm.to_str(needle)?);
         Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
     }
 }
