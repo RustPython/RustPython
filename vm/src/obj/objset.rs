@@ -133,7 +133,7 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             let mut elements = HashMap::new();
             let iterator = objiter::get_iter(vm, iterable)?;
             while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                insert_into_set(vm, &mut elements, &v).unwrap();
+                insert_into_set(vm, &mut elements, &v)?;
             }
             elements
         }
