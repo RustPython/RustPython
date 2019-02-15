@@ -156,7 +156,10 @@ fn set_copy(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.copy called with: {:?}", args);
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let elements = get_elements(s);
-    Ok(PyObject::new(PyObjectPayload::Set { elements }, vm.ctx.set_type()))
+    Ok(PyObject::new(
+        PyObjectPayload::Set { elements },
+        vm.ctx.set_type(),
+    ))
 }
 
 fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
