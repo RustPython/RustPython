@@ -829,7 +829,6 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_contains_key_str(elements, k)
             }
-            PyObjectPayload::Module { ref dict, .. } => dict.contains_key(k),
             PyObjectPayload::Scope { ref scope } => scope.locals.contains_key(k),
             ref payload => unimplemented!("TODO {:?}", payload),
         }
@@ -838,7 +837,6 @@ impl DictProtocol for PyObjectRef {
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         match self.borrow().payload {
             PyObjectPayload::Dict { ref elements } => objdict::content_get_key_str(elements, k),
-            PyObjectPayload::Module { ref dict, .. } => dict.get_item(k),
             PyObjectPayload::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }
