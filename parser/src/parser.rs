@@ -69,6 +69,7 @@ pub fn parse_expression(source: &str) -> Result<ast::Expression, ParseError> {
 }
 
 // TODO: consolidate these with ParseError
+#[derive(Debug, PartialEq)]
 pub enum FStringError {
     UnclosedLbrace,
     UnopenedRbrace,
@@ -96,31 +97,36 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
     while let Some((pos, ch)) = chars.next() {
         match ch {
             '{' | '}' if escaped => {
-                content.push(ch);
+                if depth == 0 {
+                    content.push(ch);
+                }
                 escaped = false;
             }
             '{' => {
-                if depth == 0 {
-                    if let Some((_, '{')) = chars.peek() {
-                        escaped = true;
-                        continue;
-                    }
+                if let Some((_, '{')) = chars.peek() {
+                    escaped = true;
+                    continue;
+                }
 
-                    values.push(ast::StringGroup::Constant {
-                        value: mem::replace(&mut content, String::new()),
-                    });
+                if depth == 0 {
+                    if !content.is_empty() {
+                        values.push(ast::StringGroup::Constant {
+                            value: mem::replace(&mut content, String::new()),
+                        });
+                    }
 
                     start = pos + 1;
                 }
+
                 depth += 1;
             }
             '}' => {
-                if depth == 0 {
-                    if let Some((_, '}')) = chars.peek() {
-                        escaped = true;
-                        continue;
-                    }
+                if let Some((_, '}')) = chars.peek() {
+                    escaped = true;
+                    continue;
+                }
 
+                if depth == 0 {
                     return Err(FStringError::UnopenedRbrace);
                 }
 
@@ -152,7 +158,7 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
 
     Ok(match values.len() {
         0 => ast::StringGroup::Constant {
-            value: "".to_string(),
+            value: String::new(),
         },
         1 => values.into_iter().next().unwrap(),
         _ => ast::StringGroup::Joined { values },
@@ -163,8 +169,10 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
 mod tests {
     use super::ast;
     use super::parse_expression;
+    use super::parse_fstring;
     use super::parse_program;
     use super::parse_statement;
+    use super::FStringError;
     use num_bigint::BigInt;
 
     #[test]
@@ -554,6 +562,55 @@ mod tests {
                     }
                 ],
             }
+        );
+    }
+
+    fn mk_ident(name: &str) -> ast::Expression {
+        ast::Expression::Identifier {
+            name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn test_parse_fstring() {
+        let source = String::from("{a}{ b }{{foo}}");
+        let parse_ast = parse_fstring(&source).unwrap();
+
+        assert_eq!(
+            parse_ast,
+            ast::StringGroup::Joined {
+                values: vec![
+                    ast::StringGroup::FormattedValue {
+                        value: Box::new(mk_ident("a"))
+                    },
+                    ast::StringGroup::FormattedValue {
+                        value: Box::new(mk_ident("b"))
+                    },
+                    ast::StringGroup::Constant {
+                        value: "{foo}".to_owned()
+                    }
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_fstring() {
+        assert_eq!(
+            parse_fstring(""),
+            Ok(ast::StringGroup::Constant {
+                value: String::new(),
+            }),
+        );
+    }
+
+    #[test]
+    fn test_parse_invalid_fstring() {
+        assert_eq!(parse_fstring("{"), Err(FStringError::UnclosedLbrace));
+        assert_eq!(parse_fstring("}"), Err(FStringError::UnopenedRbrace));
+        assert_eq!(
+            parse_fstring("{class}"),
+            Err(FStringError::InvalidExpression)
         );
     }
 }
