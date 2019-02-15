@@ -596,7 +596,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             )));
         }
     }
-    let sep_str = sep_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+    let sep_str = sep_arg.as_ref().map(|obj| objstr::borrow_value(obj));
 
     // Handle 'end' kwarg:
     let end_arg = args
@@ -610,7 +610,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             )));
         }
     }
-    let end_str = end_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+    let end_str = end_arg.as_ref().map(|obj| objstr::borrow_value(obj));
 
     // Handle 'flush' kwarg:
     let flush = if let Some(flush) = &args.get_optional_kwarg("flush") {
@@ -631,7 +631,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             write!(stdout_lock, " ").unwrap();
         }
         let v = vm.to_str(&a)?;
-        let s = objstr::get_value_as_ref(&v);
+        let s = objstr::borrow_value(&v);
         write!(stdout_lock, "{}", s).unwrap();
     }
 
