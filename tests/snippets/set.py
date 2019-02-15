@@ -45,3 +45,17 @@ a = set([1, 2, 3])
 assert len(a) == 3
 a.clear()
 assert len(a) == 0
+
+try:
+	set([[]])
+except TypeError:
+	pass
+else:
+	assert False, "TypeError was not raised"
+
+try:
+	set().add([])
+except TypeError:
+	pass
+else:
+	assert False, "TypeError was not raised"
