@@ -608,9 +608,13 @@ impl VirtualMachine {
     }
 
     pub fn _eq(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        self.call_or_unsupported(a, b, "__eq__", "__eq__", |vm, a, b| {
-            Ok(vm.new_bool(a.is(&b)))
-        })
+        if a.is(&b) {
+            Ok(self.new_bool(true))
+        } else {
+            self.call_or_unsupported(a, b, "__eq__", "__eq__", |vm, _, _| {
+                Ok(vm.new_bool(false))
+            })
+        }
     }
 
     pub fn _ne(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

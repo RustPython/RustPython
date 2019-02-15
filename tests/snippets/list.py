@@ -88,3 +88,7 @@ except ValueError:
     pass
 else:
     assert False, "Remove not exist element should raise ValueError"
+
+x = [1]
+x.append(x)
+assert x in x
