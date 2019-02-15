@@ -8,9 +8,11 @@ use super::super::pyobject::{
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;
+use super::objint;
 use super::objiter;
 use super::objstr;
 use super::objtype;
+use num_traits::ToPrimitive;
 use std::collections::HashMap;
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<usize, PyObjectRef> {
@@ -40,8 +42,8 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mut_obj = s.borrow_mut();
 
     if let PyObjectPayload::Set { ref mut elements } = mut_obj.payload {
-        let key = item.get_id();
-        elements.insert(key, item.clone());
+        let hash = calc_hash(vm, &item)?;
+        elements.insert(hash, item.clone());
         Ok(vm.get_none())
     } else {
         Err(vm.new_type_error("set.add is called with no list".to_string()))
@@ -67,9 +69,8 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             let mut elements = HashMap::new();
             let iterator = objiter::get_iter(vm, iterable)?;
             while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                // TODO: should we use the hash function here?
-                let key = v.get_id();
-                elements.insert(key, v);
+                let hash = calc_hash(vm, &v)?;
+                elements.insert(hash, v);
             }
             elements
         }
@@ -112,18 +113,17 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(set, Some(vm.ctx.set_type())), (needle, None)]
     );
-    for element in get_elements(set).iter() {
-        match vm.call_method(needle, "__eq__", vec![element.1.clone()]) {
-            Ok(value) => {
-                if objbool::get_value(&value) {
-                    return Ok(vm.new_bool(true));
-                }
-            }
-            Err(_) => return Err(vm.new_type_error("".to_string())),
-        }
+    let hash = calc_hash(vm, &needle)?;
+    if get_elements(set).contains_key(&hash) {
+        return Ok(vm.new_bool(true));
+    } else {
+        return Ok(vm.new_bool(false));
     }
+}
 
-    Ok(vm.new_bool(false))
+fn calc_hash(vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<usize, PyObjectRef> {
+    let hash = vm.call_method(key, "__hash__", vec![])?;
+    Ok(objint::get_value(&hash).to_usize().unwrap())
 }
 
 fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

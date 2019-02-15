@@ -1,3 +1,16 @@
+assert set([1,2,2,3]) == set([1,2,3])
+
+assert len(set([1,2,3])) == 3
+assert len(set([1,2,2,3])) == 3
+
+try:
+	set([[]])
+except TypeError:
+    pass
+else:
+    assert False, "TypeError was not raised"
+
+
 assert set([1,2]) == set([1,2])
 assert not set([1,2,3]) == set([1,2])
 
