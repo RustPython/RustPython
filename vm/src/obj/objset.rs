@@ -246,6 +246,38 @@ fn set_difference(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_combine_inner(vm, args, SetCombineOperation::Difference)
 }
 
+fn set_symmetric_difference(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.set_type())),
+            (other, Some(vm.ctx.set_type()))
+        ]
+    );
+
+    let mut elements = HashMap::new();
+
+    for element in get_elements(zelf).iter() {
+        let value = vm.call_method(other, "__contains__", vec![element.1.clone()])?;
+        if !objbool::get_value(&value) {
+            elements.insert(element.0.clone(), element.1.clone());
+        }
+    }
+
+    for element in get_elements(other).iter() {
+        let value = vm.call_method(zelf, "__contains__", vec![element.1.clone()])?;
+        if !objbool::get_value(&value) {
+            elements.insert(element.0.clone(), element.1.clone());
+        }
+    }
+
+    Ok(PyObject::new(
+        PyObjectPayload::Set { elements },
+        vm.ctx.set_type(),
+    ))
+}
+
 enum SetCombineOperation {
     Intersection,
     Difference,
@@ -338,6 +370,16 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(set_difference),
     );
     context.set_attr(&set_type, "__sub__", context.new_rustfunc(set_difference));
+    context.set_attr(
+        &set_type,
+        "symmetric_difference",
+        context.new_rustfunc(set_symmetric_difference),
+    );
+    context.set_attr(
+        &set_type,
+        "__xor__",
+        context.new_rustfunc(set_symmetric_difference),
+    );
     context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
     context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
 
