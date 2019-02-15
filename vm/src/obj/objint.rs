@@ -441,7 +441,9 @@ fn div_ints(vm: &mut VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
 
         if let Some(quotient) = quotient.to_f64() {
             let rem_part = loop {
-                if let (Some(rem), Some(divisor)) = (rem.to_f64(), divisor.to_f64()) {
+                if rem.is_zero() {
+                    break 0.0;
+                } else if let (Some(rem), Some(divisor)) = (rem.to_f64(), divisor.to_f64()) {
                     break rem / divisor;
                 } else {
                     // try with smaller numbers
