@@ -81,3 +81,21 @@ assert float(b'2.99e-23') == 2.99e-23
 
 assert_raises(lambda _: float('foo'), ValueError)
 assert_raises(lambda _: float(2**10000), OverflowError)
+
+# check that magic methods are implemented for ints and floats
+
+assert 1.0.__add__(1.0) == 2.0
+assert 1.0.__radd__(1.0) == 2.0
+assert 2.0.__sub__(1.0) == 1.0
+assert 2.0.__rmul__(1.0) == 2.0
+assert 1.0.__truediv__(2.0) == 0.5
+assert 1.0.__rtruediv__(2.0) == 2.0
+
+assert 1.0.__add__(1) == 2.0
+assert 1.0.__radd__(1) == 2.0
+assert 2.0.__sub__(1) == 1.0
+assert 2.0.__rmul__(1) == 2.0
+assert 1.0.__truediv__(2) == 0.5
+assert 1.0.__rtruediv__(2) == 2.0
+assert 2.0.__mul__(1) == 2.0
+assert 2.0.__rsub__(1) == -1.0
