@@ -28,4 +28,5 @@ pub mod objstr;
 pub mod objsuper;
 pub mod objtuple;
 pub mod objtype;
+pub mod objweakref;
 pub mod objzip;

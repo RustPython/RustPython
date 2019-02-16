@@ -28,6 +28,7 @@ use super::obj::objstr;
 use super::obj::objsuper;
 use super::obj::objtuple;
 use super::obj::objtype;
+use super::obj::objweakref;
 use super::obj::objzip;
 use super::vm::VirtualMachine;
 use num_bigint::BigInt;
@@ -177,6 +178,7 @@ pub struct PyContext {
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
+    pub weakref_type: PyObjectRef,
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -229,6 +231,7 @@ impl PyContext {
         );
         let property_type = create_type("property", &type_type, &object_type, &dict_type);
         let super_type = create_type("super", &type_type, &object_type, &dict_type);
+        let weakref_type = create_type("ref", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
@@ -314,6 +317,7 @@ impl PyContext {
             module_type,
             bound_method_type,
             member_descriptor_type,
+            weakref_type,
             type_type,
             exceptions,
         };
@@ -345,6 +349,7 @@ impl PyContext {
         objbool::init(&context);
         objcode::init(&context);
         objframe::init(&context);
+        objweakref::init(&context);
         objnone::init(&context);
         exceptions::init(&context);
         context
@@ -472,6 +477,7 @@ impl PyContext {
     pub fn member_descriptor_type(&self) -> PyObjectRef {
         self.member_descriptor_type.clone()
     }
+    pub fn weakref_type(&self) -> PyObjectRef { self.weakref_type.clone() }
     pub fn type_type(&self) -> PyObjectRef {
         self.type_type.clone()
     }
