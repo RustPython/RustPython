@@ -1,4 +1,6 @@
-use super::super::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
+use super::super::pyobject::{
+    IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+};
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
@@ -178,10 +180,12 @@ pub fn seq_equal(
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let eq = vm._eq(a.clone(), b.clone())?;
-            let value = objbool::boolval(vm, eq)?;
-            if !value {
-                return Ok(false);
+            if !a.is(&b) {
+                let eq = vm._eq(a.clone(), b.clone())?;
+                let value = objbool::boolval(vm, eq)?;
+                if !value {
+                    return Ok(false);
+                }
             }
         }
         Ok(true)

@@ -104,6 +104,7 @@ class Foo(object):
 foo = Foo()
 foo1 = Foo()
 x = [1, foo, 2, foo, []]
+assert x == x
 assert foo in x
 assert 2 in x
 assert x.index(foo) == 1
@@ -127,3 +128,5 @@ a.append(c)
 b.append(c)
 
 assert a == b
+
+assert [foo] == [foo]
