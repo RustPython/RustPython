@@ -97,6 +97,30 @@ matrix:
         - cargo clippy
       env:
         - REGULAR_TEST=true
+    - name: Code Coverage
+      language: python
+      python: 3.6
+      cache:
+        pip: true
+        # Because we're using the Python Travis environment, we can't use
+        # the built-in cargo cacher
+        directories:
+          - /home/travis/.cargo
+          - target
+      before_script:
+        - curl -L https://github.com/mozilla/grcov/releases/download/v0.4.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
+      script:
+        - cargo build --verbose --all
+        - cargo test --verbose --all
+        - tests/.travis-runner.sh
+        - zip -0 ccov.zip `find . \( -name "rustpython*.gc*" \) -print`
+        - ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore-dir "/*" > lcov.info
+        - bash <(curl -s https://codecov.io/bash) -f lcov.info
+      env:
+        - TRAVIS_RUST_VERSION=nightly
+        - REGULAR_TEST=false
+        - CARGO_INCREMENTAL=0
+        - RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads"
   allow_failures:
     - rust: nightly
       env: REGULAR_TEST=true
