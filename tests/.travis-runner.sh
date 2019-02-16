@@ -31,7 +31,7 @@ then
     # Install grcov
     curl -L https://github.com/mozilla/grcov/releases/download/v0.4.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
 
-    ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore-dir "/*" > lcov.info
+    ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore-dir "/*" -p "x" > lcov.info
 
     # Install codecov.io reporter
     curl -s https://codecov.io/bash -o codecov.sh
