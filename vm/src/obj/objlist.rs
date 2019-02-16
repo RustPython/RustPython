@@ -1,5 +1,5 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
@@ -234,9 +234,13 @@ fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
     let mut count: usize = 0;
     for element in elements.iter() {
-        let is_eq = vm._eq(element.clone(), value.clone())?;
-        if objbool::boolval(vm, is_eq)? {
+        if value.is(&element) {
             count += 1;
+        } else {
+            let is_eq = vm._eq(element.clone(), value.clone())?;
+            if objbool::boolval(vm, is_eq)? {
+                count += 1;
+            }
         }
     }
     Ok(vm.context().new_int(count))
@@ -262,6 +266,9 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for (index, element) in get_elements(list).iter().enumerate() {
+        if needle.is(&element) {
+            return Ok(vm.context().new_int(index));
+        }
         let py_equal = vm._eq(needle.clone(), element.clone())?;
         if objbool::get_value(&py_equal) {
             return Ok(vm.context().new_int(index));
@@ -335,6 +342,9 @@ fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for element in get_elements(list).iter() {
+        if needle.is(&element) {
+            return Ok(vm.new_bool(true));
+        }
         match vm._eq(needle.clone(), element.clone()) {
             Ok(value) => {
                 if objbool::get_value(&value) {

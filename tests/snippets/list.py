@@ -92,3 +92,21 @@ else:
 x = [1]
 x.append(x)
 assert x in x
+assert x.index(x) == 1
+assert x.count(x) == 1
+
+class Foo(object):
+    def __eq__(self, x):
+        return False
+
+foo = Foo()
+foo1 = Foo()
+x = [1, foo, 2, foo, []]
+assert foo in x
+assert 2 in x
+assert x.index(foo) == 1
+assert x.count(foo) == 2
+assert x.index(2) == 2
+assert [] in x
+assert x.index([]) == 4
+assert foo1 not in x
