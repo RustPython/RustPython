@@ -66,6 +66,10 @@ fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
 
+    if zelf.is(&other) {
+        return Ok(vm.ctx.new_bool(true));
+    }
+
     let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);

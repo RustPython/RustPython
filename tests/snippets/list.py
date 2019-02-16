@@ -115,3 +115,15 @@ assert foo1 not in x
 x.remove(foo)
 assert x.index(foo) == 2
 assert x.count(foo) == 1
+
+x = []
+x.append(x)
+assert x == x
+
+a = [1, 2, 3]
+b = [1, 2, 3]
+c = [a, b]
+a.append(c)
+b.append(c)
+
+assert a == b
