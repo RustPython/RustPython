@@ -83,3 +83,8 @@ except TypeError:
 else:
 	assert False, "TypeError was not raised"
 
+a = set([1, 2, 3])
+assert a.discard(1) is None
+assert not 1 in a
+
+assert a.discard(42) is None
