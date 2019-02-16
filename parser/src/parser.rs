@@ -1,7 +1,6 @@
 extern crate lalrpop_util;
 
 use std::iter;
-use std::mem;
 
 use super::ast;
 use super::error::ParseError;
@@ -86,74 +85,143 @@ impl From<FStringError>
     }
 }
 
+enum ParseState {
+    Text {
+        content: String,
+    },
+    FormattedValue {
+        expression: String,
+        spec: Option<String>,
+        depth: usize,
+    },
+}
+
 pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
+    use self::ParseState::*;
+
     let mut values = vec![];
-    let mut start = 0;
-    let mut depth = 0;
-    let mut escaped = false;
-    let mut content = String::new();
+    let mut state = ParseState::Text {
+        content: String::new(),
+    };
 
-    let mut chars = source.char_indices().peekable();
-    while let Some((pos, ch)) = chars.next() {
-        match ch {
-            '{' | '}' if escaped => {
-                if depth == 0 {
-                    content.push(ch);
-                }
-                escaped = false;
-            }
-            '{' => {
-                if let Some((_, '{')) = chars.peek() {
-                    escaped = true;
-                    continue;
-                }
+    let mut chars = source.chars().peekable();
+    while let Some(ch) = chars.next() {
+        state = match state {
+            Text { mut content } => match ch {
+                '{' => {
+                    if let Some('{') = chars.peek() {
+                        chars.next();
+                        content.push('{');
+                        Text { content }
+                    } else {
+                        if !content.is_empty() {
+                            values.push(ast::StringGroup::Constant { value: content });
+                        }
 
-                if depth == 0 {
-                    if !content.is_empty() {
-                        values.push(ast::StringGroup::Constant {
-                            value: mem::replace(&mut content, String::new()),
-                        });
+                        FormattedValue {
+                            expression: String::new(),
+                            spec: None,
+                            depth: 0,
+                        }
                     }
-
-                    start = pos + 1;
                 }
-
-                depth += 1;
-            }
-            '}' => {
-                if let Some((_, '}')) = chars.peek() {
-                    escaped = true;
-                    continue;
+                '}' => {
+                    if let Some('}') = chars.peek() {
+                        chars.next();
+                        content.push('}');
+                        Text { content }
+                    } else {
+                        return Err(FStringError::UnopenedRbrace);
+                    }
                 }
-
-                if depth == 0 {
-                    return Err(FStringError::UnopenedRbrace);
-                }
-
-                depth -= 1;
-                if depth == 0 {
-                    values.push(ast::StringGroup::FormattedValue {
-                        value: Box::new(match parse_expression(source[start..pos].trim()) {
-                            Ok(expr) => expr,
-                            Err(_) => return Err(FStringError::InvalidExpression),
-                        }),
-                    });
-                }
-            }
-            ch => {
-                if depth == 0 {
+                _ => {
                     content.push(ch);
+                    Text { content }
                 }
+            },
+
+            FormattedValue {
+                mut expression,
+                mut spec,
+                depth,
+            } => match ch {
+                ':' if depth == 0 => FormattedValue {
+                    expression,
+                    spec: Some(String::new()),
+                    depth,
+                },
+                '{' => {
+                    if let Some('{') = chars.peek() {
+                        expression.push_str("{{");
+                        chars.next();
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth,
+                        }
+                    } else {
+                        expression.push('{');
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth: depth + 1,
+                        }
+                    }
+                }
+                '}' => {
+                    if let Some('}') = chars.peek() {
+                        expression.push_str("}}");
+                        chars.next();
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth,
+                        }
+                    } else if depth > 0 {
+                        expression.push('}');
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth: depth - 1,
+                        }
+                    } else {
+                        values.push(ast::StringGroup::FormattedValue {
+                            value: Box::new(match parse_expression(expression.trim()) {
+                                Ok(expr) => expr,
+                                Err(_) => return Err(FStringError::InvalidExpression),
+                            }),
+                            spec: spec.unwrap_or_default(),
+                        });
+                        Text {
+                            content: String::new(),
+                        }
+                    }
+                }
+                _ => {
+                    if let Some(spec) = spec.as_mut() {
+                        spec.push(ch)
+                    } else {
+                        expression.push(ch);
+                    }
+                    FormattedValue {
+                        expression,
+                        spec,
+                        depth,
+                    }
+                }
+            },
+        };
+    }
+
+    match state {
+        Text { content } => {
+            if !content.is_empty() {
+                values.push(ast::StringGroup::Constant { value: content })
             }
         }
-    }
-
-    if depth != 0 {
-        return Err(FStringError::UnclosedLbrace);
-    }
-
-    if !content.is_empty() {
-        values.push(ast::StringGroup::Constant { value: content })
+        FormattedValue { .. } => {
+            return Err(FStringError::UnclosedLbrace);
+        }
     }
 
     Ok(match values.len() {
@@ -581,10 +649,12 @@ mod tests {
             ast::StringGroup::Joined {
                 values: vec![
                     ast::StringGroup::FormattedValue {
-                        value: Box::new(mk_ident("a"))
+                        value: Box::new(mk_ident("a")),
+                        spec: String::new(),
                     },
                     ast::StringGroup::FormattedValue {
-                        value: Box::new(mk_ident("b"))
+                        value: Box::new(mk_ident("b")),
+                        spec: String::new(),
                     },
                     ast::StringGroup::Constant {
                         value: "{foo}".to_owned()

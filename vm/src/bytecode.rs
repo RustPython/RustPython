@@ -167,7 +167,9 @@ pub enum Instruction {
         after: usize,
     },
     Unpack,
-    FormatValue,
+    FormatValue {
+        spec: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

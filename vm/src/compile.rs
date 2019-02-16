@@ -1335,9 +1335,9 @@ impl Compiler {
                     },
                 });
             }
-            ast::StringGroup::FormattedValue { value } => {
+            ast::StringGroup::FormattedValue { value, spec } => {
                 self.compile_expression(value)?;
-                self.emit(Instruction::FormatValue);
+                self.emit(Instruction::FormatValue { spec: spec.clone() });
             }
         }
         Ok(())
