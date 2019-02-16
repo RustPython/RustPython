@@ -426,9 +426,12 @@ fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
 
-    let mut elements = get_mut_elements(list);
     let mut ri: Option<usize> = None;
-    for (index, element) in elements.iter().enumerate() {
+    for (index, element) in get_elements(list).iter().enumerate() {
+        if needle.is(&element) {
+            ri = Some(index);
+            break;
+        }
         let py_equal = vm._eq(needle.clone(), element.clone())?;
         if objbool::get_value(&py_equal) {
             ri = Some(index);
@@ -437,6 +440,7 @@ fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     if let Some(index) = ri {
+        let mut elements = get_mut_elements(list);
         elements.remove(index);
         Ok(vm.get_none())
     } else {

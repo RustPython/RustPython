@@ -94,6 +94,8 @@ x.append(x)
 assert x in x
 assert x.index(x) == 1
 assert x.count(x) == 1
+x.remove(x)
+assert x not in x
 
 class Foo(object):
     def __eq__(self, x):
@@ -110,3 +112,6 @@ assert x.index(2) == 2
 assert [] in x
 assert x.index([]) == 4
 assert foo1 not in x
+x.remove(foo)
+assert x.index(foo) == 2
+assert x.count(foo) == 1
