@@ -7,6 +7,7 @@ use super::super::pyobject::{
     PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objdict;
 use super::objtype;
 
 pub fn init(context: &PyContext) {
@@ -35,7 +36,8 @@ fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_scope = py_scope.borrow();
 
     if let PyObjectPayload::Scope { scope } = &py_scope.payload {
-        Ok(scope.locals.clone())
+        let locals = objdict::attributes_to_py_dict(vm, scope.locals.borrow().clone())?;
+        Ok(locals)
     } else {
         panic!("The scope isn't a scope!");
     }

@@ -1,6 +1,7 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::ast;
+use std::cell::RefCell;
 use std::fmt;
 use std::mem;
 use std::path::PathBuf;
@@ -16,8 +17,8 @@ use super::obj::objlist;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
-    DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject, PyObjectPayload,
+    PyObjectRef, PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
 use num_bigint::BigInt;
@@ -577,9 +578,10 @@ impl Frame {
             }
             bytecode::Instruction::StoreLocals => {
                 let locals = self.pop_value();
+                let locals = objdict::py_dict_to_attributes(&locals);
                 match self.locals.borrow_mut().payload {
                     PyObjectPayload::Scope { ref mut scope } => {
-                        scope.locals = locals;
+                        scope.locals = RefCell::new(locals);
                     }
                     _ => panic!("We really expect our scope to be a scope!"),
                 }
@@ -700,9 +702,8 @@ impl Frame {
         // Grab all the names from the module and put them in the context
         let obj = import_module(vm, current_path, module)?;
 
-        for (k, v) in obj.get_key_value_pairs().iter() {
-            vm.ctx
-                .set_attr(&self.locals, &objstr::get_value(k), v.clone());
+        for (attr_name, v) in obj.get_all_attrs().iter() {
+            vm.ctx.set_attr(&self.locals, &attr_name, v.clone());
         }
         Ok(None)
     }
@@ -834,14 +835,7 @@ impl Frame {
     }
 
     fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
-        let locals = match self.locals.borrow().payload {
-            PyObjectPayload::Scope { ref scope } => scope.locals.clone(),
-            _ => panic!("We really expect our scope to be a scope!"),
-        };
-
-        // Assume here that locals is a dict
-        let name = vm.ctx.new_str(name.to_string());
-        vm.call_method(&locals, "__delitem__", vec![name])?;
+        self.locals.del_attr(name);
         Ok(None)
     }
 
@@ -849,8 +843,8 @@ impl Frame {
         // Lookup name in scope and put it onto the stack!
         let mut scope = self.locals.clone();
         loop {
-            if scope.contains_key(name) {
-                let obj = scope.get_item(name).unwrap();
+            if scope.has_attr(name) {
+                let obj = scope.get_attr(name).unwrap();
                 self.push_value(obj);
                 break Ok(None);
             } else if scope.has_parent() {
@@ -1096,19 +1090,13 @@ impl fmt::Debug for Frame {
             .collect::<Vec<_>>()
             .join("");
         let local_str = match self.locals.borrow().payload {
-            PyObjectPayload::Scope { ref scope } => match scope.locals.borrow().payload {
-                PyObjectPayload::Dict { ref elements } => {
-                    objdict::get_key_value_pairs_from_content(elements)
-                        .iter()
-                        .map(|elem| format!("\n  {:?} = {:?}", elem.0.borrow(), elem.1.borrow()))
-                        .collect::<Vec<_>>()
-                        .join("")
-                }
-                ref unexpected => panic!(
-                    "locals unexpectedly not wrapping a dict! instead: {:?}",
-                    unexpected
-                ),
-            },
+            PyObjectPayload::Scope { ref scope } => scope
+                .locals
+                .borrow()
+                .iter()
+                .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1.borrow()))
+                .collect::<Vec<_>>()
+                .join(""),
             ref unexpected => panic!("locals unexpectedly not a scope! instead: {:?}", unexpected),
         };
         write!(

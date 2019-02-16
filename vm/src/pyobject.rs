@@ -158,9 +158,9 @@ pub struct PyContext {
  */
 #[derive(Debug)]
 pub struct Scope {
-    pub locals: PyObjectRef, // Variables
-    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
-    pub parent: Option<PyObjectRef>, // Parent scope
+    // pub locals: PyObjectRef, // Variables
+    pub locals: RefCell<PyAttributes>, // Variables
+    pub parent: Option<PyObjectRef>,   // Parent scope
 }
 
 fn _nothing() -> PyObjectRef {
@@ -534,7 +534,7 @@ impl PyContext {
     }
 
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
-        let locals = self.new_dict();
+        let locals = RefCell::new(PyAttributes::new());
         let scope = Scope { locals, parent };
         PyObject {
             payload: PyObjectPayload::Scope { scope },
@@ -664,7 +664,10 @@ impl PyContext {
                 dict.borrow_mut().insert(attr_name.to_string(), value);
             }
             PyObjectPayload::Scope { ref scope } => {
-                self.set_item(&scope.locals, attr_name, value);
+                scope
+                    .locals
+                    .borrow_mut()
+                    .insert(attr_name.to_string(), value);
             }
             ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
         };
@@ -765,9 +768,11 @@ impl ParentProtocol for PyObjectRef {
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
     fn has_attr(&self, attr_name: &str) -> bool;
+    fn del_attr(&self, attr_name: &str);
+    fn get_all_attrs(&self) -> PyAttributes;
 }
 
-fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+fn class_get_attr(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
     let class = class.borrow();
     match class.payload {
         PyObjectPayload::Class { ref dict, .. } => dict.borrow().get(attr_name).cloned(),
@@ -775,7 +780,7 @@ fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
     }
 }
 
-fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
+fn class_has_attr(class: &PyObjectRef, attr_name: &str) -> bool {
     let class = class.borrow();
     match class.payload {
         PyObjectPayload::Class { ref dict, .. } => dict.borrow().contains_key(attr_name),
@@ -787,20 +792,22 @@ impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         let obj = self.borrow();
         match obj.payload {
-            PyObjectPayload::Module { ref dict, .. } => dict.get_item(attr_name),
+            PyObjectPayload::Module { ref dict, .. } => dict.get_attr(attr_name),
+            PyObjectPayload::Scope { ref scope } => scope.locals.borrow().get(attr_name).cloned(),
             PyObjectPayload::Class { ref mro, .. } => {
-                if let Some(item) = class_get_item(self, attr_name) {
+                if let Some(item) = class_get_attr(self, attr_name) {
                     return Some(item);
                 }
                 for class in mro {
-                    if let Some(item) = class_get_item(class, attr_name) {
+                    if let Some(item) = class_get_attr(class, attr_name) {
                         return Some(item);
                     }
                 }
                 None
             }
             PyObjectPayload::Instance { ref dict } => dict.borrow().get(attr_name).cloned(),
-            _ => None,
+            ref x => unimplemented!("TODO: {:?}", x),
+            // _ => None,
         }
     }
 
@@ -808,11 +815,32 @@ impl AttributeProtocol for PyObjectRef {
         let obj = self.borrow();
         match obj.payload {
             PyObjectPayload::Module { ref dict, .. } => dict.contains_key(attr_name),
+            PyObjectPayload::Scope { ref scope } => scope.locals.borrow().contains_key(attr_name),
             PyObjectPayload::Class { ref mro, .. } => {
-                class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
+                class_has_attr(self, attr_name) || mro.iter().any(|d| class_has_attr(d, attr_name))
             }
             PyObjectPayload::Instance { ref dict } => dict.borrow().contains_key(attr_name),
-            _ => false,
+            ref x => unimplemented!("TODO: {:?}", x),
+            // _ => false,
+        }
+    }
+
+    fn del_attr(&self, attr_name: &str) {
+        let obj = self.borrow();
+        match obj.payload {
+            PyObjectPayload::Scope { ref scope } => {
+                scope.locals.borrow_mut().remove(attr_name);
+            }
+            ref x => unimplemented!("TODO: {:?}", x),
+        }
+    }
+
+    fn get_all_attrs(&self) -> PyAttributes {
+        let obj = self.borrow();
+        match obj.payload {
+            PyObjectPayload::Module { ref dict, .. } => dict.get_all_attrs(),
+            PyObjectPayload::Scope { ref scope } => scope.locals.borrow().clone(),
+            ref x => unimplemented!("TODO: {:?}", x),
         }
     }
 }
@@ -829,7 +857,6 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_contains_key_str(elements, k)
             }
-            PyObjectPayload::Scope { ref scope } => scope.locals.contains_key(k),
             ref payload => unimplemented!("TODO {:?}", payload),
         }
     }
@@ -837,7 +864,6 @@ impl DictProtocol for PyObjectRef {
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         match self.borrow().payload {
             PyObjectPayload::Dict { ref elements } => objdict::content_get_key_str(elements, k),
-            PyObjectPayload::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }
     }
@@ -845,8 +871,6 @@ impl DictProtocol for PyObjectRef {
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
         match self.borrow().payload {
             PyObjectPayload::Dict { .. } => objdict::get_key_value_pairs(self),
-            PyObjectPayload::Module { ref dict, .. } => dict.get_key_value_pairs(),
-            PyObjectPayload::Scope { ref scope } => scope.locals.get_key_value_pairs(),
             _ => panic!("TODO"),
         }
     }

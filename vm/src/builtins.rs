@@ -14,10 +14,11 @@ use super::obj::objint;
 use super::obj::objiter;
 use super::obj::objstr;
 use super::obj::objtype;
+use std::cell::RefCell;
 
 use super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, Scope, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
+    PyObjectRef, PyResult, Scope, TypeProtocol,
 };
 use super::stdlib::io::io_open;
 
@@ -28,8 +29,9 @@ fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
     // TODO: implement dict_iter_items?
     let locals = vm.get_locals();
-    let key_value_pairs = objdict::get_key_value_pairs(&locals);
+    let key_value_pairs = locals.get_all_attrs();
     for (key, value) in key_value_pairs {
+        let key = vm.ctx.new_str(key);
         objdict::set_item(&d, vm, &key, &value);
     }
     d
@@ -259,15 +261,15 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
     // handle optional global and locals
     let locals = if let Some(locals) = locals {
-        locals.clone()
+        objdict::py_dict_to_attributes(locals)
     } else {
-        vm.new_dict()
+        PyAttributes::new()
     };
 
     // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
-        locals,
+        locals: RefCell::new(locals),
         parent: None,
     };
 
