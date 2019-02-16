@@ -24,7 +24,7 @@ pub fn eval(
         }
         Err(err) => {
             let syntax_error = vm.context().exceptions.syntax_error.clone();
-            return Err(vm.new_exception(syntax_error, err.description().to_string()));
+            Err(vm.new_exception(syntax_error, err.description().to_string()))
         }
     }
 }

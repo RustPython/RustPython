@@ -31,16 +31,15 @@ pub fn compile(
 
     match mode {
         Mode::Exec => {
-            let ast = parser::parse_program(source).map_err(|err| CompileError::Parse(err))?;
+            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
             compiler.compile_program(&ast)
         }
         Mode::Eval => {
-            let statement =
-                parser::parse_statement(source).map_err(|err| CompileError::Parse(err))?;
+            let statement = parser::parse_statement(source).map_err(CompileError::Parse)?;
             compiler.compile_statement_eval(&statement)
         }
         Mode::Single => {
-            let ast = parser::parse_program(source).map_err(|err| CompileError::Parse(err))?;
+            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
             compiler.compile_program_single(&ast)
         }
     }?;
