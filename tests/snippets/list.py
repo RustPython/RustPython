@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 x = [1, 2, 3]
 assert x[0] == 1
 assert x[1] == 2
@@ -16,12 +18,7 @@ assert x * 2 == [1, 2, 3, 1, 2, 3], "list __mul__ by 2 failed"
 # index()
 assert ['a', 'b', 'c'].index('b') == 1
 assert [5, 6, 7].index(7) == 2
-try:
-    ['a', 'b', 'c'].index('z')
-except ValueError:
-    pass
-else:
-    assert False, "ValueError was not raised"
+assert_raises(ValueError, lambda: ['a', 'b', 'c'].index('z'))
 
 x = [[1,0,-3], 'a', 1]
 y = [[3,2,1], 'z', 2]
@@ -33,12 +30,7 @@ assert x > y, "list __gt__ failed"
 
 
 assert [1,2,'a'].pop() == 'a', "list pop failed"
-try:
-    [].pop()
-except IndexError:
-    pass
-else:
-    assert False, "IndexError was not raised"
+assert_raises(IndexError, lambda: [].pop())
 
 recursive = []
 recursive.append(recursive)
@@ -61,12 +53,7 @@ x = ['a', 'b', 'c']
 x.insert(-100, 'z')
 assert x == ['z', 'a', 'b', 'c']
 
-try:
-    x.insert(100000000000000000000, 'z')
-except OverflowError:
-    pass
-else:
-    assert False, "OverflowError was not raised"
+assert_raises(OverflowError, lambda: x.insert(100000000000000000000, 'z'))
 
 x = [[], 2, {}]
 y = x.copy()
@@ -82,9 +69,4 @@ a.remove(1)
 assert len(a) == 2
 assert not 1 in a
 
-try:
-    a.remove(10)
-except ValueError:
-    pass
-else:
-    assert False, "Remove not exist element should raise ValueError"
+assert_raises(ValueError, lambda: a.remove(10), 'Remove not exist element')
