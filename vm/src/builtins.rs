@@ -213,23 +213,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
 
-    let locals = if let Some(locals) = locals {
-        locals.clone()
-    } else {
-        vm.new_dict()
-    };
-
-    // TODO: handle optional globals
-    // Construct new scope:
-    let scope_inner = Scope {
-        locals,
-        parent: None,
-    };
-    let scope = PyObject {
-        payload: PyObjectPayload::Scope { scope: scope_inner },
-        typ: None,
-    }
-    .into_ref();
+    let scope = make_scope(vm, locals);
 
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
@@ -266,6 +250,13 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };
 
+    let scope = make_scope(vm, locals);
+
+    // Run the code:
+    vm.run_code_obj(code_obj, scope)
+}
+
+fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
     // handle optional global and locals
     let locals = if let Some(locals) = locals {
         locals.clone()
@@ -273,21 +264,18 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.new_dict()
     };
 
-    // TODO: use globals
-
+    // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
         locals,
         parent: None,
     };
-    let scope = PyObject {
+
+    PyObject {
         payload: PyObjectPayload::Scope { scope: scope_inner },
         typ: None,
     }
-    .into_ref();
-
-    // Run the code:
-    vm.run_code_obj(code_obj, scope)
+    .into_ref()
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -44,7 +44,7 @@ fn import_uncached_module(
     let builtins = vm.get_builtin_scope();
     let scope = vm.ctx.new_scope(Some(builtins));
     vm.ctx
-        .set_item(&scope, "__name__", vm.new_str(module.to_string()));
+        .set_attr(&scope, "__name__", vm.new_str(module.to_string()));
     vm.run_code_obj(code_obj, scope.clone())?;
     Ok(vm.ctx.new_module(module, scope))
 }

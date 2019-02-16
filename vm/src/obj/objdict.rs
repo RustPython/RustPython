@@ -1,5 +1,6 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objiter;
@@ -112,6 +113,25 @@ pub fn contains_key_str(dict: &PyObjectRef, key: &str) -> bool {
 pub fn content_contains_key_str(elements: &DictContentType, key: &str) -> bool {
     // TODO: let hash: usize = key;
     elements.get(key).is_some()
+}
+
+/// Take a python dictionary and convert it to attributes.
+pub fn py_dict_to_attributes(dict: &PyObjectRef) -> PyAttributes {
+    let mut attrs = PyAttributes::new();
+    for (key, value) in get_key_value_pairs(dict) {
+        let key = objstr::get_value(&key);
+        attrs.insert(key, value);
+    }
+    attrs
+}
+
+pub fn attributes_to_py_dict(vm: &mut VirtualMachine, attributes: PyAttributes) -> PyResult {
+    let dict = vm.ctx.new_dict();
+    for (key, value) in attributes {
+        let key = vm.ctx.new_str(key);
+        set_item(&dict, vm, &key, &value);
+    }
+    Ok(dict)
 }
 
 // Python dict methods:

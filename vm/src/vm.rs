@@ -340,7 +340,7 @@ impl VirtualMachine {
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
             let arg = &args.args[i];
-            self.ctx.set_item(scope, arg_name, arg.clone());
+            self.ctx.set_attr(scope, arg_name, arg.clone());
         }
 
         // Pack other positional arguments in to *args:
@@ -354,7 +354,7 @@ impl VirtualMachine {
 
             // If we have a name (not '*' only) then store it:
             if let Some(vararg_name) = vararg {
-                self.ctx.set_item(scope, vararg_name, vararg_value);
+                self.ctx.set_attr(scope, vararg_name, vararg_value);
             }
         } else {
             // Check the number of positional arguments
@@ -372,7 +372,7 @@ impl VirtualMachine {
 
             // Store when we have a name:
             if let Some(kwargs_name) = kwargs {
-                self.ctx.set_item(scope, &kwargs_name, d.clone());
+                self.ctx.set_attr(scope, &kwargs_name, d.clone());
             }
 
             Some(d)
@@ -391,7 +391,7 @@ impl VirtualMachine {
                     );
                 }
 
-                self.ctx.set_item(scope, &name, value);
+                self.ctx.set_attr(scope, &name, value);
             } else if let Some(d) = &kwargs {
                 self.ctx.set_item(d, &name, value);
             } else {
@@ -434,7 +434,7 @@ impl VirtualMachine {
                 let arg_name = &code_object.arg_names[i];
                 if !scope.contains_key(arg_name) {
                     self.ctx
-                        .set_item(scope, arg_name, available_defaults[default_index].clone());
+                        .set_attr(scope, arg_name, available_defaults[default_index].clone());
                 }
             }
         };

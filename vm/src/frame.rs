@@ -702,7 +702,7 @@ impl Frame {
 
         for (k, v) in obj.get_key_value_pairs().iter() {
             vm.ctx
-                .set_item(&self.locals, &objstr::get_value(k), v.clone());
+                .set_attr(&self.locals, &objstr::get_value(k), v.clone());
         }
         Ok(None)
     }
@@ -829,7 +829,7 @@ impl Frame {
 
     fn store_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
-        vm.ctx.set_item(&self.locals, name, obj);
+        vm.ctx.set_attr(&self.locals, name, obj);
         Ok(None)
     }
 
