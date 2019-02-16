@@ -640,10 +640,11 @@ impl Frame {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::FormatValue => {
+            bytecode::Instruction::FormatValue { spec } => {
                 let value = self.pop_value();
-                let formatted = vm.to_pystr(&value)?;
-                self.push_value(vm.new_str(formatted));
+                let spec = vm.new_str(spec.clone());
+                let formatted = vm.call_method(&value, "__format__", vec![spec])?;
+                self.push_value(formatted);
                 Ok(None)
             }
         }

@@ -86,8 +86,14 @@ impl From<FStringError>
 }
 
 enum ParseState {
-    Text { content: String },
-    FormattedValue { expression: String, depth: usize },
+    Text {
+        content: String,
+    },
+    FormattedValue {
+        expression: String,
+        spec: Option<String>,
+        depth: usize,
+    },
 }
 
 pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
@@ -114,6 +120,7 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
 
                         FormattedValue {
                             expression: String::new(),
+                            spec: None,
                             depth: 0,
                         }
                     }
@@ -135,17 +142,28 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
 
             FormattedValue {
                 mut expression,
+                mut spec,
                 depth,
             } => match ch {
+                ':' if depth == 0 => FormattedValue {
+                    expression,
+                    spec: Some(String::new()),
+                    depth,
+                },
                 '{' => {
                     if let Some('{') = chars.peek() {
                         expression.push_str("{{");
                         chars.next();
-                        FormattedValue { expression, depth }
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth,
+                        }
                     } else {
                         expression.push('{');
                         FormattedValue {
                             expression,
+                            spec,
                             depth: depth + 1,
                         }
                     }
@@ -154,19 +172,25 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
                     if let Some('}') = chars.peek() {
                         expression.push_str("}}");
                         chars.next();
-                        FormattedValue { expression, depth }
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth,
+                        }
                     } else if depth > 0 {
                         expression.push('}');
                         FormattedValue {
                             expression,
+                            spec,
                             depth: depth - 1,
                         }
                     } else {
                         values.push(ast::StringGroup::FormattedValue {
-                            value: Box::new(match parse_expression(dbg!(expression.trim())) {
+                            value: Box::new(match parse_expression(expression.trim()) {
                                 Ok(expr) => expr,
                                 Err(_) => return Err(FStringError::InvalidExpression),
                             }),
+                            spec: spec.unwrap_or_default(),
                         });
                         Text {
                             content: String::new(),
@@ -174,8 +198,16 @@ pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
                     }
                 }
                 _ => {
-                    expression.push(ch);
-                    FormattedValue { expression, depth }
+                    if let Some(spec) = spec.as_mut() {
+                        spec.push(ch)
+                    } else {
+                        expression.push(ch);
+                    }
+                    FormattedValue {
+                        expression,
+                        spec,
+                        depth,
+                    }
                 }
             },
         };
@@ -617,10 +649,12 @@ mod tests {
             ast::StringGroup::Joined {
                 values: vec![
                     ast::StringGroup::FormattedValue {
-                        value: Box::new(mk_ident("a"))
+                        value: Box::new(mk_ident("a")),
+                        spec: String::new(),
                     },
                     ast::StringGroup::FormattedValue {
-                        value: Box::new(mk_ident("b"))
+                        value: Box::new(mk_ident("b")),
+                        spec: String::new(),
                     },
                     ast::StringGroup::Constant {
                         value: "{foo}".to_owned()

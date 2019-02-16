@@ -315,7 +315,14 @@ pub enum Number {
 
 #[derive(Debug, PartialEq)]
 pub enum StringGroup {
-    Constant { value: String },
-    FormattedValue { value: Box<Expression> },
-    Joined { values: Vec<StringGroup> },
+    Constant {
+        value: String,
+    },
+    FormattedValue {
+        value: Box<Expression>,
+        spec: String,
+    },
+    Joined {
+        values: Vec<StringGroup>,
+    },
 }
