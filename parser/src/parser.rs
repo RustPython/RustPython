@@ -1,7 +1,6 @@
 extern crate lalrpop_util;
 
 use std::iter;
-use std::mem;
 
 use super::ast;
 use super::error::ParseError;
@@ -86,74 +85,111 @@ impl From<FStringError>
     }
 }
 
+enum ParseState {
+    Text { content: String },
+    FormattedValue { expression: String, depth: usize },
+}
+
 pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
+    use self::ParseState::*;
+
     let mut values = vec![];
-    let mut start = 0;
-    let mut depth = 0;
-    let mut escaped = false;
-    let mut content = String::new();
+    let mut state = ParseState::Text {
+        content: String::new(),
+    };
 
-    let mut chars = source.char_indices().peekable();
-    while let Some((pos, ch)) = chars.next() {
-        match ch {
-            '{' | '}' if escaped => {
-                if depth == 0 {
-                    content.push(ch);
-                }
-                escaped = false;
-            }
-            '{' => {
-                if let Some((_, '{')) = chars.peek() {
-                    escaped = true;
-                    continue;
-                }
+    let mut chars = source.chars().peekable();
+    while let Some(ch) = chars.next() {
+        state = match state {
+            Text { mut content } => match ch {
+                '{' => {
+                    if let Some('{') = chars.peek() {
+                        chars.next();
+                        content.push('{');
+                        Text { content }
+                    } else {
+                        if !content.is_empty() {
+                            values.push(ast::StringGroup::Constant { value: content });
+                        }
 
-                if depth == 0 {
-                    if !content.is_empty() {
-                        values.push(ast::StringGroup::Constant {
-                            value: mem::replace(&mut content, String::new()),
-                        });
+                        FormattedValue {
+                            expression: String::new(),
+                            depth: 0,
+                        }
                     }
-
-                    start = pos + 1;
                 }
-
-                depth += 1;
-            }
-            '}' => {
-                if let Some((_, '}')) = chars.peek() {
-                    escaped = true;
-                    continue;
+                '}' => {
+                    if let Some('}') = chars.peek() {
+                        chars.next();
+                        content.push('}');
+                        Text { content }
+                    } else {
+                        return Err(FStringError::UnopenedRbrace);
+                    }
                 }
-
-                if depth == 0 {
-                    return Err(FStringError::UnopenedRbrace);
-                }
-
-                depth -= 1;
-                if depth == 0 {
-                    values.push(ast::StringGroup::FormattedValue {
-                        value: Box::new(match parse_expression(source[start..pos].trim()) {
-                            Ok(expr) => expr,
-                            Err(_) => return Err(FStringError::InvalidExpression),
-                        }),
-                    });
-                }
-            }
-            ch => {
-                if depth == 0 {
+                _ => {
                     content.push(ch);
+                    Text { content }
                 }
+            },
+
+            FormattedValue {
+                mut expression,
+                depth,
+            } => match ch {
+                '{' => {
+                    if let Some('{') = chars.peek() {
+                        expression.push_str("{{");
+                        chars.next();
+                        FormattedValue { expression, depth }
+                    } else {
+                        expression.push('{');
+                        FormattedValue {
+                            expression,
+                            depth: depth + 1,
+                        }
+                    }
+                }
+                '}' => {
+                    if let Some('}') = chars.peek() {
+                        expression.push_str("}}");
+                        chars.next();
+                        FormattedValue { expression, depth }
+                    } else if depth > 0 {
+                        expression.push('}');
+                        FormattedValue {
+                            expression,
+                            depth: depth - 1,
+                        }
+                    } else {
+                        values.push(ast::StringGroup::FormattedValue {
+                            value: Box::new(match parse_expression(dbg!(expression.trim())) {
+                                Ok(expr) => expr,
+                                Err(_) => return Err(FStringError::InvalidExpression),
+                            }),
+                        });
+                        Text {
+                            content: String::new(),
+                        }
+                    }
+                }
+                _ => {
+                    expression.push(ch);
+                    FormattedValue { expression, depth }
+                }
+            },
+        };
+    }
+
+    match state {
+        Text { content } => {
+            if !content.is_empty() {
+                values.push(ast::StringGroup::Constant { value: content })
             }
         }
-    }
-
-    if depth != 0 {
-        return Err(FStringError::UnclosedLbrace);
-    }
-
-    if !content.is_empty() {
-        values.push(ast::StringGroup::Constant { value: content })
+        FormattedValue { .. } => {
+            return Err(FStringError::UnclosedLbrace);
+        }
     }
 
     Ok(match values.len() {
