@@ -5,7 +5,9 @@ mod wasm_builtins;
 extern crate js_sys;
 #[macro_use]
 extern crate rustpython_vm;
+extern crate futures;
 extern crate wasm_bindgen;
+extern crate wasm_bindgen_futures;
 extern crate web_sys;
 
 use js_sys::{Object, Reflect, TypeError};

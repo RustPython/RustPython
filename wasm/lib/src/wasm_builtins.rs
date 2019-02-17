@@ -2,18 +2,23 @@
 //!
 //! This is required because some feature like I/O works differently in the browser comparing to
 //! desktop.
-//! Implements functions listed here: https://docs.python.org/3/library/builtins.html
-//!
+//! Implements functions listed here: https://docs.python.org/3/library/builtins.html and some
+//! others.
+
+extern crate futures;
 extern crate js_sys;
 extern crate wasm_bindgen;
+extern crate wasm_bindgen_futures;
 extern crate web_sys;
 
 use crate::{convert, vm_class::AccessibleVM};
-use js_sys::Array;
+use futures::{future, Future};
+use js_sys::{Array, Promise};
 use rustpython_vm::obj::{objstr, objtype};
 use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen_futures::{future_to_promise, JsFuture};
 use web_sys::{console, HtmlTextAreaElement};
 
 fn window() -> web_sys::Window {
@@ -115,12 +120,11 @@ impl FetchResponseFormat {
             _ => Err(vm.new_type_error("Unkown fetch response_format".into())),
         }
     }
-    fn get_response(&self, response: &web_sys::Response) -> js_sys::Promise {
-        let prom = match self {
+    fn get_response(&self, response: &web_sys::Response) -> Result<Promise, JsValue> {
+        match self {
             FetchResponseFormat::Json => response.json(),
             FetchResponseFormat::Text => response.text(),
-        };
-        prom.expect("response method not to throw error")
+        }
     }
 }
 
@@ -132,45 +136,54 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (url, Some(vm.ctx.str_type())),
             (handler, Some(vm.ctx.function_type()))
         ],
-        optional = [(response_format, Some(vm.ctx.str_type()))]
+        optional = [
+            (response_format, Some(vm.ctx.str_type())),
+            (reject_handler, Some(vm.ctx.function_type()))
+        ]
     );
+
     let response_format = match response_format {
         Some(s) => FetchResponseFormat::from_str(vm, &objstr::get_value(s))?,
         None => FetchResponseFormat::Text,
     };
+
     let window = window();
-    let response_prom = window.fetch_with_str(&objstr::get_value(url));
+    let request_prom = window.fetch_with_str(&objstr::get_value(url));
+
     let handler = handler.clone();
+    let reject_handler = reject_handler.cloned();
+
     let acc_vm = AccessibleVM::from_vm(vm);
-    let closure = Closure::wrap(Box::new(move |val: JsValue| {
-        let response = val
-            .dyn_into::<web_sys::Response>()
-            .expect("val to be of type Response");
-        let prom = response_format.get_response(&response);
-        let acc_vm = acc_vm.clone();
-        let handler = handler.clone();
-        let closure = Closure::wrap(Box::new(move |val: JsValue| {
-            let acc_vm = acc_vm.clone();
-            let handler = handler.clone();
+
+    let future = JsFuture::from(request_prom)
+        .and_then(move |val| {
+            let response = val
+                .dyn_into::<web_sys::Response>()
+                .expect("val to be of type Response");
+            response_format.get_response(&response)
+        })
+        .and_then(|prom| JsFuture::from(prom))
+        .then(move |val| {
             let vm = acc_vm
                 .upgrade()
-                .expect("[Achievement unlucked] How did you get here?");
-            let val = convert::js_to_py(vm, val);
-            let mut args = PyFuncArgs::default();
-            args.args.push(val);
-            let _ = vm.invoke(handler, args);
-        }) as Box<FnMut(JsValue)>);
-
-        prom.then(&closure);
-
-        // TODO: What to do about this:
-        closure.forget();
-    }) as Box<FnMut(JsValue)>);
-
-    response_prom.then(&closure);
-
-    // TODO: and this:
-    closure.forget();
+                .expect("that the VM *not* be destroyed while promise is being resolved");
+            match val {
+                Ok(val) => {
+                    let val = convert::js_to_py(vm, val);
+                    let args = PyFuncArgs::new(vec![val], vec![]);
+                    let _ = vm.invoke(handler, args);
+                }
+                Err(val) => {
+                    if let Some(reject_handler) = reject_handler {
+                        let val = convert::js_to_py(vm, val);
+                        let args = PyFuncArgs::new(vec![val], vec![]);
+                        let _ = vm.invoke(reject_handler, args);
+                    }
+                }
+            }
+            future::ok(JsValue::UNDEFINED)
+        });
+    future_to_promise(future);
 
     Ok(vm.get_none())
 }
