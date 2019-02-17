@@ -1,22 +1,6 @@
 import math
 
-def assert_raises(expr, exc_type):
-    """
-    Helper function to assert `expr` raises an exception of type `exc_type`
-    Args:
-        expr: Callable
-        exec_type: Exception
-    Returns:
-        None
-    Raises:
-        Assertion error on failure
-    """
-    try:
-        expr(None)
-    except exc_type:
-        assert True
-    else:
-        assert False
+from testutils import assert_raises
 
 1 + 1.1
 
@@ -79,8 +63,8 @@ assert float('2.99e-23') == 2.99e-23
 assert float(b'3.14') == 3.14
 assert float(b'2.99e-23') == 2.99e-23
 
-assert_raises(lambda _: float('foo'), ValueError)
-assert_raises(lambda _: float(2**10000), OverflowError)
+assert_raises(ValueError, lambda: float('foo'))
+assert_raises(OverflowError, lambda: float(2**10000))
 
 # check that magic methods are implemented for ints and floats
 

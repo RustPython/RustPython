@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 # test lists
 assert 3 in [1, 2, 3]
 assert 3 not in [1, 2]
@@ -19,12 +21,7 @@ assert b"5" <= b"5"
 assert b"4" > b"2"
 assert not b"1" >= b"2"
 assert b"10" >= b"10"
-try:
-    bytes() > 2
-except TypeError:
-    pass
-else:
-    assert False, "TypeError not raised"
+assert_raises(TypeError, lambda: bytes() > 2)
 
 # test tuple
 assert 1 in (1, 2)
@@ -53,12 +50,7 @@ class MyNotContainingClass():
     pass
 
 
-try:
-    1 in MyNotContainingClass()
-except TypeError:
-    pass
-else:
-    assert False, "TypeError not raised"
+assert_raises(TypeError, lambda: 1 in MyNotContainingClass())
 
 
 class MyContainingClass():
