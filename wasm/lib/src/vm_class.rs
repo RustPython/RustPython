@@ -230,7 +230,7 @@ impl WASMVirtualMachine {
         )
     }
 
-    pub fn run(&self, mut source: String) -> Result<JsValue, JsValue> {
+    fn run(&self, mut source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
         self.assert_valid()?;
         self.with_unchecked(
             |StoredVirtualMachine {
@@ -238,18 +238,24 @@ impl WASMVirtualMachine {
                  ref mut scope,
              }| {
                 source.push('\n');
-                let code = compile::compile(
-                    &source,
-                    &compile::Mode::Exec,
-                    "<wasm>".to_string(),
-                    vm.ctx.code_type(),
-                )
-                .map_err(|err| SyntaxError::new(&format!("Error parsing Python code: {}", err)))?;
+                let code =
+                    compile::compile(&source, &mode, "<wasm>".to_string(), vm.ctx.code_type())
+                        .map_err(|err| {
+                            SyntaxError::new(&format!("Error parsing Python code: {}", err))
+                        })?;
                 let result = vm
                     .run_code_obj(code, scope.clone())
                     .map_err(|err| convert::py_str_err(vm, &err))?;
                 Ok(convert::py_to_js(vm, result))
             },
         )
+    }
+
+    pub fn exec(&self, source: String) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Exec)
+    }
+
+    pub fn eval(&self, source: String) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Eval)
     }
 }
