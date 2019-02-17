@@ -142,15 +142,14 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let response_prom = window.fetch_with_str(&objstr::get_value(url));
     let handler = handler.clone();
     let acc_vm = AccessibleVM::from_vm(vm);
-    response_prom.then(&Closure::wrap(Box::new(move |val: JsValue| {
+    let closure = Closure::wrap(Box::new(move |val: JsValue| {
         let response = val
             .dyn_into::<web_sys::Response>()
             .expect("val to be of type Response");
-        web_sys::console::log_1(&"hey".into());
         let prom = response_format.get_response(&response);
         let acc_vm = acc_vm.clone();
         let handler = handler.clone();
-        prom.then(&Closure::wrap(Box::new(move |val: JsValue| {
+        let closure = Closure::wrap(Box::new(move |val: JsValue| {
             let acc_vm = acc_vm.clone();
             let handler = handler.clone();
             let vm = acc_vm
@@ -160,8 +159,19 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             let mut args = PyFuncArgs::default();
             args.args.push(val);
             let _ = vm.invoke(handler, args);
-        })));
-    })));
+        }) as Box<FnMut(JsValue)>);
+
+        prom.then(&closure);
+
+        // TODO: What to do about this:
+        closure.forget();
+    }) as Box<FnMut(JsValue)>);
+
+    response_prom.then(&closure);
+
+    // TODO: and this:
+    closure.forget();
+
     Ok(vm.get_none())
 }
 
