@@ -1,7 +1,7 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
+use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -9,7 +9,6 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use num_bigint::ToBigInt;
 use std::hash::{Hash, Hasher};
 
 fn tuple_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -110,7 +109,7 @@ fn tuple_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(other, &vm.ctx.tuple_type()) {
         let e1 = get_elements(zelf);
         let e2 = get_elements(other);
-        let elements = e1.iter().chain(e2.iter()).map(|e| e.clone()).collect();
+        let elements = e1.iter().chain(e2.iter()).cloned().collect();
         Ok(vm.ctx.new_tuple(elements))
     } else {
         Err(vm.new_type_error(format!(
@@ -130,12 +129,12 @@ fn tuple_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
     let mut count: usize = 0;
     for element in elements.iter() {
-        let is_eq = vm._eq(element, value.clone())?;
+        let is_eq = vm._eq(element.clone(), value.clone())?;
         if objbool::boolval(vm, is_eq)? {
-            count = count + 1;
+            count += 1;
         }
     }
-    Ok(vm.context().new_int(count.to_bigint().unwrap()))
+    Ok(vm.context().new_int(count))
 }
 
 fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -164,7 +163,7 @@ fn tuple_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         element_hash.hash(&mut hasher);
     }
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -184,7 +183,7 @@ fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn tuple_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
     let elements = get_elements(zelf);
-    Ok(vm.context().new_int(elements.len().to_bigint().unwrap()))
+    Ok(vm.context().new_int(elements.len()))
 }
 
 fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -206,7 +205,7 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements: elements },
+        PyObjectPayload::Sequence { elements },
         cls.clone(),
     ))
 }
@@ -214,18 +213,22 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.tuple_type()))]);
 
-    let elements = get_elements(zelf);
+    let s = if let Some(_guard) = ReprGuard::enter(zelf) {
+        let elements = get_elements(zelf);
 
-    let mut str_parts = vec![];
-    for elem in elements.iter() {
-        let s = vm.to_repr(elem)?;
-        str_parts.push(objstr::get_value(&s));
-    }
+        let mut str_parts = vec![];
+        for elem in elements.iter() {
+            let s = vm.to_repr(elem)?;
+            str_parts.push(objstr::get_value(&s));
+        }
 
-    let s = if str_parts.len() == 1 {
-        format!("({},)", str_parts[0])
+        if str_parts.len() == 1 {
+            format!("({},)", str_parts[0])
+        } else {
+            format!("({})", str_parts.join(", "))
+        }
     } else {
-        format!("({})", str_parts.join(", "))
+        "(...)".to_string()
     };
     Ok(vm.new_str(s))
 }
@@ -254,6 +257,21 @@ fn tuple_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     get_item(vm, tuple, &get_elements(&tuple), needle.clone())
 }
 
+pub fn tuple_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(tuple, Some(vm.ctx.tuple_type())), (needle, None)]
+    );
+    for (index, element) in get_elements(tuple).iter().enumerate() {
+        let py_equal = vm._eq(needle.clone(), element.clone())?;
+        if objbool::get_value(&py_equal) {
+            return Ok(vm.context().new_int(index));
+        }
+    }
+    Err(vm.new_value_error("tuple.index(x): x not in tuple".to_string()))
+}
+
 pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -261,7 +279,7 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(tuple, Some(vm.ctx.tuple_type())), (needle, None)]
     );
     for element in get_elements(tuple).iter() {
-        match vm.call_method(needle, "__eq__", vec![element.clone()]) {
+        match vm._eq(needle.clone(), element.clone()) {
             Ok(value) => {
                 if objbool::get_value(&value) {
                     return Ok(vm.new_bool(true));
@@ -276,6 +294,10 @@ pub fn tuple_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(context: &PyContext) {
     let tuple_type = &context.tuple_type;
+    let tuple_doc = "tuple() -> empty tuple
+tuple(iterable) -> tuple initialized from iterable's items
+
+If the argument is a tuple, the return value is the same object.";
     context.set_attr(&tuple_type, "__add__", context.new_rustfunc(tuple_add));
     context.set_attr(&tuple_type, "__eq__", context.new_rustfunc(tuple_eq));
     context.set_attr(
@@ -299,4 +321,10 @@ pub fn init(context: &PyContext) {
     context.set_attr(&tuple_type, "__le__", context.new_rustfunc(tuple_le));
     context.set_attr(&tuple_type, "__gt__", context.new_rustfunc(tuple_gt));
     context.set_attr(&tuple_type, "__ge__", context.new_rustfunc(tuple_ge));
+    context.set_attr(
+        &tuple_type,
+        "__doc__",
+        context.new_str(tuple_doc.to_string()),
+    );
+    context.set_attr(&tuple_type, "index", context.new_rustfunc(tuple_index));
 }

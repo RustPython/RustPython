@@ -4,6 +4,7 @@
 
 // use std::ops::Deref;
 use std::char;
+use std::error::Error;
 use std::io::{self, Write};
 
 use super::compile;
@@ -23,8 +24,7 @@ use super::pyobject::{
 use super::stdlib::io::io_open;
 
 use super::vm::VirtualMachine;
-use num_bigint::ToBigInt;
-use num_traits::{Signed, ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
@@ -32,7 +32,7 @@ fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let locals = vm.get_locals();
     let key_value_pairs = objdict::get_key_value_pairs(&locals);
     for (key, value) in key_value_pairs {
-        objdict::set_item(&d, &key, &value);
+        objdict::set_item(&d, vm, &key, &value);
     }
     d
 }
@@ -104,8 +104,7 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_callable(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    // TODO: is this a sufficiently thorough check?
-    let is_callable = obj.has_attr("__call__");
+    let is_callable = obj.typ().has_attr("__call__");
     Ok(vm.new_bool(is_callable))
 }
 
@@ -138,11 +137,11 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mode = {
         let mode = objstr::get_value(mode);
-        if mode == String::from("exec") {
+        if mode == "exec" {
             compile::Mode::Exec
-        } else if mode == "eval".to_string() {
+        } else if mode == "eval" {
             compile::Mode::Eval
-        } else if mode == "single".to_string() {
+        } else if mode == "single" {
             compile::Mode::Single
         } else {
             return Err(
@@ -153,7 +152,10 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let filename = objstr::get_value(filename);
 
-    compile::compile(vm, &source, &mode, Some(filename))
+    compile::compile(&source, &mode, filename, vm.ctx.code_type()).map_err(|err| {
+        let syntax_error = vm.context().exceptions.syntax_error.clone();
+        vm.new_exception(syntax_error, err.description().to_string())
+    })
 }
 
 fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -182,29 +184,6 @@ fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_enumerate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iterable, None)],
-        optional = [(start, None)]
-    );
-    let items = vm.extract_elements(iterable)?;
-    let start = if let Some(start) = start {
-        objint::get_value(start)
-    } else {
-        Zero::zero()
-    };
-    let mut new_items = vec![];
-    for (i, item) in items.into_iter().enumerate() {
-        let element = vm
-            .ctx
-            .new_tuple(vec![vm.ctx.new_int(i.to_bigint().unwrap() + &start), item]);
-        new_items.push(element);
-    }
-    Ok(vm.ctx.new_list(new_items))
-}
-
 /// Implements `eval`.
 /// See also: https://docs.python.org/3/library/functions.html#eval
 fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -226,28 +205,17 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, None)?
+        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(
+            |err| {
+                let syntax_error = vm.context().exceptions.syntax_error.clone();
+                vm.new_exception(syntax_error, err.description().to_string())
+            },
+        )?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
 
-    let locals = if let Some(locals) = locals {
-        locals.clone()
-    } else {
-        vm.new_dict()
-    };
-
-    // TODO: handle optional globals
-    // Construct new scope:
-    let scope_inner = Scope {
-        locals: locals,
-        parent: None,
-    };
-    let scope = PyObject {
-        payload: PyObjectPayload::Scope { scope: scope_inner },
-        typ: None,
-    }
-    .into_ref();
+    let scope = make_scope(vm, locals);
 
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
@@ -272,13 +240,25 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, None)?
+        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(
+            |err| {
+                let syntax_error = vm.context().exceptions.syntax_error.clone();
+                vm.new_exception(syntax_error, err.description().to_string())
+            },
+        )?
     } else if objtype::isinstance(source, &vm.ctx.code_type()) {
         source.clone()
     } else {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };
 
+    let scope = make_scope(vm, locals);
+
+    // Run the code:
+    vm.run_code_obj(code_obj, scope)
+}
+
+fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
     // handle optional global and locals
     let locals = if let Some(locals) = locals {
         locals.clone()
@@ -286,54 +266,31 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.new_dict()
     };
 
-    // TODO: use globals
-
+    // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
-        locals: locals,
+        locals,
         parent: None,
     };
-    let scope = PyObject {
+
+    PyObject {
         payload: PyObjectPayload::Scope { scope: scope_inner },
         typ: None,
     }
-    .into_ref();
-
-    // Run the code:
-    vm.run_code_obj(code_obj, scope)
-}
-
-fn builtin_filter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(function, None), (iterable, None)]);
-
-    // TODO: process one element at a time from iterators.
-    let iterable = vm.extract_elements(iterable)?;
-
-    let mut new_items = vec![];
-    for element in iterable {
-        // apply function:
-        let args = PyFuncArgs {
-            args: vec![element.clone()],
-            kwargs: vec![],
-        };
-        let result = vm.invoke(function.clone(), args)?;
-        let result = objbool::boolval(vm, result)?;
-        if result {
-            new_items.push(element);
-        }
-    }
-
-    Ok(vm.ctx.new_list(new_items))
+    .into_ref()
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(obj, None), (format_spec, Some(vm.ctx.str_type()))]
+        required = [(obj, None)],
+        optional = [(format_spec, Some(vm.ctx.str_type()))]
     );
-
-    vm.call_method(obj, "__format__", vec![format_spec.clone()])
+    let format_spec = format_spec
+        .cloned()
+        .unwrap_or_else(|| vm.new_str("".to_string()));
+    vm.call_method(obj, "__format__", vec![format_spec])
 }
 
 fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -384,7 +341,7 @@ fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
-    Ok(vm.context().new_int(obj.get_id().to_bigint().unwrap()))
+    Ok(vm.context().new_int(obj.get_id()))
 }
 
 // builtin_input
@@ -430,33 +387,6 @@ fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_locals())
 }
 
-fn builtin_map(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(function, None), (iter_target, None)]);
-    let iterator = objiter::get_iter(vm, iter_target)?;
-    let mut elements = vec![];
-    loop {
-        match vm.call_method(&iterator, "__next__", vec![]) {
-            Ok(v) => {
-                // Now apply function:
-                let mapped_value = vm.invoke(
-                    function.clone(),
-                    PyFuncArgs {
-                        args: vec![v],
-                        kwargs: vec![],
-                    },
-                )?;
-                elements.push(mapped_value);
-            }
-            Err(_) => break,
-        }
-    }
-
-    trace!("Mapped elements: {:?}", elements);
-
-    // TODO: when iterators are implemented, we can improve this function.
-    Ok(vm.ctx.new_list(elements))
-}
-
 fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let candidates = if args.args.len() > 1 {
         args.args.clone()
@@ -497,7 +427,7 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         } else {
             y.clone()
         };
-        let order = vm.call_method(&x_key, "__gt__", vec![y_key.clone()])?;
+        let order = vm._gt(x_key.clone(), y_key.clone())?;
 
         if !objbool::get_value(&order) {
             x = y.clone();
@@ -547,7 +477,7 @@ fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         } else {
             y.clone()
         };
-        let order = vm.call_method(&x_key, "__gt__", vec![y_key.clone()])?;
+        let order = vm._gt(x_key.clone(), y_key.clone())?;
 
         if objbool::get_value(&order) {
             x = y.clone();
@@ -605,9 +535,7 @@ fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         )));
     }
     match string.chars().next() {
-        Some(character) => Ok(vm
-            .context()
-            .new_int((character as i32).to_bigint().unwrap())),
+        Some(character) => Ok(vm.context().new_int(character as i32)),
         None => Err(vm.new_type_error(
             "ord() could not guess the integer representing this character".to_string(),
         )),
@@ -645,19 +573,68 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
+
+    // Handle 'sep' kwarg:
+    let sep_arg = args
+        .get_optional_kwarg("sep")
+        .filter(|obj| !obj.is(&vm.get_none()));
+    if let Some(ref obj) = sep_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "sep must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let sep_str = sep_arg.as_ref().map(|obj| objstr::borrow_value(obj));
+
+    // Handle 'end' kwarg:
+    let end_arg = args
+        .get_optional_kwarg("end")
+        .filter(|obj| !obj.is(&vm.get_none()));
+    if let Some(ref obj) = end_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "end must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let end_str = end_arg.as_ref().map(|obj| objstr::borrow_value(obj));
+
+    // Handle 'flush' kwarg:
+    let flush = if let Some(flush) = &args.get_optional_kwarg("flush") {
+        objbool::boolval(vm, flush.clone()).unwrap()
+    } else {
+        false
+    };
+
+    let stdout = io::stdout();
+    let mut stdout_lock = stdout.lock();
     let mut first = true;
-    for a in args.args {
+    for a in &args.args {
         if first {
             first = false;
+        } else if let Some(ref sep_str) = sep_str {
+            write!(stdout_lock, "{}", sep_str).unwrap();
         } else {
-            print!(" ");
+            write!(stdout_lock, " ").unwrap();
         }
         let v = vm.to_str(&a)?;
-        let s = objstr::get_value(&v);
-        print!("{}", s);
+        let s = objstr::borrow_value(&v);
+        write!(stdout_lock, "{}", s).unwrap();
     }
-    println!();
-    io::stdout().flush().unwrap();
+
+    if let Some(end_str) = end_str {
+        write!(stdout_lock, "{}", end_str).unwrap();
+    } else {
+        writeln!(stdout_lock).unwrap();
+    }
+
+    if flush {
+        stdout_lock.flush().unwrap();
+    }
+
     Ok(vm.get_none())
 }
 
@@ -665,8 +642,38 @@ fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
     vm.to_repr(obj)
 }
+
+fn builtin_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+
+    match vm.get_method(obj.clone(), "__reversed__") {
+        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
+        // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
+        Err(..) => Err(vm.new_type_error(format!(
+            "'{}' object is not reversible",
+            objtype::get_type_name(&obj.typ()),
+        ))),
+    }
+}
 // builtin_reversed
-// builtin_round
+
+fn builtin_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(number, Some(vm.ctx.object()))],
+        optional = [(ndigits, None)]
+    );
+    if let Some(ndigits) = ndigits {
+        let ndigits = vm.call_method(ndigits, "__int__", vec![])?;
+        let rounded = vm.call_method(number, "__round__", vec![ndigits])?;
+        Ok(rounded)
+    } else {
+        // without a parameter, the result type is coerced to int
+        let rounded = &vm.call_method(number, "__round__", vec![])?;
+        Ok(vm.ctx.new_int(objint::get_value(rounded)))
+    }
+}
 
 fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -687,7 +694,7 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items = vm.extract_elements(iterable)?;
 
     // Start with zero and add at will:
-    let mut sum = vm.ctx.new_int(Zero::zero());
+    let mut sum = vm.ctx.new_int(0);
     for item in items {
         sum = vm._add(sum, item)?;
     }
@@ -695,32 +702,6 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_vars
-
-fn builtin_zip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    no_kwargs!(vm, args);
-
-    // TODO: process one element at a time from iterators.
-    let mut iterables = vec![];
-    for iterable in args.args.iter() {
-        let iterable = vm.extract_elements(iterable)?;
-        iterables.push(iterable);
-    }
-
-    let minsize: usize = iterables.iter().map(|i| i.len()).min().unwrap_or(0);
-
-    let mut new_items = vec![];
-    for i in 0..minsize {
-        let items = iterables
-            .iter()
-            .map(|iterable| iterable[i].clone())
-            .collect();
-        let element = vm.ctx.new_tuple(items);
-        new_items.push(element);
-    }
-
-    Ok(vm.ctx.new_list(new_items))
-}
-
 // builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
@@ -730,7 +711,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
     ctx.set_attr(&py_mod, "__name__", ctx.new_str(String::from("__main__")));
 
-    ctx.set_item(&py_mod, "abs", ctx.new_rustfunc(builtin_abs));
+    ctx.set_attr(&py_mod, "abs", ctx.new_rustfunc(builtin_abs));
     ctx.set_attr(&py_mod, "all", ctx.new_rustfunc(builtin_all));
     ctx.set_attr(&py_mod, "any", ctx.new_rustfunc(builtin_any));
     ctx.set_attr(&py_mod, "bin", ctx.new_rustfunc(builtin_bin));
@@ -746,12 +727,12 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "dict", ctx.dict_type());
     ctx.set_attr(&py_mod, "divmod", ctx.new_rustfunc(builtin_divmod));
     ctx.set_attr(&py_mod, "dir", ctx.new_rustfunc(builtin_dir));
-    ctx.set_attr(&py_mod, "enumerate", ctx.new_rustfunc(builtin_enumerate));
+    ctx.set_attr(&py_mod, "enumerate", ctx.enumerate_type());
     ctx.set_attr(&py_mod, "eval", ctx.new_rustfunc(builtin_eval));
     ctx.set_attr(&py_mod, "exec", ctx.new_rustfunc(builtin_exec));
     ctx.set_attr(&py_mod, "float", ctx.float_type());
     ctx.set_attr(&py_mod, "frozenset", ctx.frozenset_type());
-    ctx.set_attr(&py_mod, "filter", ctx.new_rustfunc(builtin_filter));
+    ctx.set_attr(&py_mod, "filter", ctx.filter_type());
     ctx.set_attr(&py_mod, "format", ctx.new_rustfunc(builtin_format));
     ctx.set_attr(&py_mod, "getattr", ctx.new_rustfunc(builtin_getattr));
     ctx.set_attr(&py_mod, "hasattr", ctx.new_rustfunc(builtin_hasattr));
@@ -765,7 +746,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "len", ctx.new_rustfunc(builtin_len));
     ctx.set_attr(&py_mod, "list", ctx.list_type());
     ctx.set_attr(&py_mod, "locals", ctx.new_rustfunc(builtin_locals));
-    ctx.set_attr(&py_mod, "map", ctx.new_rustfunc(builtin_map));
+    ctx.set_attr(&py_mod, "map", ctx.map_type());
     ctx.set_attr(&py_mod, "max", ctx.new_rustfunc(builtin_max));
     ctx.set_attr(&py_mod, "memoryview", ctx.memoryview_type());
     ctx.set_attr(&py_mod, "min", ctx.new_rustfunc(builtin_min));
@@ -780,15 +761,21 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "property", ctx.property_type());
     ctx.set_attr(&py_mod, "range", ctx.range_type());
     ctx.set_attr(&py_mod, "repr", ctx.new_rustfunc(builtin_repr));
+    ctx.set_attr(&py_mod, "reversed", ctx.new_rustfunc(builtin_reversed));
+    ctx.set_attr(&py_mod, "round", ctx.new_rustfunc(builtin_round));
     ctx.set_attr(&py_mod, "set", ctx.set_type());
     ctx.set_attr(&py_mod, "setattr", ctx.new_rustfunc(builtin_setattr));
+    ctx.set_attr(&py_mod, "slice", ctx.slice_type());
     ctx.set_attr(&py_mod, "staticmethod", ctx.staticmethod_type());
     ctx.set_attr(&py_mod, "str", ctx.str_type());
     ctx.set_attr(&py_mod, "sum", ctx.new_rustfunc(builtin_sum));
     ctx.set_attr(&py_mod, "super", ctx.super_type());
     ctx.set_attr(&py_mod, "tuple", ctx.tuple_type());
     ctx.set_attr(&py_mod, "type", ctx.type_type());
-    ctx.set_attr(&py_mod, "zip", ctx.new_rustfunc(builtin_zip));
+    ctx.set_attr(&py_mod, "zip", ctx.zip_type());
+
+    // Constants
+    ctx.set_attr(&py_mod, "NotImplemented", ctx.not_implemented.clone());
 
     // Exceptions:
     ctx.set_attr(
@@ -797,6 +784,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         ctx.exceptions.base_exception_type.clone(),
     );
     ctx.set_attr(&py_mod, "Exception", ctx.exceptions.exception_type.clone());
+    ctx.set_attr(
+        &py_mod,
+        "ArithmeticError",
+        ctx.exceptions.arithmetic_error.clone(),
+    );
     ctx.set_attr(
         &py_mod,
         "AssertionError",
@@ -808,6 +800,11 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         ctx.exceptions.attribute_error.clone(),
     );
     ctx.set_attr(&py_mod, "NameError", ctx.exceptions.name_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "OverflowError",
+        ctx.exceptions.overflow_error.clone(),
+    );
     ctx.set_attr(
         &py_mod,
         "RuntimeError",
@@ -822,6 +819,21 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "ValueError", ctx.exceptions.value_error.clone());
     ctx.set_attr(&py_mod, "IndexError", ctx.exceptions.index_error.clone());
     ctx.set_attr(&py_mod, "ImportError", ctx.exceptions.import_error.clone());
+    ctx.set_attr(
+        &py_mod,
+        "FileNotFoundError",
+        ctx.exceptions.file_not_found_error.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
+        "StopIteration",
+        ctx.exceptions.stop_iteration.clone(),
+    );
+    ctx.set_attr(
+        &py_mod,
+        "ZeroDivisionError",
+        ctx.exceptions.zero_division_error.clone(),
+    );
 
     py_mod
 }

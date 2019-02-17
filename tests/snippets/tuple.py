@@ -15,3 +15,15 @@ assert x * -1 == ()  # integers less than zero treated as 0
 
 assert y < x, "tuple __lt__ failed"
 assert x > y, "tuple __gt__ failed"
+
+
+b = (1,2,3)
+assert b.index(2) == 1
+
+recursive_list = []
+recursive = (recursive_list,)
+recursive_list.append(recursive)
+assert repr(recursive) == "([(...)],)"
+
+assert (None, "", 1).index(1) == 2
+assert 1 in (None, "", 1)

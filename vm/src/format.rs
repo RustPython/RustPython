@@ -314,7 +314,7 @@ impl FormatSpec {
             }
             None => Ok(magnitude.to_str_radix(10)),
         };
-        if !raw_magnitude_string_result.is_ok() {
+        if raw_magnitude_string_result.is_err() {
             return raw_magnitude_string_result;
         }
         let magnitude_string = format!(
@@ -496,8 +496,12 @@ impl FormatString {
             None => Err(FormatParseError::UnmatchedBracket),
         }
     }
+}
 
-    pub fn from_str(text: &str) -> Result<FormatString, FormatParseError> {
+impl FromStr for FormatString {
+    type Err = FormatParseError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
         let mut cur_text: &str = text;
         let mut parts: Vec<FormatPart> = Vec::new();
         while !cur_text.is_empty() {

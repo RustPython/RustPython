@@ -6,9 +6,11 @@ use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
-use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
+use std::cell::Ref;
 use std::hash::{Hash, Hasher};
+use std::ops::Range;
+use std::str::FromStr;
 // rust's builtin to_lowercase isn't sufficient for casefold
 extern crate caseless;
 extern crate unicode_segmentation;
@@ -26,7 +28,9 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&str_type, "__getitem__", context.new_rustfunc(str_getitem));
     context.set_attr(&str_type, "__gt__", context.new_rustfunc(str_gt));
+    context.set_attr(&str_type, "__ge__", context.new_rustfunc(str_ge));
     context.set_attr(&str_type, "__lt__", context.new_rustfunc(str_lt));
+    context.set_attr(&str_type, "__le__", context.new_rustfunc(str_le));
     context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
     context.set_attr(&str_type, "__len__", context.new_rustfunc(str_len));
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
@@ -107,6 +111,16 @@ pub fn get_value(obj: &PyObjectRef) -> String {
     }
 }
 
+pub fn borrow_value(obj: &PyObjectRef) -> Ref<str> {
+    Ref::map(obj.borrow(), |py_obj| {
+        if let PyObjectPayload::String { value } = &py_obj.payload {
+            value.as_ref()
+        } else {
+            panic!("Inner error getting str");
+        }
+    })
+}
+
 fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -126,30 +140,60 @@ fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.str_type())),
-            (other, Some(vm.ctx.str_type()))
-        ]
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf > other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 > get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
+fn str_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn str_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.str_type())),
-            (other, Some(vm.ctx.str_type()))
-        ]
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
     );
-    let zelf = get_value(zelf);
-    let other = get_value(other);
-    let result = zelf < other;
-    Ok(vm.ctx.new_bool(result))
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 < get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
+fn str_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.str_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i);
+    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+        Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
+    } else {
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+    }
 }
 
 fn str_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -308,13 +352,13 @@ fn str_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(hash))
 }
 
 fn str_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let sv = get_value(s);
-    Ok(vm.ctx.new_int(sv.chars().count().to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(sv.chars().count()))
 }
 
 fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -464,29 +508,37 @@ fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
 fn str_isspace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_whitespace = get_value(&s).chars().all(|c| c.is_ascii_whitespace());
-    Ok(vm.ctx.new_bool(is_whitespace))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_ascii_whitespace())))
 }
 
 fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_upper = get_value(&s)
-        .chars()
-        .filter(|x| !x.is_ascii_whitespace())
-        .all(|c| c.is_uppercase());
-    Ok(vm.ctx.new_bool(is_upper))
+    let value = get_value(&s);
+    Ok(vm.ctx.new_bool(
+        !value.is_empty()
+            && value
+                .chars()
+                .filter(|x| !x.is_ascii_whitespace())
+                .all(|c| c.is_uppercase()),
+    ))
 }
 
 fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_lower = get_value(&s)
-        .chars()
-        .filter(|x| !x.is_ascii_whitespace())
-        .all(|c| c.is_lowercase());
-    Ok(vm.ctx.new_bool(is_lower))
+    let value = get_value(&s);
+    Ok(vm.ctx.new_bool(
+        !value.is_empty()
+            && value
+                .chars()
+                .filter(|x| !x.is_ascii_whitespace())
+                .all(|c| c.is_lowercase()),
+    ))
 }
 
-// doesn't implement keep new line delimeter just yet
+// doesn't implement keep new line delimiter just yet
 fn str_splitlines(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let elements = get_value(&s)
@@ -504,12 +556,11 @@ fn str_zfill(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let value = get_value(&s);
     let len = objint::get_value(&len).to_usize().unwrap();
-    let new_str: String;
-    if len <= value.len() {
-        new_str = value;
+    let new_str = if len <= value.len() {
+        value
     } else {
-        new_str = format!("{}{}", "0".repeat(len - value.len()), value);
-    }
+        format!("{}{}", "0".repeat(len - value.len()), value)
+    };
     Ok(vm.ctx.new_str(new_str))
 }
 
@@ -546,7 +597,7 @@ fn str_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Err(e) => return Err(vm.new_index_error(e)),
     };
     let num_occur: usize = value[start..end].matches(&sub).count();
-    Ok(vm.ctx.new_int(num_occur.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(num_occur))
 }
 
 fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -565,13 +616,13 @@ fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok((start, end)) => (start, end),
         Err(e) => return Err(vm.new_index_error(e)),
     };
-    let ind: usize = match value[start..end + 1].find(&sub) {
+    let ind: usize = match value[start..=end].find(&sub) {
         Some(num) => num,
         None => {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -590,14 +641,14 @@ fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok((start, end)) => (start, end),
         Err(e) => return Err(vm.new_index_error(e)),
     };
-    let ind: i128 = match value[start..end + 1].find(&sub) {
+    let ind: i128 = match value[start..=end].find(&sub) {
         Some(num) => num as i128,
         None => -1 as i128,
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
-// casefold is much more aggresive than lower
+// casefold is much more aggressive than lower
 fn str_casefold(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
@@ -784,13 +835,13 @@ fn str_ljust(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn str_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
-    let mut is_titled = true;
-    for word in value.split(" ") {
-        if word != make_title(&word) {
-            is_titled = false;
-            break;
-        }
-    }
+
+    let is_titled = if value.is_empty() {
+        false
+    } else {
+        value.split(' ').all(|word| word == make_title(word))
+    };
+
     Ok(vm.ctx.new_bool(is_titled))
 }
 
@@ -845,14 +896,18 @@ fn str_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn str_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_alnum = get_value(&s).chars().all(|c| c.is_alphanumeric());
-    Ok(vm.ctx.new_bool(is_alnum))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_alphanumeric())))
 }
 
 fn str_isascii(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_ascii = get_value(&s).chars().all(|c| c.is_ascii());
-    Ok(vm.ctx.new_bool(is_ascii))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_ascii())))
 }
 
 fn str_rindex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -871,13 +926,13 @@ fn str_rindex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok((start, end)) => (start, end),
         Err(e) => return Err(vm.new_index_error(e)),
     };
-    let ind: i64 = match value[start..end + 1].rfind(&sub) {
+    let ind: i64 = match value[start..=end].rfind(&sub) {
         Some(num) => num as i64,
         None => {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -896,23 +951,27 @@ fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok((start, end)) => (start, end),
         Err(e) => return Err(vm.new_index_error(e)),
     };
-    let ind = match value[start..end + 1].rfind(&sub) {
+    let ind = match value[start..=end].rfind(&sub) {
         Some(num) => num as i128,
         None => -1 as i128,
     };
-    Ok(vm.ctx.new_int(ind.to_bigint().unwrap()))
+    Ok(vm.ctx.new_int(ind))
 }
 
 fn str_isnumeric(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_numeric = get_value(&s).chars().all(|c| c.is_numeric());
-    Ok(vm.ctx.new_bool(is_numeric))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_numeric())))
 }
 
 fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let is_alpha = get_value(&s).chars().all(|c| c.is_alphanumeric());
-    Ok(vm.ctx.new_bool(is_alpha))
+    let value = get_value(&s);
+    Ok(vm
+        .ctx
+        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_alphanumeric())))
 }
 
 fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -922,19 +981,16 @@ fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let valid_unicodes: [u16; 10] = [
         0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
     ];
-    let mut is_digit: bool = true;
-    for c in value.chars() {
-        if !c.is_digit(10) {
-            // checking if char is exponent
-            let char_as_uni: u16 = c as u16;
-            if valid_unicodes.contains(&char_as_uni) {
-                continue;
-            } else {
-                is_digit = false;
-                break;
-            }
-        }
-    }
+
+    let is_digit = if value.is_empty() {
+        false
+    } else {
+        value
+            .chars()
+            .filter(|c| !c.is_digit(10))
+            .all(|c| valid_unicodes.contains(&(c as u16)))
+    };
+
     Ok(vm.ctx.new_bool(is_digit))
 }
 
@@ -978,14 +1034,23 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 impl PySliceableSequence for String {
-    fn do_slice(&self, start: usize, stop: usize) -> Self {
+    fn do_slice(&self, range: Range<usize>) -> Self {
         to_graphemes(self)
-            .get(start..stop)
+            .get(range)
             .map_or(String::default(), |c| c.join(""))
     }
 
-    fn do_stepped_slice(&self, start: usize, stop: usize, step: usize) -> Self {
-        if let Some(s) = to_graphemes(self).get(start..stop) {
+    fn do_slice_reverse(&self, range: Range<usize>) -> Self {
+        to_graphemes(self)
+            .get_mut(range)
+            .map_or(String::default(), |slice| {
+                slice.reverse();
+                slice.join("")
+            })
+    }
+
+    fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self {
+        if let Some(s) = to_graphemes(self).get(range) {
             return s
                 .iter()
                 .cloned()
@@ -996,8 +1061,29 @@ impl PySliceableSequence for String {
         String::default()
     }
 
+    fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self {
+        if let Some(s) = to_graphemes(self).get(range) {
+            return s
+                .iter()
+                .rev()
+                .cloned()
+                .step_by(step)
+                .collect::<Vec<String>>()
+                .join("");
+        }
+        String::default()
+    }
+
+    fn empty() -> Self {
+        String::default()
+    }
+
     fn len(&self) -> usize {
         to_graphemes(self).len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
     }
 }
 
@@ -1014,20 +1100,21 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
         match objint::get_value(&b).to_i32() {
             Some(pos) => {
                 let graphemes = to_graphemes(value);
-                let idx = graphemes.get_pos(pos);
-                graphemes
-                    .get(idx)
-                    .map(|c| vm.new_str(c.to_string()))
-                    .ok_or(vm.new_index_error("string index out of range".to_string()))
+                if let Some(idx) = graphemes.get_pos(pos) {
+                    Ok(vm.new_str(graphemes[idx].to_string()))
+                } else {
+                    Err(vm.new_index_error("string index out of range".to_string()))
+                }
             }
             None => {
                 Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
             }
         }
     } else {
-        match &(*b.borrow()).payload {
-            &PyObjectPayload::Slice { .. } => {
-                Ok(vm.new_str(value.to_string().get_slice_items(&b).to_string()))
+        match (*b.borrow()).payload {
+            PyObjectPayload::Slice { .. } => {
+                let string = value.to_string().get_slice_items(vm, &b)?;
+                Ok(vm.new_str(string))
             }
             _ => panic!(
                 "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",

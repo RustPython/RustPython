@@ -1,6 +1,5 @@
 use super::super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype;
@@ -8,6 +7,19 @@ use super::objtype;
 pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
     context.set_attr(&function_type, "__get__", context.new_rustfunc(bind_method));
+
+    context.set_attr(
+        &function_type,
+        "__code__",
+        context.new_member_descriptor(function_code),
+    );
+
+    let builtin_function_or_method_type = &context.builtin_function_or_method_type;
+    context.set_attr(
+        &builtin_function_or_method_type,
+        "__get__",
+        context.new_rustfunc(bind_method),
+    );
 
     let member_descriptor_type = &context.member_descriptor_type;
     context.set_attr(
@@ -55,6 +67,13 @@ fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn function_code(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    match args.args[0].borrow().payload {
+        PyObjectPayload::Function { ref code, .. } => Ok(code.clone()),
+        _ => Err(vm.new_type_error("no code".to_string())),
+    }
+}
+
 fn member_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     match args.shift().get_attr("function") {
         Some(function) => vm.invoke(function, args),
@@ -97,12 +116,7 @@ fn classmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("classmethod.__new__ {:?}", args.args);
     arg_check!(vm, args, required = [(cls, None), (callable, None)]);
 
-    let py_obj = PyObject::new(
-        PyObjectPayload::Instance {
-            dict: vm.ctx.new_dict(),
-        },
-        cls.clone(),
-    );
+    let py_obj = vm.ctx.new_instance(cls.clone(), None);
     vm.ctx.set_attr(&py_obj, "function", callable.clone());
     Ok(py_obj)
 }
@@ -135,12 +149,7 @@ fn staticmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("staticmethod.__new__ {:?}", args.args);
     arg_check!(vm, args, required = [(cls, None), (callable, None)]);
 
-    let py_obj = PyObject::new(
-        PyObjectPayload::Instance {
-            dict: vm.ctx.new_dict(),
-        },
-        cls.clone(),
-    );
+    let py_obj = vm.ctx.new_instance(cls.clone(), None);
     vm.ctx.set_attr(&py_obj, "function", callable.clone());
     Ok(py_obj)
 }

@@ -1,5 +1,5 @@
 //! This module takes care of lexing python source text. This means source
-//! code is translated into seperate tokens.
+//! code is translated into separate tokens.
 
 pub use super::token::Tok;
 use num_bigint::BigInt;
@@ -54,6 +54,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
 #[derive(Debug)]
 pub enum LexicalError {
     StringError,
+    NestingError,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -273,7 +274,6 @@ where
         let mut saw_f = false;
         loop {
             // Detect r"", f"", b"" and u""
-            // TODO: handle f-strings
             if !(saw_b || saw_u || saw_f) && (self.chr0 == Some('b') || self.chr0 == Some('B')) {
                 saw_b = true;
             } else if !(saw_b || saw_r || saw_u || saw_f)
@@ -428,9 +428,7 @@ where
         self.next_char();
         loop {
             match self.chr0 {
-                Some('\n') => {
-                    return;
-                }
+                Some('\n') => return,
                 Some(_) => {}
                 None => return,
             }
@@ -443,7 +441,7 @@ where
         is_bytes: bool,
         is_raw: bool,
         _is_unicode: bool,
-        _is_fstring: bool,
+        is_fstring: bool,
     ) -> Spanned<Tok> {
         let quote_char = self.next_char().unwrap();
         let mut string_content = String::new();
@@ -534,6 +532,7 @@ where
         } else {
             Tok::String {
                 value: string_content,
+                is_fstring,
             }
         };
 
@@ -904,6 +903,9 @@ where
                 }
                 Some(')') => {
                     let result = self.eat_single_char(Tok::Rpar);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -914,6 +916,9 @@ where
                 }
                 Some(']') => {
                     let result = self.eat_single_char(Tok::Rsqb);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -924,6 +929,9 @@ where
                 }
                 Some('}') => {
                     let result = self.eat_single_char(Tok::Rbrace);
+                    if self.nesting == 0 {
+                        return Some(Err(LexicalError::NestingError));
+                    }
                     self.nesting -= 1;
                     return Some(result);
                 }
@@ -1100,9 +1108,11 @@ mod tests {
             vec![
                 Tok::String {
                     value: "\\\\".to_string(),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: "\\".to_string(),
+                    is_fstring: false,
                 }
             ]
         );
@@ -1394,21 +1404,27 @@ mod tests {
             vec![
                 Tok::String {
                     value: String::from("double"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("single"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("can't"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\\\""),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\t\r\n"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\\g"),
+                    is_fstring: false,
                 },
             ]
         );
@@ -1426,6 +1442,7 @@ mod tests {
                     vec![
                         Tok::String {
                             value: String::from("abcdef"),
+                            is_fstring: false,
                         },
                     ]
                 )

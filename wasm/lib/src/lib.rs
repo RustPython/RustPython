@@ -11,7 +11,8 @@ use js_sys::{Object, Reflect, TypeError};
 use rustpython_vm::compile;
 use rustpython_vm::pyobject::{PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
-use wasm_bindgen::prelude::*;
+use std::error::Error;
+use wasm_bindgen::{prelude::*, JsCast};
 
 pub use vm_class::*;
 
@@ -40,7 +41,16 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
         source.push('\n');
     }
 
-    let code_obj = compile::compile(vm, &source, &compile::Mode::Exec, None)?;
+    let code_obj = compile::compile(
+        &source,
+        &compile::Mode::Exec,
+        "<string>".to_string(),
+        vm.ctx.code_type(),
+    )
+    .map_err(|err| {
+        let syntax_error = vm.context().exceptions.syntax_error.clone();
+        vm.new_exception(syntax_error, err.description().to_string())
+    })?;
 
     vm.run_code_obj(code_obj, vars)
 }
@@ -62,7 +72,7 @@ fn eval(vm: &mut VirtualMachine, source: &str, vars: PyObjectRef) -> PyResult {
 /// -   `stdout?`: `(out: string) => void`: A function to replace the native print
 ///     function, by default `console.log`.
 pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue> {
-    let options = options.unwrap_or_else(|| Object::new());
+    let options = options.unwrap_or_else(Object::new);
     let js_vars = {
         let prop = Reflect::get(&options, &"vars".into())?;
         if prop.is_undefined() {
@@ -116,7 +126,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
         vm.ctx.new_rustfunc_from_box(print_fn),
     );
 
-    let mut vars = base_scope(&mut vm);
+    let vars = base_scope(&mut vm);
 
     let injections = vm.new_dict();
 
@@ -132,7 +142,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
         }
     }
 
-    vm.ctx.set_item(&mut vars, "js_vars", injections);
+    vm.ctx.set_item(&vars, "js_vars", injections);
 
     let result = eval(&mut vm, source, vars);
     convert::pyresult_to_jsresult(&mut vm, result, None)

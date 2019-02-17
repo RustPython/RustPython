@@ -20,8 +20,7 @@ use super::pyobject::{
     PyResult, TypeProtocol,
 };
 use super::vm::VirtualMachine;
-use num_bigint::ToBigInt;
-use num_traits::ToPrimitive;
+use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]
 enum Block {
@@ -43,7 +42,7 @@ pub struct Frame {
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame
     stack: Vec<PyObjectRef>, // The main data frame of the stack machine
-    blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
+    blocks: Vec<Block>,      // Block frames, for controlling loops and exceptions
     pub locals: PyObjectRef, // Variables
     pub lasti: usize,        // index of last instruction ran
 }
@@ -71,12 +70,12 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: objcode::copy_code(&code),
+            code: objcode::get_value(&code),
             stack: vec![],
             blocks: vec![],
             // save the callargs as locals
             // globals: locals.clone(),
-            locals: locals,
+            locals,
             lasti: 0,
         }
     }
@@ -89,11 +88,7 @@ impl Frame {
     }
 
     pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
-        let filename = if let Some(source_path) = &self.code.source_path {
-            source_path.to_string()
-        } else {
-            "<unknown>".to_string()
-        };
+        let filename = &self.code.source_path.to_string();
 
         let prev_frame = mem::replace(&mut vm.current_frame, Some(vm.ctx.new_frame(self.clone())));
 
@@ -121,7 +116,7 @@ impl Frame {
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let pos = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.get_row().to_bigint().unwrap()),
+                        vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::list_append(
@@ -174,7 +169,7 @@ impl Frame {
 
         match &instruction {
             bytecode::Instruction::LoadConst { ref value } => {
-                let obj = self.unwrap_constant(vm, value);
+                let obj = vm.ctx.unwrap_constant(value);
                 self.push_value(obj);
                 Ok(None)
             }
@@ -202,7 +197,7 @@ impl Frame {
             }
             bytecode::Instruction::Rotate { amount } => {
                 // Shuffles top of stack amount down
-                if amount < &2 {
+                if *amount < 2 {
                     panic!("Can only rotate two or more values");
                 }
 
@@ -223,6 +218,16 @@ impl Frame {
                 }
                 Ok(None)
             }
+            bytecode::Instruction::BuildString { size } => {
+                let s = self
+                    .pop_multiple(*size)
+                    .into_iter()
+                    .map(|pyobj| objstr::get_value(&pyobj))
+                    .collect::<String>();
+                let str_obj = vm.ctx.new_str(s);
+                self.push_value(str_obj);
+                Ok(None)
+            }
             bytecode::Instruction::BuildList { size, unpack } => {
                 let elements = self.get_elements(vm, *size, *unpack)?;
                 let list_obj = vm.ctx.new_list(elements);
@@ -231,7 +236,10 @@ impl Frame {
             }
             bytecode::Instruction::BuildSet { size, unpack } => {
                 let elements = self.get_elements(vm, *size, *unpack)?;
-                let py_obj = vm.ctx.new_set(elements);
+                let py_obj = vm.ctx.new_set();
+                for item in elements {
+                    vm.call_method(&py_obj, "add", vec![item])?;
+                }
                 self.push_value(py_obj);
                 Ok(None)
             }
@@ -249,11 +257,11 @@ impl Frame {
                         // Take all key-value pairs from the dict:
                         let dict_elements = objdict::get_key_value_pairs(&obj);
                         for (key, value) in dict_elements.iter() {
-                            objdict::set_item(&map_obj, key, value);
+                            objdict::set_item(&map_obj, vm, key, value);
                         }
                     } else {
                         let key = self.pop_value();
-                        objdict::set_item(&map_obj, &key, &obj);
+                        objdict::set_item(&map_obj, vm, &key, &obj);
                     }
                 }
                 self.push_value(map_obj);
@@ -263,22 +271,22 @@ impl Frame {
                 assert!(*size == 2 || *size == 3);
                 let elements = self.pop_multiple(*size);
 
-                let mut out: Vec<Option<i32>> = elements
+                let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
                     .map(|x| match x.borrow().payload {
-                        PyObjectPayload::Integer { ref value } => Some(value.to_i32().unwrap()),
+                        PyObjectPayload::Integer { ref value } => Some(value.clone()),
                         PyObjectPayload::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
                     })
                     .collect();
 
-                let start = out[0];
-                let stop = out[1];
-                let step = if out.len() == 3 { out[2] } else { None };
+                let start = out[0].take();
+                let stop = out[1].take();
+                let step = if out.len() == 3 { out[2].take() } else { None };
 
                 let obj = PyObject::new(
                     PyObjectPayload::Slice { start, stop, step },
-                    vm.ctx.type_type(),
+                    vm.ctx.slice_type(),
                 );
                 self.push_value(obj);
                 Ok(None)
@@ -440,7 +448,7 @@ impl Frame {
                     bytecode::CallType::Positional(count) => {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
-                            args: args,
+                            args,
                             kwargs: vec![],
                         }
                     }
@@ -504,7 +512,7 @@ impl Frame {
                 let exception = match argc {
                     1 => self.pop_value(),
                     0 | 2 | 3 => panic!("Not implemented!"),
-                    _ => panic!("Invalid paramter for RAISE_VARARGS, must be between 0 to 3"),
+                    _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
                 if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);
@@ -611,7 +619,7 @@ impl Frame {
                         .iter()
                         .skip(*before)
                         .take(middle)
-                        .map(|x| x.clone())
+                        .cloned()
                         .collect();
                     let t = vm.ctx.new_list(middle_elements);
                     self.push_value(t);
@@ -630,6 +638,13 @@ impl Frame {
                 for element in elements.into_iter().rev() {
                     self.push_value(element);
                 }
+                Ok(None)
+            }
+            bytecode::Instruction::FormatValue { spec } => {
+                let value = self.pop_value();
+                let spec = vm.new_str(spec.clone());
+                let formatted = vm.call_method(&value, "__format__", vec![spec])?;
+                self.push_value(formatted);
                 Ok(None)
             }
         }
@@ -662,13 +677,10 @@ impl Frame {
         module: &str,
         symbol: &Option<String>,
     ) -> FrameResult {
-        let current_path = match &self.code.source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
+        let current_path = {
+            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
+            source_pathbuf.pop();
+            source_pathbuf
         };
 
         let obj = import(vm, current_path, module, symbol)?;
@@ -679,13 +691,10 @@ impl Frame {
     }
 
     fn import_star(&mut self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
-        let current_path = match &self.code.source_path {
-            Some(source_path) => {
-                let mut source_pathbuf = PathBuf::from(source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::from("."),
+        let current_path = {
+            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
+            source_pathbuf.pop();
+            source_pathbuf
         };
 
         // Grab all the names from the module and put them in the context
@@ -693,7 +702,7 @@ impl Frame {
 
         for (k, v) in obj.get_key_value_pairs().iter() {
             vm.ctx
-                .set_item(&self.locals, &objstr::get_value(k), v.clone());
+                .set_attr(&self.locals, &objstr::get_value(k), v.clone());
         }
         Ok(None)
     }
@@ -820,7 +829,7 @@ impl Frame {
 
     fn store_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
-        vm.ctx.set_item(&self.locals, name, obj);
+        vm.ctx.set_attr(&self.locals, name, obj);
         Ok(None)
     }
 
@@ -887,25 +896,25 @@ impl Frame {
     ) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
-        let value = match op {
-            &bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
-            &bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
-            &bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            &bytecode::BinaryOperator::MatrixMultiply => {
+        let value = match *op {
+            bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => {
                 vm.call_method(&a_ref, "__matmul__", vec![b_ref])
             }
-            &bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-            &bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
-            &bytecode::BinaryOperator::FloorDivide => {
+            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
+            bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => {
                 vm.call_method(&a_ref, "__floordiv__", vec![b_ref])
             }
-            &bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
-            &bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
-            &bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
-            &bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
-            &bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
-            &bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
-            &bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+            bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
         }?;
 
         self.push_value(value);
@@ -918,11 +927,11 @@ impl Frame {
         op: &bytecode::UnaryOperator,
     ) -> FrameResult {
         let a = self.pop_value();
-        let value = match op {
-            &bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
-            &bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
-            &bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
-            &bytecode::UnaryOperator::Not => {
+        let value = match *op {
+            bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
+            bytecode::UnaryOperator::Plus => vm.call_method(&a, "__pos__", vec![])?,
+            bytecode::UnaryOperator::Invert => vm.call_method(&a, "__invert__", vec![])?,
+            bytecode::UnaryOperator::Not => {
                 let value = objbool::boolval(vm, a)?;
                 vm.ctx.new_bool(!value)
             }
@@ -995,17 +1004,17 @@ impl Frame {
     ) -> FrameResult {
         let b = self.pop_value();
         let a = self.pop_value();
-        let value = match op {
-            &bytecode::ComparisonOperator::Equal => vm._eq(&a, b)?,
-            &bytecode::ComparisonOperator::NotEqual => vm._ne(&a, b)?,
-            &bytecode::ComparisonOperator::Less => vm._lt(&a, b)?,
-            &bytecode::ComparisonOperator::LessOrEqual => vm._le(&a, b)?,
-            &bytecode::ComparisonOperator::Greater => vm._gt(&a, b)?,
-            &bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(&a, b)?,
-            &bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
-            &bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
-            &bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
-            &bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
+        let value = match *op {
+            bytecode::ComparisonOperator::Equal => vm._eq(a, b)?,
+            bytecode::ComparisonOperator::NotEqual => vm._ne(a, b)?,
+            bytecode::ComparisonOperator::Less => vm._lt(a, b)?,
+            bytecode::ComparisonOperator::LessOrEqual => vm._le(a, b)?,
+            bytecode::ComparisonOperator::Greater => vm._gt(a, b)?,
+            bytecode::ComparisonOperator::GreaterOrEqual => vm._ge(a, b)?,
+            bytecode::ComparisonOperator::Is => vm.ctx.new_bool(self._is(a, b)),
+            bytecode::ComparisonOperator::IsNot => self._is_not(vm, a, b)?,
+            bytecode::ComparisonOperator::In => self._in(vm, a, b)?,
+            bytecode::ComparisonOperator::NotIn => self._not_in(vm, a, b)?,
         };
 
         self.push_value(value);
@@ -1032,27 +1041,6 @@ impl Frame {
         let name = vm.ctx.new_str(attr_name.to_string());
         vm.del_attr(&parent, name)?;
         Ok(None)
-    }
-
-    fn unwrap_constant(&self, vm: &VirtualMachine, value: &bytecode::Constant) -> PyObjectRef {
-        match *value {
-            bytecode::Constant::Integer { ref value } => vm.ctx.new_int(value.to_bigint().unwrap()),
-            bytecode::Constant::Float { ref value } => vm.ctx.new_float(*value),
-            bytecode::Constant::Complex { ref value } => vm.ctx.new_complex(*value),
-            bytecode::Constant::String { ref value } => vm.new_str(value.clone()),
-            bytecode::Constant::Bytes { ref value } => vm.ctx.new_bytes(value.clone()),
-            bytecode::Constant::Boolean { ref value } => vm.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => {
-                PyObject::new(PyObjectPayload::Code { code: code.clone() }, vm.get_type())
-            }
-            bytecode::Constant::Tuple { ref elements } => vm.ctx.new_tuple(
-                elements
-                    .iter()
-                    .map(|value| self.unwrap_constant(vm, value))
-                    .collect(),
-            ),
-            bytecode::Constant::None => vm.ctx.none(),
-        }
     }
 
     pub fn get_lineno(&self) -> ast::Location {
@@ -1098,7 +1086,7 @@ impl fmt::Debug for Frame {
         let stack_str = self
             .stack
             .iter()
-            .map(|elem| format!("\n  > {}", elem.borrow().str()))
+            .map(|elem| format!("\n  > {:?}", elem.borrow()))
             .collect::<Vec<_>>()
             .join("");
         let block_str = self
@@ -1112,9 +1100,7 @@ impl fmt::Debug for Frame {
                 PyObjectPayload::Dict { ref elements } => {
                     objdict::get_key_value_pairs_from_content(elements)
                         .iter()
-                        .map(|elem| {
-                            format!("\n  {} = {}", elem.0.borrow().str(), elem.1.borrow().str())
-                        })
+                        .map(|elem| format!("\n  {:?} = {:?}", elem.0.borrow(), elem.1.borrow()))
                         .collect::<Vec<_>>()
                         .join("")
                 }
