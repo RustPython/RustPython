@@ -1,5 +1,5 @@
 use convert;
-use js_sys::TypeError;
+use js_sys::{SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
     pyobject::{PyObjectRef, PyRef},
@@ -178,7 +178,7 @@ impl WASMVirtualMachine {
                       ref mut scope,
                   }| {
                 let value = convert::js_to_py(vm, value, Some(self.clone()));
-                vm.ctx.set_item(scope, &name, value);
+                vm.ctx.set_attr(scope, &name, value);
             },
         )
     }
@@ -191,8 +191,13 @@ impl WASMVirtualMachine {
                  ref mut scope,
              }| {
                 source.push('\n');
-                let code = compile::compile(vm, &source, &compile::Mode::Single, None)
-                    .map_err(|err| convert::py_str_err(vm, &err))?;
+                let code = compile::compile(
+                    &source,
+                    &compile::Mode::Exec,
+                    "<wasm>".to_string(),
+                    vm.ctx.code_type(),
+                )
+                .map_err(|err| SyntaxError::new(&format!("Error parsing Python code: {}", err)))?;
                 let result = vm
                     .run_code_obj(code, scope.clone())
                     .map_err(|err| convert::py_str_err(vm, &err))?;

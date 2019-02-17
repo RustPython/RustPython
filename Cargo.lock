@@ -737,7 +737,7 @@ dependencies = [
  "bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "byteorder 1.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "caseless 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "lazy_static 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lexical 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-bigint 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1232,7 +1232,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum lalrpop 0.15.2 (registry+https://github.com/rust-lang/crates.io-index)" = "ba451f7bd819b7afc99d4cf4bdcd5a4861e64955ba9680ac70df3a50625ad6cf"
 "checksum lalrpop-snap 0.15.2 (registry+https://github.com/rust-lang/crates.io-index)" = "60013fd6be14317d43f47658b1440956a9ca48a9ed0257e0e0a59aac13e43a1f"
 "checksum lalrpop-util 0.15.2 (registry+https://github.com/rust-lang/crates.io-index)" = "60c6c48ba857cd700673ce88907cadcdd7e2cd7783ed02378537c5ffd4f6460c"
-"checksum lazy_static 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "e6412c5e2ad9584b0b8e979393122026cdd6d2a80b933f890dcd694ddbe73739"
+"checksum lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a374c89b9db55895453a74c1e38861d9deec0b01b405a82516e9d5de4820dea1"
 "checksum lexical 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e4fac65df7e751b57bb3a334c346239cb4ce2601907d698726ceeb82a54ba4ef"
 "checksum lexical-core 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "025babf624c0c2b4bed1373efd684d5d0b2eecd61138d26ec3eec77bf0f2e33d"
 "checksum libc 0.2.42 (registry+https://github.com/rust-lang/crates.io-index)" = "b685088df2b950fccadf07a7187c8ef846a959c142338a48f9dc0b94517eb5f1"

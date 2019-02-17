@@ -12,17 +12,15 @@ use rustpython_vm::compile;
 use rustpython_vm::pyobject::{PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use std::error::Error;
-use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen::prelude::*;
 
 pub use vm_class::*;
 
-#[cfg(debug_assertions)]
 extern crate console_error_panic_hook;
 
-#[cfg(debug_assertions)]
 #[wasm_bindgen(start)]
 pub fn setup_console_error() {
-    console_error_panic_hook::set_once();
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 }
 
 // Hack to comment out wasm-bindgen's generated typescript definitons
@@ -142,7 +140,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
         }
     }
 
-    vm.ctx.set_item(&vars, "js_vars", injections);
+    vm.ctx.set_attr(&vars, "js_vars", injections);
 
     let result = eval(&mut vm, source, vars);
     convert::pyresult_to_jsresult(&mut vm, result, None)
