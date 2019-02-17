@@ -20,7 +20,7 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                     let py_obj = py_obj.clone();
                     wasm_vm.assert_valid()?;
                     let acc_vm = AccessibleVM::from(wasm_vm.clone());
-                    let vm = acc_vm
+                    let vm = &mut acc_vm
                         .upgrade()
                         .expect("acc. VM to be invalid when WASM vm is valid");
                     let mut py_func_args = rustpython_vm::pyobject::PyFuncArgs::default();

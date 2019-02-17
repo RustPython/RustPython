@@ -164,7 +164,7 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         })
         .and_then(|prom| JsFuture::from(prom))
         .then(move |val| {
-            let vm = acc_vm
+            let vm = &mut acc_vm
                 .upgrade()
                 .expect("that the VM *not* be destroyed while promise is being resolved");
             match val {

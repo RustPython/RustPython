@@ -106,20 +106,26 @@ impl AccessibleVM {
         )
     }
 
-    pub fn upgrade(&self) -> Option<&mut VirtualMachine> {
+    pub fn upgrade(&self) -> Option<AccessibleVMPtr> {
         let vm_cell = self.weak.upgrade()?;
-        match vm_cell.try_borrow_mut() {
+        let top_level = match vm_cell.try_borrow_mut() {
             Ok(mut vm) => {
                 ACTIVE_VMS.with(|cell| {
                     cell.borrow_mut().insert(self.id.clone(), &mut vm.vm);
                 });
+                true
             }
-            Err(_) => {}
+            Err(_) => false,
         };
         Some(ACTIVE_VMS.with(|cell| {
             let vms = cell.borrow();
             let ptr = vms.get(&self.id).expect("id to be in ACTIVE_VMS");
-            unsafe { &mut **ptr }
+            let vm = unsafe { &mut **ptr };
+            AccessibleVMPtr {
+                id: self.id.clone(),
+                top_level,
+                inner: vm,
+            }
         }))
     }
 }
@@ -132,6 +138,33 @@ impl From<WASMVirtualMachine> for AccessibleVM {
 impl From<&WASMVirtualMachine> for AccessibleVM {
     fn from(vm: &WASMVirtualMachine) -> AccessibleVM {
         AccessibleVM::from_id(vm.id.clone())
+    }
+}
+
+pub(crate) struct AccessibleVMPtr<'a> {
+    id: String,
+    top_level: bool,
+    inner: &'a mut VirtualMachine,
+}
+
+impl std::ops::Deref for AccessibleVMPtr<'_> {
+    type Target = VirtualMachine;
+    fn deref(&self) -> &VirtualMachine {
+        &self.inner
+    }
+}
+impl std::ops::DerefMut for AccessibleVMPtr<'_> {
+    fn deref_mut(&mut self) -> &mut VirtualMachine {
+        &mut self.inner
+    }
+}
+
+impl Drop for AccessibleVMPtr<'_> {
+    fn drop(&mut self) {
+        if self.top_level {
+            // remove the (now invalid) pointer from the map
+            ACTIVE_VMS.with(|cell| cell.borrow_mut().remove(&self.id));
+        }
     }
 }
 
