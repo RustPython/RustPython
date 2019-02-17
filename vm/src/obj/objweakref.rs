@@ -8,11 +8,13 @@ fn ref_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: check first argument for subclass of `ref`.
     arg_check!(vm, args, required = [(cls, Some(vm.ctx.type_type())), (referent, None)],
         optional = [(callback, None)]);
-    let referent = PyObjectRef::downgrade(referent);
-    Ok(PyObject::new(
-        PyObjectPayload::WeakRef { referent, callback: callback.cloned() },
+    let weak_referent = PyObjectRef::downgrade(referent);
+    let weakref = PyObject::new(
+        PyObjectPayload::WeakRef { referent: weak_referent, callback: callback.cloned() },
         cls.clone(),
-    ))
+    );
+    referent.borrow_mut().add_weakref(&weakref);
+    Ok(weakref)
 }
 
 /// Dereference the weakref, and check if we still refer something.
@@ -32,6 +34,18 @@ fn get_value(obj: &PyObjectRef) -> PyObjectWeakRef {
         referent.clone()
     } else {
         panic!("Inner error getting weak ref {:?}", obj);
+    }
+}
+
+pub fn notify_weak_ref(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
+    if let PyObjectPayload::WeakRef { callback, .. } = &obj.borrow().payload {
+        if let Some(callback) = callback {
+            vm.invoke(callback.clone(), PyFuncArgs::empty())
+        } else {
+            Ok(vm.get_none())
+        }
+    } else {
+        panic!("Inner error getting weak ref callback {:?}", obj);
     }
 }
 

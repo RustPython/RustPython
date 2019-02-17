@@ -88,6 +88,19 @@ impl Deref for PyObjectRef {
     }
 }
 
+impl Drop for PyObjectRef {
+    fn drop(&mut self) {
+        if PyObjectRef::strong_count(self) == 1 {
+            // the PyObject is going to be dropped
+            for weak_ref in self.borrow().weak_refs.iter().rev() {
+//                if Err(err) = objweakref::notify_weak_ref(vm, weak_ref) {
+//                    exceptions::print_exception(vm, err);
+//                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PyObjectWeakRef {
     weak: Weak<RefCell<PyObject>>
@@ -728,7 +741,7 @@ impl PyContext {
 pub struct PyObject {
     pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
-    pub weak_refs: Vec<PyObjectRef>
+    weak_refs: Vec<PyObjectRef>
     // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
 }
 
@@ -920,6 +933,10 @@ impl PyFuncArgs {
             kwargs.push((name.clone(), args.pop().unwrap()));
         }
         PyFuncArgs { args, kwargs }
+    }
+
+    pub fn empty() -> PyFuncArgs {
+        PyFuncArgs { args: vec![], kwargs: vec![] }
     }
 
     pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
@@ -1121,8 +1138,12 @@ impl PyObject {
     }
 
     // Move this object into a reference object, transferring ownership.
-    pub fn into_ref(self) -> PyObjectRef {
+    fn into_ref(self) -> PyObjectRef {
         PyObjectRef { rc: Rc::new(RefCell::new(self)) }
+    }
+
+    pub fn add_weakref(&mut self, weakref: &PyObjectRef) {
+        self.weak_refs.push(weakref.clone())
     }
 }
 
