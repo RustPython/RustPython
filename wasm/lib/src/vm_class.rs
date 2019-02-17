@@ -9,6 +9,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
+use wasm_builtins;
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
@@ -20,8 +21,17 @@ impl StoredVirtualMachine {
         let mut vm = VirtualMachine::new();
         let builtin = vm.get_builtin_scope();
         let scope = vm.context().new_scope(Some(builtin));
+        setup_vm_scope(&mut vm, &scope);
         StoredVirtualMachine { vm, scope }
     }
+}
+
+fn setup_vm_scope(vm: &mut VirtualMachine, scope: &PyObjectRef) {
+    vm.ctx.set_attr(
+        scope,
+        "print",
+        vm.ctx.new_rustfunc(wasm_builtins::builtin_print_console),
+    );
 }
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet
