@@ -3,6 +3,7 @@ use super::super::pyobject::{
     TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
+use super::objdict;
 use super::objstr;
 use super::objtype;
 use std::cell::RefCell;
@@ -176,10 +177,7 @@ fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match args.args[0].borrow().payload {
         PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
-            let new_dict = vm.new_dict();
-            for (attr, value) in dict.borrow().iter() {
-                vm.ctx.set_item(&new_dict, &attr, value.clone());
-            }
+            let new_dict = objdict::attributes_to_py_dict(vm, &dict.borrow())?;
             Ok(new_dict)
         }
         _ => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),

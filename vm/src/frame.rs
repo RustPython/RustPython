@@ -1,7 +1,6 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::ast;
-use std::cell::RefCell;
 use std::fmt;
 use std::mem;
 use std::path::PathBuf;
@@ -577,14 +576,17 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::StoreLocals => {
-                let locals = self.pop_value();
-                let locals = objdict::py_dict_to_attributes(&locals);
-                match self.locals.borrow_mut().payload {
+                let old_parent = &match self.locals.borrow().payload {
+                    PyObjectPayload::Scope { ref scope } => { scope.parent.clone() },
+                    _ => panic!("Must be scope!")
+                };
+                self.locals = self.pop_value();
+                match &mut self.locals.borrow_mut().payload {
                     PyObjectPayload::Scope { ref mut scope } => {
-                        scope.locals = RefCell::new(locals);
-                    }
-                    _ => panic!("We really expect our scope to be a scope!"),
-                }
+                        scope.parent = old_parent.clone();
+                    },
+                    _ => panic!("Must be scope too!")
+                };
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
@@ -834,7 +836,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
+    fn delete_name(&mut self, _vm: &mut VirtualMachine, name: &str) -> FrameResult {
         self.locals.del_attr(name);
         Ok(None)
     }

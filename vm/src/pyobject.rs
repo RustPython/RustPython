@@ -538,7 +538,7 @@ impl PyContext {
         let scope = Scope { locals, parent };
         PyObject {
             payload: PyObjectPayload::Scope { scope },
-            typ: None,
+            typ: Some(self.dict_type()),  // TODO: sort of a hack? Maybe dict must support 2 types of payloads.
         }
         .into_ref()
     }
@@ -806,8 +806,8 @@ impl AttributeProtocol for PyObjectRef {
                 None
             }
             PyObjectPayload::Instance { ref dict } => dict.borrow().get(attr_name).cloned(),
-            ref x => unimplemented!("TODO: {:?}", x),
-            // _ => None,
+            _ => None,  // TODO: it would be safer to simply panic in all other cases.
+            // ref x => unimplemented!("TODO: {:?}", x),
         }
     }
 
@@ -821,7 +821,6 @@ impl AttributeProtocol for PyObjectRef {
             }
             PyObjectPayload::Instance { ref dict } => dict.borrow().contains_key(attr_name),
             ref x => unimplemented!("TODO: {:?}", x),
-            // _ => false,
         }
     }
 

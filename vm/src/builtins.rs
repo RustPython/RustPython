@@ -26,15 +26,10 @@ use super::vm::VirtualMachine;
 use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
-    let d = vm.new_dict();
     // TODO: implement dict_iter_items?
     let locals = vm.get_locals();
     let key_value_pairs = locals.get_all_attrs();
-    for (key, value) in key_value_pairs {
-        let key = vm.ctx.new_str(key);
-        objdict::set_item(&d, vm, &key, &value);
-    }
-    d
+    objdict::attributes_to_py_dict(vm, &key_value_pairs).unwrap()
 }
 
 fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
@@ -258,7 +253,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.run_code_obj(code_obj, scope)
 }
 
-fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
+fn make_scope(_vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
     // handle optional global and locals
     let locals = if let Some(locals) = locals {
         objdict::py_dict_to_attributes(locals)
@@ -864,6 +859,17 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         },
     )?;
 
+    // Namespace must be converted to scope when calling class-body-function:
+    let namespace = PyObject {
+        payload: PyObjectPayload::Scope { scope: Scope {
+                locals: RefCell::new(objdict::py_dict_to_attributes(&namespace)),
+                parent: None,
+            },
+        },
+        typ: None,
+    }
+    .into_ref();
+
     vm.invoke(
         function,
         PyFuncArgs {
@@ -871,6 +877,13 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
             kwargs: vec![],
         },
     )?;
+
+    // Now extract scope back into dict:
+    let namespace = if let PyObjectPayload::Scope { scope } = &namespace.borrow().payload {
+        objdict::attributes_to_py_dict(vm, &scope.locals.borrow())?
+    } else {
+        panic!("Cannot happen!");
+    };
 
     vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
 }

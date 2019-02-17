@@ -36,7 +36,7 @@ fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_scope = py_scope.borrow();
 
     if let PyObjectPayload::Scope { scope } = &py_scope.payload {
-        let locals = objdict::attributes_to_py_dict(vm, scope.locals.borrow().clone())?;
+        let locals = objdict::attributes_to_py_dict(vm, &scope.locals.borrow())?;
         Ok(locals)
     } else {
         panic!("The scope isn't a scope!");

@@ -21,7 +21,7 @@ use super::obj::objsequence;
 use super::obj::objstr;
 use super::obj::objtype;
 use super::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload,
     PyObjectRef, PyResult, TypeProtocol,
 };
 use super::stdlib;
@@ -385,7 +385,7 @@ impl VirtualMachine {
             // Check if we have a parameter with this name:
             if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
             {
-                if scope.contains_key(&name) {
+                if scope.has_attr(&name) {
                     return Err(
                         self.new_type_error(format!("Got multiple values for argument '{}'", name))
                     );
@@ -416,7 +416,7 @@ impl VirtualMachine {
             let mut missing = vec![];
             for i in 0..required_args {
                 let variable_name = &code_object.arg_names[i];
-                if !scope.contains_key(variable_name) {
+                if !scope.has_attr(variable_name) {
                     missing.push(variable_name)
                 }
             }
@@ -432,7 +432,7 @@ impl VirtualMachine {
             // the default if we don't already have a value
             for (default_index, i) in (required_args..nexpected_args).enumerate() {
                 let arg_name = &code_object.arg_names[i];
-                if !scope.contains_key(arg_name) {
+                if !scope.has_attr(arg_name) {
                     self.ctx
                         .set_attr(scope, arg_name, available_defaults[default_index].clone());
                 }
@@ -442,7 +442,7 @@ impl VirtualMachine {
         // Check if kw only arguments are all present:
         let kwdefs: HashMap<String, String> = HashMap::new();
         for arg_name in &code_object.kwonlyarg_names {
-            if !scope.contains_key(arg_name) {
+            if !scope.has_attr(arg_name) {
                 if kwdefs.contains_key(arg_name) {
                     // If not yet specified, take the default value
                     unimplemented!();

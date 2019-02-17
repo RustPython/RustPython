@@ -7,7 +7,6 @@ use super::objdict;
 use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 /*
  * The magical type type
@@ -291,7 +290,7 @@ pub fn new(
     typ: PyObjectRef,
     name: &str,
     bases: Vec<PyObjectRef>,
-    dict: HashMap<String, PyObjectRef>,
+    dict: PyAttributes,
 ) -> PyResult {
     let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
     let mro = linearise_mro(mros).unwrap();
@@ -318,7 +317,7 @@ fn type_prepare(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 #[cfg(test)]
 mod tests {
     use super::{linearise_mro, new};
-    use super::{HashMap, IdProtocol, PyContext, PyObjectRef};
+    use super::{PyAttributes, IdProtocol, PyContext, PyObjectRef};
 
     fn map_ids(obj: Option<Vec<PyObjectRef>>) -> Option<Vec<usize>> {
         match obj {
@@ -333,8 +332,8 @@ mod tests {
         let object = context.object;
         let type_type = context.type_type;
 
-        let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
-        let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
+        let a = new(type_type.clone(), "A", vec![object.clone()], PyAttributes::new()).unwrap();
+        let b = new(type_type.clone(), "B", vec![object.clone()], PyAttributes::new()).unwrap();
 
         assert_eq!(
             map_ids(linearise_mro(vec![

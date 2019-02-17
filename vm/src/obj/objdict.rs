@@ -125,10 +125,10 @@ pub fn py_dict_to_attributes(dict: &PyObjectRef) -> PyAttributes {
     attrs
 }
 
-pub fn attributes_to_py_dict(vm: &mut VirtualMachine, attributes: PyAttributes) -> PyResult {
+pub fn attributes_to_py_dict(vm: &mut VirtualMachine, attributes: &PyAttributes) -> PyResult {
     let dict = vm.ctx.new_dict();
     for (key, value) in attributes {
-        let key = vm.ctx.new_str(key);
+        let key = vm.ctx.new_str(key.to_string());
         set_item(&dict, vm, &key, &value);
     }
     Ok(dict)
