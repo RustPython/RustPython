@@ -900,18 +900,14 @@ impl Frame {
             bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
             bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
             bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            bytecode::BinaryOperator::MatrixMultiply => {
-                vm.call_method(&a_ref, "__matmul__", vec![b_ref])
-            }
+            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-            bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => {
-                vm.call_method(&a_ref, "__floordiv__", vec![b_ref])
-            }
+            bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
             bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
-            bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
-            bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
-            bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),

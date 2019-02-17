@@ -571,9 +571,21 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _div(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _matmul(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__matmul__", "__rmatmul__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, "@"))
+        })
+    }
+
+    pub fn _truediv(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__truediv__", "__rtruediv__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "/"))
+        })
+    }
+
+    pub fn _floordiv(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__floordiv__", "__rfloordiv__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, "//"))
         })
     }
 
@@ -583,9 +595,21 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _modulo(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    pub fn _mod(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_unsupported(a, b, "__mod__", "__rmod__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "%"))
+        })
+    }
+
+    pub fn _lshift(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__lshift__", "__rlshift__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, "<<"))
+        })
+    }
+
+    pub fn _rshift(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+        self.call_or_unsupported(a, b, "__rshift__", "__rrshift__", |vm, a, b| {
+            Err(vm.new_unsupported_operand_error(a, b, ">>"))
         })
     }
 
