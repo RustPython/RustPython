@@ -1,4 +1,4 @@
-use js_sys::{Array, Object, Reflect};
+use js_sys::{Array, ArrayBuffer, Object, Reflect, Uint8Array};
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use vm_class::{AccessibleVM, WASMVirtualMachine};
@@ -137,6 +137,19 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
         }
         .clone();
         vm.new_exception(exc_type, err.message().into())
+    } else if ArrayBuffer::is_view(&js_val) || js_val.is_instance_of::<ArrayBuffer>() {
+        // unchecked_ref because if it's not an ArrayByffer it could either be a TypedArray
+        // or a DataView, but they all have a `buffer` property
+        let mut u8_array = js_sys::Uint8Array::new(
+            &js_val
+                .dyn_ref::<ArrayBuffer>()
+                .cloned()
+                .unwrap_or_else(|| js_val.unchecked_ref::<Uint8Array>().buffer()),
+        );
+        let mut vec = Vec::with_capacity(u8_array.length() as usize);
+        // TODO: use Uint8Array::copy_to once updating js_sys doesn't break everything
+        u8_array.for_each(&mut |byte, _, _| vec.push(byte));
+        vm.ctx.new_bytearray(vec)
     } else if js_val.is_undefined() {
         // Because `JSON.stringify(undefined)` returns undefined
         vm.get_none()
