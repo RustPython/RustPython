@@ -1,7 +1,7 @@
 use js_sys::{Array, Object, Reflect};
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
-use vm_class::{StoredVirtualMachine, WASMVirtualMachine};
+use vm_class::{AccessibleVM, WASMVirtualMachine};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 pub fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
@@ -16,39 +16,36 @@ pub fn py_to_js(
 ) -> JsValue {
     if let Some(wasm_vm) = wasm_vm {
         if rustpython_vm::obj::objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
-            let closure = Closure::wrap(Box::new(
+            let closure =
                 move |args: Option<Array>, kwargs: Option<Object>| -> Result<JsValue, JsValue> {
                     let py_obj = py_obj.clone();
-                    let wasm_vm = wasm_vm.clone();
                     wasm_vm.assert_valid()?;
-                    let wasm_vm_clone = wasm_vm.clone();
-                    wasm_vm.with_unchecked(move |StoredVirtualMachine { ref mut vm, .. }| {
-                        let vm: &mut VirtualMachine = vm;
-                        let mut py_func_args = rustpython_vm::pyobject::PyFuncArgs::default();
-                        if let Some(ref args) = args {
-                            for arg in args.values() {
-                                py_func_args.args.push(js_to_py(
-                                    vm,
-                                    arg?,
-                                    Some(wasm_vm_clone.clone()),
-                                ));
-                            }
+                    let acc_vm = AccessibleVM::from(wasm_vm.clone());
+                    let vm = acc_vm
+                        .upgrade()
+                        .expect("acc. VM to be invalid when WASM vm is valid");
+                    let mut py_func_args = rustpython_vm::pyobject::PyFuncArgs::default();
+                    if let Some(ref args) = args {
+                        for arg in args.values() {
+                            py_func_args
+                                .args
+                                .push(js_to_py(vm, arg?, Some(wasm_vm.clone())));
                         }
-                        if let Some(ref kwargs) = kwargs {
-                            for pair in object_entries(kwargs) {
-                                let (key, val) = pair?;
-                                py_func_args.kwargs.push((
-                                    js_sys::JsString::from(key).into(),
-                                    js_to_py(vm, val, Some(wasm_vm_clone.clone())),
-                                ));
-                            }
+                    }
+                    if let Some(ref kwargs) = kwargs {
+                        for pair in object_entries(kwargs) {
+                            let (key, val) = pair?;
+                            py_func_args.kwargs.push((
+                                js_sys::JsString::from(key).into(),
+                                js_to_py(vm, val, Some(wasm_vm.clone())),
+                            ));
                         }
-                        let result = vm.invoke(py_obj.clone(), py_func_args);
-                        pyresult_to_jsresult(vm, result, Some(wasm_vm_clone.clone()))
-                    })
-                },
-            )
-                as Box<Fn(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
+                    }
+                    let result = vm.invoke(py_obj.clone(), py_func_args);
+                    pyresult_to_jsresult(vm, result, Some(wasm_vm.clone()))
+                };
+            let closure = Closure::wrap(Box::new(closure)
+                as Box<dyn Fn(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
             let func = closure.as_ref().clone();
 
             // TODO: Come up with a way of managing closure handles

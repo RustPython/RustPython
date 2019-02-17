@@ -1,9 +1,13 @@
 use convert;
 use js_sys::TypeError;
-use rustpython_vm::{compile, pyobject::PyObjectRef, VirtualMachine};
+use rustpython_vm::{
+    compile,
+    pyobject::{PyObjectRef, PyRef},
+    VirtualMachine,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
 
 pub(crate) struct StoredVirtualMachine {
@@ -22,7 +26,8 @@ impl StoredVirtualMachine {
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet
 thread_local! {
-    static STORED_VMS: Rc<RefCell<HashMap<String, StoredVirtualMachine>>> = Rc::default();
+    static STORED_VMS: PyRef<HashMap<String, PyRef<StoredVirtualMachine>>> = Rc::default();
+    static ACTIVE_VMS: PyRef<HashMap<String, *mut VirtualMachine>> = Rc::default();
 }
 
 #[wasm_bindgen(js_name = vmStore)]
@@ -34,7 +39,10 @@ impl VMStore {
         STORED_VMS.with(|cell| {
             let mut vms = cell.borrow_mut();
             if !vms.contains_key(&id) {
-                vms.insert(id.clone(), StoredVirtualMachine::new());
+                vms.insert(
+                    id.clone(),
+                    Rc::new(RefCell::new(StoredVirtualMachine::new())),
+                );
             }
         });
         WASMVirtualMachine { id }
@@ -53,12 +61,64 @@ impl VMStore {
 
     pub fn destroy(id: String) {
         STORED_VMS.with(|cell| {
-            cell.borrow_mut().remove(&id);
+            use std::collections::hash_map::Entry;
+            match cell.borrow_mut().entry(id) {
+                Entry::Occupied(o) => {
+                    let (_k, stored_vm) = o.remove_entry();
+                    // for f in stored_vm.drop_handlers.iter() {
+                    //     f();
+                    // }
+                    // deallocate the VM
+                    drop(stored_vm);
+                }
+                Entry::Vacant(_v) => {}
+            }
         });
     }
 
     pub fn ids() -> Vec<JsValue> {
         STORED_VMS.with(|cell| cell.borrow().keys().map(|k| k.into()).collect())
+    }
+}
+
+pub(crate) struct AccessibleVM {
+    weak: Weak<RefCell<StoredVirtualMachine>>,
+    id: String,
+}
+
+impl AccessibleVM {
+    pub fn from_id(id: String) -> AccessibleVM {
+        let weak = STORED_VMS
+            .with(|cell| Rc::downgrade(cell.borrow().get(&id).expect("WASM VM to be valid")));
+        AccessibleVM { weak, id }
+    }
+
+    pub fn upgrade(&self) -> Option<&mut VirtualMachine> {
+        let vm_cell = self.weak.upgrade()?;
+        match vm_cell.try_borrow_mut() {
+            Ok(mut vm) => {
+                ACTIVE_VMS.with(|cell| {
+                    cell.borrow_mut().insert(self.id.clone(), &mut vm.vm);
+                });
+            }
+            Err(_) => {}
+        };
+        Some(ACTIVE_VMS.with(|cell| {
+            let vms = cell.borrow();
+            let ptr = vms.get(&self.id).expect("id to be in ACTIVE_VMS");
+            unsafe { &mut **ptr }
+        }))
+    }
+}
+
+impl From<WASMVirtualMachine> for AccessibleVM {
+    fn from(vm: WASMVirtualMachine) -> AccessibleVM {
+        AccessibleVM::from_id(vm.id)
+    }
+}
+impl From<&WASMVirtualMachine> for AccessibleVM {
+    fn from(vm: &WASMVirtualMachine) -> AccessibleVM {
+        AccessibleVM::from_id(vm.id.clone())
     }
 }
 
@@ -76,8 +136,8 @@ impl WASMVirtualMachine {
     {
         STORED_VMS.with(|cell| {
             let mut vms = cell.borrow_mut();
-            let stored_vm = vms.get_mut(&self.id).unwrap();
-            f(stored_vm)
+            let mut stored_vm = vms.get_mut(&self.id).unwrap().borrow_mut();
+            f(&mut stored_vm)
         })
     }
 
