@@ -189,10 +189,7 @@ fn list_iadd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     if objtype::isinstance(other, &vm.ctx.list_type()) {
-        let mut elements = get_mut_elements(zelf);
-        for elem in get_elements(other).iter() {
-            elements.push(elem.clone());
-        }
+        get_mut_elements(zelf).extend_from_slice(&get_elements(other));
         Ok(zelf.clone())
     } else {
         Ok(vm.ctx.not_implemented())
