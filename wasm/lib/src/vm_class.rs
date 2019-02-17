@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
-use wasm_builtins;
+use wasm_builtins::setup_wasm_builtins;
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
@@ -17,21 +17,16 @@ pub(crate) struct StoredVirtualMachine {
 }
 
 impl StoredVirtualMachine {
-    fn new() -> StoredVirtualMachine {
+    fn new(id: String, inject_builtins: bool) -> StoredVirtualMachine {
         let mut vm = VirtualMachine::new();
         let builtin = vm.get_builtin_scope();
         let scope = vm.context().new_scope(Some(builtin));
-        setup_vm_scope(&mut vm, &scope);
+        if inject_builtins {
+            setup_wasm_builtins(&mut vm, &scope);
+        }
+        vm.wasm_id = Some(id);
         StoredVirtualMachine { vm, scope }
     }
-}
-
-fn setup_vm_scope(vm: &mut VirtualMachine, scope: &PyObjectRef) {
-    vm.ctx.set_attr(
-        scope,
-        "print",
-        vm.ctx.new_rustfunc(wasm_builtins::builtin_print_console),
-    );
 }
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet
@@ -45,14 +40,13 @@ pub struct VMStore;
 
 #[wasm_bindgen(js_class = vmStore)]
 impl VMStore {
-    pub fn init(id: String) -> WASMVirtualMachine {
+    pub fn init(id: String, inject_builtins: Option<bool>) -> WASMVirtualMachine {
         STORED_VMS.with(|cell| {
             let mut vms = cell.borrow_mut();
             if !vms.contains_key(&id) {
-                vms.insert(
-                    id.clone(),
-                    Rc::new(RefCell::new(StoredVirtualMachine::new())),
-                );
+                let stored_vm =
+                    StoredVirtualMachine::new(id.clone(), inject_builtins.unwrap_or(true));
+                vms.insert(id.clone(), Rc::new(RefCell::new(stored_vm)));
             }
         });
         WASMVirtualMachine { id }
@@ -91,6 +85,7 @@ impl VMStore {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct AccessibleVM {
     weak: Weak<RefCell<StoredVirtualMachine>>,
     id: String,
@@ -101,6 +96,14 @@ impl AccessibleVM {
         let weak = STORED_VMS
             .with(|cell| Rc::downgrade(cell.borrow().get(&id).expect("WASM VM to be valid")));
         AccessibleVM { weak, id }
+    }
+
+    pub fn from_vm(vm: &VirtualMachine) -> AccessibleVM {
+        AccessibleVM::from_id(
+            vm.wasm_id
+                .clone()
+                .expect("VM passed to from_vm to have wasm_id be Some()"),
+        )
     }
 
     pub fn upgrade(&self) -> Option<&mut VirtualMachine> {
@@ -135,7 +138,7 @@ impl From<&WASMVirtualMachine> for AccessibleVM {
 #[wasm_bindgen(js_name = VirtualMachine)]
 #[derive(Clone)]
 pub struct WASMVirtualMachine {
-    id: String,
+    pub(crate) id: String,
 }
 
 #[wasm_bindgen(js_class = VirtualMachine)]
@@ -144,11 +147,12 @@ impl WASMVirtualMachine {
     where
         F: FnOnce(&mut StoredVirtualMachine) -> R,
     {
-        STORED_VMS.with(|cell| {
+        let stored_vm = STORED_VMS.with(|cell| {
             let mut vms = cell.borrow_mut();
-            let mut stored_vm = vms.get_mut(&self.id).unwrap().borrow_mut();
-            f(&mut stored_vm)
-        })
+            vms.get_mut(&self.id).unwrap().clone()
+        });
+        let mut stored_vm = stored_vm.borrow_mut();
+        f(&mut stored_vm)
     }
 
     pub(crate) fn with<F, R>(&self, f: F) -> Result<R, JsValue>
@@ -187,7 +191,7 @@ impl WASMVirtualMachine {
                       ref mut vm,
                       ref mut scope,
                   }| {
-                let value = convert::js_to_py(vm, value, Some(self.clone()));
+                let value = convert::js_to_py(vm, value);
                 vm.ctx.set_attr(scope, &name, value);
             },
         )
@@ -211,7 +215,7 @@ impl WASMVirtualMachine {
                 let result = vm
                     .run_code_obj(code, scope.clone())
                     .map_err(|err| convert::py_str_err(vm, &err))?;
-                Ok(convert::py_to_js(vm, result, Some(self.clone())))
+                Ok(convert::py_to_js(vm, result))
             },
         )
     }

@@ -3,6 +3,7 @@ mod vm_class;
 mod wasm_builtins;
 
 extern crate js_sys;
+#[macro_use]
 extern crate rustpython_vm;
 extern crate wasm_bindgen;
 extern crate web_sys;
@@ -107,7 +108,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
                             &JsValue::UNDEFINED,
                             &wasm_builtins::format_print_args(vm, args)?.into(),
                         )
-                        .map_err(|err| convert::js_to_py(vm, err, None))?;
+                        .map_err(|err| convert::js_to_py(vm, err))?;
                         Ok(vm.get_none())
                     },
                 )
@@ -131,7 +132,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
     if let Some(js_vars) = js_vars.clone() {
         for pair in convert::object_entries(&js_vars) {
             let (key, val) = pair?;
-            let py_val = convert::js_to_py(&mut vm, val, None);
+            let py_val = convert::js_to_py(&mut vm, val);
             vm.ctx.set_item(
                 &injections,
                 &String::from(js_sys::JsString::from(key)),
@@ -143,7 +144,7 @@ pub fn eval_py(source: &str, options: Option<Object>) -> Result<JsValue, JsValue
     vm.ctx.set_attr(&vars, "js_vars", injections);
 
     let result = eval(&mut vm, source, vars);
-    convert::pyresult_to_jsresult(&mut vm, result, None)
+    convert::pyresult_to_jsresult(&mut vm, result)
 }
 
 #[wasm_bindgen(typescript_custom_section)]

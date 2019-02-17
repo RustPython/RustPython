@@ -9,12 +9,11 @@ pub fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
         .unwrap_or_else(|_| "Error, and error getting error message".into())
 }
 
-pub fn py_to_js(
-    vm: &mut VirtualMachine,
-    py_obj: PyObjectRef,
-    wasm_vm: Option<WASMVirtualMachine>,
-) -> JsValue {
-    if let Some(wasm_vm) = wasm_vm {
+pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
+    if let Some(ref wasm_id) = vm.wasm_id {
+        let wasm_vm = WASMVirtualMachine {
+            id: wasm_id.clone(),
+        };
         if rustpython_vm::obj::objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
             let closure =
                 move |args: Option<Array>, kwargs: Option<Object>| -> Result<JsValue, JsValue> {
@@ -27,22 +26,19 @@ pub fn py_to_js(
                     let mut py_func_args = rustpython_vm::pyobject::PyFuncArgs::default();
                     if let Some(ref args) = args {
                         for arg in args.values() {
-                            py_func_args
-                                .args
-                                .push(js_to_py(vm, arg?, Some(wasm_vm.clone())));
+                            py_func_args.args.push(js_to_py(vm, arg?));
                         }
                     }
                     if let Some(ref kwargs) = kwargs {
                         for pair in object_entries(kwargs) {
                             let (key, val) = pair?;
-                            py_func_args.kwargs.push((
-                                js_sys::JsString::from(key).into(),
-                                js_to_py(vm, val, Some(wasm_vm.clone())),
-                            ));
+                            py_func_args
+                                .kwargs
+                                .push((js_sys::JsString::from(key).into(), js_to_py(vm, val)));
                         }
                     }
                     let result = vm.invoke(py_obj.clone(), py_func_args);
-                    pyresult_to_jsresult(vm, result, Some(wasm_vm.clone()))
+                    pyresult_to_jsresult(vm, result)
                 };
             let closure = Closure::wrap(Box::new(closure)
                 as Box<dyn Fn(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
@@ -80,36 +76,20 @@ pub fn object_entries(obj: &Object) -> impl Iterator<Item = Result<(JsValue, JsV
     })
 }
 
-pub fn pyresult_to_jsresult(
-    vm: &mut VirtualMachine,
-    result: PyResult,
-    wasm_vm: Option<WASMVirtualMachine>,
-) -> Result<JsValue, JsValue> {
+pub fn pyresult_to_jsresult(vm: &mut VirtualMachine, result: PyResult) -> Result<JsValue, JsValue> {
     result
-        .map(|value| py_to_js(vm, value, wasm_vm))
+        .map(|value| py_to_js(vm, value))
         .map_err(|err| py_str_err(vm, &err).into())
 }
 
-pub fn js_to_py(
-    vm: &mut VirtualMachine,
-    js_val: JsValue,
-    // Accept a WASM VM because if js_val is a function it has to be able to convert
-    // its arguments to JS, and those arguments might include a closure
-    wasm_vm: Option<WASMVirtualMachine>,
-) -> PyObjectRef {
+pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
     if js_val.is_object() {
         if Array::is_array(&js_val) {
             let js_arr: Array = js_val.into();
             let elems = js_arr
                 .values()
                 .into_iter()
-                .map(|val| {
-                    js_to_py(
-                        vm,
-                        val.expect("Iteration over array failed"),
-                        wasm_vm.clone(),
-                    )
-                })
+                .map(|val| js_to_py(vm, val.expect("Iteration over array failed")))
                 .collect();
             vm.ctx.new_list(elems)
         } else {
@@ -118,7 +98,7 @@ pub fn js_to_py(
                 let pair = pair.expect("Iteration over object failed");
                 let key = Reflect::get(&pair, &"0".into()).unwrap();
                 let val = Reflect::get(&pair, &"1".into()).unwrap();
-                let py_val = js_to_py(vm, val, wasm_vm.clone());
+                let py_val = js_to_py(vm, val);
                 vm.ctx
                     .set_item(&dict, &String::from(js_sys::JsString::from(key)), py_val);
             }
@@ -131,16 +111,16 @@ pub fn js_to_py(
                 let func = func.clone();
                 let this = Object::new();
                 for (k, v) in args.kwargs {
-                    Reflect::set(&this, &k.into(), &py_to_js(vm, v, wasm_vm.clone()))
+                    Reflect::set(&this, &k.into(), &py_to_js(vm, v))
                         .expect("Couldn't set this property");
                 }
                 let js_args = Array::new();
                 for v in args.args {
-                    js_args.push(&py_to_js(vm, v, wasm_vm.clone()));
+                    js_args.push(&py_to_js(vm, v));
                 }
                 func.apply(&this, &js_args)
-                    .map(|val| js_to_py(vm, val, wasm_vm.clone()))
-                    .map_err(|err| js_to_py(vm, err, wasm_vm.clone()))
+                    .map(|val| js_to_py(vm, val))
+                    .map_err(|err| js_to_py(vm, err))
             },
         )
     } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {

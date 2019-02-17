@@ -19,4 +19,11 @@ console_error_panic_hook = "0.1"
 
 [dependencies.web-sys]
 version = "0.3"
-features = [ "console", "Document", "Element", "HtmlTextAreaElement", "Window" ]
+features = [
+    "console",
+    "Document",
+    "Element",
+    "HtmlTextAreaElement",
+    "Window",
+    "Response"
+]

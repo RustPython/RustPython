@@ -39,6 +39,7 @@ pub struct VirtualMachine {
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub ctx: PyContext,
     pub current_frame: Option<PyObjectRef>,
+    pub wasm_id: Option<String>,
 }
 
 impl VirtualMachine {
@@ -61,6 +62,7 @@ impl VirtualMachine {
             stdlib_inits,
             ctx,
             current_frame: None,
+            wasm_id: None,
         }
     }
 

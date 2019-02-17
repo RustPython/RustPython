@@ -28,7 +28,7 @@ extern crate rustpython_parser;
 
 // This is above everything else so that the defined macros are available everywhere
 #[macro_use]
-mod macros;
+pub mod macros;
 
 mod builtins;
 pub mod bytecode;
