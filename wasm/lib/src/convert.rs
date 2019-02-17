@@ -10,7 +10,7 @@ pub fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
 }
 
 pub fn js_py_typeerror(vm: &mut VirtualMachine, js_err: JsValue) -> PyObjectRef {
-    let msg = js_sys::JsString::from(js_err);
+    let msg = js_err.unchecked_into::<js_sys::Error>().to_string();
     vm.new_type_error(msg.into())
 }
 
