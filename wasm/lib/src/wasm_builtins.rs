@@ -13,7 +13,7 @@ extern crate web_sys;
 
 use crate::{convert, vm_class::AccessibleVM};
 use futures::{future, Future};
-use js_sys::{Array, JsString, Promise};
+use js_sys::{Array, Promise};
 use rustpython_vm::obj::{objstr, objtype};
 use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
@@ -110,6 +110,7 @@ pub fn builtin_print_console(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyRes
 enum FetchResponseFormat {
     Json,
     Text,
+    ArrayBuffer,
 }
 
 impl FetchResponseFormat {
@@ -117,6 +118,7 @@ impl FetchResponseFormat {
         match s {
             "json" => Ok(FetchResponseFormat::Json),
             "text" => Ok(FetchResponseFormat::Text),
+            "array_buffer" => Ok(FetchResponseFormat::ArrayBuffer),
             _ => Err(vm.new_type_error("Unkown fetch response_format".into())),
         }
     }
@@ -124,6 +126,7 @@ impl FetchResponseFormat {
         match self {
             FetchResponseFormat::Json => response.json(),
             FetchResponseFormat::Text => response.text(),
+            FetchResponseFormat::ArrayBuffer => response.array_buffer(),
         }
     }
 }
