@@ -181,6 +181,24 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn list_iadd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    if objtype::isinstance(other, &vm.ctx.list_type()) {
+        let mut elements = get_mut_elements(zelf);
+        for elem in get_elements(other).iter() {
+            elements.push(elem.clone());
+        }
+        Ok(zelf.clone())
+    } else {
+        Ok(vm.ctx.not_implemented())
+    }
+}
+
 fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
@@ -443,6 +461,7 @@ pub fn init(context: &PyContext) {
                     The argument must be an iterable if specified.";
 
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
+    context.set_attr(&list_type, "__iadd__", context.new_rustfunc(list_iadd));
     context.set_attr(
         &list_type,
         "__contains__",
