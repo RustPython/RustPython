@@ -13,7 +13,7 @@ extern crate web_sys;
 
 use crate::{convert, vm_class::AccessibleVM};
 use futures::{future, Future};
-use js_sys::{Array, Promise};
+use js_sys::{Array, JsString, Promise};
 use rustpython_vm::obj::{objstr, objtype};
 use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
@@ -136,9 +136,12 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (url, Some(vm.ctx.str_type())),
             (handler, Some(vm.ctx.function_type()))
         ],
+        // TODO: use named parameters for these
         optional = [
+            (reject_handler, Some(vm.ctx.function_type())),
             (response_format, Some(vm.ctx.str_type())),
-            (reject_handler, Some(vm.ctx.function_type()))
+            (method, Some(vm.ctx.str_type())),
+            (headers, Some(vm.ctx.dict_type()))
         ]
     );
 
@@ -147,8 +150,29 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => FetchResponseFormat::Text,
     };
 
+    let mut opts = web_sys::RequestInit::new();
+
+    match method {
+        Some(s) => opts.method(&objstr::get_value(s)),
+        None => opts.method("GET"),
+    };
+
+    let request = web_sys::Request::new_with_str_and_init(&objstr::get_value(url), &opts)
+        .map_err(|err| convert::js_py_typeerror(vm, err))?;
+
+    if let Some(headers) = headers {
+        use rustpython_vm::obj::objdict;
+        let h = request.headers();
+        for (key, value) in objdict::get_key_value_pairs(headers) {
+            let key = objstr::get_value(&vm.to_str(&key)?);
+            let value = objstr::get_value(&vm.to_str(&value)?);
+            h.set(&key, &value)
+                .map_err(|err| convert::js_py_typeerror(vm, err))?;
+        }
+    }
+
     let window = window();
-    let request_prom = window.fetch_with_str(&objstr::get_value(url));
+    let request_prom = window.fetch_with_request(&request);
 
     let handler = handler.clone();
     let reject_handler = reject_handler.cloned();

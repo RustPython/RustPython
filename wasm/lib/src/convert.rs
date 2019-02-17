@@ -9,6 +9,11 @@ pub fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
         .unwrap_or_else(|_| "Error, and error getting error message".into())
 }
 
+pub fn js_py_typeerror(vm: &mut VirtualMachine, js_err: JsValue) -> PyObjectRef {
+    let msg = js_sys::JsString::from(js_err);
+    vm.new_type_error(msg.into())
+}
+
 pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
         let wasm_vm = WASMVirtualMachine {

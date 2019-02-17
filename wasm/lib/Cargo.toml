@@ -27,5 +27,8 @@ features = [
     "Element",
     "HtmlTextAreaElement",
     "Window",
+    "Headers",
+    "Request",
+    "RequestInit",
     "Response"
 ]
