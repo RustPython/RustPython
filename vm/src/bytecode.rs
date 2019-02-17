@@ -71,6 +71,7 @@ pub enum Instruction {
     },
     BinaryOperation {
         op: BinaryOperator,
+        inplace: bool,
     },
     LoadAttr {
         name: String,
