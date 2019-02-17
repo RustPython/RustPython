@@ -613,17 +613,26 @@ ClassDef: ast::LocatedStatement = {
     },
 };
 
+Path: ast::Expression = {
+    <n:Identifier> => ast::Expression::Identifier { name: n },
+    <p:Path> "." <n:name> => {
+        ast::Expression::Attribute {
+            value: Box::new(p),
+            name: n,
+        }
+    },
+};
+
 // Decorators:
 Decorator: ast::Expression = {
-    "@" <n:DottedName> <a: ("(" ArgumentList ")")?> "\n" => {
-        let name = ast::Expression::Identifier { name: n };
+    "@" <p:Path> <a: ("(" ArgumentList ")")?> "\n" => {
         match a {
             Some((_, args, _)) => ast::Expression::Call {
-                function: Box::new(name),
+                function: Box::new(p),
                 args: args.0,
                 keywords: args.1,
             },
-            None => name,
+            None => p,
         }
     },
 };
