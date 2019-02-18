@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 # simple values
 assert min(0, 0) == 0
 assert min(1, 0) == 0
@@ -14,32 +16,18 @@ assert min({
 }) == "a"
 assert min([1, 2], default=0) == 1
 assert min([], default=0) == 0
-try:
-    min([])
-except ValueError:
-    pass
-else:
-    assert False, "ValueError was not raised"
+
+assert_raises(ValueError, lambda: min([]))
 
 # key parameter
 assert min(1, 2, -3, key=abs) == 1
 assert min([1, 2, -3], key=abs) == 1
 
 # no argument
-try:
-    min()
-except TypeError:
-    pass
-else:
-    assert False, "TypeError was not raised"
+assert_raises(TypeError, lambda: min())
 
 # one non-iterable argument
-try:
-    min(1)
-except TypeError:
-    pass
-else:
-    assert False, "TypeError was not raised"
+assert_raises(TypeError, lambda: min(1))
 
 
 # custom class
@@ -64,9 +52,4 @@ class MyNotComparable():
     pass
 
 
-try:
-    min(MyNotComparable(), MyNotComparable())
-except TypeError:
-    pass
-else:
-    assert False, "TypeError was not raised"
+assert_raises(TypeError, lambda: min(MyNotComparable(), MyNotComparable()))
