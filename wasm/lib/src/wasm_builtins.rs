@@ -145,6 +145,7 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args.get_optional_kwarg_with_type("response_format", vm.ctx.str_type(), vm)?;
     let method = args.get_optional_kwarg_with_type("method", vm.ctx.str_type(), vm)?;
     let headers = args.get_optional_kwarg_with_type("headers", vm.ctx.dict_type(), vm)?;
+    let body = args.get_optional_kwarg("body");
 
     let response_format = match response_format {
         Some(s) => FetchResponseFormat::from_str(vm, &objstr::get_value(&s))?,
@@ -158,13 +159,16 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => opts.method("GET"),
     };
 
+    if let Some(body) = body {
+        opts.body(Some(&convert::py_to_js(vm, body)));
+    }
+
     let request = web_sys::Request::new_with_str_and_init(&objstr::get_value(url), &opts)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
     if let Some(headers) = headers {
-        use rustpython_vm::obj::objdict;
         let h = request.headers();
-        for (key, value) in objdict::get_key_value_pairs(&headers) {
+        for (key, value) in rustpython_vm::obj::objdict::get_key_value_pairs(&headers) {
             let key = objstr::get_value(&vm.to_str(&key)?);
             let value = objstr::get_value(&vm.to_str(&value)?);
             h.set(&key, &value)
