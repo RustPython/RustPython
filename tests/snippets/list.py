@@ -74,3 +74,46 @@ assert_raises(ValueError, lambda: a.remove(10), 'Remove not exist element')
 foo = bar = [1]
 foo += [2]
 assert (foo, bar) == ([1, 2], [1, 2])
+
+
+x = [1]
+x.append(x)
+assert x in x
+assert x.index(x) == 1
+assert x.count(x) == 1
+x.remove(x)
+assert x not in x
+
+class Foo(object):
+    def __eq__(self, x):
+        return False
+
+foo = Foo()
+foo1 = Foo()
+x = [1, foo, 2, foo, []]
+assert x == x
+assert foo in x
+assert 2 in x
+assert x.index(foo) == 1
+assert x.count(foo) == 2
+assert x.index(2) == 2
+assert [] in x
+assert x.index([]) == 4
+assert foo1 not in x
+x.remove(foo)
+assert x.index(foo) == 2
+assert x.count(foo) == 1
+
+x = []
+x.append(x)
+assert x == x
+
+a = [1, 2, 3]
+b = [1, 2, 3]
+c = [a, b]
+a.append(c)
+b.append(c)
+
+assert a == b
+
+assert [foo] == [foo]
