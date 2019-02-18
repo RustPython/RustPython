@@ -146,6 +146,7 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let method = args.get_optional_kwarg_with_type("method", vm.ctx.str_type(), vm)?;
     let headers = args.get_optional_kwarg_with_type("headers", vm.ctx.dict_type(), vm)?;
     let body = args.get_optional_kwarg("body");
+    let content_type = args.get_optional_kwarg_with_type("content_type", vm.ctx.str_type(), vm)?;
 
     let response_format = match response_format {
         Some(s) => FetchResponseFormat::from_str(vm, &objstr::get_value(&s))?,
@@ -174,6 +175,13 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             h.set(&key, &value)
                 .map_err(|err| convert::js_py_typeerror(vm, err))?;
         }
+    }
+
+    if let Some(content_type) = content_type {
+        request
+            .headers()
+            .set("Content-Type", &objstr::get_value(&content_type))
+            .map_err(|err| convert::js_py_typeerror(vm, err))?;
     }
 
     let window = window();
