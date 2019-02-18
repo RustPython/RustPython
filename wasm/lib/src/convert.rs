@@ -112,10 +112,8 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
             vm.ctx.new_bytes(vec)
         } else {
             let dict = vm.new_dict();
-            for pair in Object::entries(&Object::from(js_val)).values() {
-                let pair = pair.expect("Iteration over object failed");
-                let key = Reflect::get(&pair, &"0".into()).unwrap();
-                let val = Reflect::get(&pair, &"1".into()).unwrap();
+            for pair in object_entries(&Object::from(js_val)) {
+                let (key, val) = pair.expect("Iteration over object failed");
                 let py_val = js_to_py(vm, val);
                 vm.ctx
                     .set_item(&dict, &String::from(js_sys::JsString::from(key)), py_val);
