@@ -512,3 +512,25 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(frozenset_repr),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::set_copy;
+    use super::{PyFuncArgs, VirtualMachine};
+    use super::{PyObject, PyObjectPayload};
+
+    #[test]
+    fn test_copy() {
+        let mut vm = VirtualMachine::new();
+
+        let float_type = PyObject::new(PyObjectPayload::Float { value: 1.0 }, vm.ctx.float_type());
+        let args = PyFuncArgs::new(vec![float_type], vec![]);
+
+        let res = set_copy(&mut vm, args);
+
+        match res {
+            Ok(_) => assert!(false, "set.copy should raise error with non set type"),
+            Err(_) => assert!(true),
+        }
+    }
+}
