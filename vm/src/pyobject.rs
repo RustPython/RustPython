@@ -920,6 +920,29 @@ impl PyFuncArgs {
         }
         None
     }
+
+    pub fn get_optional_kwarg_with_type(
+        &self,
+        key: &str,
+        ty: PyObjectRef,
+        vm: &mut VirtualMachine,
+    ) -> Result<Option<PyObjectRef>, PyObjectRef> {
+        match self.get_optional_kwarg(key) {
+            Some(kwarg) => {
+                if objtype::isinstance(&kwarg, &ty) {
+                    Ok(Some(kwarg))
+                } else {
+                    let expected_ty_name = vm.to_pystr(&ty)?;
+                    let actual_ty_name = vm.to_pystr(&kwarg.typ())?;
+                    Err(vm.new_type_error(format!(
+                        "argument of type {} is required for named parameter `{}` (got: {})",
+                        expected_ty_name, key, actual_ty_name
+                    )))
+                }
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 /// Rather than determining the type of a python object, this enum is more

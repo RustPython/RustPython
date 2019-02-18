@@ -139,24 +139,22 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (url, Some(vm.ctx.str_type())),
             (handler, Some(vm.ctx.function_type()))
         ],
-        // TODO: use named parameters for these
-        optional = [
-            (reject_handler, Some(vm.ctx.function_type())),
-            (response_format, Some(vm.ctx.str_type())),
-            (method, Some(vm.ctx.str_type())),
-            (headers, Some(vm.ctx.dict_type()))
-        ]
+        optional = [(reject_handler, Some(vm.ctx.function_type()))]
     );
+    let response_format =
+        args.get_optional_kwarg_with_type("response_format", vm.ctx.str_type(), vm)?;
+    let method = args.get_optional_kwarg_with_type("method", vm.ctx.str_type(), vm)?;
+    let headers = args.get_optional_kwarg_with_type("headers", vm.ctx.dict_type(), vm)?;
 
     let response_format = match response_format {
-        Some(s) => FetchResponseFormat::from_str(vm, &objstr::get_value(s))?,
+        Some(s) => FetchResponseFormat::from_str(vm, &objstr::get_value(&s))?,
         None => FetchResponseFormat::Text,
     };
 
     let mut opts = web_sys::RequestInit::new();
 
     match method {
-        Some(s) => opts.method(&objstr::get_value(s)),
+        Some(s) => opts.method(&objstr::get_value(&s)),
         None => opts.method("GET"),
     };
 
@@ -166,7 +164,7 @@ fn builtin_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(headers) = headers {
         use rustpython_vm::obj::objdict;
         let h = request.headers();
-        for (key, value) in objdict::get_key_value_pairs(headers) {
+        for (key, value) in objdict::get_key_value_pairs(&headers) {
             let key = objstr::get_value(&vm.to_str(&key)?);
             let value = objstr::get_value(&vm.to_str(&value)?);
             h.set(&key, &value)
