@@ -1,3 +1,4 @@
+from testutils import assert_raises
 
 a = []
 assert a[:] == []
@@ -18,12 +19,7 @@ assert b[-10:1] == [1]
 assert b[0:0] == []
 assert b[1:0] == []
 
-try:
-    _ = b[::0]
-except ValueError:
-    pass
-else:
-    assert False, "Zero step slice should raise ValueError"
+assert_raises(ValueError, lambda: b[::0], 'zero step slice')
 
 assert b[::-1] == [2, 1]
 assert b[1::-1] == [2, 1]

@@ -213,23 +213,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
 
-    let locals = if let Some(locals) = locals {
-        locals.clone()
-    } else {
-        vm.new_dict()
-    };
-
-    // TODO: handle optional globals
-    // Construct new scope:
-    let scope_inner = Scope {
-        locals,
-        parent: None,
-    };
-    let scope = PyObject {
-        payload: PyObjectPayload::Scope { scope: scope_inner },
-        typ: None,
-    }
-    .into_ref();
+    let scope = make_scope(vm, locals);
 
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
@@ -266,6 +250,13 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };
 
+    let scope = make_scope(vm, locals);
+
+    // Run the code:
+    vm.run_code_obj(code_obj, scope)
+}
+
+fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
     // handle optional global and locals
     let locals = if let Some(locals) = locals {
         locals.clone()
@@ -273,21 +264,18 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.new_dict()
     };
 
-    // TODO: use globals
-
+    // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
         locals,
         parent: None,
     };
-    let scope = PyObject {
+
+    PyObject {
         payload: PyObjectPayload::Scope { scope: scope_inner },
         typ: None,
     }
-    .into_ref();
-
-    // Run the code:
-    vm.run_code_obj(code_obj, scope)
+    .into_ref()
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -596,7 +584,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             )));
         }
     }
-    let sep_str = sep_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+    let sep_str = sep_arg.as_ref().map(|obj| objstr::borrow_value(obj));
 
     // Handle 'end' kwarg:
     let end_arg = args
@@ -610,7 +598,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             )));
         }
     }
-    let end_str = end_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+    let end_str = end_arg.as_ref().map(|obj| objstr::borrow_value(obj));
 
     // Handle 'flush' kwarg:
     let flush = if let Some(flush) = &args.get_optional_kwarg("flush") {
@@ -631,7 +619,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             write!(stdout_lock, " ").unwrap();
         }
         let v = vm.to_str(&a)?;
-        let s = objstr::get_value_as_ref(&v);
+        let s = objstr::borrow_value(&v);
         write!(stdout_lock, "{}", s).unwrap();
     }
 

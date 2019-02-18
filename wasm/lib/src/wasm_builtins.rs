@@ -44,7 +44,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
             )));
         }
     }
-    let sep_str = sep_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+    let sep_str = sep_arg.as_ref().map(|obj| objstr::borrow_value(obj));
 
     // Handle 'end' kwarg:
     let end_arg = args
@@ -58,7 +58,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
             )));
         }
     }
-    let end_str = end_arg.as_ref().map(|obj| objstr::get_value_as_ref(obj));
+    let end_str = end_arg.as_ref().map(|obj| objstr::borrow_value(obj));
 
     // No need to handle 'flush' kwarg, irrelevant when writing to String
 

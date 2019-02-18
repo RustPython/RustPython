@@ -570,7 +570,7 @@ fn string_to_ast(ctx: &PyContext, string: &ast::StringGroup) -> PyObjectRef {
             ctx.set_attr(&node, "s", ctx.new_str(value.clone()));
             node
         }
-        ast::StringGroup::FormattedValue { value } => {
+        ast::StringGroup::FormattedValue { value, .. } => {
             let node = create_node(ctx, "FormattedValue");
             let py_value = expression_to_ast(ctx, value);
             ctx.set_attr(&node, "value", py_value);

@@ -71,6 +71,7 @@ pub enum Instruction {
     },
     BinaryOperation {
         op: BinaryOperator,
+        inplace: bool,
     },
     LoadAttr {
         name: String,
@@ -167,7 +168,9 @@ pub enum Instruction {
         after: usize,
     },
     Unpack,
-    FormatValue,
+    FormatValue {
+        spec: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

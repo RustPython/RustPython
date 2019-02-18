@@ -126,20 +126,15 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let mut bases = vm.extract_elements(bases)?;
         bases.push(vm.context().object());
         let name = objstr::get_value(name);
-        new(typ.clone(), &name, bases, py_dict_to_attributes(dict))
+        new(
+            typ.clone(),
+            &name,
+            bases,
+            objdict::py_dict_to_attributes(dict),
+        )
     } else {
         Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }
-}
-
-/// Take a python dictionary and convert it to attributes.
-fn py_dict_to_attributes(dict: &PyObjectRef) -> PyAttributes {
-    let mut attrs = PyAttributes::new();
-    for (key, value) in objdict::get_key_value_pairs(dict) {
-        let key = objstr::get_value(&key);
-        attrs.insert(key, value);
-    }
-    attrs
 }
 
 pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {

@@ -111,7 +111,7 @@ pub fn get_value(obj: &PyObjectRef) -> String {
     }
 }
 
-pub fn get_value_as_ref(obj: &PyObjectRef) -> Ref<str> {
+pub fn borrow_value(obj: &PyObjectRef) -> Ref<str> {
     Ref::map(obj.borrow(), |py_obj| {
         if let PyObjectPayload::String { value } = &py_obj.payload {
             value.as_ref()

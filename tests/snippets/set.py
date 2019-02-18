@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 assert set([1,2]) == set([1,2])
 assert not set([1,2,3]) == set([1,2])
 
@@ -69,19 +71,13 @@ assert set([1,2,3]).symmetric_difference(set([5,6])) == set([1,2,3,5,6])
 assert set([1,2,3]) ^ set([4,5]) == set([1,2,3,4,5])
 assert set([1,2,3]) ^ set([1,2,3,4,5]) == set([4,5])
 
-try:
-	set([[]])
-except TypeError:
-	pass
-else:
-	assert False, "TypeError was not raised"
+assert_raises(TypeError, lambda: set([[]]))
+assert_raises(TypeError, lambda: set().add([]))
 
-try:
-	set().add([])
-except TypeError:
-	pass
-else:
-	assert False, "TypeError was not raised"
+a = set([1, 2, 3])
+assert a.discard(1) is None
+assert not 1 in a
+assert a.discard(42) is None
 
 a = set([1,2,3])
 b = a.copy()

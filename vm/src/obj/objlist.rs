@@ -181,6 +181,21 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn list_iadd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    if objtype::isinstance(other, &vm.ctx.list_type()) {
+        get_mut_elements(zelf).extend_from_slice(&get_elements(other));
+        Ok(zelf.clone())
+    } else {
+        Ok(vm.ctx.not_implemented())
+    }
+}
+
 fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
@@ -409,6 +424,32 @@ fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type())), (needle, None)]
+    );
+
+    let mut elements = get_mut_elements(list);
+    let mut ri: Option<usize> = None;
+    for (index, element) in elements.iter().enumerate() {
+        let py_equal = vm._eq(needle.clone(), element.clone())?;
+        if objbool::get_value(&py_equal) {
+            ri = Some(index);
+            break;
+        }
+    }
+
+    if let Some(index) = ri {
+        elements.remove(index);
+        Ok(vm.get_none())
+    } else {
+        let needle_str = objstr::get_value(&vm.to_str(needle)?);
+        Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
+    }
+}
+
 pub fn init(context: &PyContext) {
     let list_type = &context.list_type;
 
@@ -417,6 +458,7 @@ pub fn init(context: &PyContext) {
                     The argument must be an iterable if specified.";
 
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
+    context.set_attr(&list_type, "__iadd__", context.new_rustfunc(list_iadd));
     context.set_attr(
         &list_type,
         "__contains__",
@@ -453,4 +495,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
     context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));
+    context.set_attr(&list_type, "remove", context.new_rustfunc(list_remove));
 }

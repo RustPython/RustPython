@@ -6,7 +6,7 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use super::compile;
-use super::pyobject::{DictProtocol, PyResult};
+use super::pyobject::{AttributeProtocol, DictProtocol, PyResult};
 use super::util;
 use super::vm::VirtualMachine;
 use obj::{objsequence, objstr};
@@ -44,7 +44,7 @@ fn import_uncached_module(
     let builtins = vm.get_builtin_scope();
     let scope = vm.ctx.new_scope(Some(builtins));
     vm.ctx
-        .set_item(&scope, "__name__", vm.new_str(module.to_string()));
+        .set_attr(&scope, "__name__", vm.new_str(module.to_string()));
     vm.run_code_obj(code_obj, scope.clone())?;
     Ok(vm.ctx.new_module(module, scope))
 }
@@ -55,7 +55,7 @@ pub fn import_module(
     module_name: &str,
 ) -> PyResult {
     // First, see if we already loaded the module:
-    let sys_modules = vm.sys_module.get_item("modules").unwrap();
+    let sys_modules = vm.sys_module.get_attr("modules").unwrap();
     if let Some(module) = sys_modules.get_item(module_name) {
         return Ok(module);
     }
@@ -74,7 +74,7 @@ pub fn import(
     // If we're importing a symbol, look it up and use it, otherwise construct a module and return
     // that
     if let Some(symbol) = symbol {
-        module.get_item(symbol).map_or_else(
+        module.get_attr(symbol).map_or_else(
             || {
                 let import_error = vm.context().exceptions.import_error.clone();
                 Err(vm.new_exception(import_error, format!("cannot import name '{}'", symbol)))
@@ -87,7 +87,7 @@ pub fn import(
 }
 
 fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
-    let sys_path = vm.sys_module.get_item("path").unwrap();
+    let sys_path = vm.sys_module.get_attr("path").unwrap();
     let mut paths: Vec<PathBuf> = objsequence::get_elements(&sys_path)
         .iter()
         .map(|item| PathBuf::from(objstr::get_value(item)))

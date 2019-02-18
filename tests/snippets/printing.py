@@ -1,18 +1,9 @@
+from testutils import assert_raises
+
 print(2 + 3)
 
-try:
-    print('test', end=4)
-except TypeError:
-    pass
-else:
-    assert False, 'Expected TypeError on wrong type passed to end'
-
-try:
-    print('test', sep=['a'])
-except TypeError:
-    pass
-else:
-    assert False, 'Expected TypeError on wrong type passed to sep'
+assert_raises(TypeError, lambda: print('test', end=4), 'wrong type passed to end')
+assert_raises(TypeError, lambda: print('test', sep=['a']), 'wrong type passed to sep')
 
 try:
     print('test', end=None, sep=None, flush=None)

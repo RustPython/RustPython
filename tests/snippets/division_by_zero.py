@@ -1,55 +1,11 @@
-try:
-    5 / 0
-except ZeroDivisionError:
-    pass
-else:
-    assert False, 'Expected ZeroDivisionError'
+from testutils import assert_raises
 
-try:
-    5 / -0.0
-except ZeroDivisionError:
-    pass
-else:
-    assert False, 'Expected ZeroDivisionError'
+assert_raises(ZeroDivisionError, lambda: 5 / 0)
+assert_raises(ZeroDivisionError, lambda: 5 / -0.0)
+assert_raises(ZeroDivisionError, lambda: 5 / (2-2))
+assert_raises(ZeroDivisionError, lambda: 5 % 0)
+assert_raises(ZeroDivisionError, lambda: 5 // 0)
+assert_raises(ZeroDivisionError, lambda: 5.3 // (-0.0))
+assert_raises(ZeroDivisionError, lambda: divmod(5, 0))
 
-try:
-    5 / (2-2)
-except ZeroDivisionError:
-    pass
-else:
-    assert False, 'Expected ZeroDivisionError'
-
-try:
-    5 % 0
-except ZeroDivisionError:
-    pass
-else:
-    assert False, 'Expected ZeroDivisionError'
-
-try:
-    5 // 0
-except ZeroDivisionError:
-    pass
-else:
-    assert False, 'Expected ZeroDivisionError'
-
-try:
-    5.3 // (-0.0)
-except ZeroDivisionError:
-    pass
-else:
-    assert False, 'Expected ZeroDivisionError'
-
-try:
-    divmod(5, 0)
-except ZeroDivisionError:
-    pass
-else:
-    assert False, 'Expected ZeroDivisionError'
-
-try:
-    raise ZeroDivisionError('Is an ArithmeticError subclass?')
-except ArithmeticError:
-    pass
-else:
-    assert False, 'Expected ZeroDivisionError'
+assert issubclass(ZeroDivisionError, ArithmeticError)

@@ -31,16 +31,15 @@ pub fn compile(
 
     match mode {
         Mode::Exec => {
-            let ast = parser::parse_program(source).map_err(|err| CompileError::Parse(err))?;
+            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
             compiler.compile_program(&ast)
         }
         Mode::Eval => {
-            let statement =
-                parser::parse_statement(source).map_err(|err| CompileError::Parse(err))?;
+            let statement = parser::parse_statement(source).map_err(CompileError::Parse)?;
             compiler.compile_statement_eval(&statement)
         }
         Mode::Single => {
-            let ast = parser::parse_program(source).map_err(|err| CompileError::Parse(err))?;
+            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
             compiler.compile_program_single(&ast)
         }
     }?;
@@ -609,7 +608,7 @@ impl Compiler {
                 self.compile_expression(value)?;
 
                 // Perform operation:
-                self.compile_op(op);
+                self.compile_op(op, true);
                 self.compile_store(target)?;
             }
             ast::Statement::Delete { targets } => {
@@ -758,7 +757,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_op(&mut self, op: &ast::Operator) {
+    fn compile_op(&mut self, op: &ast::Operator, inplace: bool) {
         let i = match op {
             ast::Operator::Add => bytecode::BinaryOperator::Add,
             ast::Operator::Sub => bytecode::BinaryOperator::Subtract,
@@ -774,7 +773,7 @@ impl Compiler {
             ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
             ast::Operator::BitAnd => bytecode::BinaryOperator::And,
         };
-        self.emit(Instruction::BinaryOperation { op: i });
+        self.emit(Instruction::BinaryOperation { op: i, inplace });
     }
 
     fn compile_test(
@@ -853,13 +852,14 @@ impl Compiler {
                 self.compile_expression(b)?;
 
                 // Perform operation:
-                self.compile_op(op);
+                self.compile_op(op, false);
             }
             ast::Expression::Subscript { a, b } => {
                 self.compile_expression(a)?;
                 self.compile_expression(b)?;
                 self.emit(Instruction::BinaryOperation {
                     op: bytecode::BinaryOperator::Subscript,
+                    inplace: false,
                 });
             }
             ast::Expression::Unop { op, a } => {
@@ -1336,9 +1336,9 @@ impl Compiler {
                     },
                 });
             }
-            ast::StringGroup::FormattedValue { value } => {
+            ast::StringGroup::FormattedValue { value, spec } => {
                 self.compile_expression(value)?;
-                self.emit(Instruction::FormatValue);
+                self.emit(Instruction::FormatValue { spec: spec.clone() });
             }
         }
         Ok(())
