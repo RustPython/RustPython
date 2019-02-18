@@ -93,7 +93,7 @@ impl VMStore {
 }
 
 #[derive(Clone)]
-pub(crate) struct AccessibleVM {
+pub struct AccessibleVM {
     weak: Weak<RefCell<StoredVirtualMachine>>,
     id: String,
 }
@@ -148,7 +148,7 @@ impl From<&WASMVirtualMachine> for AccessibleVM {
     }
 }
 
-pub(crate) struct AccessibleVMPtr<'a> {
+pub struct AccessibleVMPtr<'a> {
     id: String,
     top_level: bool,
     inner: &'a mut VirtualMachine,
