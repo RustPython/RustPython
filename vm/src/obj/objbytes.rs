@@ -41,6 +41,7 @@ pub fn init(context: &PyContext) {
         "__doc__",
         context.new_str(bytes_doc.to_string()),
     );
+    context.set_attr(bytes_type, "clear", context.new_rustfunc(bytes_clear));
 }
 
 fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -207,4 +208,16 @@ fn bytes_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     Ok(iter_obj)
+}
+
+fn bytes_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);
+    let mut mut_obj = zelf.borrow_mut();
+    match mut_obj.payload {
+        PyObjectPayload::Bytes { ref mut value } => {
+            value.clear();
+            Ok(vm.get_none())
+        }
+        _ => Err(vm.new_type_error("".to_string())),
+    }
 }

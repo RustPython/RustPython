@@ -244,6 +244,18 @@ fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn dict_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
+    let mut mut_obj = dict.borrow_mut();
+    match mut_obj.payload {
+        PyObjectPayload::Dict { ref mut elements } => {
+            elements.clear();
+            Ok(vm.get_none())
+        }
+        _ => Err(vm.new_type_error("".to_string())),
+    }
+}
+
 /// When iterating over a dictionary, we iterate over the keys of it.
 fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
@@ -337,4 +349,5 @@ pub fn init(context: &PyContext) {
         "__setitem__",
         context.new_rustfunc(dict_setitem),
     );
+    context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
 }
