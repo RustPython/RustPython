@@ -77,5 +77,12 @@ assert_raises(TypeError, lambda: set().add([]))
 a = set([1, 2, 3])
 assert a.discard(1) is None
 assert not 1 in a
-
 assert a.discard(42) is None
+
+a = set([1,2,3])
+b = a.copy()
+assert len(a) == 3
+assert len(b) == 3
+b.clear()
+assert len(a) == 3
+assert len(b) == 0
