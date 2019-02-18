@@ -2,14 +2,14 @@ use convert;
 use js_sys::{SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
-    pyobject::{PyObjectRef, PyRef},
+    pyobject::{PyFuncArgs, PyObjectRef, PyRef, PyResult},
     VirtualMachine,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
-use wasm_builtins::setup_wasm_builtins;
+use wasm_builtins::{self, setup_wasm_builtins};
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
@@ -52,15 +52,22 @@ impl VMStore {
         WASMVirtualMachine { id }
     }
 
-    pub fn get(id: String) -> JsValue {
+    pub(crate) fn _get(id: String) -> Option<WASMVirtualMachine> {
         STORED_VMS.with(|cell| {
             let vms = cell.borrow();
             if vms.contains_key(&id) {
-                WASMVirtualMachine { id }.into()
+                Some(WASMVirtualMachine { id })
             } else {
-                JsValue::UNDEFINED
+                None
             }
         })
+    }
+
+    pub fn get(id: String) -> JsValue {
+        match Self::_get(id) {
+            Some(wasm_vm) => wasm_vm.into(),
+            None => JsValue::UNDEFINED,
+        }
     }
 
     pub fn destroy(id: String) {
@@ -230,6 +237,46 @@ impl WASMVirtualMachine {
         )
     }
 
+    pub fn set_stdout(&self, stdout: JsValue) -> Result<(), JsValue> {
+        self.with(
+            move |StoredVirtualMachine {
+                      ref mut vm,
+                      ref mut scope,
+                  }| {
+                let print_fn: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> =
+                    if let Some(selector) = stdout.as_string() {
+                        Box::new(
+                            move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
+                                wasm_builtins::builtin_print_html(vm, args, &selector)
+                            },
+                        )
+                    } else if stdout.is_function() {
+                        let func = js_sys::Function::from(stdout);
+                        Box::new(
+                            move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
+                                func.call1(
+                                    &JsValue::UNDEFINED,
+                                    &wasm_builtins::format_print_args(vm, args)?.into(),
+                                )
+                                .map_err(|err| convert::js_to_py(vm, err))?;
+                                Ok(vm.get_none())
+                            },
+                        )
+                    } else if stdout.is_undefined() || stdout.is_null() {
+                        Box::new(wasm_builtins::builtin_print_console)
+                    } else {
+                        return Err(TypeError::new(
+                            "stdout must be null, a function or a css selector",
+                        )
+                        .into());
+                    };
+                vm.ctx
+                    .set_attr(scope, "print", vm.ctx.new_rustfunc_from_box(print_fn));
+                Ok(())
+            },
+        )?
+    }
+
     fn run(&self, mut source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
         self.assert_valid()?;
         self.with_unchecked(
@@ -243,10 +290,8 @@ impl WASMVirtualMachine {
                         .map_err(|err| {
                             SyntaxError::new(&format!("Error parsing Python code: {}", err))
                         })?;
-                let result = vm
-                    .run_code_obj(code, scope.clone())
-                    .map_err(|err| convert::py_str_err(vm, &err))?;
-                Ok(convert::py_to_js(vm, result))
+                let result = vm.run_code_obj(code, scope.clone());
+                convert::pyresult_to_jsresult(vm, result)
             },
         )
     }
