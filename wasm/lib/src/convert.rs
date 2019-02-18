@@ -113,7 +113,7 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
         } else {
             let dict = vm.new_dict();
             for pair in object_entries(&Object::from(js_val)) {
-                let (key, val) = pair.expect("Iteration over object failed");
+                let (key, val) = pair.expect("iteration over object to not fail");
                 let py_val = js_to_py(vm, val);
                 vm.ctx
                     .set_item(&dict, &String::from(js_sys::JsString::from(key)), py_val);
@@ -128,7 +128,7 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 let this = Object::new();
                 for (k, v) in args.kwargs {
                     Reflect::set(&this, &k.into(), &py_to_js(vm, v))
-                        .expect("Couldn't set this property");
+                        .expect("property to be settable");
                 }
                 let js_args = Array::new();
                 for v in args.args {
@@ -158,7 +158,7 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
             "json",
             &Some("loads".into()),
         )
-        .expect("Couldn't get json.loads function");
+        .expect("json.loads function to be available");
 
         let json = match js_sys::JSON::stringify(&js_val) {
             Ok(json) => String::from(json),
