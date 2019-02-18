@@ -316,7 +316,9 @@ impl Frame {
                 vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
                 Ok(None)
             }
-            bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(vm, op),
+            bytecode::Instruction::BinaryOperation { ref op, inplace } => {
+                self.execute_binop(vm, op, *inplace)
+            }
             bytecode::Instruction::LoadAttr { ref name } => self.load_attr(vm, name),
             bytecode::Instruction::StoreAttr { ref name } => self.store_attr(vm, name),
             bytecode::Instruction::DeleteAttr { ref name } => self.delete_attr(vm, name),
@@ -893,27 +895,39 @@ impl Frame {
         &mut self,
         vm: &mut VirtualMachine,
         op: &bytecode::BinaryOperator,
+        inplace: bool,
     ) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
         let value = match *op {
+            bytecode::BinaryOperator::Subtract if inplace => vm._isub(a_ref, b_ref),
             bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add if inplace => vm._iadd(a_ref, b_ref),
             bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply if inplace => vm._imul(a_ref, b_ref),
             bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            bytecode::BinaryOperator::MatrixMultiply => {
-                vm.call_method(&a_ref, "__matmul__", vec![b_ref])
-            }
+            bytecode::BinaryOperator::MatrixMultiply if inplace => vm._imatmul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
+            bytecode::BinaryOperator::Power if inplace => vm._ipow(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-            bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => {
-                vm.call_method(&a_ref, "__floordiv__", vec![b_ref])
-            }
+            bytecode::BinaryOperator::Divide if inplace => vm._itruediv(a_ref, b_ref),
+            bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide if inplace => vm._ifloordiv(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
+            // TODO: Subscript should probably have its own op
+            bytecode::BinaryOperator::Subscript if inplace => unreachable!(),
             bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
-            bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
-            bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
-            bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Modulo if inplace => vm._imod(a_ref, b_ref),
+            bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift if inplace => vm._ilshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Rshift if inplace => vm._irshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Xor if inplace => vm._ixor(a_ref, b_ref),
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or if inplace => vm._ior(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+            bytecode::BinaryOperator::And if inplace => vm._iand(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
         }?;
 

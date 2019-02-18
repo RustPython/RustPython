@@ -70,3 +70,7 @@ assert len(a) == 2
 assert not 1 in a
 
 assert_raises(ValueError, lambda: a.remove(10), 'Remove not exist element')
+
+foo = bar = [1]
+foo += [2]
+assert (foo, bar) == ([1, 2], [1, 2])

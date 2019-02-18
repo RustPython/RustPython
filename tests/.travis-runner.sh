@@ -12,6 +12,8 @@ pip install pipenv
 # Build outside of the test runner
 if [ $CODE_COVERAGE = "true" ]
 then
+    find . -name '*.gcda' -delete
+
     export CARGO_INCREMENTAL=0
     export RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads"
 
