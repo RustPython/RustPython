@@ -35,7 +35,7 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         match lexical::try_parse(objstr::get_value(arg)) {
             Ok(f) => f,
             Err(_) => {
-                let arg_repr = vm.to_pystr(arg)?;
+                let arg_repr = vm.as_pystr(arg)?;
                 return Err(
                     vm.new_value_error(format!("could not convert string to float: {}", arg_repr))
                 );
@@ -45,7 +45,7 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         match lexical::try_parse(objbytes::get_value(arg).as_slice()) {
             Ok(f) => f,
             Err(_) => {
-                let arg_repr = vm.to_pystr(arg)?;
+                let arg_repr = vm.as_pystr(arg)?;
                 return Err(
                     vm.new_value_error(format!("could not convert string to float: {}", arg_repr))
                 );

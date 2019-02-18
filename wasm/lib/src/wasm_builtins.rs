@@ -72,7 +72,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
         } else {
             output.push(' ');
         }
-        output.push_str(&vm.to_pystr(&a)?);
+        output.push_str(&vm.as_pystr(&a)?);
     }
 
     if let Some(end_str) = end_str {
@@ -92,7 +92,7 @@ pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs, selector: &
 pub fn builtin_print_console(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let arr = Array::new();
     for arg in args.args {
-        arr.push(&vm.to_pystr(&arg)?.into());
+        arr.push(&vm.as_pystr(&arg)?.into());
     }
     console::log(&arr);
     Ok(vm.get_none())

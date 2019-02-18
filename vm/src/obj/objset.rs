@@ -187,7 +187,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if let Some(_guard) = ReprGuard::enter(o) {
         let mut str_parts = vec![];
         for elem in elements.values() {
-            let part = vm.to_repr(elem)?;
+            let part = vm.as_repr(elem)?;
             str_parts.push(objstr::get_value(&part));
         }
 
@@ -417,7 +417,7 @@ fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         let mut str_parts = vec![];
         for elem in elements.values() {
-            let part = vm.to_repr(elem)?;
+            let part = vm.as_repr(elem)?;
             str_parts.push(objstr::get_value(&part));
         }
 

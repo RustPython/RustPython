@@ -133,7 +133,7 @@ fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
     if objstr::get_value(format_spec).is_empty() {
-        vm.to_str(obj)
+        vm.as_str(obj)
     } else {
         Err(vm.new_type_error("unsupported format string passed to object.__format__".to_string()))
     }

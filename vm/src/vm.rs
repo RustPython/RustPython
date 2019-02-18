@@ -198,16 +198,16 @@ impl VirtualMachine {
     }
 
     // Container of the virtual machine state:
-    pub fn to_str(&mut self, obj: &PyObjectRef) -> PyResult {
+    pub fn as_str(&mut self, obj: &PyObjectRef) -> PyResult {
         self.call_method(&obj, "__str__", vec![])
     }
 
-    pub fn to_pystr(&mut self, obj: &PyObjectRef) -> Result<String, PyObjectRef> {
-        let py_str_obj = self.to_str(obj)?;
+    pub fn as_pystr(&mut self, obj: &PyObjectRef) -> Result<String, PyObjectRef> {
+        let py_str_obj = self.as_str(obj)?;
         Ok(objstr::get_value(&py_str_obj))
     }
 
-    pub fn to_repr(&mut self, obj: &PyObjectRef) -> PyResult {
+    pub fn as_repr(&mut self, obj: &PyObjectRef) -> PyResult {
         self.call_method(obj, "__repr__", vec![])
     }
 

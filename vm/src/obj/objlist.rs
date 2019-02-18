@@ -203,7 +203,7 @@ fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let elements = get_elements(o);
         let mut str_parts = vec![];
         for elem in elements.iter() {
-            let s = vm.to_repr(elem)?;
+            let s = vm.as_repr(elem)?;
             str_parts.push(objstr::get_value(&s));
         }
         format!("[{}]", str_parts.join(", "))
@@ -282,7 +282,7 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             return Ok(vm.context().new_int(index));
         }
     }
-    let needle_str = objstr::get_value(&vm.to_str(needle).unwrap());
+    let needle_str = objstr::get_value(&vm.as_str(needle).unwrap());
     Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
 }
 
@@ -445,7 +445,7 @@ fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         elements.remove(index);
         Ok(vm.get_none())
     } else {
-        let needle_str = objstr::get_value(&vm.to_str(needle)?);
+        let needle_str = objstr::get_value(&vm.as_str(needle)?);
         Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
     }
 }

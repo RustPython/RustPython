@@ -189,8 +189,8 @@ fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let elements = get_key_value_pairs(dict_obj);
         let mut str_parts = vec![];
         for (key, value) in elements {
-            let key_repr = vm.to_repr(&key)?;
-            let value_repr = vm.to_repr(&value)?;
+            let key_repr = vm.as_repr(&key)?;
+            let value_repr = vm.as_repr(&value)?;
             let key_str = objstr::get_value(&key_repr);
             let value_str = objstr::get_value(&value_repr);
             str_parts.push(format!("{}: {}", key_str, value_str));

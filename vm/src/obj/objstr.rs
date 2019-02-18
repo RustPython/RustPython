@@ -261,7 +261,7 @@ fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let zelf = &args.args[0];
     if !objtype::isinstance(&zelf, &vm.ctx.str_type()) {
         let zelf_typ = zelf.typ();
-        let actual_type = vm.to_pystr(&zelf_typ)?;
+        let actual_type = vm.as_pystr(&zelf_typ)?;
         return Err(vm.new_type_error(format!(
             "descriptor 'format' requires a 'str' object but received a '{}'",
             actual_type
@@ -288,7 +288,7 @@ fn call_object_format(
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
         let result_type = result.typ();
-        let actual_type = vm.to_pystr(&result_type)?;
+        let actual_type = vm.as_pystr(&result_type)?;
         return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
     }
     Ok(result)
@@ -1030,7 +1030,7 @@ fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         panic!("str expects exactly one parameter");
     };
 
-    vm.to_str(&args.args[1])
+    vm.as_str(&args.args[1])
 }
 
 impl PySliceableSequence for String {

@@ -16,8 +16,8 @@ macro_rules! type_check {
             let arg = &$args.args[$arg_count];
             if !objtype::isinstance(arg, &expected_type) {
                 let arg_typ = arg.typ();
-                let expected_type_name = $vm.to_pystr(&expected_type)?;
-                let actual_type = $vm.to_pystr(&arg_typ)?;
+                let expected_type_name = $vm.as_pystr(&expected_type)?;
+                let actual_type = $vm.as_pystr(&arg_typ)?;
                 return Err($vm.new_type_error(format!(
                     "argument of type {} is required for parameter {} ({}) (got: {})",
                     expected_type_name,

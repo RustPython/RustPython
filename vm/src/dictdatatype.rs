@@ -87,7 +87,7 @@ impl Dict {
                 panic!("Lookup returned invalid index into entries!");
             }
         } else {
-            let key_repr = vm.to_pystr(key)?;
+            let key_repr = vm.as_pystr(key)?;
             Err(vm.new_value_error(format!("Key not found: {}", key_repr)))
         }
     }
@@ -103,7 +103,7 @@ impl Dict {
             self.size -= 1;
             Ok(())
         } else {
-            let key_repr = vm.to_pystr(key)?;
+            let key_repr = vm.as_pystr(key)?;
             Err(vm.new_value_error(format!("Key not found: {}", key_repr)))
         }
     }

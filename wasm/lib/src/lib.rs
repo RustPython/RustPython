@@ -17,7 +17,7 @@ use wasm_bindgen::{prelude::*, JsCast};
 const TS_CMT_START: &'static str = "/*";
 
 fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
-    vm.to_pystr(&py_err)
+    vm.as_pystr(&py_err)
         .unwrap_or_else(|_| "Error, and error getting error message".into())
 }
 
@@ -31,7 +31,7 @@ fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     .expect("Couldn't get json.dumps function");
     match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
         Ok(value) => {
-            let json = vm.to_pystr(&value).unwrap();
+            let json = vm.as_pystr(&value).unwrap();
             js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED)
         }
         Err(_) => JsValue::UNDEFINED,

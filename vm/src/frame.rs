@@ -555,7 +555,7 @@ impl Frame {
                 match expr.borrow().payload {
                     PyObjectPayload::None => (),
                     _ => {
-                        let repr = vm.to_repr(&expr)?;
+                        let repr = vm.as_repr(&expr)?;
                         builtins::builtin_print(
                             vm,
                             PyFuncArgs {

@@ -618,7 +618,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         } else {
             write!(stdout_lock, " ").unwrap();
         }
-        let v = vm.to_str(&a)?;
+        let v = vm.as_str(&a)?;
         let s = objstr::borrow_value(&v);
         write!(stdout_lock, "{}", s).unwrap();
     }
@@ -638,7 +638,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    vm.to_repr(obj)
+    vm.as_repr(obj)
 }
 
 fn builtin_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

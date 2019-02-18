@@ -218,7 +218,7 @@ fn tuple_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
         let mut str_parts = vec![];
         for elem in elements.iter() {
-            let s = vm.to_repr(elem)?;
+            let s = vm.as_repr(elem)?;
             str_parts.push(objstr::get_value(&s));
         }
 

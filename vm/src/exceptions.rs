@@ -29,19 +29,19 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
             for element in elements.iter() {
                 if objtype::isinstance(&element, &vm.ctx.tuple_type()) {
                     let element = objsequence::get_elements(&element);
-                    let filename = if let Ok(x) = vm.to_str(&element[0]) {
+                    let filename = if let Ok(x) = vm.as_str(&element[0]) {
                         objstr::get_value(&x)
                     } else {
                         "<error>".to_string()
                     };
 
-                    let lineno = if let Ok(x) = vm.to_str(&element[1]) {
+                    let lineno = if let Ok(x) = vm.as_str(&element[1]) {
                         objstr::get_value(&x)
                     } else {
                         "<error>".to_string()
                     };
 
-                    let obj_name = if let Ok(x) = vm.to_str(&element[2]) {
+                    let obj_name = if let Ok(x) = vm.as_str(&element[2]) {
                         objstr::get_value(&x)
                     } else {
                         "<error>".to_string()
@@ -57,7 +57,7 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
         println!("No traceback set on exception");
     }
 
-    match vm.to_str(exc) {
+    match vm.as_str(exc) {
         Ok(txt) => println!("{}", objstr::get_value(&txt)),
         Err(err) => println!("Error during error {:?}", err),
     }
@@ -71,7 +71,7 @@ fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let type_name = objtype::get_type_name(&exc.typ());
     let msg = if let Some(m) = exc.get_attr("msg") {
-        match vm.to_pystr(&m) {
+        match vm.as_pystr(&m) {
             Ok(msg) => msg,
             _ => "<exception str() failed>".to_string(),
         }
