@@ -81,7 +81,7 @@ fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> Py
     )
     .map_err(|err| {
         let syntax_error = vm.context().exceptions.syntax_error.clone();
-        vm.new_exception(syntax_error, err.description().to_string())
+        vm.new_exception(syntax_error, err.to_string())
     })?;
     // trace!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
