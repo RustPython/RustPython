@@ -5,9 +5,7 @@
 //! - [rust weak struct](https://doc.rust-lang.org/std/rc/struct.Weak.html)
 //!
 
-use super::super::pyobject::{
-    PyContext, PyObjectRef
-};
+use super::super::pyobject::{PyContext, PyObjectRef};
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module("_weakref", ctx.new_scope(None));
@@ -15,4 +13,3 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     ctx.set_attr(&py_mod, "ref", ctx.weakref_type());
     py_mod
 }
-

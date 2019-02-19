@@ -1,16 +1,24 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyObjectWeakRef, PyObjectPayload, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyObjectWeakRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objtype; // Required for arg_check! to use isinstance
 
 fn ref_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: check first argument for subclass of `ref`.
-    arg_check!(vm, args, required = [(cls, Some(vm.ctx.type_type())), (referent, None)],
-        optional = [(callback, None)]);
+    arg_check!(
+        vm,
+        args,
+        required = [(cls, Some(vm.ctx.type_type())), (referent, None)],
+        optional = [(callback, None)]
+    );
     let weak_referent = PyObjectRef::downgrade(referent);
     let weakref = PyObject::new(
-        PyObjectPayload::WeakRef { referent: weak_referent, callback: callback.cloned() },
+        PyObjectPayload::WeakRef {
+            referent: weak_referent,
+            callback: callback.cloned(),
+        },
         cls.clone(),
     );
     referent.borrow_mut().add_weakref(&weakref);
@@ -37,23 +45,30 @@ fn get_value(obj: &PyObjectRef) -> PyObjectWeakRef {
     }
 }
 
+fn get_callback(obj: &PyObjectRef) -> Option<PyObjectRef> {
+    if let PyObjectPayload::WeakRef { callback, .. } = &obj.borrow().payload {
+        callback.as_ref().cloned()
+    } else {
+        panic!("Inner error getting weak ref callback {:?}", obj);
+    }
+}
+
 pub fn clear_weak_ref(obj: &PyObjectRef) {
-    if let PyObjectPayload::WeakRef { ref mut referent, .. } = &mut obj.borrow_mut().payload {
+    if let PyObjectPayload::WeakRef {
+        ref mut referent, ..
+    } = &mut obj.borrow_mut().payload
+    {
         referent.clear();
     } else {
         panic!("Inner error getting weak ref {:?}", obj);
     }
 }
 
-pub fn notify_weak_ref(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
-    if let PyObjectPayload::WeakRef { callback, .. } = &obj.borrow().payload {
-        if let Some(callback) = callback {
-            vm.invoke(callback.clone(), PyFuncArgs::empty())
-        } else {
-            Ok(vm.get_none())
-        }
+pub fn notify_weak_ref(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult {
+    if let Some(callback) = get_callback(&obj) {
+        vm.invoke(callback.clone(), PyFuncArgs::new(vec![obj], vec![]))
     } else {
-        panic!("Inner error getting weak ref callback {:?}", obj);
+        Ok(vm.get_none())
     }
 }
 

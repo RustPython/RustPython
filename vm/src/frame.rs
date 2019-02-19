@@ -844,6 +844,10 @@ impl Frame {
         // Assume here that locals is a dict
         let name = vm.ctx.new_str(name.to_string());
         vm.call_method(&locals, "__delitem__", vec![name])?;
+
+        // process possible delete
+        PyObjectRef::process_deletes(vm);
+
         Ok(None)
     }
 

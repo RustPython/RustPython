@@ -16,8 +16,7 @@ use super::obj::objstr;
 use super::obj::objtype;
 
 use super::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef,
-    PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 use super::stdlib::io::io_open;
 

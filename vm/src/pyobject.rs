@@ -38,10 +38,10 @@ use num_traits::{One, Zero};
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::rc::{Rc, Weak};
+use std::mem;
 use std::ops::Deref;
 use std::ptr;
-use std::mem;
+use std::rc::{Rc, Weak};
 
 /* Python objects and references.
 
@@ -69,17 +69,19 @@ https://doc.rust-lang.org/std/cell/index.html#introducing-mutability-inside-of-s
 /// to the python object by 1.
 #[derive(Debug, Clone)]
 pub struct PyObjectRef {
-    rc: Rc<RefCell<PyObject>>
+    rc: Rc<RefCell<PyObject>>,
 }
 
 // TODO support multiple virtual machines, how?
-thread_local!  {
+thread_local! {
     static DELETE_QUEUE: RefCell<VecDeque<PyObjectRef>> = RefCell::new(VecDeque::new());
 }
 
 impl PyObjectRef {
     pub fn downgrade(this: &Self) -> PyObjectWeakRef {
-        PyObjectWeakRef { weak: Rc::downgrade(&this.rc) }
+        PyObjectWeakRef {
+            weak: Rc::downgrade(&this.rc),
+        }
     }
 
     pub fn strong_count(this: &Self) -> usize {
@@ -90,11 +92,18 @@ impl PyObjectRef {
         while let Some(obj) = DELETE_QUEUE.with(|q| q.borrow_mut().pop_front()) {
             // check is still needs to be deleted
             if PyObjectRef::strong_count(&obj) == 1 {
-                for weak_ref in obj.borrow().weak_refs.iter() {
+                let weak_refs: Vec<PyObjectRef> = obj
+                    .borrow()
+                    .weak_refs
+                    .iter()
+                    .flat_map(|x| x.upgrade())
+                    .collect();
+
+                for weak_ref in weak_refs.iter() {
                     objweakref::clear_weak_ref(weak_ref);
                 }
 
-                for weak_ref in obj.borrow().weak_refs.iter().rev() {
+                for weak_ref in weak_refs.into_iter().rev() {
                     if let Err(err) = objweakref::notify_weak_ref(vm, weak_ref) {
                         exceptions::print_exception(vm, &err);
                     }
@@ -108,9 +117,11 @@ impl PyObjectRef {
 
                 // dispose of value without calling normal drop
                 unsafe {
-                    let rc_ptr = &mut manually_drop.rc as * mut _;
+                    let rc_ptr = &mut manually_drop.rc as *mut _;
                     ptr::drop_in_place(rc_ptr);
                 }
+            } else {
+                info!("Object {:?} resurrected", obj);
             }
         }
     }
@@ -139,12 +150,12 @@ impl Drop for PyObjectRef {
 
 #[derive(Debug, Clone)]
 pub struct PyObjectWeakRef {
-    weak: Weak<RefCell<PyObject>>
+    weak: Weak<RefCell<PyObject>>,
 }
 
 impl PyObjectWeakRef {
     pub fn upgrade(&self) -> Option<PyObjectRef> {
-        self.weak.upgrade().map(|x| PyObjectRef { rc:x })
+        self.weak.upgrade().map(|x| PyObjectRef { rc: x })
     }
 
     pub fn clear(&mut self) {
@@ -530,7 +541,9 @@ impl PyContext {
     pub fn member_descriptor_type(&self) -> PyObjectRef {
         self.member_descriptor_type.clone()
     }
-    pub fn weakref_type(&self) -> PyObjectRef { self.weakref_type.clone() }
+    pub fn weakref_type(&self) -> PyObjectRef {
+        self.weakref_type.clone()
+    }
     pub fn type_type(&self) -> PyObjectRef {
         self.type_type.clone()
     }
@@ -622,7 +635,11 @@ impl PyContext {
         self.new_scope_with_locals(parent, locals)
     }
 
-    pub fn new_scope_with_locals(&self, parent: Option<PyObjectRef>, locals: PyObjectRef) -> PyObjectRef {
+    pub fn new_scope_with_locals(
+        &self,
+        parent: Option<PyObjectRef>,
+        locals: PyObjectRef,
+    ) -> PyObjectRef {
         let scope = Scope { locals, parent };
         PyObject::new_no_type(PyObjectPayload::Scope { scope })
     }
@@ -781,8 +798,7 @@ impl PyContext {
 pub struct PyObject {
     pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
-    weak_refs: Vec<PyObjectRef>
-    // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
+    weak_refs: Vec<PyObjectWeakRef>, // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
 }
 
 pub trait IdProtocol {
@@ -975,10 +991,6 @@ impl PyFuncArgs {
         PyFuncArgs { args, kwargs }
     }
 
-    pub fn empty() -> PyFuncArgs {
-        PyFuncArgs { args: vec![], kwargs: vec![] }
-    }
-
     pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
         let mut args = PyFuncArgs {
             args: self.args.clone(),
@@ -1162,7 +1174,7 @@ impl PyObject {
             payload,
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
-            weak_refs: Vec::new()
+            weak_refs: Vec::new(),
         }
         .into_ref()
     }
@@ -1172,18 +1184,20 @@ impl PyObject {
             payload,
             typ: None,
             // dict: HashMap::new(),  // dict,
-            weak_refs: Vec::new()
+            weak_refs: Vec::new(),
         }
         .into_ref()
     }
 
     // Move this object into a reference object, transferring ownership.
     fn into_ref(self) -> PyObjectRef {
-        PyObjectRef { rc: Rc::new(RefCell::new(self)) }
+        PyObjectRef {
+            rc: Rc::new(RefCell::new(self)),
+        }
     }
 
     pub fn add_weakref(&mut self, weakref: &PyObjectRef) {
-        self.weak_refs.push(weakref.clone())
+        self.weak_refs.push(PyObjectRef::downgrade(weakref))
     }
 }
 
