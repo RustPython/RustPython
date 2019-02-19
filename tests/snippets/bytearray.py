@@ -18,13 +18,19 @@ assert not bytearray(b'abc1').isalpha()
 assert bytearray(b'1234567890').isdigit()
 assert not bytearray(b'12ab').isdigit()
 
-assert bytearray(b'lower').islower()
+l = bytearray(b'lower')
+assert l.islower()
+assert not l.isupper()
+assert l.upper().isupper()
 assert not bytearray(b'Super Friends').islower()
 
 assert bytearray(b' \n\t').isspace()
 assert not bytearray(b'\td\n').isspace()
 
-assert bytearray(b'UPPER').isupper()
+b = bytearray(b'UPPER')
+assert b.isupper()
+assert not b.islower()
+assert b.lower().islower()
 assert not bytearray(b'tuPpEr').isupper()
 
 assert bytearray(b'Is Title Case').istitle()
