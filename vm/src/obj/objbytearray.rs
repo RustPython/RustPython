@@ -275,6 +275,6 @@ fn bytearray_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             value.clear();
             Ok(vm.get_none())
         }
-        _ => Err(vm.new_type_error("".to_string())),
+        _ => panic!("Bytearray has incorrect payload."),
     }
 }
