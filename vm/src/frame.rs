@@ -140,6 +140,8 @@ impl Frame {
             }
         };
 
+        PyObjectRef::process_deletes(vm);
+
         vm.current_frame = prev_frame;
         value
     }

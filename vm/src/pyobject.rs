@@ -36,10 +36,12 @@ use num_bigint::ToBigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::rc::{Rc, Weak};
 use std::ops::Deref;
+use std::ptr;
+use std::mem;
 
 /* Python objects and references.
 
@@ -70,6 +72,11 @@ pub struct PyObjectRef {
     rc: Rc<RefCell<PyObject>>
 }
 
+// TODO support multiple virtual machines, how?
+thread_local!  {
+    static DELETE_QUEUE: RefCell<VecDeque<PyObjectRef>> = RefCell::new(VecDeque::new());
+}
+
 impl PyObjectRef {
     pub fn downgrade(this: &Self) -> PyObjectWeakRef {
         PyObjectWeakRef { weak: Rc::downgrade(&this.rc) }
@@ -77,6 +84,35 @@ impl PyObjectRef {
 
     pub fn strong_count(this: &Self) -> usize {
         Rc::strong_count(&this.rc)
+    }
+
+    pub fn process_deletes(vm: &mut VirtualMachine) {
+        while let Some(obj) = DELETE_QUEUE.with(|q| q.borrow_mut().pop_front()) {
+            // check is still needs to be deleted
+            if PyObjectRef::strong_count(&obj) == 1 {
+                for weak_ref in obj.borrow().weak_refs.iter() {
+                    objweakref::clear_weak_ref(weak_ref);
+                }
+
+                for weak_ref in obj.borrow().weak_refs.iter().rev() {
+                    if let Err(err) = objweakref::notify_weak_ref(vm, weak_ref) {
+                        exceptions::print_exception(vm, &err);
+                    }
+                }
+
+                assert_eq!(PyObjectRef::strong_count(&obj), 1,
+                           "Reference count of {:?} changed during execution of callbacks of weak references",
+                           &obj);
+
+                let mut manually_drop = mem::ManuallyDrop::new(obj);
+
+                // dispose of value without calling normal drop
+                unsafe {
+                    let rc_ptr = &mut manually_drop.rc as * mut _;
+                    ptr::drop_in_place(rc_ptr);
+                }
+            }
+        }
     }
 }
 
@@ -90,12 +126,12 @@ impl Deref for PyObjectRef {
 
 impl Drop for PyObjectRef {
     fn drop(&mut self) {
-        if PyObjectRef::strong_count(self) == 1 {
-            // the PyObject is going to be dropped
-            for weak_ref in self.borrow().weak_refs.iter().rev() {
-//                if Err(err) = objweakref::notify_weak_ref(vm, weak_ref) {
-//                    exceptions::print_exception(vm, err);
-//                }
+        if PyObjectRef::strong_count(self) == 1 && !self.borrow().weak_refs.is_empty() {
+            // The PyObject is going to be dropped, delete it later when we have access to vm.
+            // This will error when the tls is destroyed, thus meaning objects won't actually
+            // be properly destroyed.
+            if let Err(_) = DELETE_QUEUE.try_with(|q| q.borrow_mut().push_back(self.clone())) {
+                warn!("Object hasn't been cleaned up {:?}.", self);
             }
         }
     }
@@ -109,6 +145,10 @@ pub struct PyObjectWeakRef {
 impl PyObjectWeakRef {
     pub fn upgrade(&self) -> Option<PyObjectRef> {
         self.weak.upgrade().map(|x| PyObjectRef { rc:x })
+    }
+
+    pub fn clear(&mut self) {
+        self.weak = Weak::default();
     }
 }
 

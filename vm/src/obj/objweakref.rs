@@ -37,6 +37,14 @@ fn get_value(obj: &PyObjectRef) -> PyObjectWeakRef {
     }
 }
 
+pub fn clear_weak_ref(obj: &PyObjectRef) {
+    if let PyObjectPayload::WeakRef { ref mut referent, .. } = &mut obj.borrow_mut().payload {
+        referent.clear();
+    } else {
+        panic!("Inner error getting weak ref {:?}", obj);
+    }
+}
+
 pub fn notify_weak_ref(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
     if let PyObjectPayload::WeakRef { callback, .. } = &obj.borrow().payload {
         if let Some(callback) = callback {
