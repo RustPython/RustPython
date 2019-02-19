@@ -141,7 +141,7 @@ impl Drop for PyObjectRef {
             // The PyObject is going to be dropped, delete it later when we have access to vm.
             // This will error when the tls is destroyed, thus meaning objects won't actually
             // be properly destroyed.
-            if let Err(_) = DELETE_QUEUE.try_with(|q| q.borrow_mut().push_back(self.clone())) {
+            if DELETE_QUEUE.try_with(|q| q.borrow_mut().push_back(self.clone())).is_err() {
                 warn!("Object hasn't been cleaned up {:?}.", self);
             }
         }
