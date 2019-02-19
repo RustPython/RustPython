@@ -30,6 +30,6 @@ assert not bytearray(b'tuPpEr').isupper()
 assert bytearray(b'Is Title Case').istitle()
 assert not bytearray(b'is Not title casE').istitle()
 
-a = b'abcd'
+a = bytearray(b'abcd')
 a.clear()
 assert len(a) == 0
