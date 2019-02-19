@@ -571,19 +571,15 @@ impl Compiler {
                 self.set_label(end_label);
             }
             ast::Statement::Break => {
-
                 if !self.in_loop {
                     return Err(CompileError::SyntaxErr(String::from("break")));
                 }
-
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
-
                 if !self.in_loop {
                     return Err(CompileError::SyntaxErr(String::from("continue")));
                 }
-
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
