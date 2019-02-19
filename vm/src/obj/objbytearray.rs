@@ -7,6 +7,7 @@ use super::super::pyobject::{
 use super::objint;
 
 use super::super::vm::VirtualMachine;
+use super::objbytes::get_mut_value;
 use super::objbytes::get_value;
 use super::objtype;
 use num_traits::ToPrimitive;
@@ -100,6 +101,7 @@ pub fn init(context: &PyContext) {
         "clear",
         context.new_rustfunc(bytearray_clear),
     );
+    context.set_attr(&bytearray_type, "pop", context.new_rustfunc(bytearray_pop));
 }
 
 fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -276,5 +278,16 @@ fn bytearray_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             Ok(vm.get_none())
         }
         _ => panic!("Bytearray has incorrect payload."),
+    }
+}
+
+fn bytearray_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
+    let mut value = get_mut_value(obj);
+
+    if let Some(i) = value.pop() {
+        Ok(vm.ctx.new_int(i))
+    } else {
+        Err(vm.new_index_error("pop from empty bytearray".to_string()))
     }
 }

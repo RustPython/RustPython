@@ -6,8 +6,10 @@ use super::objint;
 use super::objtype;
 use num_traits::ToPrimitive;
 use std::cell::Ref;
+use std::cell::RefMut;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use std::ops::DerefMut;
 
 // Binary data support
 
@@ -181,6 +183,16 @@ fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
     Ref::map(obj.borrow(), |py_obj| {
         if let PyObjectPayload::Bytes { ref value } = py_obj.payload {
+            value
+        } else {
+            panic!("Inner error getting int {:?}", obj);
+        }
+    })
+}
+
+pub fn get_mut_value<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<u8>> + 'a {
+    RefMut::map(obj.borrow_mut(), |py_obj| {
+        if let PyObjectPayload::Bytes { ref mut value } = py_obj.payload {
             value
         } else {
             panic!("Inner error getting int {:?}", obj);
