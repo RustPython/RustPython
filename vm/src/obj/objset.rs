@@ -432,6 +432,27 @@ fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn set_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
+    );
+
+    let mut mut_obj = zelf.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            let iterator = objiter::get_iter(vm, iterable)?;
+            while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+                insert_into_set(vm, elements, &v)?;
+            }
+            Ok(vm.get_none())
+        }
+        _ => Err(vm.new_type_error("set.update is called with no other".to_string())),
+    }
+}
+
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -503,6 +524,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "clear", context.new_rustfunc(set_clear));
     context.set_attr(&set_type, "copy", context.new_rustfunc(set_copy));
     context.set_attr(&set_type, "pop", context.new_rustfunc(set_pop));
+    context.set_attr(&set_type, "update", context.new_rustfunc(set_update));
 
     let frozenset_type = &context.frozenset_type;
 

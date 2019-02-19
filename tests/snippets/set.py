@@ -93,3 +93,8 @@ assert b in [1,2]
 c = a.pop()
 assert (c in [1,2] and c != b) 
 assert_raises(KeyError, lambda: a.pop())
+
+a = set([1,2,3])
+a.update([3,4,5])
+assert a == set([1,2,3,4,5])
+assert_raises(TypeError, lambda: a.update(1))
