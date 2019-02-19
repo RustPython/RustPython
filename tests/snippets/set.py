@@ -86,3 +86,10 @@ assert len(b) == 3
 b.clear()
 assert len(a) == 3
 assert len(b) == 0
+
+a = set([1,2])
+b = a.pop()
+assert b in [1,2]
+c = a.pop()
+assert (c in [1,2] and c != b) 
+assert_raises(KeyError, lambda: a.pop())

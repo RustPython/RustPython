@@ -418,6 +418,20 @@ fn set_combine_inner(
     ))
 }
 
+fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
+
+    let mut mut_obj = s.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => match elements.clone().keys().next() {
+            Some(key) => Ok(elements.remove(key).unwrap()),
+            None => Err(vm.new_key_error("pop from an empty set".to_string())),
+        },
+        _ => Err(vm.new_type_error("".to_string())),
+    }
+}
+
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -488,6 +502,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "discard", context.new_rustfunc(set_discard));
     context.set_attr(&set_type, "clear", context.new_rustfunc(set_clear));
     context.set_attr(&set_type, "copy", context.new_rustfunc(set_copy));
+    context.set_attr(&set_type, "pop", context.new_rustfunc(set_pop));
 
     let frozenset_type = &context.frozenset_type;
 
