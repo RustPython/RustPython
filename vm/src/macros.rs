@@ -1,3 +1,4 @@
+// count number of tokens given as arguments.
 // see: https://danielkeep.github.io/tlborm/book/blk-counting.html
 macro_rules! replace_expr {
     ($_t:tt $sub:expr) => {
@@ -44,9 +45,11 @@ macro_rules! arg_check {
     ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*], optional=[$( ($optional_arg_name:ident, $optional_arg_type:expr) ),*] ) => {
         let mut arg_count = 0;
 
+        // use macro magic to compile-time count number of required and optional arguments
         let minimum_arg_count = count_tts!($($arg_name)*);
         let maximum_arg_count = minimum_arg_count + count_tts!($($optional_arg_name)*);
 
+        // verify that the number of given arguments is right
         if $args.args.len() < minimum_arg_count || $args.args.len() > maximum_arg_count {
             let expected_str = if minimum_arg_count == maximum_arg_count {
                 format!("{}", minimum_arg_count)
@@ -60,6 +63,9 @@ macro_rules! arg_check {
             )));
         };
 
+        // for each required parameter:
+        //  check if the type matches. If not, return with error
+        //  assign the arg to a variable
         $(
             type_check!($vm, $args, arg_count, $arg_name, $arg_type);
             let $arg_name = &$args.args[arg_count];
@@ -69,6 +75,9 @@ macro_rules! arg_check {
             }
         )*
 
+        // for each optional parameter, if there are enough positional arguments:
+        //  check if the type matches. If not, return with error
+        //  assign the arg to a variable
         $(
             let $optional_arg_name = if arg_count < $args.args.len() {
                 type_check!($vm, $args, arg_count, $optional_arg_name, $optional_arg_type);
