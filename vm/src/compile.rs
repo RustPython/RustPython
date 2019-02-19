@@ -234,11 +234,11 @@ impl Compiler {
                     target: start_label,
                 });
                 self.set_label(else_label);
+                self.emit(Instruction::PopBlock);
                 if let Some(orelse) = orelse {
                     self.compile_statements(orelse)?;
                 }
                 self.set_label(end_label);
-                self.emit(Instruction::PopBlock);
             }
             ast::Statement::With { items, body } => {
                 let end_label = self.new_label();
@@ -267,14 +267,6 @@ impl Compiler {
                 body,
                 orelse,
             } => {
-                // The thing iterated:
-                for i in iter {
-                    self.compile_expression(i)?;
-                }
-
-                // Retrieve iterator
-                self.emit(Instruction::GetIter);
-
                 // Start loop
                 let start_label = self.new_label();
                 let else_label = self.new_label();
@@ -283,6 +275,15 @@ impl Compiler {
                     start: start_label,
                     end: end_label,
                 });
+
+                // The thing iterated:
+                for i in iter {
+                    self.compile_expression(i)?;
+                }
+
+                // Retrieve Iterator
+                self.emit(Instruction::GetIter);
+
                 self.set_label(start_label);
                 self.emit(Instruction::ForIter { target: else_label });
 
@@ -295,11 +296,11 @@ impl Compiler {
                     target: start_label,
                 });
                 self.set_label(else_label);
+                self.emit(Instruction::PopBlock);
                 if let Some(orelse) = orelse {
                     self.compile_statements(orelse)?;
                 }
                 self.set_label(end_label);
-                self.emit(Instruction::PopBlock);
             }
             ast::Statement::Raise { exception, cause } => match exception {
                 Some(value) => {
