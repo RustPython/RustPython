@@ -1,4 +1,5 @@
 use js_sys::{Array, ArrayBuffer, Object, Reflect, Uint8Array};
+use rustpython_vm::obj::{objbytes, objtype};
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use vm_class::{AccessibleVM, WASMVirtualMachine};
@@ -16,10 +17,10 @@ pub fn js_py_typeerror(vm: &mut VirtualMachine, js_err: JsValue) -> PyObjectRef 
 
 pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
-        let wasm_vm = WASMVirtualMachine {
-            id: wasm_id.clone(),
-        };
-        if rustpython_vm::obj::objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
+        if objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
+            let wasm_vm = WASMVirtualMachine {
+                id: wasm_id.clone(),
+            };
             let closure =
                 move |args: Option<Array>, kwargs: Option<Object>| -> Result<JsValue, JsValue> {
                     let py_obj = py_obj.clone();
@@ -55,19 +56,31 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             return func;
         }
     }
-    let dumps = rustpython_vm::import::import(
-        vm,
-        std::path::PathBuf::default(),
-        "json",
-        &Some("dumps".into()),
-    )
-    .expect("Couldn't get json.dumps function");
-    match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
-        Ok(value) => {
-            let json = vm.to_pystr(&value).unwrap();
-            js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED)
+    if objtype::isinstance(&py_obj, &vm.ctx.bytes_type())
+        || objtype::isinstance(&py_obj, &vm.ctx.bytearray_type())
+    {
+        let bytes = objbytes::get_value(&py_obj);
+        let arr = Uint8Array::new_with_length(bytes.len() as u32);
+        for (i, byte) in bytes.iter().enumerate() {
+            Reflect::set(&arr, &(i as u32).into(), &(*byte).into())
+                .expect("setting Uint8Array value failed");
         }
-        Err(_) => JsValue::UNDEFINED,
+        arr.into()
+    } else {
+        let dumps = rustpython_vm::import::import(
+            vm,
+            std::path::PathBuf::default(),
+            "json",
+            &Some("dumps".into()),
+        )
+        .expect("Couldn't get json.dumps function");
+        match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
+            Ok(value) => {
+                let json = vm.to_pystr(&value).unwrap();
+                js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED)
+            }
+            Err(_) => JsValue::UNDEFINED,
+        }
     }
 }
 
