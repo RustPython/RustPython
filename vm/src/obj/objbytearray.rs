@@ -95,6 +95,11 @@ pub fn init(context: &PyContext) {
         "istitle",
         context.new_rustfunc(bytearray_istitle),
     );
+    context.set_attr(
+        &bytearray_type,
+        "clear",
+        context.new_rustfunc(bytearray_clear),
+    );
 }
 
 fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -260,4 +265,16 @@ fn bytearray_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(obj);
     let data = String::from_utf8(value.to_vec()).unwrap();
     Ok(vm.new_str(format!("bytearray(b'{}')", data)))
+}
+
+fn bytearray_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
+    let mut mut_obj = zelf.borrow_mut();
+    match mut_obj.payload {
+        PyObjectPayload::Bytes { ref mut value } => {
+            value.clear();
+            Ok(vm.get_none())
+        }
+        _ => panic!("Bytearray has incorrect payload."),
+    }
 }
