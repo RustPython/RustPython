@@ -185,7 +185,7 @@ pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a 
         if let PyObjectPayload::Bytes { ref value } = py_obj.payload {
             value
         } else {
-            panic!("Inner error getting int {:?}", obj);
+            panic!("Inner error getting bytearray {:?}", obj);
         }
     })
 }
@@ -195,7 +195,7 @@ pub fn get_mut_value<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<u8>
         if let PyObjectPayload::Bytes { ref mut value } = py_obj.payload {
             value
         } else {
-            panic!("Inner error getting int {:?}", obj);
+            panic!("Inner error getting bytearray {:?}", obj);
         }
     })
 }
