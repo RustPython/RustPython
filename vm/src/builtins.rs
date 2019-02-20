@@ -831,6 +831,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "ZeroDivisionError",
         ctx.exceptions.zero_division_error.clone(),
     );
+    ctx.set_attr(&py_mod, "KeyError", ctx.exceptions.key_error.clone());
 
     py_mod
 }
