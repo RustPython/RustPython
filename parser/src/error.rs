@@ -3,8 +3,8 @@
 extern crate lalrpop_util;
 use self::lalrpop_util::ParseError as InnerError;
 
-use lexer::{LexicalError, Location};
-use token::Tok;
+use crate::lexer::{LexicalError, Location};
+use crate::token::Tok;
 
 use std::error::Error;
 use std::fmt;

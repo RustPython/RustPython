@@ -1,5 +1,3 @@
-extern crate lalrpop_util;
-
 use std::iter;
 
 use super::ast;

@@ -5,6 +5,7 @@ authors = ["Ryan Liddle <ryan@rmliddle.com>"]
 license = "MIT"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"
 repository = "https://github.com/RustPython/RustPython/tree/master/wasm/lib"
+edition = "2018"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
