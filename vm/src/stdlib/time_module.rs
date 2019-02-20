@@ -1,8 +1,8 @@
 //! The python `time` module.
 
-use super::super::obj::{objfloat, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::{objfloat, objtype};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

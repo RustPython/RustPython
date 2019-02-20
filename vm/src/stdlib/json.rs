@@ -5,12 +5,12 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
-use super::super::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
-use super::super::pyobject::{
+use crate::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
+use crate::pyobject::{
     create_type, DictProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
-use super::super::VirtualMachine;
+use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;
 
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement

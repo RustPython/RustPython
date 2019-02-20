@@ -1,12 +1,12 @@
-use super::super::format::FormatSpec;
-use super::super::pyobject::{
-    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objfloat;
 use super::objstr;
 use super::objtype;
+use crate::format::FormatSpec;
+use crate::pyobject::{
+    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};

@@ -5,12 +5,12 @@
 //! - [rust weak struct](https://doc.rust-lang.org/std/rc/struct.Weak.html)
 //!
 
-use super::super::obj::objtype;
-use super::super::pyobject::{
+use crate::obj::objtype;
+use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyObjectWeakRef, PyResult,
     TypeProtocol,
 };
-use super::super::VirtualMachine;
+use crate::VirtualMachine;
 use std::rc::Rc;
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {

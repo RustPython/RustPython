@@ -4,9 +4,9 @@
 
 extern crate rustpython_parser;
 use self::rustpython_parser::lexer;
-use super::super::obj::{objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::{objstr, objtype};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 
 fn keyword_iskeyword(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);

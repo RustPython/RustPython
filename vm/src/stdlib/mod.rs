@@ -14,7 +14,7 @@ mod types;
 mod weakref;
 use std::collections::HashMap;
 
-use super::pyobject::{PyContext, PyObjectRef};
+use crate::pyobject::{PyContext, PyObjectRef};
 
 pub type StdlibInitFunc = fn(&PyContext) -> PyObjectRef;
 

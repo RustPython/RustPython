@@ -1,11 +1,11 @@
-use super::super::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
-};
-use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objiter;
 use super::objstr;
 use super::objtype;
+use crate::pyobject::{
+    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};

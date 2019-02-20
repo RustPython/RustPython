@@ -1,11 +1,11 @@
-use super::super::pyobject::{
-    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objdict;
 use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
+use crate::pyobject::{
+    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
+    PyObjectRef, PyResult, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::HashMap;
 

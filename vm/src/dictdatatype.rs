@@ -1,7 +1,7 @@
-use super::obj::objbool;
-use super::obj::objint;
-use super::pyobject::{IdProtocol, PyObjectRef, PyResult};
-use super::vm::VirtualMachine;
+use crate::obj::objbool;
+use crate::obj::objint;
+use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
+use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html

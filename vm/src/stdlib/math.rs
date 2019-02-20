@@ -3,9 +3,9 @@
  *
  */
 
-use super::super::obj::{objfloat, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::{objfloat, objtype};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 use std;

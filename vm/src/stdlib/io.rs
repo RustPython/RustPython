@@ -13,18 +13,18 @@ use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 //custom imports
-use super::super::obj::objbytes;
-use super::super::obj::objint;
-use super::super::obj::objstr;
-use super::super::obj::objtype;
 use super::os;
+use crate::obj::objbytes;
+use crate::obj::objint;
+use crate::obj::objstr;
+use crate::obj::objtype;
 
-use super::super::pyobject::{
+use crate::pyobject::{
     AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef,
     PyResult, TypeProtocol,
 };
 
-use super::super::vm::VirtualMachine;
+use crate::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {
     match mode {

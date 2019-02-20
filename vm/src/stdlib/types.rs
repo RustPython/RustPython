@@ -2,11 +2,9 @@
  * Dynamic type creation and names for built in types.
  */
 
-use super::super::obj::{objsequence, objstr, objtype};
-use super::super::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
-use super::super::VirtualMachine;
+use crate::obj::{objsequence, objstr, objtype};
+use crate::pyobject::{PyAttributes, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 
 fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(

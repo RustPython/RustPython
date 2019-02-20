@@ -1,10 +1,8 @@
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objiter;
 use super::objtype; // Required for arg_check! to use isinstance
+use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::Zero;
 use std::ops::AddAssign;

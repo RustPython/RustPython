@@ -10,22 +10,22 @@ use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::sync::{Mutex, MutexGuard};
 
-use super::builtins;
-use super::bytecode;
-use super::frame::Frame;
-use super::obj::objbool;
-use super::obj::objcode;
-use super::obj::objgenerator;
-use super::obj::objiter;
-use super::obj::objsequence;
-use super::obj::objstr;
-use super::obj::objtype;
-use super::pyobject::{
+use crate::builtins;
+use crate::bytecode;
+use crate::frame::Frame;
+use crate::obj::objbool;
+use crate::obj::objcode;
+use crate::obj::objgenerator;
+use crate::obj::objiter;
+use crate::obj::objsequence;
+use crate::obj::objstr;
+use crate::obj::objtype;
+use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload,
     PyObjectRef, PyResult, TypeProtocol,
 };
-use super::stdlib;
-use super::sysmodule;
+use crate::stdlib;
+use crate::sysmodule;
 
 // use objects::objects;
 
@@ -812,8 +812,8 @@ impl Drop for ReprGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::super::obj::{objint, objstr};
     use super::VirtualMachine;
+    use crate::obj::{objint, objstr};
     use num_bigint::ToBigInt;
 
     #[test]

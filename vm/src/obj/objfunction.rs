@@ -1,8 +1,8 @@
-use super::super::pyobject::{
+use super::objtype;
+use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objtype;
+use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
