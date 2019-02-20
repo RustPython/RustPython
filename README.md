@@ -3,6 +3,7 @@
 A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :metal:.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
+[![Build Status](https://dev.azure.com/ryan0463/ryan/_apis/build/status/RustPython.RustPython?branchName=master)](https://dev.azure.com/ryan0463/ryan/_build/latest?definitionId=1&branchName=master)
 [![codecov](https://codecov.io/gh/RustPython/RustPython/branch/master/graph/badge.svg)](https://codecov.io/gh/RustPython/RustPython)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
@@ -26,6 +27,14 @@ Or use the interactive shell:
     >>>>> 2+2
     4
 
+# Disclaimer
+
+  RustPython is in a development phase and should not used in production or a fault intolerant setting.
+
+  Our current build supports only a subset of Python syntax.
+
+  Contribution is also more than welcome! See our contribution section for more information on this. 
+
 # Goals
 
 - Full Python-3 environment entirely in Rust (not CPython bindings)
@@ -33,7 +42,7 @@ Or use the interactive shell:
 
 # Documentation
 
-Currently the project is in an early phase, and so is the documentation.
+Currently along with other areas of the project, documentation is still in an early phase.
 
 You can read the [online documentation](https://rustpython.github.io/website/rustpython/index.html) for the latest code on master.
 
@@ -63,7 +72,9 @@ If you wish to update the online documentation. Push directly to the `release` b
 
 # Contributing
 
-To start contributing, there are a lot of things that need to be done.
+Contributions are more than welcome, and in many cases we are happy to guide contributors through PRs or on gitter.
+
+With that in mind, please note this project is maintained by volunteers, some of the best ways to get started are below:
 
 Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustPython/issues).
 Check issues labeled with `good first issue` if you wish to start coding.
