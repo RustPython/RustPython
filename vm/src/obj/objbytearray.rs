@@ -102,6 +102,16 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(bytearray_clear),
     );
     context.set_attr(&bytearray_type, "pop", context.new_rustfunc(bytearray_pop));
+    context.set_attr(
+        &bytearray_type,
+        "lower",
+        context.new_rustfunc(bytearray_lower),
+    );
+    context.set_attr(
+        &bytearray_type,
+        "upper",
+        context.new_rustfunc(bytearray_upper),
+    );
 }
 
 fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -188,7 +198,7 @@ fn bytearray_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         !bytes.is_empty()
             && bytes
                 .iter()
-                .filter(|x| char::from(**x).is_whitespace())
+                .filter(|x| !char::from(**x).is_whitespace())
                 .all(|x| char::from(*x).is_lowercase()),
     ))
 }
@@ -294,4 +304,22 @@ fn bytearray_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         Err(vm.new_index_error("pop from empty bytearray".to_string()))
     }
+}
+
+fn bytearray_lower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
+    let value = get_value(obj).to_vec().to_ascii_lowercase();
+    Ok(PyObject::new(
+        PyObjectPayload::Bytes { value },
+        vm.ctx.bytearray_type(),
+    ))
+}
+
+fn bytearray_upper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
+    let value = get_value(obj).to_vec().to_ascii_uppercase();
+    Ok(PyObject::new(
+        PyObjectPayload::Bytes { value },
+        vm.ctx.bytearray_type(),
+    ))
 }
