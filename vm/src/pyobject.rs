@@ -92,12 +92,13 @@ impl PyObjectRef {
         while let Some(obj) = DELETE_QUEUE.with(|q| q.borrow_mut().pop_front()) {
             // check is still needs to be deleted
             if PyObjectRef::strong_count(&obj) == 1 {
-                let weak_refs: Vec<PyObjectRef> = obj
-                    .borrow()
-                    .weak_refs
-                    .iter()
-                    .flat_map(|x| x.upgrade())
-                    .collect();
+                let weak_refs = match obj.borrow().payload {
+                    PyObjectPayload::Instance { ref weak_refs, .. } => weak_refs
+                        .iter()
+                        .flat_map(|x| x.upgrade())
+                        .collect::<Vec<_>>(),
+                    _ => panic!("Non-instance object can't have weakrefs"),
+                };
 
                 for weak_ref in weak_refs.iter() {
                     objweakref::clear_weak_ref(weak_ref);
@@ -137,15 +138,22 @@ impl Deref for PyObjectRef {
 
 impl Drop for PyObjectRef {
     fn drop(&mut self) {
-        if PyObjectRef::strong_count(self) == 1 && !self.borrow().weak_refs.is_empty() {
-            // The PyObject is going to be dropped, delete it later when we have access to vm.
-            // This will error when the tls is destroyed, thus meaning objects won't actually
-            // be properly destroyed.
-            if DELETE_QUEUE
-                .try_with(|q| q.borrow_mut().push_back(self.clone()))
-                .is_err()
-            {
-                warn!("Object hasn't been cleaned up {:?}.", self);
+        if PyObjectRef::strong_count(self) == 1 {
+            let has_weakrefs = match self.borrow().payload {
+                PyObjectPayload::Instance { ref weak_refs, .. } => !weak_refs.is_empty(),
+                _ => false,
+            };
+
+            if has_weakrefs {
+                // The PyObject is going to be dropped, delete it later when we have access to vm.
+                // This will error when the tls is destroyed, thus meaning objects won't actually
+                // be properly destroyed.
+                if DELETE_QUEUE
+                    .try_with(|q| q.borrow_mut().push_back(self.clone()))
+                    .is_err()
+                {
+                    warn!("Object hasn't been cleaned up {:?}.", self);
+                }
             }
         }
     }
@@ -738,6 +746,7 @@ impl PyContext {
         PyObject::new(
             PyObjectPayload::Instance {
                 dict: RefCell::new(dict),
+                weak_refs: Vec::new(),
             },
             class,
         )
@@ -764,7 +773,8 @@ impl PyContext {
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
         match obj.borrow().payload {
             PyObjectPayload::Module { ref dict, .. } => self.set_attr(dict, attr_name, value),
-            PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
+            PyObjectPayload::Instance { ref dict, .. }
+            | PyObjectPayload::Class { ref dict, .. } => {
                 dict.borrow_mut().insert(attr_name.to_string(), value);
             }
             PyObjectPayload::Scope { ref scope } => {
@@ -801,7 +811,6 @@ impl PyContext {
 pub struct PyObject {
     pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
-    weak_refs: Vec<PyObjectWeakRef>,
     // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
 }
 
@@ -904,7 +913,7 @@ impl AttributeProtocol for PyObjectRef {
                 }
                 None
             }
-            PyObjectPayload::Instance { ref dict } => dict.borrow().get(attr_name).cloned(),
+            PyObjectPayload::Instance { ref dict, .. } => dict.borrow().get(attr_name).cloned(),
             _ => None,
         }
     }
@@ -916,7 +925,7 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectPayload::Class { ref mro, .. } => {
                 class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
             }
-            PyObjectPayload::Instance { ref dict } => dict.borrow().contains_key(attr_name),
+            PyObjectPayload::Instance { ref dict, .. } => dict.borrow().contains_key(attr_name),
             _ => false,
         }
     }
@@ -1124,6 +1133,7 @@ pub enum PyObjectPayload {
     },
     Instance {
         dict: RefCell<PyAttributes>,
+        weak_refs: Vec<PyObjectWeakRef>,
     },
     RustFunction {
         function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
@@ -1178,7 +1188,6 @@ impl PyObject {
             payload,
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
-            weak_refs: Vec::new(),
         }
         .into_ref()
     }
@@ -1188,7 +1197,6 @@ impl PyObject {
             payload,
             typ: None,
             // dict: HashMap::new(),  // dict,
-            weak_refs: Vec::new(),
         }
         .into_ref()
     }
@@ -1200,8 +1208,16 @@ impl PyObject {
         }
     }
 
-    pub fn add_weakref(&mut self, weakref: &PyObjectRef) {
-        self.weak_refs.push(PyObjectRef::downgrade(weakref))
+    pub fn add_weakref(&mut self, weakref: &PyObjectRef) -> bool {
+        match self.payload {
+            PyObjectPayload::Instance {
+                ref mut weak_refs, ..
+            } => {
+                weak_refs.push(PyObjectRef::downgrade(weakref));
+                true
+            }
+            _ => false,
+        }
     }
 }
 

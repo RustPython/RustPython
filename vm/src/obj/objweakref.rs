@@ -21,8 +21,15 @@ fn ref_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         },
         cls.clone(),
     );
-    referent.borrow_mut().add_weakref(&weakref);
-    Ok(weakref)
+    if referent.borrow_mut().add_weakref(&weakref) {
+        Ok(weakref)
+    } else {
+        let referent_repr = vm.to_pystr(&referent.typ())?;
+        Err(vm.new_type_error(format!(
+            "cannot create weak reference to '{}' object",
+            referent_repr
+        )))
+    }
 }
 
 /// Dereference the weakref, and check if we still refer something.

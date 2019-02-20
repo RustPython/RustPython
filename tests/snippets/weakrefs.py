@@ -1,6 +1,7 @@
 import sys
 from _weakref import ref
 
+from testutils import assert_raises
 
 data_holder = {}
 
@@ -58,3 +59,4 @@ if not hasattr(sys, 'implementation'):
 
     assert str(value) == "param: 5"
 
+assert_raises(TypeError, lambda: ref(1), "can't create weak reference to an int")
