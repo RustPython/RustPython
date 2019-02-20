@@ -662,6 +662,7 @@ impl Compiler {
         name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, CompileError> {
+        self.in_loop = false;
         let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
