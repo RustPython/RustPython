@@ -37,6 +37,25 @@ assert len(a) == 0
 try:
     bytearray([400])
 except ValueError:
+      pass
+else:
+    assert False
+
+b = bytearray(b'test')
+assert len(b) == 4
+b.pop()
+assert len(b) == 3
+
+c = bytearray([123, 255, 111])
+assert len(c) == 3
+c.pop()
+assert len(c) == 2
+c.pop()
+c.pop()
+
+try:
+    c.pop()
+except IndexError:
     pass
 else:
     assert False

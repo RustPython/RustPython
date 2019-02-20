@@ -542,7 +542,10 @@ impl Frame {
             bytecode::Instruction::Break => {
                 let block = self.unwind_loop(vm);
                 if let BlockType::Loop { end, .. } = block.typ {
+                    self.pop_block();
                     self.jump(end);
+                } else {
+                    unreachable!()
                 }
                 Ok(None)
             }
@@ -555,7 +558,7 @@ impl Frame {
                 if let BlockType::Loop { start, .. } = block.typ {
                     self.jump(start);
                 } else {
-                    assert!(false);
+                    unreachable!();
                 }
                 Ok(None)
             }
@@ -745,7 +748,7 @@ impl Frame {
 
     fn unwind_loop(&mut self, vm: &mut VirtualMachine) -> Block {
         loop {
-            let block = self.pop_block().expect("not in a loop");
+            let block = self.current_block().cloned().expect("not in a loop");
             match block.typ {
                 BlockType::Loop { .. } => break block,
                 BlockType::TryExcept { .. } => {
@@ -760,6 +763,8 @@ impl Frame {
                     }
                 },
             }
+
+            self.pop_block();
         }
     }
 
@@ -1078,6 +1083,10 @@ impl Frame {
         let block = self.blocks.pop()?;
         self.stack.truncate(block.level);
         Some(block)
+    }
+
+    fn current_block(&self) -> Option<&Block> {
+        self.blocks.last()
     }
 
     pub fn push_value(&mut self, obj: PyObjectRef) {
