@@ -23,7 +23,15 @@ use super::vm::VirtualMachine;
 use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]
-enum Block {
+struct Block {
+    /// The type of block.
+    typ: BlockType,
+    /// The level of the value stack when the block was entered.
+    level: usize,
+}
+
+#[derive(Clone, Debug)]
+enum BlockType {
     Loop {
         start: bytecode::Label,
         end: bytecode::Label,
@@ -357,21 +365,21 @@ impl Frame {
                 }
             }
             bytecode::Instruction::SetupLoop { start, end } => {
-                self.push_block(Block::Loop {
+                self.push_block(BlockType::Loop {
                     start: *start,
                     end: *end,
                 });
                 Ok(None)
             }
             bytecode::Instruction::SetupExcept { handler } => {
-                self.push_block(Block::TryExcept { handler: *handler });
+                self.push_block(BlockType::TryExcept { handler: *handler });
                 Ok(None)
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
                 // Call enter:
                 let obj = vm.call_method(&context_manager, "__enter__", vec![])?;
-                self.push_block(Block::With {
+                self.push_block(BlockType::With {
                     end: *end,
                     context_manager: context_manager.clone(),
                 });
@@ -380,22 +388,23 @@ impl Frame {
             }
             bytecode::Instruction::CleanupWith { end: end1 } => {
                 let block = self.pop_block().unwrap();
-                if let Block::With {
+                if let BlockType::With {
                     end: end2,
                     context_manager,
-                } = &block
+                } = &block.typ
                 {
-                    assert!(end1 == end2);
+                    debug_assert!(end1 == end2);
 
                     // call exit now with no exception:
-                    self.with_exit(vm, context_manager, None)?;
-                    Ok(None)
+                    self.with_exit(vm, &context_manager, None)?;
                 } else {
-                    panic!("Block stack is incorrect, expected a with block");
+                    unreachable!("Block stack is incorrect, expected a with block");
                 }
+
+                Ok(None)
             }
             bytecode::Instruction::PopBlock => {
-                self.pop_block();
+                self.pop_block().expect("no pop to block");
                 Ok(None)
             }
             bytecode::Instruction::GetIter => {
@@ -532,7 +541,7 @@ impl Frame {
 
             bytecode::Instruction::Break => {
                 let block = self.unwind_loop(vm);
-                if let Block::Loop { end, .. } = block {
+                if let BlockType::Loop { end, .. } = block.typ {
                     self.jump(end);
                 }
                 Ok(None)
@@ -543,7 +552,7 @@ impl Frame {
             }
             bytecode::Instruction::Continue => {
                 let block = self.unwind_loop(vm);
-                if let Block::Loop { start, .. } = block {
+                if let BlockType::Loop { start, .. } = block.typ {
                     self.jump(start);
                 } else {
                     assert!(false);
@@ -711,16 +720,15 @@ impl Frame {
 
     // Unwind all blocks:
     fn unwind_blocks(&mut self, vm: &mut VirtualMachine) -> Option<PyObjectRef> {
-        loop {
-            let block = self.pop_block();
-            match block {
-                Some(Block::Loop { .. }) => {}
-                Some(Block::TryExcept { .. }) => {
+        while let Some(block) = self.pop_block() {
+            match block.typ {
+                BlockType::Loop { .. } => {}
+                BlockType::TryExcept { .. } => {
                     // TODO: execute finally handler
                 }
-                Some(Block::With {
+                BlockType::With {
                     context_manager, ..
-                }) => {
+                } => {
                     match self.with_exit(vm, &context_manager, None) {
                         Ok(..) => {}
                         Err(exc) => {
@@ -729,28 +737,28 @@ impl Frame {
                         }
                     }
                 }
-                None => break None,
             }
         }
+
+        None
     }
 
     fn unwind_loop(&mut self, vm: &mut VirtualMachine) -> Block {
         loop {
-            let block = self.pop_block();
-            match block {
-                Some(Block::Loop { .. }) => break block.unwrap(),
-                Some(Block::TryExcept { .. }) => {
+            let block = self.pop_block().expect("not in a loop");
+            match block.typ {
+                BlockType::Loop { .. } => break block,
+                BlockType::TryExcept { .. } => {
                     // TODO: execute finally handler
                 }
-                Some(Block::With {
+                BlockType::With {
                     context_manager, ..
-                }) => match self.with_exit(vm, &context_manager, None) {
+                } => match self.with_exit(vm, &context_manager, None) {
                     Ok(..) => {}
                     Err(exc) => {
                         panic!("Exception in with __exit__ {:?}", exc);
                     }
                 },
-                None => panic!("No block to break / continue"),
             }
         }
     }
@@ -761,18 +769,17 @@ impl Frame {
         exc: PyObjectRef,
     ) -> Option<PyObjectRef> {
         // unwind block stack on exception and find any handlers:
-        loop {
-            let block = self.pop_block();
-            match block {
-                Some(Block::TryExcept { handler }) => {
+        while let Some(block) = self.pop_block() {
+            match block.typ {
+                BlockType::TryExcept { handler } => {
                     self.push_value(exc);
                     self.jump(handler);
                     return None;
                 }
-                Some(Block::With {
+                BlockType::With {
                     end,
                     context_manager,
-                }) => {
+                } => {
                     match self.with_exit(vm, &context_manager, Some(exc.clone())) {
                         Ok(exit_action) => {
                             match objbool::boolval(vm, exit_action) {
@@ -797,15 +804,14 @@ impl Frame {
                         }
                     }
                 }
-                Some(Block::Loop { .. }) => {}
-                None => break,
+                BlockType::Loop { .. } => {}
             }
         }
         Some(exc)
     }
 
     fn with_exit(
-        &mut self,
+        &self,
         vm: &mut VirtualMachine,
         context_manager: &PyObjectRef,
         exc: Option<PyObjectRef>,
@@ -1061,12 +1067,17 @@ impl Frame {
         self.code.locations[self.lasti].clone()
     }
 
-    fn push_block(&mut self, block: Block) {
-        self.blocks.push(block);
+    fn push_block(&mut self, typ: BlockType) {
+        self.blocks.push(Block {
+            typ,
+            level: self.stack.len(),
+        });
     }
 
     fn pop_block(&mut self) -> Option<Block> {
-        self.blocks.pop()
+        let block = self.blocks.pop()?;
+        self.stack.truncate(block.level);
+        Some(block)
     }
 
     pub fn push_value(&mut self, obj: PyObjectRef) {
