@@ -74,7 +74,7 @@ If you wish to update the online documentation. Push directly to the `release` b
 
 Contributions are more than welcome, and in many cases we are happy to guide contributors through PRs or on gitter.
 
-With that in mind, please note this project is maintained by voulenteers, some of the best ways to get started are below:
+With that in mind, please note this project is maintained by volunteers, some of the best ways to get started are below:
 
 Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustPython/issues).
 Check issues labeled with `good first issue` if you wish to start coding.
