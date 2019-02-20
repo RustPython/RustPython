@@ -16,6 +16,7 @@ struct Compiler {
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
+    in_loop: bool,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -73,6 +74,7 @@ impl Compiler {
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
+            in_loop: false,
         }
     }
 
@@ -229,7 +231,10 @@ impl Compiler {
                 self.set_label(start_label);
 
                 self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
+
+                self.in_loop = true;
                 self.compile_statements(body)?;
+                self.in_loop = false;
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
@@ -291,7 +296,10 @@ impl Compiler {
                 self.compile_store(target)?;
 
                 // Body of loop:
+                self.in_loop = true;
                 self.compile_statements(body)?;
+                self.in_loop = false;
+
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
@@ -564,9 +572,15 @@ impl Compiler {
                 self.set_label(end_label);
             }
             ast::Statement::Break => {
+                if !self.in_loop {
+                    return Err(CompileError::SyntaxErr(String::from("break")));
+                }
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
+                if !self.in_loop {
+                    return Err(CompileError::SyntaxErr(String::from("continue")));
+                }
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
@@ -649,6 +663,7 @@ impl Compiler {
         name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, CompileError> {
+        self.in_loop = false;
         let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
