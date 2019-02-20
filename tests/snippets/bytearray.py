@@ -33,3 +33,10 @@ assert not bytearray(b'is Not title casE').istitle()
 a = bytearray(b'abcd')
 a.clear()
 assert len(a) == 0
+
+try:
+    bytearray([400])
+except ValueError:
+    pass
+else:
+    assert False

@@ -119,7 +119,11 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let mut data_bytes = vec![];
         for elem in elements.iter() {
             let v = objint::to_int(vm, elem, 10)?;
-            data_bytes.push(v.to_u8().unwrap());
+            if let Some(i) = v.to_u8() {
+                data_bytes.push(i);
+            } else {
+                return Err(vm.new_value_error("byte must be in range(0, 256)".to_string()));
+            }
         }
         data_bytes
     // return Err(vm.new_type_error("Cannot construct bytes".to_string()));
