@@ -34,6 +34,13 @@ a = bytearray(b'abcd')
 a.clear()
 assert len(a) == 0
 
+try:
+    bytearray([400])
+except ValueError:
+      pass
+else:
+    assert False
+
 b = bytearray(b'test')
 assert len(b) == 4
 b.pop()
