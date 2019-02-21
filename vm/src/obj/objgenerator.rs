@@ -2,7 +2,6 @@
  * The mythical generator.
  */
 
-use super::objtype;
 use crate::frame::{ExecutionResult, Frame};
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,

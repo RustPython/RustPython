@@ -1,5 +1,4 @@
 use super::objiter;
-use super::objtype;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 

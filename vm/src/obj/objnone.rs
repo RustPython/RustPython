@@ -1,4 +1,3 @@
-use super::objtype;
 use crate::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 

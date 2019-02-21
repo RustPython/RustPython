@@ -1,6 +1,6 @@
 //! The python `time` module.
 
-use crate::obj::{objfloat, objtype};
+use crate::obj::objfloat;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 use std::thread;

@@ -1,5 +1,4 @@
 use super::objint;
-use super::objtype; // Required for arg_check! to use isinstance
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };

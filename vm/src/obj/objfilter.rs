@@ -1,6 +1,5 @@
 use super::objbool;
 use super::objiter;
-use super::objtype;
 use crate::pyobject::{
     IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
 };

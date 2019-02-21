@@ -1,4 +1,3 @@
-use super::objtype;
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyResult, TypeProtocol,
 };
