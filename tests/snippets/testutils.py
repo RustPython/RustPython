@@ -14,7 +14,7 @@ def assert_raises(exc_type, expr, msg=None):
     except exc_type:
         pass
     else:
-        failmsg = '%s was not raised' % exc_type.__name__
+        failmsg = '{!s} was not raised'.format(exc_type.__name__)
         if msg is not None:
-            failmsg += ': %s' % msg
+            failmsg += ': {!s}'.formt(msg)
         assert False, failmsg
