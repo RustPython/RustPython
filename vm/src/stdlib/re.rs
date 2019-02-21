@@ -8,7 +8,7 @@
 extern crate regex;
 use self::regex::Regex;
 
-use crate::obj::{objstr, objtype};
+use crate::obj::objstr;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 

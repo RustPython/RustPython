@@ -2,7 +2,6 @@
 
 */
 
-use super::objtype;
 use crate::bytecode;
 use crate::pyobject::{
     IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,

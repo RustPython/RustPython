@@ -2,7 +2,6 @@
 
 */
 
-use super::objtype;
 use crate::frame::Frame;
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,

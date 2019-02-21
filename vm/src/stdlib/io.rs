@@ -17,7 +17,6 @@ use super::os;
 use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
-use crate::obj::objtype;
 
 use crate::pyobject::{
     AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef,

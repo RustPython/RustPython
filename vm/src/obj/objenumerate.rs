@@ -1,6 +1,5 @@
 use super::objint;
 use super::objiter;
-use super::objtype; // Required for arg_check! to use isinstance
 use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;

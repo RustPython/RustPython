@@ -10,7 +10,6 @@ use num_traits::cast::ToPrimitive;
 //custom imports
 use crate::obj::objint;
 use crate::obj::objstr;
-use crate::obj::objtype;
 // use crate::obj::objdict;
 
 use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};

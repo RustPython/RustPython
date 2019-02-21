@@ -4,7 +4,7 @@
 
 extern crate rustpython_parser;
 use self::rustpython_parser::lexer;
-use crate::obj::{objstr, objtype};
+use crate::obj::objstr;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 

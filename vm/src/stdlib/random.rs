@@ -2,7 +2,7 @@
 
 extern crate rand;
 
-use crate::obj::{objfloat, objtype};
+use crate::obj::objfloat;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::stdlib::random::rand::distributions::{Distribution, Normal};
 use crate::VirtualMachine;
