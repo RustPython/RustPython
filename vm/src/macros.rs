@@ -105,3 +105,15 @@ macro_rules! no_kwargs {
         }
     };
 }
+
+macro_rules! py_module {
+    ( $ctx:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        {
+            let py_mod = $ctx.new_module($module_name, $ctx.new_scope(None));
+        $(
+            $ctx.set_attr(&py_mod, $name, $value);
+        )*
+        py_mod
+        }
+    }
+}
