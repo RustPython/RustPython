@@ -20,8 +20,8 @@ use rustpython_vm::{
 };
 use rustyline::{error::ReadlineError, Editor};
 use std::{
-    error::Error,
     path::{Path, PathBuf},
+    process
 };
 
 fn main() {
@@ -191,6 +191,9 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
     loop {
         match repl.readline(prompt) {
             Ok(line) => {
+                if line == "exit()" || line == "quit()" {
+                    process::exit(0);
+                }
                 debug!("You entered {:?}", line);
                 input.push_str(&line);
                 input.push_str("\n");
