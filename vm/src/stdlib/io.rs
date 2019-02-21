@@ -421,18 +421,18 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     };
     ctx.set_attr(&py_mod, "TextIOWrapper", text_io_wrapper.clone());
 
-    // BytesIO: in-memory bytes
+    //StringIO: in-memory text
     let string_io = {
-        let string_io = ctx.new_class("StringIO", io_base.clone());
+        let string_io = ctx.new_class("StringIO", text_io_base.clone());
         ctx.set_attr(&string_io, "__init__", ctx.new_rustfunc(string_io_init));
         ctx.set_attr(&string_io, "getvalue", ctx.new_rustfunc(string_io_getvalue));
         string_io
     };
     ctx.set_attr(&py_mod, "StringIO", string_io);
 
-    // StringIO: in-memory text
+    //BytesIO: in-memory bytes
     let bytes_io = {
-        let bytes_io = ctx.new_class("BytesIO", io_base.clone());
+        let bytes_io = ctx.new_class("BytesIO", buffered_io_base.clone());
         ctx.set_attr(&bytes_io, "__init__", ctx.new_rustfunc(bytes_io_init));
         ctx.set_attr(&bytes_io, "getvalue", ctx.new_rustfunc(bytes_io_getvalue));
         bytes_io

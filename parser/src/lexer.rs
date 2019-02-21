@@ -274,7 +274,6 @@ where
         let mut saw_f = false;
         loop {
             // Detect r"", f"", b"" and u""
-            // TODO: handle f-strings
             if !(saw_b || saw_u || saw_f) && (self.chr0 == Some('b') || self.chr0 == Some('B')) {
                 saw_b = true;
             } else if !(saw_b || saw_r || saw_u || saw_f)
@@ -442,7 +441,7 @@ where
         is_bytes: bool,
         is_raw: bool,
         _is_unicode: bool,
-        _is_fstring: bool,
+        is_fstring: bool,
     ) -> Spanned<Tok> {
         let quote_char = self.next_char().unwrap();
         let mut string_content = String::new();
@@ -533,6 +532,7 @@ where
         } else {
             Tok::String {
                 value: string_content,
+                is_fstring,
             }
         };
 
@@ -541,7 +541,7 @@ where
 
     fn is_char(&self) -> bool {
         match self.chr0 {
-            Some('a'...'z') | Some('A'...'Z') | Some('_') | Some('0'...'9') => true,
+            Some('a'..='z') | Some('A'..='Z') | Some('_') | Some('0'..='9') => true,
             _ => false,
         }
     }
@@ -549,19 +549,19 @@ where
     fn is_number(&self, radix: u32) -> bool {
         match radix {
             2 => match self.chr0 {
-                Some('0'...'1') => true,
+                Some('0'..='1') => true,
                 _ => false,
             },
             8 => match self.chr0 {
-                Some('0'...'7') => true,
+                Some('0'..='7') => true,
                 _ => false,
             },
             10 => match self.chr0 {
-                Some('0'...'9') => true,
+                Some('0'..='9') => true,
                 _ => false,
             },
             16 => match self.chr0 {
-                Some('0'...'9') | Some('a'...'f') | Some('A'...'F') => true,
+                Some('0'..='9') | Some('a'..='f') | Some('A'..='F') => true,
                 _ => false,
             },
             x => unimplemented!("Radix not implemented: {}", x),
@@ -686,8 +686,8 @@ where
             }
 
             match self.chr0 {
-                Some('0'...'9') => return Some(self.lex_number()),
-                Some('_') | Some('a'...'z') | Some('A'...'Z') => return Some(self.lex_identifier()),
+                Some('0'..='9') => return Some(self.lex_number()),
+                Some('_') | Some('a'..='z') | Some('A'..='Z') => return Some(self.lex_identifier()),
                 Some('#') => {
                     self.lex_comment();
                     continue;
@@ -1108,9 +1108,11 @@ mod tests {
             vec![
                 Tok::String {
                     value: "\\\\".to_string(),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: "\\".to_string(),
+                    is_fstring: false,
                 }
             ]
         );
@@ -1402,21 +1404,27 @@ mod tests {
             vec![
                 Tok::String {
                     value: String::from("double"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("single"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("can't"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\\\""),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\t\r\n"),
+                    is_fstring: false,
                 },
                 Tok::String {
                     value: String::from("\\g"),
+                    is_fstring: false,
                 },
             ]
         );
@@ -1434,6 +1442,7 @@ mod tests {
                     vec![
                         Tok::String {
                             value: String::from("abcdef"),
+                            is_fstring: false,
                         },
                     ]
                 )

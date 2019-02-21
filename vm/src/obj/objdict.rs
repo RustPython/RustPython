@@ -1,5 +1,6 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objiter;
@@ -114,6 +115,25 @@ pub fn content_contains_key_str(elements: &DictContentType, key: &str) -> bool {
     elements.get(key).is_some()
 }
 
+/// Take a python dictionary and convert it to attributes.
+pub fn py_dict_to_attributes(dict: &PyObjectRef) -> PyAttributes {
+    let mut attrs = PyAttributes::new();
+    for (key, value) in get_key_value_pairs(dict) {
+        let key = objstr::get_value(&key);
+        attrs.insert(key, value);
+    }
+    attrs
+}
+
+pub fn attributes_to_py_dict(vm: &mut VirtualMachine, attributes: PyAttributes) -> PyResult {
+    let dict = vm.ctx.new_dict();
+    for (key, value) in attributes {
+        let key = vm.ctx.new_str(key);
+        set_item(&dict, vm, &key, &value);
+    }
+    Ok(dict)
+}
+
 // Python dict methods:
 
 fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -224,6 +244,12 @@ fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn dict_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
+    get_mut_elements(dict).clear();
+    Ok(vm.get_none())
+}
+
 /// When iterating over a dictionary, we iterate over the keys of it.
 fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
@@ -317,4 +343,5 @@ pub fn init(context: &PyContext) {
         "__setitem__",
         context.new_rustfunc(dict_setitem),
     );
+    context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
 }

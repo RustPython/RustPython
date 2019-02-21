@@ -5,7 +5,6 @@ assert type(enumerate([])) == enumerate
 assert list(enumerate(['a', 'b', 'c'], -100)) == [(-100, 'a'), (-99, 'b'), (-98, 'c')]
 assert list(enumerate(['a', 'b', 'c'], 2**200)) == [(2**200, 'a'), (2**200 + 1, 'b'), (2**200 + 2, 'c')]
 
-
 # test infinite iterator
 class Counter(object):
     counter = 0

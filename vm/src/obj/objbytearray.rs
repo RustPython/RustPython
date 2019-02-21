@@ -1,12 +1,13 @@
 //! Implementation of the python bytearray object.
 
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
 };
 
 use super::objint;
 
 use super::super::vm::VirtualMachine;
+use super::objbytes::get_mut_value;
 use super::objbytes::get_value;
 use super::objtype;
 use num_traits::ToPrimitive;
@@ -95,6 +96,22 @@ pub fn init(context: &PyContext) {
         "istitle",
         context.new_rustfunc(bytearray_istitle),
     );
+    context.set_attr(
+        &bytearray_type,
+        "clear",
+        context.new_rustfunc(bytearray_clear),
+    );
+    context.set_attr(&bytearray_type, "pop", context.new_rustfunc(bytearray_pop));
+    context.set_attr(
+        &bytearray_type,
+        "lower",
+        context.new_rustfunc(bytearray_lower),
+    );
+    context.set_attr(
+        &bytearray_type,
+        "upper",
+        context.new_rustfunc(bytearray_upper),
+    );
 }
 
 fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -114,7 +131,11 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let mut data_bytes = vec![];
         for elem in elements.iter() {
             let v = objint::to_int(vm, elem, 10)?;
-            data_bytes.push(v.to_u8().unwrap());
+            if let Some(i) = v.to_u8() {
+                data_bytes.push(i);
+            } else {
+                return Err(vm.new_value_error("byte must be in range(0, 256)".to_string()));
+            }
         }
         data_bytes
     // return Err(vm.new_type_error("Cannot construct bytes".to_string()));
@@ -177,7 +198,7 @@ fn bytearray_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         !bytes.is_empty()
             && bytes
                 .iter()
-                .filter(|x| char::from(**x).is_whitespace())
+                .filter(|x| !char::from(**x).is_whitespace())
                 .all(|x| char::from(*x).is_lowercase()),
     ))
 }
@@ -260,4 +281,45 @@ fn bytearray_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(obj);
     let data = String::from_utf8(value.to_vec()).unwrap();
     Ok(vm.new_str(format!("bytearray(b'{}')", data)))
+}
+
+fn bytearray_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
+    let mut mut_obj = zelf.borrow_mut();
+    match mut_obj.payload {
+        PyObjectPayload::Bytes { ref mut value } => {
+            value.clear();
+            Ok(vm.get_none())
+        }
+        _ => panic!("Bytearray has incorrect payload."),
+    }
+}
+
+fn bytearray_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
+    let mut value = get_mut_value(obj);
+
+    if let Some(i) = value.pop() {
+        Ok(vm.ctx.new_int(i))
+    } else {
+        Err(vm.new_index_error("pop from empty bytearray".to_string()))
+    }
+}
+
+fn bytearray_lower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
+    let value = get_value(obj).to_vec().to_ascii_lowercase();
+    Ok(PyObject::new(
+        PyObjectPayload::Bytes { value },
+        vm.ctx.bytearray_type(),
+    ))
+}
+
+fn bytearray_upper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
+    let value = get_value(obj).to_vec().to_ascii_uppercase();
+    Ok(PyObject::new(
+        PyObjectPayload::Bytes { value },
+        vm.ctx.bytearray_type(),
+    ))
 }

@@ -5,7 +5,7 @@ extern crate rand;
 use super::super::obj::{objfloat, objtype};
 use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use super::super::VirtualMachine;
-use stdlib::random::rand::distributions::{Distribution, Normal};
+use crate::stdlib::random::rand::distributions::{Distribution, Normal};
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"random".to_string(), ctx.new_scope(None));

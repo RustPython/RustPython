@@ -1,4 +1,4 @@
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use super::super::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
 use super::super::vm::VirtualMachine;
 use super::objtype;
 

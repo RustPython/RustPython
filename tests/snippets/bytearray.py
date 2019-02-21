@@ -18,14 +18,50 @@ assert not bytearray(b'abc1').isalpha()
 assert bytearray(b'1234567890').isdigit()
 assert not bytearray(b'12ab').isdigit()
 
-assert bytearray(b'lower').islower()
+l = bytearray(b'lower')
+assert l.islower()
+assert not l.isupper()
+assert l.upper().isupper()
 assert not bytearray(b'Super Friends').islower()
 
 assert bytearray(b' \n\t').isspace()
 assert not bytearray(b'\td\n').isspace()
 
-assert bytearray(b'UPPER').isupper()
+b = bytearray(b'UPPER')
+assert b.isupper()
+assert not b.islower()
+assert b.lower().islower()
 assert not bytearray(b'tuPpEr').isupper()
 
 assert bytearray(b'Is Title Case').istitle()
 assert not bytearray(b'is Not title casE').istitle()
+
+a = bytearray(b'abcd')
+a.clear()
+assert len(a) == 0
+
+try:
+    bytearray([400])
+except ValueError:
+      pass
+else:
+    assert False
+
+b = bytearray(b'test')
+assert len(b) == 4
+b.pop()
+assert len(b) == 3
+
+c = bytearray([123, 255, 111])
+assert len(c) == 3
+c.pop()
+assert len(c) == 2
+c.pop()
+c.pop()
+
+try:
+    c.pop()
+except IndexError:
+    pass
+else:
+    assert False

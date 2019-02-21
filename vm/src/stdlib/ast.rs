@@ -516,11 +516,7 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
 
             node
         }
-        ast::Expression::String { value } => {
-            let node = create_node(ctx, "Str");
-            ctx.set_attr(&node, "s", ctx.new_str(value.clone()));
-            node
-        }
+        ast::Expression::String { value } => string_to_ast(ctx, value),
         ast::Expression::Bytes { value } => {
             let node = create_node(ctx, "Bytes");
             ctx.set_attr(&node, "s", ctx.new_bytes(value.clone()));
@@ -567,17 +563,39 @@ fn comprehension_to_ast(ctx: &PyContext, comprehension: &ast::Comprehension) -> 
     node
 }
 
+fn string_to_ast(ctx: &PyContext, string: &ast::StringGroup) -> PyObjectRef {
+    match string {
+        ast::StringGroup::Constant { value } => {
+            let node = create_node(ctx, "Str");
+            ctx.set_attr(&node, "s", ctx.new_str(value.clone()));
+            node
+        }
+        ast::StringGroup::FormattedValue { value, .. } => {
+            let node = create_node(ctx, "FormattedValue");
+            let py_value = expression_to_ast(ctx, value);
+            ctx.set_attr(&node, "value", py_value);
+            node
+        }
+        ast::StringGroup::Joined { values } => {
+            let node = create_node(ctx, "JoinedStr");
+            let py_values = ctx.new_list(
+                values
+                    .iter()
+                    .map(|value| string_to_ast(ctx, value))
+                    .collect(),
+            );
+            ctx.set_attr(&node, "values", py_values);
+            node
+        }
+    }
+}
+
 fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(source, Some(vm.ctx.str_type()))]);
 
     let source_string = objstr::get_value(source);
-    let internal_ast = match parser::parse_program(&source_string) {
-        Ok(ast) => ast,
-        Err(msg) => {
-            return Err(vm.new_value_error(msg));
-        }
-    };
-
+    let internal_ast = parser::parse_program(&source_string)
+        .map_err(|err| vm.new_value_error(format!("{}", err)))?;
     // source.clone();
     let ast_node = program_to_ast(&vm.ctx, &internal_ast);
     Ok(ast_node)

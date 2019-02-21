@@ -158,7 +158,8 @@ pub struct PyContext {
  */
 #[derive(Debug)]
 pub struct Scope {
-    pub locals: PyObjectRef,         // Variables
+    pub locals: PyObjectRef, // Variables
+    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
     pub parent: Option<PyObjectRef>, // Parent scope
 }
 
@@ -645,10 +646,6 @@ impl PyContext {
                 let key = self.new_str(key.to_string());
                 objdict::set_item_in_content(elements, &key, &v);
             }
-            PyObjectPayload::Module { ref mut dict, .. } => self.set_item(dict, key, v),
-            PyObjectPayload::Scope { ref mut scope } => {
-                self.set_item(&scope.locals, key, v);
-            }
             ref k => panic!("TODO {:?}", k),
         };
     }
@@ -662,9 +659,12 @@ impl PyContext {
 
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
         match obj.borrow().payload {
-            PyObjectPayload::Module { ref dict, .. } => self.set_item(dict, attr_name, value),
+            PyObjectPayload::Module { ref dict, .. } => self.set_attr(dict, attr_name, value),
             PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
                 dict.borrow_mut().insert(attr_name.to_string(), value);
+            }
+            PyObjectPayload::Scope { ref scope } => {
+                self.set_item(&scope.locals, attr_name, value);
             }
             ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
         };
@@ -829,7 +829,6 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_contains_key_str(elements, k)
             }
-            PyObjectPayload::Module { ref dict, .. } => dict.contains_key(k),
             PyObjectPayload::Scope { ref scope } => scope.locals.contains_key(k),
             ref payload => unimplemented!("TODO {:?}", payload),
         }
@@ -838,7 +837,6 @@ impl DictProtocol for PyObjectRef {
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         match self.borrow().payload {
             PyObjectPayload::Dict { ref elements } => objdict::content_get_key_str(elements, k),
-            PyObjectPayload::Module { ref dict, .. } => dict.get_item(k),
             PyObjectPayload::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }

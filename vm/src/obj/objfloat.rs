@@ -198,19 +198,23 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+        required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
 
-    let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm.ctx.new_float(v1 + get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    let v1 = get_value(zelf);
+    if objtype::isinstance(other, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_float(v1 + get_value(other)))
+    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
-            .new_float(v1 + objint::get_value(i2).to_f64().unwrap()))
+            .new_float(v1 + objint::get_value(other).to_f64().unwrap()))
     } else {
         Ok(vm.ctx.not_implemented())
     }
+}
+
+fn float_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    float_add(vm, args)
 }
 
 fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -259,15 +263,33 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+        required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
-    let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm.ctx.new_float(v1 - get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    let v1 = get_value(zelf);
+    if objtype::isinstance(other, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_float(v1 - get_value(other)))
+    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
-            .new_float(v1 - objint::get_value(i2).to_f64().unwrap()))
+            .new_float(v1 - objint::get_value(other).to_f64().unwrap()))
+    } else {
+        Ok(vm.ctx.not_implemented())
+    }
+}
+
+fn float_rsub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
+    );
+    let v1 = get_value(zelf);
+    if objtype::isinstance(other, &vm.ctx.float_type()) {
+        Ok(vm.ctx.new_float(get_value(other) - v1))
+    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
+        Ok(vm
+            .ctx
+            .new_float(objint::get_value(other).to_f64().unwrap() - v1))
     } else {
         Ok(vm.ctx.not_implemented())
     }
@@ -328,18 +350,18 @@ fn float_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+        required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
 
-    let v1 = get_value(i);
-    let v2 = if objtype::isinstance(i2, &vm.ctx.float_type) {
-        get_value(i2)
-    } else if objtype::isinstance(i2, &vm.ctx.int_type) {
-        objint::get_value(i2)
+    let v1 = get_value(zelf);
+    let v2 = if objtype::isinstance(other, &vm.ctx.float_type) {
+        get_value(other)
+    } else if objtype::isinstance(other, &vm.ctx.int_type) {
+        objint::get_value(other)
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
     } else {
-        return Err(vm.new_type_error(format!("Cannot divide {} and {}", i.borrow(), i2.borrow())));
+        return Ok(vm.ctx.not_implemented());
     };
 
     if v2 != 0.0 {
@@ -349,26 +371,51 @@ fn float_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn float_rtruediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
+    );
+
+    let v1 = get_value(zelf);
+    let v2 = if objtype::isinstance(other, &vm.ctx.float_type) {
+        get_value(other)
+    } else if objtype::isinstance(other, &vm.ctx.int_type) {
+        objint::get_value(other)
+            .to_f64()
+            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
+    } else {
+        return Ok(vm.ctx.not_implemented());
+    };
+
+    if v1 != 0.0 {
+        Ok(vm.ctx.new_float(v2 / v1))
+    } else {
+        Err(vm.new_zero_division_error("float division by zero".to_string()))
+    }
+}
+
 fn float_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.float_type())), (i2, None)]
+        required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
-    let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.float_type) {
-        Ok(vm.ctx.new_float(v1 * get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type) {
+    let v1 = get_value(zelf);
+    if objtype::isinstance(other, &vm.ctx.float_type) {
+        Ok(vm.ctx.new_float(v1 * get_value(other)))
+    } else if objtype::isinstance(other, &vm.ctx.int_type) {
         Ok(vm
             .ctx
-            .new_float(v1 * objint::get_value(i2).to_f64().unwrap()))
+            .new_float(v1 * objint::get_value(other).to_f64().unwrap()))
     } else {
-        Err(vm.new_type_error(format!(
-            "Cannot multiply {} and {}",
-            i.borrow(),
-            i2.borrow()
-        )))
+        Ok(vm.ctx.not_implemented())
     }
+}
+
+fn float_rmul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    float_mul(vm, args)
 }
 
 pub fn init(context: &PyContext) {
@@ -383,6 +430,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&float_type, "__ge__", context.new_rustfunc(float_ge));
     context.set_attr(&float_type, "__abs__", context.new_rustfunc(float_abs));
     context.set_attr(&float_type, "__add__", context.new_rustfunc(float_add));
+    context.set_attr(&float_type, "__radd__", context.new_rustfunc(float_radd));
     context.set_attr(
         &float_type,
         "__divmod__",
@@ -398,6 +446,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&float_type, "__neg__", context.new_rustfunc(float_neg));
     context.set_attr(&float_type, "__pow__", context.new_rustfunc(float_pow));
     context.set_attr(&float_type, "__sub__", context.new_rustfunc(float_sub));
+    context.set_attr(&float_type, "__rsub__", context.new_rustfunc(float_rsub));
     context.set_attr(&float_type, "__repr__", context.new_rustfunc(float_repr));
     context.set_attr(
         &float_type,
@@ -409,5 +458,11 @@ pub fn init(context: &PyContext) {
         "__truediv__",
         context.new_rustfunc(float_truediv),
     );
+    context.set_attr(
+        &float_type,
+        "__rtruediv__",
+        context.new_rustfunc(float_rtruediv),
+    );
     context.set_attr(&float_type, "__mul__", context.new_rustfunc(float_mul));
+    context.set_attr(&float_type, "__rmul__", context.new_rustfunc(float_rmul));
 }

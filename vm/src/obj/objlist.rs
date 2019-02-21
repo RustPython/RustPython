@@ -1,5 +1,6 @@
 use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
@@ -65,6 +66,10 @@ fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
+
+    if zelf.is(&other) {
+        return Ok(vm.ctx.new_bool(true));
+    }
 
     let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
@@ -181,6 +186,21 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn list_iadd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    if objtype::isinstance(other, &vm.ctx.list_type()) {
+        get_mut_elements(zelf).extend_from_slice(&get_elements(other));
+        Ok(zelf.clone())
+    } else {
+        Ok(vm.ctx.not_implemented())
+    }
+}
+
 fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
@@ -219,6 +239,12 @@ fn list_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn list_copy(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.list_type()))]);
+    let elements = get_elements(zelf);
+    Ok(vm.ctx.new_list(elements.clone()))
+}
+
 fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -228,9 +254,13 @@ fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
     let mut count: usize = 0;
     for element in elements.iter() {
-        let is_eq = vm._eq(element.clone(), value.clone())?;
-        if objbool::boolval(vm, is_eq)? {
+        if value.is(&element) {
             count += 1;
+        } else {
+            let is_eq = vm._eq(element.clone(), value.clone())?;
+            if objbool::boolval(vm, is_eq)? {
+                count += 1;
+            }
         }
     }
     Ok(vm.context().new_int(count))
@@ -256,6 +286,9 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for (index, element) in get_elements(list).iter().enumerate() {
+        if needle.is(&element) {
+            return Ok(vm.context().new_int(index));
+        }
         let py_equal = vm._eq(needle.clone(), element.clone())?;
         if objbool::get_value(&py_equal) {
             return Ok(vm.context().new_int(index));
@@ -329,6 +362,9 @@ fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for element in get_elements(list).iter() {
+        if needle.is(&element) {
+            return Ok(vm.new_bool(true));
+        }
         match vm._eq(needle.clone(), element.clone()) {
             Ok(value) => {
                 if objbool::get_value(&value) {
@@ -403,6 +439,36 @@ fn list_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(list, Some(vm.ctx.list_type())), (needle, None)]
+    );
+
+    let mut ri: Option<usize> = None;
+    for (index, element) in get_elements(list).iter().enumerate() {
+        if needle.is(&element) {
+            ri = Some(index);
+            break;
+        }
+        let py_equal = vm._eq(needle.clone(), element.clone())?;
+        if objbool::get_value(&py_equal) {
+            ri = Some(index);
+            break;
+        }
+    }
+
+    if let Some(index) = ri {
+        let mut elements = get_mut_elements(list);
+        elements.remove(index);
+        Ok(vm.get_none())
+    } else {
+        let needle_str = objstr::get_value(&vm.to_str(needle)?);
+        Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
+    }
+}
+
 pub fn init(context: &PyContext) {
     let list_type = &context.list_type;
 
@@ -411,6 +477,7 @@ pub fn init(context: &PyContext) {
                     The argument must be an iterable if specified.";
 
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
+    context.set_attr(&list_type, "__iadd__", context.new_rustfunc(list_iadd));
     context.set_attr(
         &list_type,
         "__contains__",
@@ -439,6 +506,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "__doc__", context.new_str(list_doc.to_string()));
     context.set_attr(&list_type, "append", context.new_rustfunc(list_append));
     context.set_attr(&list_type, "clear", context.new_rustfunc(list_clear));
+    context.set_attr(&list_type, "copy", context.new_rustfunc(list_copy));
     context.set_attr(&list_type, "count", context.new_rustfunc(list_count));
     context.set_attr(&list_type, "extend", context.new_rustfunc(list_extend));
     context.set_attr(&list_type, "index", context.new_rustfunc(list_index));
@@ -446,4 +514,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "reverse", context.new_rustfunc(list_reverse));
     context.set_attr(&list_type, "sort", context.new_rustfunc(list_sort));
     context.set_attr(&list_type, "pop", context.new_rustfunc(list_pop));
+    context.set_attr(&list_type, "remove", context.new_rustfunc(list_remove));
 }

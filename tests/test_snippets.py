@@ -77,8 +77,12 @@ def run_via_rustpython(filename, test_type):
     log_level = 'info' if test_type == _TestType.benchmark else 'trace'
     env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
     env['RUST_BACKTRACE'] = '1'
-    subprocess.check_call(
-        ['cargo', 'run', '--release', filename], env=env)
+    if env.get('CODE_COVERAGE', 'false') == 'true':
+        subprocess.check_call(
+            ['cargo', 'run', filename], env=env)
+    else:
+        subprocess.check_call(
+            ['cargo', 'run', '--release', filename], env=env)
 
 
 def create_test_function(cls, filename, method, test_type):

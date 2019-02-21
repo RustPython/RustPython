@@ -4,6 +4,7 @@
 
 // use std::ops::Deref;
 use std::char;
+use std::error::Error;
 use std::io::{self, Write};
 
 use super::compile;
@@ -101,8 +102,7 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_callable(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    // TODO: is this a sufficiently thorough check?
-    let is_callable = obj.has_attr("__call__");
+    let is_callable = obj.typ().has_attr("__call__");
     Ok(vm.new_bool(is_callable))
 }
 
@@ -150,7 +150,10 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let filename = objstr::get_value(filename);
 
-    compile::compile(vm, &source, &mode, filename)
+    compile::compile(&source, &mode, filename, vm.ctx.code_type()).map_err(|err| {
+        let syntax_error = vm.context().exceptions.syntax_error.clone();
+        vm.new_exception(syntax_error, err.to_string())
+    })
 }
 
 fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -200,28 +203,17 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, "<string>".to_string())?
+        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(
+            |err| {
+                let syntax_error = vm.context().exceptions.syntax_error.clone();
+                vm.new_exception(syntax_error, err.to_string())
+            },
+        )?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
 
-    let locals = if let Some(locals) = locals {
-        locals.clone()
-    } else {
-        vm.new_dict()
-    };
-
-    // TODO: handle optional globals
-    // Construct new scope:
-    let scope_inner = Scope {
-        locals,
-        parent: None,
-    };
-    let scope = PyObject {
-        payload: PyObjectPayload::Scope { scope: scope_inner },
-        typ: None,
-    }
-    .into_ref();
+    let scope = make_scope(vm, locals);
 
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
@@ -246,13 +238,25 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, "<string>".to_string())?
+        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(
+            |err| {
+                let syntax_error = vm.context().exceptions.syntax_error.clone();
+                vm.new_exception(syntax_error, err.to_string())
+            },
+        )?
     } else if objtype::isinstance(source, &vm.ctx.code_type()) {
         source.clone()
     } else {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };
 
+    let scope = make_scope(vm, locals);
+
+    // Run the code:
+    vm.run_code_obj(code_obj, scope)
+}
+
+fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
     // handle optional global and locals
     let locals = if let Some(locals) = locals {
         locals.clone()
@@ -260,21 +264,18 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.new_dict()
     };
 
-    // TODO: use globals
-
+    // TODO: handle optional globals
     // Construct new scope:
     let scope_inner = Scope {
         locals,
         parent: None,
     };
-    let scope = PyObject {
+
+    PyObject {
         payload: PyObjectPayload::Scope { scope: scope_inner },
         typ: None,
     }
-    .into_ref();
-
-    // Run the code:
-    vm.run_code_obj(code_obj, scope)
+    .into_ref()
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -570,27 +571,68 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("print called with {:?}", args);
+
+    // Handle 'sep' kwarg:
+    let sep_arg = args
+        .get_optional_kwarg("sep")
+        .filter(|obj| !obj.is(&vm.get_none()));
+    if let Some(ref obj) = sep_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "sep must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let sep_str = sep_arg.as_ref().map(|obj| objstr::borrow_value(obj));
+
+    // Handle 'end' kwarg:
+    let end_arg = args
+        .get_optional_kwarg("end")
+        .filter(|obj| !obj.is(&vm.get_none()));
+    if let Some(ref obj) = end_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "end must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let end_str = end_arg.as_ref().map(|obj| objstr::borrow_value(obj));
+
+    // Handle 'flush' kwarg:
+    let flush = if let Some(flush) = &args.get_optional_kwarg("flush") {
+        objbool::boolval(vm, flush.clone()).unwrap()
+    } else {
+        false
+    };
+
+    let stdout = io::stdout();
+    let mut stdout_lock = stdout.lock();
     let mut first = true;
     for a in &args.args {
         if first {
             first = false;
+        } else if let Some(ref sep_str) = sep_str {
+            write!(stdout_lock, "{}", sep_str).unwrap();
         } else {
-            print!(" ");
+            write!(stdout_lock, " ").unwrap();
         }
         let v = vm.to_str(&a)?;
-        let s = objstr::get_value(&v);
-        print!("{}", s);
+        let s = objstr::borrow_value(&v);
+        write!(stdout_lock, "{}", s).unwrap();
     }
 
-    // Handle 'end' kwarg:
-    if let Some(end_value) = &args.get_optional_kwarg("end") {
-        let end_str = objstr::get_value(end_value);
-        print!("{}", end_str);
+    if let Some(end_str) = end_str {
+        write!(stdout_lock, "{}", end_str).unwrap();
     } else {
-        println!();
+        writeln!(stdout_lock).unwrap();
     }
 
-    io::stdout().flush().unwrap();
+    if flush {
+        stdout_lock.flush().unwrap();
+    }
+
     Ok(vm.get_none())
 }
 
@@ -789,6 +831,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "ZeroDivisionError",
         ctx.exceptions.zero_division_error.clone(),
     );
+    ctx.set_attr(&py_mod, "KeyError", ctx.exceptions.key_error.clone());
 
     py_mod
 }

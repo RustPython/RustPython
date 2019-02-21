@@ -1,8 +1,8 @@
-use obj::objtype;
-use pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::obj::objtype;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 use std::rc::Rc;
 use std::{env, mem};
-use vm::VirtualMachine;
 
 /*
  * The magic sys module.

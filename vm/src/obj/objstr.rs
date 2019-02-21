@@ -7,6 +7,7 @@ use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
 use num_traits::ToPrimitive;
+use std::cell::Ref;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
@@ -108,6 +109,16 @@ pub fn get_value(obj: &PyObjectRef) -> String {
     } else {
         panic!("Inner error getting str");
     }
+}
+
+pub fn borrow_value(obj: &PyObjectRef) -> Ref<str> {
+    Ref::map(obj.borrow(), |py_obj| {
+        if let PyObjectPayload::String { value } = &py_obj.payload {
+            value.as_ref()
+        } else {
+            panic!("Inner error getting str");
+        }
+    })
 }
 
 fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -637,7 +648,7 @@ fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(ind))
 }
 
-// casefold is much more aggresive than lower
+// casefold is much more aggressive than lower
 fn str_casefold(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);

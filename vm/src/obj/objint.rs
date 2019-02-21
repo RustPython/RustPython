@@ -116,14 +116,23 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
         let other = BigInt::from_pyobj(other);
         zelf == other
-    } else if objtype::isinstance(other, &vm.ctx.float_type()) {
-        let other_float = objfloat::get_value(other);
+    } else {
+        return Ok(vm.ctx.not_implemented());
+    };
+    Ok(vm.ctx.new_bool(result))
+}
 
-        if let (Some(zelf_float), Some(other_int)) = (zelf.to_f64(), other_float.to_bigint()) {
-            zelf_float == other_float && zelf == other_int
-        } else {
-            false
-        }
+fn int_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
+    );
+
+    let zelf = BigInt::from_pyobj(zelf);
+    let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
+        let other = BigInt::from_pyobj(other);
+        zelf != other
     } else {
         return Ok(vm.ctx.not_implemented());
     };
@@ -134,11 +143,13 @@ fn int_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.int_type())),
-            (other, Some(vm.ctx.int_type()))
-        ]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+        return Ok(vm.ctx.not_implemented());
+    }
+
     let zelf = BigInt::from_pyobj(zelf);
     let other = BigInt::from_pyobj(other);
     let result = zelf < other;
@@ -149,11 +160,13 @@ fn int_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.int_type())),
-            (other, Some(vm.ctx.int_type()))
-        ]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+        return Ok(vm.ctx.not_implemented());
+    }
+
     let zelf = BigInt::from_pyobj(zelf);
     let other = BigInt::from_pyobj(other);
     let result = zelf <= other;
@@ -164,11 +177,13 @@ fn int_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.int_type())),
-            (other, Some(vm.ctx.int_type()))
-        ]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+        return Ok(vm.ctx.not_implemented());
+    }
+
     let zelf = BigInt::from_pyobj(zelf);
     let other = BigInt::from_pyobj(other);
     let result = zelf > other;
@@ -179,11 +194,13 @@ fn int_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [
-            (zelf, Some(vm.ctx.int_type())),
-            (other, Some(vm.ctx.int_type()))
-        ]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
+
+    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+        return Ok(vm.ctx.not_implemented());
+    }
+
     let zelf = BigInt::from_pyobj(zelf);
     let other = BigInt::from_pyobj(other);
     let result = zelf >= other;
@@ -268,18 +285,17 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(_i, Some(vm.ctx.int_type())), (i2, None)]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
-    let i = BigInt::from_pyobj(_i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(i + get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm
-            .ctx
-            .new_float(i.to_f64().unwrap() + objfloat::get_value(i2)))
+    if objtype::isinstance(other, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_int(get_value(zelf) + get_value(other)))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", _i.borrow(), i2.borrow())))
+        Ok(vm.ctx.not_implemented())
     }
+}
+
+fn int_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    int_add(vm, args)
 }
 
 fn int_float(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -344,15 +360,23 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(_i, Some(vm.ctx.int_type())), (i2, None)]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
-    let i = BigInt::from_pyobj(_i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(i - get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm
-            .ctx
-            .new_float(i.to_f64().unwrap() - objfloat::get_value(i2)))
+    if objtype::isinstance(other, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_int(get_value(zelf) - get_value(other)))
+    } else {
+        Ok(vm.ctx.not_implemented())
+    }
+}
+
+fn int_rsub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
+    );
+    if objtype::isinstance(other, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_int(get_value(other) - get_value(zelf)))
     } else {
         Ok(vm.ctx.not_implemented())
     }
@@ -362,44 +386,76 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_int(get_value(i) * get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        Ok(vm
-            .ctx
-            .new_float(get_value(i).to_f64().unwrap() * objfloat::get_value(i2)))
+    if objtype::isinstance(other, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_int(get_value(zelf) * get_value(other)))
     } else {
         Ok(vm.ctx.not_implemented())
     }
+}
+
+fn int_rmul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    int_mul(vm, args)
 }
 
 fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(i, Some(vm.ctx.int_type())), (i2, None)]
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    let v1 = get_value(i)
-        .to_f64()
-        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?;
-
-    let v2 = if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        get_value(i2)
-            .to_f64()
-            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
-    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
-        objfloat::get_value(i2)
+    if objtype::isinstance(other, &vm.ctx.int_type()) {
+        div_ints(vm, &get_value(zelf), &get_value(other))
     } else {
-        return Ok(vm.ctx.not_implemented());
-    };
+        Ok(vm.ctx.not_implemented())
+    }
+}
 
-    if v2 == 0.0 {
-        Err(vm.new_zero_division_error("integer division by zero".to_string()))
+fn int_rtruediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
+    );
+
+    if objtype::isinstance(other, &vm.ctx.int_type()) {
+        div_ints(vm, &get_value(other), &get_value(zelf))
     } else {
-        Ok(vm.ctx.new_float(v1 / v2))
+        Ok(vm.ctx.not_implemented())
+    }
+}
+
+#[inline]
+fn div_ints(vm: &mut VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
+    if i2.is_zero() {
+        return Err(vm.new_zero_division_error("integer division by zero".to_string()));
+    }
+
+    if let (Some(f1), Some(f2)) = (i1.to_f64(), i2.to_f64()) {
+        Ok(vm.ctx.new_float(f1 / f2))
+    } else {
+        let (quotient, mut rem) = i1.div_rem(i2);
+        let mut divisor = i2.clone();
+
+        if let Some(quotient) = quotient.to_f64() {
+            let rem_part = loop {
+                if rem.is_zero() {
+                    break 0.0;
+                } else if let (Some(rem), Some(divisor)) = (rem.to_f64(), divisor.to_f64()) {
+                    break rem / divisor;
+                } else {
+                    // try with smaller numbers
+                    rem /= 2;
+                    divisor /= 2;
+                }
+            };
+
+            Ok(vm.ctx.new_float(quotient + rem_part))
+        } else {
+            Err(vm.new_overflow_error("int too large to convert to float".to_string()))
+        }
     }
 }
 
@@ -570,12 +626,14 @@ Base 0 means to interpret the base from the string as an integer literal.
     let int_type = &context.int_type;
 
     context.set_attr(&int_type, "__eq__", context.new_rustfunc(int_eq));
+    context.set_attr(&int_type, "__ne__", context.new_rustfunc(int_ne));
     context.set_attr(&int_type, "__lt__", context.new_rustfunc(int_lt));
     context.set_attr(&int_type, "__le__", context.new_rustfunc(int_le));
     context.set_attr(&int_type, "__gt__", context.new_rustfunc(int_gt));
     context.set_attr(&int_type, "__ge__", context.new_rustfunc(int_ge));
     context.set_attr(&int_type, "__abs__", context.new_rustfunc(int_abs));
     context.set_attr(&int_type, "__add__", context.new_rustfunc(int_add));
+    context.set_attr(&int_type, "__radd__", context.new_rustfunc(int_radd));
     context.set_attr(&int_type, "__and__", context.new_rustfunc(int_and));
     context.set_attr(&int_type, "__divmod__", context.new_rustfunc(int_divmod));
     context.set_attr(&int_type, "__float__", context.new_rustfunc(int_float));
@@ -596,14 +654,21 @@ Base 0 means to interpret the base from the string as an integer literal.
     context.set_attr(&int_type, "__new__", context.new_rustfunc(int_new));
     context.set_attr(&int_type, "__mod__", context.new_rustfunc(int_mod));
     context.set_attr(&int_type, "__mul__", context.new_rustfunc(int_mul));
+    context.set_attr(&int_type, "__rmul__", context.new_rustfunc(int_rmul));
     context.set_attr(&int_type, "__neg__", context.new_rustfunc(int_neg));
     context.set_attr(&int_type, "__or__", context.new_rustfunc(int_or));
     context.set_attr(&int_type, "__pos__", context.new_rustfunc(int_pos));
     context.set_attr(&int_type, "__pow__", context.new_rustfunc(int_pow));
     context.set_attr(&int_type, "__repr__", context.new_rustfunc(int_repr));
     context.set_attr(&int_type, "__sub__", context.new_rustfunc(int_sub));
+    context.set_attr(&int_type, "__rsub__", context.new_rustfunc(int_rsub));
     context.set_attr(&int_type, "__format__", context.new_rustfunc(int_format));
     context.set_attr(&int_type, "__truediv__", context.new_rustfunc(int_truediv));
+    context.set_attr(
+        &int_type,
+        "__rtruediv__",
+        context.new_rustfunc(int_rtruediv),
+    );
     context.set_attr(&int_type, "__xor__", context.new_rustfunc(int_xor));
     context.set_attr(&int_type, "__rxor__", context.new_rustfunc(int_rxor));
     context.set_attr(&int_type, "__bool__", context.new_rustfunc(int_bool));

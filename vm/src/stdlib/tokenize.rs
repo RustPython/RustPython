@@ -29,7 +29,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module("tokenize", ctx.new_scope(None));
 
     // Number theory functions:
-    ctx.set_item(&py_mod, "tokenize", ctx.new_rustfunc(tokenize_tokenize));
+    ctx.set_attr(&py_mod, "tokenize", ctx.new_rustfunc(tokenize_tokenize));
 
     py_mod
 }

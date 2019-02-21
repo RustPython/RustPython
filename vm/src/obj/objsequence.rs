@@ -1,4 +1,6 @@
-use super::super::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
+use super::super::pyobject::{
+    IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+};
 use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
@@ -178,10 +180,12 @@ pub fn seq_equal(
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let eq = vm.call_method(&a.clone(), "__eq__", vec![b.clone()])?;
-            let value = objbool::boolval(vm, eq)?;
-            if !value {
-                return Ok(false);
+            if !a.is(&b) {
+                let eq = vm._eq(a.clone(), b.clone())?;
+                let value = objbool::boolval(vm, eq)?;
+                if !value {
+                    return Ok(false);
+                }
             }
         }
         Ok(true)
@@ -197,7 +201,7 @@ pub fn seq_lt(
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let lt = vm.call_method(&a.clone(), "__lt__", vec![b.clone()])?;
+            let lt = vm._lt(a.clone(), b.clone())?;
             let value = objbool::boolval(vm, lt)?;
             if !value {
                 return Ok(false);
@@ -210,8 +214,8 @@ pub fn seq_lt(
         let mut head = true; // true if `zelf` is the head of `other`
 
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let lt = vm.call_method(&a.clone(), "__lt__", vec![b.clone()])?;
-            let eq = vm.call_method(&a.clone(), "__eq__", vec![b.clone()])?;
+            let lt = vm._lt(a.clone(), b.clone())?;
+            let eq = vm._eq(a.clone(), b.clone())?;
             let lt_value = objbool::boolval(vm, lt)?;
             let eq_value = objbool::boolval(vm, eq)?;
 
@@ -237,7 +241,7 @@ pub fn seq_gt(
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let gt = vm.call_method(&a.clone(), "__gt__", vec![b.clone()])?;
+            let gt = vm._gt(a.clone(), b.clone())?;
             let value = objbool::boolval(vm, gt)?;
             if !value {
                 return Ok(false);
@@ -249,8 +253,8 @@ pub fn seq_gt(
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
             // This case is more complicated because it can still return true if
             // `other` is the head of `zelf` e.g. [1,2,3,4] > [1,2,3] should return true
-            let gt = vm.call_method(&a.clone(), "__gt__", vec![b.clone()])?;
-            let eq = vm.call_method(&a.clone(), "__eq__", vec![b.clone()])?;
+            let gt = vm._gt(a.clone(), b.clone())?;
+            let eq = vm._eq(a.clone(), b.clone())?;
             let gt_value = objbool::boolval(vm, gt)?;
             let eq_value = objbool::boolval(vm, eq)?;
 

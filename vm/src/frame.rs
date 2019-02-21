@@ -23,7 +23,15 @@ use super::vm::VirtualMachine;
 use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]
-enum Block {
+struct Block {
+    /// The type of block.
+    typ: BlockType,
+    /// The level of the value stack when the block was entered.
+    level: usize,
+}
+
+#[derive(Clone, Debug)]
+enum BlockType {
     Loop {
         start: bytecode::Label,
         end: bytecode::Label,
@@ -42,7 +50,7 @@ pub struct Frame {
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame
     stack: Vec<PyObjectRef>, // The main data frame of the stack machine
-    blocks: Vec<Block>,      // Block frames, for controling loops and exceptions
+    blocks: Vec<Block>,      // Block frames, for controlling loops and exceptions
     pub locals: PyObjectRef, // Variables
     pub lasti: usize,        // index of last instruction ran
 }
@@ -218,6 +226,16 @@ impl Frame {
                 }
                 Ok(None)
             }
+            bytecode::Instruction::BuildString { size } => {
+                let s = self
+                    .pop_multiple(*size)
+                    .into_iter()
+                    .map(|pyobj| objstr::get_value(&pyobj))
+                    .collect::<String>();
+                let str_obj = vm.ctx.new_str(s);
+                self.push_value(str_obj);
+                Ok(None)
+            }
             bytecode::Instruction::BuildList { size, unpack } => {
                 let elements = self.get_elements(vm, *size, *unpack)?;
                 let list_obj = vm.ctx.new_list(elements);
@@ -306,7 +324,9 @@ impl Frame {
                 vm.call_method(&dict_obj, "__setitem__", vec![key, value])?;
                 Ok(None)
             }
-            bytecode::Instruction::BinaryOperation { ref op } => self.execute_binop(vm, op),
+            bytecode::Instruction::BinaryOperation { ref op, inplace } => {
+                self.execute_binop(vm, op, *inplace)
+            }
             bytecode::Instruction::LoadAttr { ref name } => self.load_attr(vm, name),
             bytecode::Instruction::StoreAttr { ref name } => self.store_attr(vm, name),
             bytecode::Instruction::DeleteAttr { ref name } => self.delete_attr(vm, name),
@@ -345,21 +365,21 @@ impl Frame {
                 }
             }
             bytecode::Instruction::SetupLoop { start, end } => {
-                self.push_block(Block::Loop {
+                self.push_block(BlockType::Loop {
                     start: *start,
                     end: *end,
                 });
                 Ok(None)
             }
             bytecode::Instruction::SetupExcept { handler } => {
-                self.push_block(Block::TryExcept { handler: *handler });
+                self.push_block(BlockType::TryExcept { handler: *handler });
                 Ok(None)
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
                 // Call enter:
                 let obj = vm.call_method(&context_manager, "__enter__", vec![])?;
-                self.push_block(Block::With {
+                self.push_block(BlockType::With {
                     end: *end,
                     context_manager: context_manager.clone(),
                 });
@@ -368,22 +388,23 @@ impl Frame {
             }
             bytecode::Instruction::CleanupWith { end: end1 } => {
                 let block = self.pop_block().unwrap();
-                if let Block::With {
+                if let BlockType::With {
                     end: end2,
                     context_manager,
-                } = &block
+                } = &block.typ
                 {
-                    assert!(end1 == end2);
+                    debug_assert!(end1 == end2);
 
                     // call exit now with no exception:
-                    self.with_exit(vm, context_manager, None)?;
-                    Ok(None)
+                    self.with_exit(vm, &context_manager, None)?;
                 } else {
-                    panic!("Block stack is incorrect, expected a with block");
+                    unreachable!("Block stack is incorrect, expected a with block");
                 }
+
+                Ok(None)
             }
             bytecode::Instruction::PopBlock => {
-                self.pop_block();
+                self.pop_block().expect("no pop to block");
                 Ok(None)
             }
             bytecode::Instruction::GetIter => {
@@ -520,8 +541,11 @@ impl Frame {
 
             bytecode::Instruction::Break => {
                 let block = self.unwind_loop(vm);
-                if let Block::Loop { end, .. } = block {
+                if let BlockType::Loop { end, .. } = block.typ {
+                    self.pop_block();
                     self.jump(end);
+                } else {
+                    unreachable!()
                 }
                 Ok(None)
             }
@@ -531,10 +555,10 @@ impl Frame {
             }
             bytecode::Instruction::Continue => {
                 let block = self.unwind_loop(vm);
-                if let Block::Loop { start, .. } = block {
+                if let BlockType::Loop { start, .. } = block.typ {
                     self.jump(start);
                 } else {
-                    assert!(false);
+                    unreachable!();
                 }
                 Ok(None)
             }
@@ -630,6 +654,13 @@ impl Frame {
                 }
                 Ok(None)
             }
+            bytecode::Instruction::FormatValue { spec } => {
+                let value = self.pop_value();
+                let spec = vm.new_str(spec.clone());
+                let formatted = vm.call_method(&value, "__format__", vec![spec])?;
+                self.push_value(formatted);
+                Ok(None)
+            }
         }
     }
 
@@ -685,23 +716,22 @@ impl Frame {
 
         for (k, v) in obj.get_key_value_pairs().iter() {
             vm.ctx
-                .set_item(&self.locals, &objstr::get_value(k), v.clone());
+                .set_attr(&self.locals, &objstr::get_value(k), v.clone());
         }
         Ok(None)
     }
 
     // Unwind all blocks:
     fn unwind_blocks(&mut self, vm: &mut VirtualMachine) -> Option<PyObjectRef> {
-        loop {
-            let block = self.pop_block();
-            match block {
-                Some(Block::Loop { .. }) => {}
-                Some(Block::TryExcept { .. }) => {
+        while let Some(block) = self.pop_block() {
+            match block.typ {
+                BlockType::Loop { .. } => {}
+                BlockType::TryExcept { .. } => {
                     // TODO: execute finally handler
                 }
-                Some(Block::With {
+                BlockType::With {
                     context_manager, ..
-                }) => {
+                } => {
                     match self.with_exit(vm, &context_manager, None) {
                         Ok(..) => {}
                         Err(exc) => {
@@ -710,29 +740,31 @@ impl Frame {
                         }
                     }
                 }
-                None => break None,
             }
         }
+
+        None
     }
 
     fn unwind_loop(&mut self, vm: &mut VirtualMachine) -> Block {
         loop {
-            let block = self.pop_block();
-            match block {
-                Some(Block::Loop { .. }) => break block.unwrap(),
-                Some(Block::TryExcept { .. }) => {
+            let block = self.current_block().cloned().expect("not in a loop");
+            match block.typ {
+                BlockType::Loop { .. } => break block,
+                BlockType::TryExcept { .. } => {
                     // TODO: execute finally handler
                 }
-                Some(Block::With {
+                BlockType::With {
                     context_manager, ..
-                }) => match self.with_exit(vm, &context_manager, None) {
+                } => match self.with_exit(vm, &context_manager, None) {
                     Ok(..) => {}
                     Err(exc) => {
                         panic!("Exception in with __exit__ {:?}", exc);
                     }
                 },
-                None => panic!("No block to break / continue"),
             }
+
+            self.pop_block();
         }
     }
 
@@ -742,18 +774,17 @@ impl Frame {
         exc: PyObjectRef,
     ) -> Option<PyObjectRef> {
         // unwind block stack on exception and find any handlers:
-        loop {
-            let block = self.pop_block();
-            match block {
-                Some(Block::TryExcept { handler }) => {
+        while let Some(block) = self.pop_block() {
+            match block.typ {
+                BlockType::TryExcept { handler } => {
                     self.push_value(exc);
                     self.jump(handler);
                     return None;
                 }
-                Some(Block::With {
+                BlockType::With {
                     end,
                     context_manager,
-                }) => {
+                } => {
                     match self.with_exit(vm, &context_manager, Some(exc.clone())) {
                         Ok(exit_action) => {
                             match objbool::boolval(vm, exit_action) {
@@ -778,15 +809,14 @@ impl Frame {
                         }
                     }
                 }
-                Some(Block::Loop { .. }) => {}
-                None => break,
+                BlockType::Loop { .. } => {}
             }
         }
         Some(exc)
     }
 
     fn with_exit(
-        &mut self,
+        &self,
         vm: &mut VirtualMachine,
         context_manager: &PyObjectRef,
         exc: Option<PyObjectRef>,
@@ -812,7 +842,7 @@ impl Frame {
 
     fn store_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
-        vm.ctx.set_item(&self.locals, name, obj);
+        vm.ctx.set_attr(&self.locals, name, obj);
         Ok(None)
     }
 
@@ -876,27 +906,39 @@ impl Frame {
         &mut self,
         vm: &mut VirtualMachine,
         op: &bytecode::BinaryOperator,
+        inplace: bool,
     ) -> FrameResult {
         let b_ref = self.pop_value();
         let a_ref = self.pop_value();
         let value = match *op {
+            bytecode::BinaryOperator::Subtract if inplace => vm._isub(a_ref, b_ref),
             bytecode::BinaryOperator::Subtract => vm._sub(a_ref, b_ref),
+            bytecode::BinaryOperator::Add if inplace => vm._iadd(a_ref, b_ref),
             bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply if inplace => vm._imul(a_ref, b_ref),
             bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
-            bytecode::BinaryOperator::MatrixMultiply => {
-                vm.call_method(&a_ref, "__matmul__", vec![b_ref])
-            }
+            bytecode::BinaryOperator::MatrixMultiply if inplace => vm._imatmul(a_ref, b_ref),
+            bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
+            bytecode::BinaryOperator::Power if inplace => vm._ipow(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
-            bytecode::BinaryOperator::Divide => vm._div(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => {
-                vm.call_method(&a_ref, "__floordiv__", vec![b_ref])
-            }
+            bytecode::BinaryOperator::Divide if inplace => vm._itruediv(a_ref, b_ref),
+            bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide if inplace => vm._ifloordiv(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
+            // TODO: Subscript should probably have its own op
+            bytecode::BinaryOperator::Subscript if inplace => unreachable!(),
             bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
-            bytecode::BinaryOperator::Modulo => vm._modulo(a_ref, b_ref),
-            bytecode::BinaryOperator::Lshift => vm.call_method(&a_ref, "__lshift__", vec![b_ref]),
-            bytecode::BinaryOperator::Rshift => vm.call_method(&a_ref, "__rshift__", vec![b_ref]),
+            bytecode::BinaryOperator::Modulo if inplace => vm._imod(a_ref, b_ref),
+            bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift if inplace => vm._ilshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Rshift if inplace => vm._irshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
+            bytecode::BinaryOperator::Xor if inplace => vm._ixor(a_ref, b_ref),
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
+            bytecode::BinaryOperator::Or if inplace => vm._ior(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
+            bytecode::BinaryOperator::And if inplace => vm._iand(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
         }?;
 
@@ -1030,12 +1072,21 @@ impl Frame {
         self.code.locations[self.lasti].clone()
     }
 
-    fn push_block(&mut self, block: Block) {
-        self.blocks.push(block);
+    fn push_block(&mut self, typ: BlockType) {
+        self.blocks.push(Block {
+            typ,
+            level: self.stack.len(),
+        });
     }
 
     fn pop_block(&mut self) -> Option<Block> {
-        self.blocks.pop()
+        let block = self.blocks.pop()?;
+        self.stack.truncate(block.level);
+        Some(block)
+    }
+
+    fn current_block(&self) -> Option<&Block> {
+        self.blocks.last()
     }
 
     pub fn push_value(&mut self, obj: PyObjectRef) {

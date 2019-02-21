@@ -1,6 +1,5 @@
 use super::super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
 };
 use super::super::vm::VirtualMachine;
 use super::objbool;

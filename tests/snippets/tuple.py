@@ -27,3 +27,10 @@ assert repr(recursive) == "([(...)],)"
 
 assert (None, "", 1).index(1) == 2
 assert 1 in (None, "", 1)
+
+class Foo(object):
+    def __eq__(self, x):
+        return False
+
+foo = Foo()
+assert (foo,) == (foo,)

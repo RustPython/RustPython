@@ -1,43 +1,16 @@
-extern crate lalrpop_util;
-
-use std::error::Error;
-use std::fs::File;
-use std::io::Read;
 use std::iter;
-use std::path::Path;
 
 use super::ast;
+use super::error::ParseError;
 use super::lexer;
 use super::python;
 use super::token;
-
-pub fn read_file(filename: &Path) -> Result<String, String> {
-    info!("Loading file {:?}", filename);
-    match File::open(&filename) {
-        Ok(mut file) => {
-            let mut s = String::new();
-
-            match file.read_to_string(&mut s) {
-                Err(why) => Err(String::from("Reading file failed: ") + why.description()),
-                Ok(_) => Ok(s),
-            }
-        }
-        Err(why) => Err(String::from("Opening file failed: ") + why.description()),
-    }
-}
 
 /*
  * Parse python code.
  * Grammar may be inspired by antlr grammar for python:
  * https://github.com/antlr/grammars-v4/tree/master/python3
  */
-
-pub fn parse(filename: &Path) -> Result<ast::Program, String> {
-    info!("Parsing: {}", filename.display());
-    let txt = read_file(filename)?;
-    debug!("Read contents of file: {}", txt);
-    parse_program(&txt)
-}
 
 macro_rules! do_lalr_parsing {
     ($input: expr, $pat: ident, $tok: ident) => {{
@@ -46,7 +19,7 @@ macro_rules! do_lalr_parsing {
         let tokenizer = iter::once(Ok(marker_token)).chain(lxr);
 
         match python::TopParser::new().parse(tokenizer) {
-            Err(why) => Err(format!("{:?}", why)),
+            Err(err) => Err(ParseError::from(err)),
             Ok(top) => {
                 if let ast::Top::$pat(x) = top {
                     Ok(x)
@@ -58,11 +31,11 @@ macro_rules! do_lalr_parsing {
     }};
 }
 
-pub fn parse_program(source: &str) -> Result<ast::Program, String> {
+pub fn parse_program(source: &str) -> Result<ast::Program, ParseError> {
     do_lalr_parsing!(source, Program, StartProgram)
 }
 
-pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, String> {
+pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, ParseError> {
     do_lalr_parsing!(source, Statement, StartStatement)
 }
 
@@ -88,22 +61,189 @@ pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, String> {
 ///     expr);
 ///
 /// ```
-pub fn parse_expression(source: &str) -> Result<ast::Expression, String> {
+pub fn parse_expression(source: &str) -> Result<ast::Expression, ParseError> {
     do_lalr_parsing!(source, Expression, StartExpression)
+}
+
+// TODO: consolidate these with ParseError
+#[derive(Debug, PartialEq)]
+pub enum FStringError {
+    UnclosedLbrace,
+    UnopenedRbrace,
+    InvalidExpression,
+}
+
+impl From<FStringError>
+    for lalrpop_util::ParseError<lexer::Location, token::Tok, lexer::LexicalError>
+{
+    fn from(_err: FStringError) -> Self {
+        lalrpop_util::ParseError::User {
+            error: lexer::LexicalError::StringError,
+        }
+    }
+}
+
+enum ParseState {
+    Text {
+        content: String,
+    },
+    FormattedValue {
+        expression: String,
+        spec: Option<String>,
+        depth: usize,
+    },
+}
+
+pub fn parse_fstring(source: &str) -> Result<ast::StringGroup, FStringError> {
+    use self::ParseState::*;
+
+    let mut values = vec![];
+    let mut state = ParseState::Text {
+        content: String::new(),
+    };
+
+    let mut chars = source.chars().peekable();
+    while let Some(ch) = chars.next() {
+        state = match state {
+            Text { mut content } => match ch {
+                '{' => {
+                    if let Some('{') = chars.peek() {
+                        chars.next();
+                        content.push('{');
+                        Text { content }
+                    } else {
+                        if !content.is_empty() {
+                            values.push(ast::StringGroup::Constant { value: content });
+                        }
+
+                        FormattedValue {
+                            expression: String::new(),
+                            spec: None,
+                            depth: 0,
+                        }
+                    }
+                }
+                '}' => {
+                    if let Some('}') = chars.peek() {
+                        chars.next();
+                        content.push('}');
+                        Text { content }
+                    } else {
+                        return Err(FStringError::UnopenedRbrace);
+                    }
+                }
+                _ => {
+                    content.push(ch);
+                    Text { content }
+                }
+            },
+
+            FormattedValue {
+                mut expression,
+                mut spec,
+                depth,
+            } => match ch {
+                ':' if depth == 0 => FormattedValue {
+                    expression,
+                    spec: Some(String::new()),
+                    depth,
+                },
+                '{' => {
+                    if let Some('{') = chars.peek() {
+                        expression.push_str("{{");
+                        chars.next();
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth,
+                        }
+                    } else {
+                        expression.push('{');
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth: depth + 1,
+                        }
+                    }
+                }
+                '}' => {
+                    if let Some('}') = chars.peek() {
+                        expression.push_str("}}");
+                        chars.next();
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth,
+                        }
+                    } else if depth > 0 {
+                        expression.push('}');
+                        FormattedValue {
+                            expression,
+                            spec,
+                            depth: depth - 1,
+                        }
+                    } else {
+                        values.push(ast::StringGroup::FormattedValue {
+                            value: Box::new(match parse_expression(expression.trim()) {
+                                Ok(expr) => expr,
+                                Err(_) => return Err(FStringError::InvalidExpression),
+                            }),
+                            spec: spec.unwrap_or_default(),
+                        });
+                        Text {
+                            content: String::new(),
+                        }
+                    }
+                }
+                _ => {
+                    if let Some(spec) = spec.as_mut() {
+                        spec.push(ch)
+                    } else {
+                        expression.push(ch);
+                    }
+                    FormattedValue {
+                        expression,
+                        spec,
+                        depth,
+                    }
+                }
+            },
+        };
+    }
+
+    match state {
+        Text { content } => {
+            if !content.is_empty() {
+                values.push(ast::StringGroup::Constant { value: content })
+            }
+        }
+        FormattedValue { .. } => {
+            return Err(FStringError::UnclosedLbrace);
+        }
+    }
+
+    Ok(match values.len() {
+        0 => ast::StringGroup::Constant {
+            value: String::new(),
+        },
+        1 => values.into_iter().next().unwrap(),
+        _ => ast::StringGroup::Joined { values },
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::ast;
     use super::parse_expression;
+    use super::parse_fstring;
     use super::parse_program;
     use super::parse_statement;
+    use super::FStringError;
     use num_bigint::BigInt;
 
     #[test]
     fn test_parse_empty() {
         let parse_ast = parse_program(&String::from("\n"));
-
         assert_eq!(parse_ast, Ok(ast::Program { statements: vec![] }))
     }
 
@@ -122,7 +262,9 @@ mod tests {
                                 name: String::from("print"),
                             }),
                             args: vec![ast::Expression::String {
-                                value: String::from("Hello world"),
+                                value: ast::StringGroup::Constant {
+                                    value: String::from("Hello world")
+                                }
                             }],
                             keywords: vec![],
                         },
@@ -148,7 +290,9 @@ mod tests {
                             }),
                             args: vec![
                                 ast::Expression::String {
-                                    value: String::from("Hello world"),
+                                    value: ast::StringGroup::Constant {
+                                        value: String::from("Hello world"),
+                                    }
                                 },
                                 ast::Expression::Number {
                                     value: ast::Number::Integer {
@@ -179,7 +323,9 @@ mod tests {
                                 name: String::from("my_func"),
                             }),
                             args: vec![ast::Expression::String {
-                                value: String::from("positional"),
+                                value: ast::StringGroup::Constant {
+                                    value: String::from("positional"),
+                                }
                             }],
                             keywords: vec![ast::Keyword {
                                 name: Some("keyword".to_string()),
@@ -374,7 +520,9 @@ mod tests {
                                     vararg: None,
                                     kwarg: None,
                                     defaults: vec![ast::Expression::String {
-                                        value: "default".to_string()
+                                        value: ast::StringGroup::Constant {
+                                            value: "default".to_string()
+                                        }
                                     }],
                                     kw_defaults: vec![],
                                 },
@@ -480,6 +628,57 @@ mod tests {
                     }
                 ],
             }
+        );
+    }
+
+    fn mk_ident(name: &str) -> ast::Expression {
+        ast::Expression::Identifier {
+            name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn test_parse_fstring() {
+        let source = String::from("{a}{ b }{{foo}}");
+        let parse_ast = parse_fstring(&source).unwrap();
+
+        assert_eq!(
+            parse_ast,
+            ast::StringGroup::Joined {
+                values: vec![
+                    ast::StringGroup::FormattedValue {
+                        value: Box::new(mk_ident("a")),
+                        spec: String::new(),
+                    },
+                    ast::StringGroup::FormattedValue {
+                        value: Box::new(mk_ident("b")),
+                        spec: String::new(),
+                    },
+                    ast::StringGroup::Constant {
+                        value: "{foo}".to_owned()
+                    }
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_fstring() {
+        assert_eq!(
+            parse_fstring(""),
+            Ok(ast::StringGroup::Constant {
+                value: String::new(),
+            }),
+        );
+    }
+
+    #[test]
+    fn test_parse_invalid_fstring() {
+        assert_eq!(parse_fstring("{"), Err(FStringError::UnclosedLbrace));
+        assert_eq!(parse_fstring("}"), Err(FStringError::UnopenedRbrace));
+        assert_eq!(
+            parse_fstring("{class}"),
+            Err(FStringError::InvalidExpression)
         );
     }
 }
