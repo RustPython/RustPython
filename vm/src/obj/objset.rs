@@ -418,6 +418,109 @@ fn set_combine_inner(
     ))
 }
 
+fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
+
+    let mut mut_obj = s.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => match elements.clone().keys().next() {
+            Some(key) => Ok(elements.remove(key).unwrap()),
+            None => Err(vm.new_key_error("pop from an empty set".to_string())),
+        },
+        _ => Err(vm.new_type_error("".to_string())),
+    }
+}
+
+fn set_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
+    );
+
+    let mut mut_obj = zelf.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            let iterator = objiter::get_iter(vm, iterable)?;
+            while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+                insert_into_set(vm, elements, &v)?;
+            }
+            Ok(vm.get_none())
+        }
+        _ => Err(vm.new_type_error("set.update is called with no other".to_string())),
+    }
+}
+
+fn set_intersection_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_combine_update_inner(vm, args, SetCombineOperation::Intersection)
+}
+
+fn set_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_combine_update_inner(vm, args, SetCombineOperation::Difference)
+}
+
+fn set_combine_update_inner(
+    vm: &mut VirtualMachine,
+    args: PyFuncArgs,
+    op: SetCombineOperation,
+) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
+    );
+
+    let mut mut_obj = zelf.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            for element in elements.clone().iter() {
+                let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
+                let should_remove = match op {
+                    SetCombineOperation::Intersection => !objbool::get_value(&value),
+                    SetCombineOperation::Difference => objbool::get_value(&value),
+                };
+                if should_remove {
+                    elements.remove(&element.0.clone());
+                }
+            }
+            Ok(vm.get_none())
+        }
+        _ => Err(vm.new_type_error("".to_string())),
+    }
+}
+
+fn set_symmetric_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
+    );
+
+    let mut mut_obj = zelf.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            let elements_original = elements.clone();
+            let iterator = objiter::get_iter(vm, iterable)?;
+            while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+                insert_into_set(vm, elements, &v)?;
+            }
+            for element in elements_original.iter() {
+                let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
+                if objbool::get_value(&value) {
+                    elements.remove(&element.0.clone());
+                }
+            }
+
+            Ok(vm.get_none())
+        }
+        _ => Err(vm.new_type_error("".to_string())),
+    }
+}
+
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -488,6 +591,23 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "discard", context.new_rustfunc(set_discard));
     context.set_attr(&set_type, "clear", context.new_rustfunc(set_clear));
     context.set_attr(&set_type, "copy", context.new_rustfunc(set_copy));
+    context.set_attr(&set_type, "pop", context.new_rustfunc(set_pop));
+    context.set_attr(&set_type, "update", context.new_rustfunc(set_update));
+    context.set_attr(
+        &set_type,
+        "intersection_update",
+        context.new_rustfunc(set_intersection_update),
+    );
+    context.set_attr(
+        &set_type,
+        "difference_update",
+        context.new_rustfunc(set_difference_update),
+    );
+    context.set_attr(
+        &set_type,
+        "symmetric_difference_update",
+        context.new_rustfunc(set_symmetric_difference_update),
+    );
 
     let frozenset_type = &context.frozenset_type;
 
