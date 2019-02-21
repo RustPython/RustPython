@@ -21,7 +21,7 @@ use rustpython_vm::{
 use rustyline::{error::ReadlineError, Editor};
 use std::{
     path::{Path, PathBuf},
-    process
+    process,
 };
 
 fn main() {
