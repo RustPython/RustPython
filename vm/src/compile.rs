@@ -573,13 +573,13 @@ impl Compiler {
             }
             ast::Statement::Break => {
                 if !self.in_loop {
-                    return Err(CompileError::SyntaxErr(String::from("break")));
+                    return Err(CompileError::InvalidBreak);
                 }
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
                 if !self.in_loop {
-                    return Err(CompileError::SyntaxErr(String::from("continue")));
+                    return Err(CompileError::InvalidContinue);
                 }
                 self.emit(Instruction::Continue);
             }
@@ -646,7 +646,7 @@ impl Compiler {
                             self.emit(Instruction::DeleteSubscript);
                         }
                         _ => {
-                            return Err(CompileError::Delete);
+                            return Err(CompileError::Delete(target.name()));
                         }
                     }
                 }
@@ -766,7 +766,7 @@ impl Compiler {
                 }
             }
             _ => {
-                return Err(CompileError::Assign(format!("{:?}", target)));
+                return Err(CompileError::Assign(target.name()));
             }
         }
 
