@@ -615,7 +615,7 @@ fn int_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn int_imag(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
+    arg_check!(vm, args, required = [(_zelf, Some(vm.ctx.int_type()))]);
     let value = BigInt::from(0);
     Ok(vm.ctx.new_int(value))
 }
