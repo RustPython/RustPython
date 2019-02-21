@@ -32,6 +32,11 @@ assert (2).__rmul__(1) == 2
 assert (2).__truediv__(1) == 2.0
 assert (2).__rtruediv__(1) == 0.5
 
+# real/imag attributes
+assert (1).real == 1
+assert (1).imag == 0
+
+
 assert (1).__eq__(1.0) == NotImplemented
 assert (1).__ne__(1.0) == NotImplemented
 assert (1).__gt__(1.0) == NotImplemented
