@@ -453,6 +453,29 @@ fn set_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn set_intersection_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
+    );
+
+    let mut mut_obj = zelf.borrow_mut();
+
+    match mut_obj.payload {
+        PyObjectPayload::Set { ref mut elements } => {
+            for element in elements.clone().iter() {
+                let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
+                if !objbool::get_value(&value) {
+                    elements.remove(&element.0.clone());
+                }
+            }
+            Ok(vm.get_none())
+        }
+        _ => Err(vm.new_type_error("".to_string())),
+    }
+}
+
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -525,6 +548,11 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "copy", context.new_rustfunc(set_copy));
     context.set_attr(&set_type, "pop", context.new_rustfunc(set_pop));
     context.set_attr(&set_type, "update", context.new_rustfunc(set_update));
+    context.set_attr(
+        &set_type,
+        "intersection_update",
+        context.new_rustfunc(set_intersection_update),
+    );
 
     let frozenset_type = &context.frozenset_type;
 
