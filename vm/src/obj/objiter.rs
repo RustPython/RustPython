@@ -2,11 +2,11 @@
  * Various types to support iteration.
  */
 
-use super::super::pyobject::{
+use super::objbool;
+use crate::pyobject::{
     PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objbool;
+use crate::vm::VirtualMachine;
 // use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
 

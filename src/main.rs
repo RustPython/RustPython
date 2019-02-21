@@ -19,10 +19,7 @@ use rustpython_vm::{
     util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};
-use std::{
-    error::Error,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 fn main() {
     env_logger::init();

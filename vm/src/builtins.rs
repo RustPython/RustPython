@@ -4,24 +4,23 @@
 
 // use std::ops::Deref;
 use std::char;
-use std::error::Error;
 use std::io::{self, Write};
 
-use super::compile;
-use super::obj::objbool;
-use super::obj::objdict;
-use super::obj::objint;
-use super::obj::objiter;
-use super::obj::objstr;
-use super::obj::objtype;
+use crate::compile;
+use crate::obj::objbool;
+use crate::obj::objdict;
+use crate::obj::objint;
+use crate::obj::objiter;
+use crate::obj::objstr;
+use crate::obj::objtype;
 
-use super::pyobject::{
+use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, Scope, TypeProtocol,
 };
-use super::stdlib::io::io_open;
+use crate::stdlib::io::io_open;
 
-use super::vm::VirtualMachine;
+use crate::vm::VirtualMachine;
 use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {

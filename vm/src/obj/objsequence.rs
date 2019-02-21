@@ -1,9 +1,7 @@
-use super::super::pyobject::{
-    IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
+use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::cell::{Ref, RefMut};

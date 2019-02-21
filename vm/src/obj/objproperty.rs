@@ -2,9 +2,9 @@
 
 */
 
-use super::super::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
-use super::super::vm::VirtualMachine;
 use super::objtype;
+use crate::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     let property_type = &context.property_type;

@@ -5,9 +5,9 @@
 //!   https://github.com/python/cpython/blob/master/Python/compile.c
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
-use super::bytecode::{self, CallType, CodeObject, Instruction};
-use super::error::CompileError;
-use super::pyobject::{PyObject, PyObjectPayload, PyObjectRef};
+use crate::bytecode::{self, CallType, CodeObject, Instruction};
+use crate::error::CompileError;
+use crate::pyobject::{PyObject, PyObjectPayload, PyObjectRef};
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
@@ -1401,10 +1401,10 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-    use super::bytecode::CodeObject;
-    use super::bytecode::Constant::*;
-    use super::bytecode::Instruction::*;
     use super::Compiler;
+    use crate::bytecode::CodeObject;
+    use crate::bytecode::Constant::*;
+    use crate::bytecode::Instruction::*;
     use rustpython_parser::parser;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();

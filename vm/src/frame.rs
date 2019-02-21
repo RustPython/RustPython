@@ -5,21 +5,21 @@ use std::fmt;
 use std::mem;
 use std::path::PathBuf;
 
-use super::builtins;
-use super::bytecode;
-use super::import::{import, import_module};
-use super::obj::objbool;
-use super::obj::objcode;
-use super::obj::objdict;
-use super::obj::objiter;
-use super::obj::objlist;
-use super::obj::objstr;
-use super::obj::objtype;
-use super::pyobject::{
+use crate::builtins;
+use crate::bytecode;
+use crate::import::{import, import_module};
+use crate::obj::objbool;
+use crate::obj::objcode;
+use crate::obj::objdict;
+use crate::obj::objiter;
+use crate::obj::objlist;
+use crate::obj::objstr;
+use crate::obj::objtype;
+use crate::pyobject::{
     DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, TypeProtocol,
 };
-use super::vm::VirtualMachine;
+use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]

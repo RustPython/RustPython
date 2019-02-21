@@ -1,9 +1,7 @@
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objiter;
-use super::objtype; // Required for arg_check! to use isinstance
+use super::objtype;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
 fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);

@@ -1,8 +1,3 @@
-use super::super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
-};
-use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -11,6 +6,11 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
+use crate::pyobject::{
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;
 
 // set_item:

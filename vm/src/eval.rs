@@ -2,9 +2,9 @@ extern crate rustpython_parser;
 
 use std::error::Error;
 
-use super::compile;
-use super::pyobject::{PyObjectRef, PyResult};
-use super::vm::VirtualMachine;
+use crate::compile;
+use crate::pyobject::{PyObjectRef, PyResult};
+use crate::vm::VirtualMachine;
 
 pub fn eval(
     vm: &mut VirtualMachine,

@@ -8,13 +8,13 @@ use std::io::ErrorKind;
 use num_traits::cast::ToPrimitive;
 
 //custom imports
-use super::super::obj::objint;
-use super::super::obj::objstr;
-use super::super::obj::objtype;
-// use super::super::obj::objdict;
+use crate::obj::objint;
+use crate::obj::objstr;
+use crate::obj::objtype;
+// use crate::obj::objdict;
 
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::vm::VirtualMachine;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 #[cfg(target_family = "unix")]
 pub fn raw_file_number(handle: File) -> i64 {

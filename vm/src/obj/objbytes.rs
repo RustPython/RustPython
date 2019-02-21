@@ -1,9 +1,9 @@
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objint;
 use super::objtype;
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
 use std::cell::Ref;
 use std::cell::RefMut;

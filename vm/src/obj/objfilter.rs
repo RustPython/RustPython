@@ -1,10 +1,10 @@
-use super::super::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objiter;
-use super::objtype; // Required for arg_check! to use isinstance
+use super::objtype;
+use crate::pyobject::{
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
+};
+use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
 fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(

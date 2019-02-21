@@ -1,9 +1,7 @@
 use super::objtype;
 
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 pub fn new_memory_view(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (bytes_object, None)]);

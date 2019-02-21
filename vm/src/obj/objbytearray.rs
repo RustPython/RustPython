@@ -1,15 +1,13 @@
 //! Implementation of the python bytearray object.
 
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
-};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
 
 use super::objint;
 
-use super::super::vm::VirtualMachine;
 use super::objbytes::get_mut_value;
 use super::objbytes::get_value;
 use super::objtype;
+use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
 
 // Binary data support

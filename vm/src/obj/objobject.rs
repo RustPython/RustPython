@@ -1,10 +1,10 @@
-use super::super::pyobject::{
+use super::objstr;
+use super::objtype;
+use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objstr;
-use super::objtype;
+use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
