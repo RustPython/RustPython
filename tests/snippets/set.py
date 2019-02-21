@@ -103,3 +103,8 @@ a = set([1,2,3])
 a.intersection_update([2,3,4,5])
 assert a == set([2,3])
 assert_raises(TypeError, lambda: a.intersection_update(1))
+
+a = set([1,2,3])
+a.difference_update([3,4,5])
+assert a == set([1,2])
+assert_raises(TypeError, lambda: a.difference_update(1))

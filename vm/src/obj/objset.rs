@@ -454,6 +454,18 @@ fn set_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn set_intersection_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_combine_update_inner(vm, args, SetCombineOperation::Intersection)
+}
+
+fn set_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_combine_update_inner(vm, args, SetCombineOperation::Difference)
+}
+
+fn set_combine_update_inner(
+    vm: &mut VirtualMachine,
+    args: PyFuncArgs,
+    op: SetCombineOperation,
+) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -466,7 +478,11 @@ fn set_intersection_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResul
         PyObjectPayload::Set { ref mut elements } => {
             for element in elements.clone().iter() {
                 let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
-                if !objbool::get_value(&value) {
+                let should_remove = match op {
+                    SetCombineOperation::Intersection => !objbool::get_value(&value),
+                    SetCombineOperation::Difference => objbool::get_value(&value),
+                };
+                if should_remove {
                     elements.remove(&element.0.clone());
                 }
             }
@@ -552,6 +568,11 @@ pub fn init(context: &PyContext) {
         &set_type,
         "intersection_update",
         context.new_rustfunc(set_intersection_update),
+    );
+    context.set_attr(
+        &set_type,
+        "difference_update",
+        context.new_rustfunc(set_difference_update),
     );
 
     let frozenset_type = &context.frozenset_type;
