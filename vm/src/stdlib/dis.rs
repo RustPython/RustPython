@@ -3,7 +3,14 @@ use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol
 use crate::vm::VirtualMachine;
 
 fn dis_dis(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    dis_disassemble(vm, args)
+    arg_check!(vm, args, required = [(obj, None)]);
+    let code_name = vm.new_str("__code__".to_string());
+    let code = match vm.get_attribute(obj.clone(), code_name) {
+        Ok(co) => co,
+        Err(..) => obj.clone(),
+    };
+
+    dis_disassemble(vm, PyFuncArgs::new(vec![code], vec![]))
 }
 
 fn dis_disassemble(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
