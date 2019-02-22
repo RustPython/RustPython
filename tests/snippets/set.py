@@ -100,6 +100,13 @@ assert a == set([1,2,3,4,5])
 assert_raises(TypeError, lambda: a.update(1))
 
 a = set([1,2,3])
+b = set()
+for e in a:
+	assert e == 1 or e == 2 or e == 3
+	b.add(e)
+assert a == b
+
+a = set([1,2,3])
 a.intersection_update([2,3,4,5])
 assert a == set([2,3])
 assert_raises(TypeError, lambda: a.intersection_update(1))

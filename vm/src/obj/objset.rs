@@ -521,6 +521,22 @@ fn set_symmetric_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) ->
     }
 }
 
+fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.set_type()))]);
+
+    let items = get_elements(zelf).values().map(|x| x.clone()).collect();
+    let set_list = vm.ctx.new_list(items);
+    let iter_obj = PyObject::new(
+        PyObjectPayload::Iterator {
+            position: 0,
+            iterated_obj: set_list,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
+
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -608,6 +624,7 @@ pub fn init(context: &PyContext) {
         "symmetric_difference_update",
         context.new_rustfunc(set_symmetric_difference_update),
     );
+    context.set_attr(&set_type, "__iter__", context.new_rustfunc(set_iter));
 
     let frozenset_type = &context.frozenset_type;
 
