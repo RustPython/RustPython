@@ -1,7 +1,7 @@
+use super::objcomplex;
 use super::objfloat;
 use super::objstr;
 use super::objtype;
-use super::objcomplex;
 use crate::format::FormatSpec;
 use crate::pyobject::{
     FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
@@ -9,9 +9,9 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
+use num_complex::Complex64;
 use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
-use num_complex::Complex64;
 use std::hash::{Hash, Hasher};
 
 // This proxy allows for easy switching between types.
@@ -292,7 +292,10 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(other, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(zelf) + get_value(other)))
     } else if objtype::isinstance(other, &vm.ctx.complex_type()) {
-        Ok(vm.ctx.new_complex(Complex64::new(get_value(zelf).to_f64().unwrap() + objcomplex::get_value(other).re, objcomplex::get_value(other).im)))
+        Ok(vm.ctx.new_complex(Complex64::new(
+            get_value(zelf).to_f64().unwrap() + objcomplex::get_value(other).re,
+            objcomplex::get_value(other).im,
+        )))
     } else {
         Ok(vm.ctx.not_implemented())
     }

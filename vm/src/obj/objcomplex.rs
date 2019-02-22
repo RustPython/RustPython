@@ -107,7 +107,10 @@ fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.complex_type()) {
         Ok(vm.ctx.new_complex(v1 + get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_complex(Complex64::new(v1.re + objint::get_value(i2).to_f64().unwrap(), v1.im)))
+        Ok(vm.ctx.new_complex(Complex64::new(
+            v1.re + objint::get_value(i2).to_f64().unwrap(),
+            v1.im,
+        )))
     } else {
         Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
     }
