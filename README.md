@@ -29,7 +29,7 @@ Or use the interactive shell:
 
 # Disclaimer
 
-  RustPython is in a development phase and should not used in production or a fault intolerant setting.
+  RustPython is in a development phase and should not be used in production or a fault intolerant setting.
 
   Our current build supports only a subset of Python syntax.
 
@@ -55,7 +55,7 @@ $ cargo doc --no-deps --all # Excluding all dependencies
 
 Documentation HTML files can then be found in the `target/doc` directory.
 
-If you wish to update the online documentation. Push directly to the `release` branch (or ask a maintainer to do so), this will trigger a Travis build that updates the documentation and WebAssembly demo page.
+If you wish to update the online documentation, push directly to the `release` branch (or ask a maintainer to do so). This will trigger a Travis build that updates the documentation and WebAssembly demo page.
 
 # Code organization
 
@@ -79,7 +79,7 @@ With that in mind, please note this project is maintained by volunteers, some of
 Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustPython/issues).
 Check issues labeled with `good first issue` if you wish to start coding.
 
-Another approach is to checkout the sourcecode: builtin functions and object methods are often the simplest
+Another approach is to checkout the source code: builtin functions and object methods are often the simplest
 and easiest way to contribute.
 
 You can also simply run
@@ -97,7 +97,7 @@ $ pipenv install
 $ pipenv run pytest -v
 ```
 
-There also are some unittests, you can run those will cargo:
+There also are some unit tests, you can run those will cargo:
 
 ```shell
 $ cargo test --all
