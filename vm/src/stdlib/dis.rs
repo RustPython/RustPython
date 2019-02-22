@@ -1,7 +1,6 @@
-use super::super::obj::objcode;
-use super::super::obj::objtype;
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::vm::VirtualMachine;
+use crate::obj::objcode;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 fn dis_disassemble(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(co, Some(vm.ctx.code_type()))]);
@@ -12,7 +11,7 @@ fn dis_disassemble(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module("dis", ctx.new_scope(None));
-    ctx.set_attr(&py_mod, "disassemble", ctx.new_rustfunc(dis_disassemble));
-    py_mod
+    py_module!(ctx, "dis", {
+        "disassemble" => ctx.new_rustfunc(dis_disassemble)
+    })
 }
