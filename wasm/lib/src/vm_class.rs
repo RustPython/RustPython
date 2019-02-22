@@ -1,4 +1,5 @@
-use convert;
+use crate::convert;
+use crate::wasm_builtins::{self, setup_wasm_builtins};
 use js_sys::{SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
@@ -9,7 +10,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
-use wasm_builtins::{self, setup_wasm_builtins};
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,

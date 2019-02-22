@@ -11,7 +11,7 @@ extern crate web_sys;
 use js_sys::{Object, Reflect, TypeError};
 use wasm_bindgen::prelude::*;
 
-pub use vm_class::*;
+pub use crate::vm_class::*;
 
 const PY_EVAL_VM_ID: &str = "__py_eval_vm";
 

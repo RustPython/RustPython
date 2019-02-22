@@ -1,8 +1,8 @@
+use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Reflect, Uint8Array};
 use rustpython_vm::obj::{objbytes, objtype};
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
-use vm_class::{AccessibleVM, WASMVirtualMachine};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 pub fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
