@@ -17,6 +17,11 @@ pub fn init(context: &PyContext) {
 
     context.set_attr(&complex_type, "__abs__", context.new_rustfunc(complex_abs));
     context.set_attr(&complex_type, "__add__", context.new_rustfunc(complex_add));
+    context.set_attr(
+        &complex_type,
+        "__radd__",
+        context.new_rustfunc(complex_radd),
+    );
     context.set_attr(&complex_type, "__eq__", context.new_rustfunc(complex_eq));
     context.set_attr(&complex_type, "__neg__", context.new_rustfunc(complex_neg));
     context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
@@ -107,7 +112,29 @@ fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.complex_type()) {
         Ok(vm.ctx.new_complex(v1 + get_value(i2)))
     } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_complex(Complex64::new(v1.re + objint::get_value(i2).to_f64().unwrap(), v1.im)))
+        Ok(vm.ctx.new_complex(Complex64::new(
+            v1.re + objint::get_value(i2).to_f64().unwrap(),
+            v1.im,
+        )))
+    } else {
+        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+    }
+}
+
+fn complex_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(i, Some(vm.ctx.complex_type())), (i2, None)]
+    );
+
+    let v1 = get_value(i);
+
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+        Ok(vm.ctx.new_complex(Complex64::new(
+            v1.re + objint::get_value(i2).to_f64().unwrap(),
+            v1.im,
+        )))
     } else {
         Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
     }

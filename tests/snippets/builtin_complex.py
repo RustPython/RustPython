@@ -42,3 +42,5 @@ assert b.imag == 4
 # int and complex addition
 assert 1 + 1j == complex(1, 1)
 assert 1j + 1 == complex(1, 1)
+assert (1j + 1) + 3 == complex(4, 1)
+assert 3 + (1j + 1) == complex(4, 1)
