@@ -2,6 +2,7 @@ use super::objcomplex;
 use super::objfloat;
 use super::objstr;
 use super::objtype;
+use super::objcomplex;
 use crate::format::FormatSpec;
 use crate::pyobject::{
     FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
@@ -12,6 +13,7 @@ use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
+use num_complex::Complex64;
 use std::hash::{Hash, Hasher};
 
 // This proxy allows for easy switching between types.
