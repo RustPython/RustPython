@@ -38,3 +38,7 @@ assert b.real == 0
 
 assert a.imag == 4
 assert b.imag == 4
+
+# int and complex addition
+assert 1 + 1j == complex(1, 1)
+assert 1j + 1 == complex(1, 1)
