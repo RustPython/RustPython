@@ -2,12 +2,11 @@
 
 */
 
-use super::super::bytecode;
-use super::super::pyobject::{
+use crate::bytecode;
+use crate::pyobject::{
     IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objtype;
+use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     let code_type = &context.code_type;

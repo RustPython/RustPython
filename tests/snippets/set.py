@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 assert set([1,2]) == set([1,2])
 assert not set([1,2,3]) == set([1,2])
 
@@ -69,22 +71,45 @@ assert set([1,2,3]).symmetric_difference(set([5,6])) == set([1,2,3,5,6])
 assert set([1,2,3]) ^ set([4,5]) == set([1,2,3,4,5])
 assert set([1,2,3]) ^ set([1,2,3,4,5]) == set([4,5])
 
-try:
-	set([[]])
-except TypeError:
-	pass
-else:
-	assert False, "TypeError was not raised"
-
-try:
-	set().add([])
-except TypeError:
-	pass
-else:
-	assert False, "TypeError was not raised"
+assert_raises(TypeError, lambda: set([[]]))
+assert_raises(TypeError, lambda: set().add([]))
 
 a = set([1, 2, 3])
 assert a.discard(1) is None
 assert not 1 in a
-
 assert a.discard(42) is None
+
+a = set([1,2,3])
+b = a.copy()
+assert len(a) == 3
+assert len(b) == 3
+b.clear()
+assert len(a) == 3
+assert len(b) == 0
+
+a = set([1,2])
+b = a.pop()
+assert b in [1,2]
+c = a.pop()
+assert (c in [1,2] and c != b) 
+assert_raises(KeyError, lambda: a.pop())
+
+a = set([1,2,3])
+a.update([3,4,5])
+assert a == set([1,2,3,4,5])
+assert_raises(TypeError, lambda: a.update(1))
+
+a = set([1,2,3])
+a.intersection_update([2,3,4,5])
+assert a == set([2,3])
+assert_raises(TypeError, lambda: a.intersection_update(1))
+
+a = set([1,2,3])
+a.difference_update([3,4,5])
+assert a == set([1,2])
+assert_raises(TypeError, lambda: a.difference_update(1))
+
+a = set([1,2,3])
+a.symmetric_difference_update([3,4,5])
+assert a == set([1,2,4,5])
+assert_raises(TypeError, lambda: a.difference_update(1))

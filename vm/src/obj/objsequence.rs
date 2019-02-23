@@ -1,7 +1,7 @@
-use super::super::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
-use super::super::vm::VirtualMachine;
 use super::objbool;
 use super::objint;
+use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::cell::{Ref, RefMut};
@@ -178,10 +178,12 @@ pub fn seq_equal(
 ) -> Result<bool, PyObjectRef> {
     if zelf.len() == other.len() {
         for (a, b) in Iterator::zip(zelf.iter(), other.iter()) {
-            let eq = vm._eq(a.clone(), b.clone())?;
-            let value = objbool::boolval(vm, eq)?;
-            if !value {
-                return Ok(false);
+            if !a.is(&b) {
+                let eq = vm._eq(a.clone(), b.clone())?;
+                let value = objbool::boolval(vm, eq)?;
+                if !value {
+                    return Ok(false);
+                }
             }
         }
         Ok(true)

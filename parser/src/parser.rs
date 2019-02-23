@@ -1,12 +1,10 @@
-extern crate lalrpop_util;
-
 use std::iter;
 
-use super::ast;
-use super::error::ParseError;
-use super::lexer;
-use super::python;
-use super::token;
+use crate::ast;
+use crate::error::ParseError;
+use crate::lexer;
+use crate::python;
+use crate::token;
 
 /*
  * Parse python code.

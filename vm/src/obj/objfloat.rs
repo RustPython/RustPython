@@ -1,11 +1,11 @@
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objbytes;
 use super::objint;
 use super::objstr;
 use super::objtype;
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 

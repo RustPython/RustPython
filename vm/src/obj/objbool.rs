@@ -1,8 +1,8 @@
-use super::super::pyobject::{
+use super::objtype;
+use crate::pyobject::{
     PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objtype;
+use crate::vm::VirtualMachine;
 use num_traits::Zero;
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {

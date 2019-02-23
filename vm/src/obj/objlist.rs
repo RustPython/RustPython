@@ -1,7 +1,3 @@
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
-use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -10,6 +6,11 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
+use crate::pyobject::{
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;
 
 // set_item:
@@ -65,6 +66,10 @@ fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
+
+    if zelf.is(&other) {
+        return Ok(vm.ctx.new_bool(true));
+    }
 
     let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
@@ -181,6 +186,21 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn list_iadd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
+    );
+
+    if objtype::isinstance(other, &vm.ctx.list_type()) {
+        get_mut_elements(zelf).extend_from_slice(&get_elements(other));
+        Ok(zelf.clone())
+    } else {
+        Ok(vm.ctx.not_implemented())
+    }
+}
+
 fn list_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.list_type()))]);
 
@@ -234,9 +254,13 @@ fn list_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let elements = get_elements(zelf);
     let mut count: usize = 0;
     for element in elements.iter() {
-        let is_eq = vm._eq(element.clone(), value.clone())?;
-        if objbool::boolval(vm, is_eq)? {
+        if value.is(&element) {
             count += 1;
+        } else {
+            let is_eq = vm._eq(element.clone(), value.clone())?;
+            if objbool::boolval(vm, is_eq)? {
+                count += 1;
+            }
         }
     }
     Ok(vm.context().new_int(count))
@@ -262,6 +286,9 @@ fn list_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for (index, element) in get_elements(list).iter().enumerate() {
+        if needle.is(&element) {
+            return Ok(vm.context().new_int(index));
+        }
         let py_equal = vm._eq(needle.clone(), element.clone())?;
         if objbool::get_value(&py_equal) {
             return Ok(vm.context().new_int(index));
@@ -335,6 +362,9 @@ fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
     for element in get_elements(list).iter() {
+        if needle.is(&element) {
+            return Ok(vm.new_bool(true));
+        }
         match vm._eq(needle.clone(), element.clone()) {
             Ok(value) => {
                 if objbool::get_value(&value) {
@@ -416,9 +446,12 @@ fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(list, Some(vm.ctx.list_type())), (needle, None)]
     );
 
-    let mut elements = get_mut_elements(list);
     let mut ri: Option<usize> = None;
-    for (index, element) in elements.iter().enumerate() {
+    for (index, element) in get_elements(list).iter().enumerate() {
+        if needle.is(&element) {
+            ri = Some(index);
+            break;
+        }
         let py_equal = vm._eq(needle.clone(), element.clone())?;
         if objbool::get_value(&py_equal) {
             ri = Some(index);
@@ -427,6 +460,7 @@ fn list_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     if let Some(index) = ri {
+        let mut elements = get_mut_elements(list);
         elements.remove(index);
         Ok(vm.get_none())
     } else {
@@ -443,6 +477,7 @@ pub fn init(context: &PyContext) {
                     The argument must be an iterable if specified.";
 
     context.set_attr(&list_type, "__add__", context.new_rustfunc(list_add));
+    context.set_attr(&list_type, "__iadd__", context.new_rustfunc(list_iadd));
     context.set_attr(
         &list_type,
         "__contains__",

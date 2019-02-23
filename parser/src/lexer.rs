@@ -541,7 +541,7 @@ where
 
     fn is_char(&self) -> bool {
         match self.chr0 {
-            Some('a'...'z') | Some('A'...'Z') | Some('_') | Some('0'...'9') => true,
+            Some('a'..='z') | Some('A'..='Z') | Some('_') | Some('0'..='9') => true,
             _ => false,
         }
     }
@@ -549,19 +549,19 @@ where
     fn is_number(&self, radix: u32) -> bool {
         match radix {
             2 => match self.chr0 {
-                Some('0'...'1') => true,
+                Some('0'..='1') => true,
                 _ => false,
             },
             8 => match self.chr0 {
-                Some('0'...'7') => true,
+                Some('0'..='7') => true,
                 _ => false,
             },
             10 => match self.chr0 {
-                Some('0'...'9') => true,
+                Some('0'..='9') => true,
                 _ => false,
             },
             16 => match self.chr0 {
-                Some('0'...'9') | Some('a'...'f') | Some('A'...'F') => true,
+                Some('0'..='9') | Some('a'..='f') | Some('A'..='F') => true,
                 _ => false,
             },
             x => unimplemented!("Radix not implemented: {}", x),
@@ -686,8 +686,8 @@ where
             }
 
             match self.chr0 {
-                Some('0'...'9') => return Some(self.lex_number()),
-                Some('_') | Some('a'...'z') | Some('A'...'Z') => return Some(self.lex_identifier()),
+                Some('0'..='9') => return Some(self.lex_number()),
+                Some('_') | Some('a'..='z') | Some('A'..='Z') => return Some(self.lex_identifier()),
                 Some('#') => {
                     self.lex_comment();
                     continue;

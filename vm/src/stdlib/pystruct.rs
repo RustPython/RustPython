@@ -10,9 +10,9 @@
 extern crate byteorder;
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use super::super::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use std::io::{Cursor, Read, Write};

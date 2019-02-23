@@ -2,23 +2,18 @@
 
 extern crate rand;
 
-use super::super::obj::{objfloat, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
-use stdlib::random::rand::distributions::{Distribution, Normal};
+use crate::obj::objfloat;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::stdlib::random::rand::distributions::{Distribution, Normal};
+use crate::VirtualMachine;
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"random".to_string(), ctx.new_scope(None));
-    ctx.set_attr(&py_mod, "gauss", ctx.new_rustfunc(random_gauss));
-    ctx.set_attr(
-        &py_mod,
-        "normalvariate",
-        ctx.new_rustfunc(random_normalvariate),
-    );
-    ctx.set_attr(&py_mod, "random", ctx.new_rustfunc(random_random));
-    // py_mod.set_attr("weibull", ctx.new_rustfunc(random_weibullvariate));
-    // TODO: implement more random functions.
-    py_mod
+    py_module!(ctx, "random", {
+        "guass" => ctx.new_rustfunc(random_gauss),
+        "normalvariate" => ctx.new_rustfunc(random_normalvariate),
+        "random" => ctx.new_rustfunc(random_random),
+        // "weibull", ctx.new_rustfunc(random_weibullvariate),
+    })
 }
 
 fn random_gauss(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

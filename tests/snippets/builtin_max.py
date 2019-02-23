@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 # simple values
 assert max(0, 0) == 0
 assert max(1, 0) == 1
@@ -14,32 +16,17 @@ assert max({
 }) == "b"
 assert max([1, 2], default=0) == 2
 assert max([], default=0) == 0
-try:
-    max([])
-except ValueError:
-    pass
-else:
-    assert False, "ValueError was not raised"
+assert_raises(ValueError, lambda: max([]))
 
 # key parameter
 assert max(1, 2, -3, key=abs) == -3
 assert max([1, 2, -3], key=abs) == -3
 
 # no argument
-try:
-    max()
-except TypeError:
-    pass
-else:
-    assert False, "TypeError was not raised"
+assert_raises(TypeError, lambda: max())
 
 # one non-iterable argument
-try:
-    max(1)
-except TypeError:
-    pass
-else:
-    assert False, "TypeError was not raised"
+assert_raises(TypeError, lambda: max(1))
 
 
 # custom class
@@ -64,9 +51,4 @@ class MyNotComparable():
     pass
 
 
-try:
-    max(MyNotComparable(), MyNotComparable())
-except TypeError:
-    pass
-else:
-    assert False, "TypeError was not raised"
+assert_raises(TypeError, lambda: max(MyNotComparable(), MyNotComparable()))

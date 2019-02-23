@@ -3,7 +3,7 @@
  *
  */
 
-use super::super::pyobject::{PyContext, PyObjectRef};
+use crate::pyobject::{PyContext, PyObjectRef};
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"string".to_string(), ctx.new_scope(None));

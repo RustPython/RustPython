@@ -1,3 +1,4 @@
+// count number of tokens given as arguments.
 // see: https://danielkeep.github.io/tlborm/book/blk-counting.html
 #[macro_export]
 macro_rules! replace_expr {
@@ -17,7 +18,7 @@ macro_rules! type_check {
         // None indicates that we have no type requirement (i.e. we accept any type)
         if let Some(expected_type) = $arg_type {
             let arg = &$args.args[$arg_count];
-            if !objtype::isinstance(arg, &expected_type) {
+            if !$crate::obj::objtype::isinstance(arg, &expected_type) {
                 let arg_typ = arg.typ();
                 let expected_type_name = $vm.to_pystr(&expected_type)?;
                 let actual_type = $vm.to_pystr(&arg_typ)?;
@@ -48,9 +49,11 @@ macro_rules! arg_check {
     ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*], optional=[$( ($optional_arg_name:ident, $optional_arg_type:expr) ),*] ) => {
         let mut arg_count = 0;
 
+        // use macro magic to compile-time count number of required and optional arguments
         let minimum_arg_count = count_tts!($($arg_name)*);
         let maximum_arg_count = minimum_arg_count + count_tts!($($optional_arg_name)*);
 
+        // verify that the number of given arguments is right
         if $args.args.len() < minimum_arg_count || $args.args.len() > maximum_arg_count {
             let expected_str = if minimum_arg_count == maximum_arg_count {
                 format!("{}", minimum_arg_count)
@@ -64,6 +67,9 @@ macro_rules! arg_check {
             )));
         };
 
+        // for each required parameter:
+        //  check if the type matches. If not, return with error
+        //  assign the arg to a variable
         $(
             type_check!($vm, $args, arg_count, $arg_name, $arg_type);
             let $arg_name = &$args.args[arg_count];
@@ -73,6 +79,9 @@ macro_rules! arg_check {
             }
         )*
 
+        // for each optional parameter, if there are enough positional arguments:
+        //  check if the type matches. If not, return with error
+        //  assign the arg to a variable
         $(
             let $optional_arg_name = if arg_count < $args.args.len() {
                 type_check!($vm, $args, arg_count, $optional_arg_name, $optional_arg_type);
@@ -100,4 +109,16 @@ macro_rules! no_kwargs {
             )));
         }
     };
+}
+
+macro_rules! py_module {
+    ( $ctx:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        {
+            let py_mod = $ctx.new_module($module_name, $ctx.new_scope(None));
+        $(
+            $ctx.set_attr(&py_mod, $name, $value);
+        )*
+        py_mod
+        }
+    }
 }

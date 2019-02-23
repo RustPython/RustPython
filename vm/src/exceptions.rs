@@ -1,10 +1,10 @@
-use super::obj::objsequence;
-use super::obj::objstr;
-use super::obj::objtype;
-use super::pyobject::{
+use crate::obj::objsequence;
+use crate::obj::objstr;
+use crate::obj::objtype;
+use crate::pyobject::{
     create_type, AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::vm::VirtualMachine;
+use crate::vm::VirtualMachine;
 
 fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let zelf = args.args[0].clone();
