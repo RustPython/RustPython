@@ -25,13 +25,13 @@ module.exports = {
             template: 'src/index.ejs',
             templateParameters: {
                 snippets: fs
-                    .readdirSync(path.join(__dirname, 'src/snippets'))
+                    .readdirSync(path.join(__dirname, 'snippets'))
                     .map(filename =>
                         path.basename(filename, path.extname(filename))
                     ),
                 defaultSnippetName: 'fibonacci',
                 defaultSnippet: fs.readFileSync(
-                    path.join(__dirname, 'src/snippets/fibonacci.py')
+                    path.join(__dirname, 'snippets/fibonacci.py')
                 )
             }
         }),

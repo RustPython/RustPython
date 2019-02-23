@@ -54,7 +54,7 @@ snippets.addEventListener('change', () => {
     // the require here creates a webpack context; it's fine to use it
     // dynamically.
     // https://webpack.js.org/guides/dependency-management/
-    const snippet = require(`raw-loader!./snippets/${selected}.py`);
+    const snippet = require(`raw-loader!../snippets/${selected}.py`);
 
     editor.setValue(snippet);
 
