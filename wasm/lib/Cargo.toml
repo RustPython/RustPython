@@ -12,13 +12,18 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rustpython_parser = { path = "../../parser" }
-rustpython_vm = { path = "../../vm" }
 cfg-if = "0.1.2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.3"
 js-sys = "0.3"
 futures = "0.1"
 console_error_panic_hook = "0.1"
+
+[dependencies.rustpython_vm]
+path = "../../vm"
+features = [
+    "py_compiler"
+]
 
 [dependencies.web-sys]
 version = "0.3"
