@@ -36,9 +36,12 @@ function runCodeFromTextarea() {
         if (result !== null) {
             consoleElement.value += `\n${result}\n`;
         }
-    } catch (e) {
-        errorElement.textContent = e;
-        console.error(e);
+    } catch (err) {
+        if (err instanceof WebAssembly.RuntimeError) {
+            err = window.__RUSTPYTHON_ERROR || err;
+        }
+        errorElement.textContent = err;
+        console.error(err);
     }
 }
 
@@ -46,4 +49,5 @@ document
     .getElementById('run-btn')
     .addEventListener('click', runCodeFromTextarea);
 
-runCodeFromTextarea(); // Run once for demo
+// Run once for demo
+runCodeFromTextarea();
