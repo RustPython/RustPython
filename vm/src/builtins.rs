@@ -749,7 +749,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "min" => ctx.new_rustfunc(builtin_min),
         "object" => ctx.object(),
         "oct" => ctx.new_rustfunc(builtin_oct),
-        "open" => ctx.new_rustfunc(io_open),
         "ord" => ctx.new_rustfunc(builtin_ord),
         "next" => ctx.new_rustfunc(builtin_next),
         "pow" => ctx.new_rustfunc(builtin_pow),
