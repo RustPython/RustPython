@@ -29,7 +29,9 @@ impl StoredVirtualMachine {
     }
 }
 
-// It's fine that it's thread local, since WASM doesn't even have threads yet
+// It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local! probably
+// gets compiled down to a normal-ish static varible, like Atomic* types:
+// https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
     static STORED_VMS: PyRef<HashMap<String, PyRef<StoredVirtualMachine>>> = Rc::default();
     static ACTIVE_VMS: PyRef<HashMap<String, *mut VirtualMachine>> = Rc::default();
