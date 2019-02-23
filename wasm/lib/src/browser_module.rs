@@ -99,7 +99,7 @@ fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 .expect("val to be of type Response");
             response_format.get_response(&response)
         })
-        .and_then(|prom| JsFuture::from(prom))
+        .and_then(JsFuture::from)
         .then(move |val| {
             let vm = &mut acc_vm
                 .upgrade()
