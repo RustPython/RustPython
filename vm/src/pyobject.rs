@@ -29,6 +29,7 @@ use crate::obj::objsuper;
 use crate::obj::objtuple;
 use crate::obj::objtype;
 use crate::obj::objzip;
+use crate::stdlib::socket::Socket;
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_bigint::ToBigInt;
@@ -1045,6 +1046,9 @@ pub enum PyObjectPayload {
     RustFunction {
         function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
     },
+    Socket {
+        socket: Socket,
+    },
 }
 
 impl fmt::Debug for PyObjectPayload {
@@ -1082,6 +1086,7 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Instance { .. } => write!(f, "instance"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
+            PyObjectPayload::Socket { .. } => write!(f, "socket"),
         }
     }
 }
