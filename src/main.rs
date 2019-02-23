@@ -148,12 +148,12 @@ fn shell_exec(
     }
 }
 
-#[cfg(not(target_family = "unix"))]
+#[cfg(not(unix))]
 fn get_history_path() -> PathBuf {
     PathBuf::from(".repl_history.txt")
 }
 
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 fn get_history_path() -> PathBuf {
     //work around for windows dependent builds. The xdg crate is unix specific
     //so access to the BaseDirectories struct breaks builds on python.

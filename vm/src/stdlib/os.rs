@@ -15,34 +15,44 @@ use crate::obj::objstr;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 pub fn raw_file_number(handle: File) -> i64 {
     use std::os::unix::io::IntoRawFd;
 
     i64::from(handle.into_raw_fd())
 }
 
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 pub fn rust_file(raw_fileno: i64) -> File {
     use std::os::unix::io::FromRawFd;
 
     unsafe { File::from_raw_fd(raw_fileno as i32) }
 }
 
-#[cfg(target_family = "windows")]
+#[cfg(windows)]
 pub fn raw_file_number(handle: File) -> i64 {
     use std::os::windows::io::IntoRawHandle;
 
     handle.into_raw_handle() as i64
 }
 
-#[cfg(target_family = "windows")]
+#[cfg(windows)]
 pub fn rust_file(raw_fileno: i64) -> File {
     use std::ffi::c_void;
     use std::os::windows::io::FromRawHandle;
 
     //This seems to work as expected but further testing is required.
     unsafe { File::from_raw_handle(raw_fileno as *mut c_void) }
+}
+
+#[cfg(all(not(unix), not(windows)))]
+pub fn rust_file(raw_fileno: i64) -> File {
+    unimplemented!();
+}
+
+#[cfg(all(not(unix), not(windows)))]
+pub fn raw_file_number(handle: File) -> i64 {
+    unimplemented!();
 }
 
 pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
