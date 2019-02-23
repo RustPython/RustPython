@@ -111,6 +111,7 @@ macro_rules! no_kwargs {
     };
 }
 
+#[macro_export]
 macro_rules! py_module {
     ( $ctx:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {

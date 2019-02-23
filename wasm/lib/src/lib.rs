@@ -1,3 +1,4 @@
+pub mod browser_module;
 pub mod convert;
 pub mod vm_class;
 pub mod wasm_builtins;
