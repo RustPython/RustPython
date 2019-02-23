@@ -1003,38 +1003,29 @@ pub trait PyNativeFuncFactory<T, R> {
     fn create(self) -> PyNativeFunc;
 }
 
-impl<F, A, R> PyNativeFuncFactory<(A,), R> for F
-where
-    F: Fn(&mut VirtualMachine, A) -> R + 'static,
-    A: FromPyFuncArgs,
-    R: IntoPyObject,
-{
-    fn create(self) -> PyNativeFunc {
-        Box::new(move |vm, mut args| {
-            // TODO: type-checking!
-            (self)(vm, A::from_py_func_args(&mut args)?).into_pyobject(&vm.ctx)
-        })
-    }
+macro_rules! tuple_py_native_func_factory {
+    ($($T:ident),+) => {
+        impl<F, $($T,)+ R> PyNativeFuncFactory<($($T,)+), R> for F
+        where
+            F: Fn(&mut VirtualMachine, $($T),+) -> R + 'static,
+            $($T: FromPyFuncArgs,)+
+            R: IntoPyObject,
+        {
+            fn create(self) -> PyNativeFunc {
+                Box::new(move |vm, mut args| {
+                    (self)(vm, $($T::from_py_func_args(&mut args)?,)+)
+                        .into_pyobject(&vm.ctx)
+                })
+            }
+        }
+    };
 }
 
-impl<F, A, B, R> PyNativeFuncFactory<(A, B), R> for F
-where
-    F: Fn(&mut VirtualMachine, A, B) -> R + 'static,
-    A: FromPyFuncArgs,
-    B: FromPyFuncArgs,
-    R: IntoPyObject,
-{
-    fn create(self) -> PyNativeFunc {
-        Box::new(move |vm, mut args| {
-            (self)(
-                vm,
-                A::from_py_func_args(&mut args)?,
-                B::from_py_func_args(&mut args)?,
-            )
-            .into_pyobject(&vm.ctx)
-        })
-    }
-}
+tuple_py_native_func_factory!(A);
+tuple_py_native_func_factory!(A, B);
+tuple_py_native_func_factory!(A, B, C);
+tuple_py_native_func_factory!(A, B, C, D);
+tuple_py_native_func_factory!(A, B, C, D, E);
 
 impl FromPyFuncArgs for PyFuncArgs {
     fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<PyFuncArgs> {
