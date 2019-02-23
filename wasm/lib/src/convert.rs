@@ -21,10 +21,16 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             let wasm_vm = WASMVirtualMachine {
                 id: wasm_id.clone(),
             };
+            let mut py_obj = Some(py_obj);
             let closure =
                 move |args: Option<Array>, kwargs: Option<Object>| -> Result<JsValue, JsValue> {
-                    let py_obj = py_obj.clone();
-                    wasm_vm.assert_valid()?;
+                    let py_obj = match wasm_vm.assert_valid() {
+                        Ok(_) => py_obj.clone().expect("py_obj to be valid if VM is valid"),
+                        Err(err) => {
+                            py_obj = None;
+                            return Err(err);
+                        }
+                    };
                     let acc_vm = AccessibleVM::from(wasm_vm.clone());
                     let vm = &mut acc_vm
                         .upgrade()
@@ -47,7 +53,7 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                     pyresult_to_jsresult(vm, result)
                 };
             let closure = Closure::wrap(Box::new(closure)
-                as Box<dyn Fn(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
+                as Box<dyn FnMut(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
             let func = closure.as_ref().clone();
 
             // TODO: Come up with a way of managing closure handles
