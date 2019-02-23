@@ -1,4 +1,4 @@
-use super::objint::{self, PyInt};
+use super::objint;
 use super::objtype;
 use crate::pyobject::{
     FromPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,

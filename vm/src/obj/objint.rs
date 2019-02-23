@@ -3,8 +3,8 @@ use super::objstr;
 use super::objtype;
 use crate::format::FormatSpec;
 use crate::pyobject::{
-    FromPyObject, FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
+    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
