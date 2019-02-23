@@ -433,6 +433,11 @@ fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn set_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_ior(vm, args)?;
+    Ok(vm.get_none())
+}
+
+fn set_ior(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -447,17 +452,27 @@ fn set_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
                 insert_into_set(vm, elements, &v)?;
             }
-            Ok(vm.get_none())
         }
-        _ => Err(vm.new_type_error("set.update is called with no other".to_string())),
+        _ => return Err(vm.new_type_error("set.update is called with no other".to_string())),
     }
+    Ok(zelf.clone())
 }
 
 fn set_intersection_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_combine_update_inner(vm, args, SetCombineOperation::Intersection)?;
+    Ok(vm.get_none())
+}
+
+fn set_iand(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_combine_update_inner(vm, args, SetCombineOperation::Intersection)
 }
 
 fn set_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_combine_update_inner(vm, args, SetCombineOperation::Difference)?;
+    Ok(vm.get_none())
+}
+
+fn set_isub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_combine_update_inner(vm, args, SetCombineOperation::Difference)
 }
 
@@ -486,13 +501,18 @@ fn set_combine_update_inner(
                     elements.remove(&element.0.clone());
                 }
             }
-            Ok(vm.get_none())
         }
-        _ => Err(vm.new_type_error("".to_string())),
+        _ => return Err(vm.new_type_error("".to_string())),
     }
+    Ok(zelf.clone())
 }
 
 fn set_symmetric_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    set_ixor(vm, args)?;
+    Ok(vm.get_none())
+}
+
+fn set_ixor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -514,11 +534,27 @@ fn set_symmetric_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) ->
                     elements.remove(&element.0.clone());
                 }
             }
-
-            Ok(vm.get_none())
         }
-        _ => Err(vm.new_type_error("".to_string())),
+        _ => return Err(vm.new_type_error("".to_string())),
     }
+
+    Ok(zelf.clone())
+}
+
+fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.set_type()))]);
+
+    let items = get_elements(zelf).values().map(|x| x.clone()).collect();
+    let set_list = vm.ctx.new_list(items);
+    let iter_obj = PyObject::new(
+        PyObjectPayload::Iterator {
+            position: 0,
+            iterated_obj: set_list,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
 }
 
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -593,21 +629,26 @@ pub fn init(context: &PyContext) {
     context.set_attr(&set_type, "copy", context.new_rustfunc(set_copy));
     context.set_attr(&set_type, "pop", context.new_rustfunc(set_pop));
     context.set_attr(&set_type, "update", context.new_rustfunc(set_update));
+    context.set_attr(&set_type, "__ior__", context.new_rustfunc(set_ior));
     context.set_attr(
         &set_type,
         "intersection_update",
         context.new_rustfunc(set_intersection_update),
     );
+    context.set_attr(&set_type, "__iand__", context.new_rustfunc(set_iand));
     context.set_attr(
         &set_type,
         "difference_update",
         context.new_rustfunc(set_difference_update),
     );
+    context.set_attr(&set_type, "__isub__", context.new_rustfunc(set_isub));
     context.set_attr(
         &set_type,
         "symmetric_difference_update",
         context.new_rustfunc(set_symmetric_difference_update),
     );
+    context.set_attr(&set_type, "__ixor__", context.new_rustfunc(set_ixor));
+    context.set_attr(&set_type, "__iter__", context.new_rustfunc(set_iter));
 
     let frozenset_type = &context.frozenset_type;
 
