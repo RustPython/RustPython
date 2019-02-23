@@ -25,3 +25,14 @@ textarea {
     margin-top: 10px;
     font-family: monospace;
 }
+
+#code-wrapper {
+    position: relative;
+}
+
+#snippets {
+    position: absolute;
+    right: 20px;
+    top: 5px;
+    z-index: 25;
+}
