@@ -239,6 +239,7 @@ impl WASMVirtualMachine {
         )
     }
 
+    #[wasm_bindgen(js_name = setStdout)]
     pub fn set_stdout(&self, stdout: JsValue) -> Result<(), JsValue> {
         self.with(
             move |StoredVirtualMachine {
