@@ -1,7 +1,8 @@
-use super::objint;
+use super::objint::{self, PyInt};
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    FromPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
@@ -16,6 +17,14 @@ pub struct RangeType {
     pub start: BigInt,
     pub end: BigInt,
     pub step: BigInt,
+}
+
+type PyRange = RangeType;
+
+impl FromPyObject for PyRange {
+    fn from_pyobject(obj: PyObjectRef) -> PyResult<Self> {
+        Ok(get_value(&obj))
+    }
 }
 
 impl RangeType {
@@ -345,22 +354,12 @@ fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(len > 0))
 }
 
-fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.range_type())), (needle, None)]
-    );
-
-    let range = get_value(zelf);
-
-    let result = if objtype::isinstance(needle, &vm.ctx.int_type()) {
-        range.contains(&objint::get_value(needle))
+fn range_contains(vm: &mut VirtualMachine, zelf: PyRange, needle: PyObjectRef) -> bool {
+    if objtype::isinstance(&needle, &vm.ctx.int_type()) {
+        zelf.contains(&objint::get_value(&needle))
     } else {
         false
-    };
-
-    Ok(vm.ctx.new_bool(result))
+    }
 }
 
 fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

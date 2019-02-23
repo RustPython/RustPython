@@ -3,8 +3,8 @@ use super::objstr;
 use super::objtype;
 use crate::format::FormatSpec;
 use crate::pyobject::{
-    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    FromPyObject, FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
+    PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -14,6 +14,22 @@ use std::hash::{Hash, Hasher};
 
 // This proxy allows for easy switching between types.
 type IntType = BigInt;
+
+pub type PyInt = BigInt;
+
+impl IntoPyObject for PyInt {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        Ok(ctx.new_int(self))
+    }
+}
+
+// TODO: macro to impl for all primitive ints
+
+impl IntoPyObject for usize {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        Ok(ctx.new_int(self))
+    }
+}
 
 fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
