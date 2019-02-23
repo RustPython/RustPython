@@ -19,10 +19,7 @@ use rustpython_vm::{
     util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};
-use std::{
-    error::Error,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 fn main() {
     env_logger::init();
@@ -81,7 +78,7 @@ fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> Py
     )
     .map_err(|err| {
         let syntax_error = vm.context().exceptions.syntax_error.clone();
-        vm.new_exception(syntax_error, err.description().to_string())
+        vm.new_exception(syntax_error, err.to_string())
     })?;
     // trace!("Code object: {:?}", code_obj.borrow());
     let builtins = vm.get_builtin_scope();
@@ -151,12 +148,12 @@ fn shell_exec(
     }
 }
 
-#[cfg(not(target_family = "unix"))]
+#[cfg(not(unix))]
 fn get_history_path() -> PathBuf {
     PathBuf::from(".repl_history.txt")
 }
 
-#[cfg(target_family = "unix")]
+#[cfg(unix)]
 fn get_history_path() -> PathBuf {
     //work around for windows dependent builds. The xdg crate is unix specific
     //so access to the BaseDirectories struct breaks builds on python.

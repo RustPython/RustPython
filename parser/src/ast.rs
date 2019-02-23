@@ -219,6 +219,50 @@ pub enum Expression {
     None,
 }
 
+impl Expression {
+    /// Returns a short name for the node suitable for use in error messages.
+    pub fn name(&self) -> &'static str {
+        use self::Expression::*;
+        use self::StringGroup::*;
+
+        match self {
+            BoolOp { .. } | Binop { .. } | Unop { .. } => "operator",
+            Subscript { .. } => "subscript",
+            Yield { .. } | YieldFrom { .. } => "yield expression",
+            Compare { .. } => "comparison",
+            Attribute { .. } => "attribute",
+            Call { .. } => "function call",
+            Number { .. }
+            | String {
+                value: Constant { .. },
+            }
+            | Bytes { .. } => "literal",
+            List { .. } => "list",
+            Tuple { .. } => "tuple",
+            Dict { .. } => "dict display",
+            Set { .. } => "set display",
+            Comprehension { kind, .. } => match **kind {
+                ComprehensionKind::List { .. } => "list comprehension",
+                ComprehensionKind::Dict { .. } => "dict comprehension",
+                ComprehensionKind::Set { .. } => "set comprehension",
+                ComprehensionKind::GeneratorExpression { .. } => "generator expression",
+            },
+            Starred { .. } => "starred",
+            Slice { .. } => "slice",
+            String {
+                value: Joined { .. },
+            }
+            | String {
+                value: FormattedValue { .. },
+            } => "f-string expression",
+            Identifier { .. } => "named expression",
+            Lambda { .. } => "lambda",
+            IfExpression { .. } => "conditional expression",
+            True | False | None => "keyword",
+        }
+    }
+}
+
 /*
  * In cpython this is called arguments, but we choose parameters to
  * distinguish between function parameters and actual call arguments.

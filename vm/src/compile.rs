@@ -5,9 +5,9 @@
 //!   https://github.com/python/cpython/blob/master/Python/compile.c
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
-use super::bytecode::{self, CallType, CodeObject, Instruction};
-use super::error::CompileError;
-use super::pyobject::{PyObject, PyObjectPayload, PyObjectRef};
+use crate::bytecode::{self, CallType, CodeObject, Instruction};
+use crate::error::CompileError;
+use crate::pyobject::{PyObject, PyObjectPayload, PyObjectRef};
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
@@ -16,6 +16,7 @@ struct Compiler {
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
+    in_loop: bool,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -73,6 +74,7 @@ impl Compiler {
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
+            in_loop: false,
         }
     }
 
@@ -229,16 +231,19 @@ impl Compiler {
                 self.set_label(start_label);
 
                 self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
+
+                self.in_loop = true;
                 self.compile_statements(body)?;
+                self.in_loop = false;
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
                 self.set_label(else_label);
+                self.emit(Instruction::PopBlock);
                 if let Some(orelse) = orelse {
                     self.compile_statements(orelse)?;
                 }
                 self.set_label(end_label);
-                self.emit(Instruction::PopBlock);
             }
             ast::Statement::With { items, body } => {
                 let end_label = self.new_label();
@@ -267,14 +272,6 @@ impl Compiler {
                 body,
                 orelse,
             } => {
-                // The thing iterated:
-                for i in iter {
-                    self.compile_expression(i)?;
-                }
-
-                // Retrieve iterator
-                self.emit(Instruction::GetIter);
-
                 // Start loop
                 let start_label = self.new_label();
                 let else_label = self.new_label();
@@ -283,6 +280,15 @@ impl Compiler {
                     start: start_label,
                     end: end_label,
                 });
+
+                // The thing iterated:
+                for i in iter {
+                    self.compile_expression(i)?;
+                }
+
+                // Retrieve Iterator
+                self.emit(Instruction::GetIter);
+
                 self.set_label(start_label);
                 self.emit(Instruction::ForIter { target: else_label });
 
@@ -290,16 +296,19 @@ impl Compiler {
                 self.compile_store(target)?;
 
                 // Body of loop:
+                self.in_loop = true;
                 self.compile_statements(body)?;
+                self.in_loop = false;
+
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
                 self.set_label(else_label);
+                self.emit(Instruction::PopBlock);
                 if let Some(orelse) = orelse {
                     self.compile_statements(orelse)?;
                 }
                 self.set_label(end_label);
-                self.emit(Instruction::PopBlock);
             }
             ast::Statement::Raise { exception, cause } => match exception {
                 Some(value) => {
@@ -563,9 +572,15 @@ impl Compiler {
                 self.set_label(end_label);
             }
             ast::Statement::Break => {
+                if !self.in_loop {
+                    return Err(CompileError::InvalidBreak);
+                }
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
+                if !self.in_loop {
+                    return Err(CompileError::InvalidContinue);
+                }
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
@@ -608,7 +623,7 @@ impl Compiler {
                 self.compile_expression(value)?;
 
                 // Perform operation:
-                self.compile_op(op);
+                self.compile_op(op, true);
                 self.compile_store(target)?;
             }
             ast::Statement::Delete { targets } => {
@@ -631,7 +646,7 @@ impl Compiler {
                             self.emit(Instruction::DeleteSubscript);
                         }
                         _ => {
-                            return Err(CompileError::Delete);
+                            return Err(CompileError::Delete(target.name()));
                         }
                     }
                 }
@@ -648,6 +663,7 @@ impl Compiler {
         name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, CompileError> {
+        self.in_loop = false;
         let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
@@ -750,14 +766,14 @@ impl Compiler {
                 }
             }
             _ => {
-                return Err(CompileError::Assign(format!("{:?}", target)));
+                return Err(CompileError::Assign(target.name()));
             }
         }
 
         Ok(())
     }
 
-    fn compile_op(&mut self, op: &ast::Operator) {
+    fn compile_op(&mut self, op: &ast::Operator, inplace: bool) {
         let i = match op {
             ast::Operator::Add => bytecode::BinaryOperator::Add,
             ast::Operator::Sub => bytecode::BinaryOperator::Subtract,
@@ -773,7 +789,7 @@ impl Compiler {
             ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
             ast::Operator::BitAnd => bytecode::BinaryOperator::And,
         };
-        self.emit(Instruction::BinaryOperation { op: i });
+        self.emit(Instruction::BinaryOperation { op: i, inplace });
     }
 
     fn compile_test(
@@ -852,13 +868,14 @@ impl Compiler {
                 self.compile_expression(b)?;
 
                 // Perform operation:
-                self.compile_op(op);
+                self.compile_op(op, false);
             }
             ast::Expression::Subscript { a, b } => {
                 self.compile_expression(a)?;
                 self.compile_expression(b)?;
                 self.emit(Instruction::BinaryOperation {
                     op: bytecode::BinaryOperator::Subscript,
+                    inplace: false,
                 });
             }
             ast::Expression::Unop { op, a } => {
@@ -1384,10 +1401,10 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-    use super::bytecode::CodeObject;
-    use super::bytecode::Constant::*;
-    use super::bytecode::Instruction::*;
     use super::Compiler;
+    use crate::bytecode::CodeObject;
+    use crate::bytecode::Constant::*;
+    use crate::bytecode::Instruction::*;
     use rustpython_parser::parser;
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();

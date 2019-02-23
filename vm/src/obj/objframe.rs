@@ -2,12 +2,11 @@
 
 */
 
-use super::super::frame::Frame;
-use super::super::pyobject::{
+use crate::frame::Frame;
+use crate::pyobject::{
     PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objtype;
+use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     let frame_type = &context.frame_type;

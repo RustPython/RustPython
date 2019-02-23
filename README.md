@@ -3,6 +3,8 @@
 A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :metal:.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=master)](https://travis-ci.org/RustPython/RustPython)
+[![Build Status](https://dev.azure.com/ryan0463/ryan/_apis/build/status/RustPython.RustPython?branchName=master)](https://dev.azure.com/ryan0463/ryan/_build/latest?definitionId=1&branchName=master)
+[![codecov](https://codecov.io/gh/RustPython/RustPython/branch/master/graph/badge.svg)](https://codecov.io/gh/RustPython/RustPython)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
 [![Gitter](https://badges.gitter.im/RustPython/Lobby.svg)](https://gitter.im/rustpython/Lobby)
@@ -25,6 +27,14 @@ Or use the interactive shell:
     >>>>> 2+2
     4
 
+# Disclaimer
+
+  RustPython is in a development phase and should not be used in production or a fault intolerant setting.
+
+  Our current build supports only a subset of Python syntax.
+
+  Contribution is also more than welcome! See our contribution section for more information on this. 
+
 # Goals
 
 - Full Python-3 environment entirely in Rust (not CPython bindings)
@@ -32,7 +42,7 @@ Or use the interactive shell:
 
 # Documentation
 
-Currently the project is in an early phase, and so is the documentation.
+Currently along with other areas of the project, documentation is still in an early phase.
 
 You can read the [online documentation](https://rustpython.github.io/website/rustpython/index.html) for the latest code on master.
 
@@ -45,7 +55,7 @@ $ cargo doc --no-deps --all # Excluding all dependencies
 
 Documentation HTML files can then be found in the `target/doc` directory.
 
-If you wish to update the online documentation. Push directly to the `release` branch (or ask a maintainer to do so), this will trigger a Travis build that updates the documentation and WebAssembly demo page.
+If you wish to update the online documentation, push directly to the `release` branch (or ask a maintainer to do so). This will trigger a Travis build that updates the documentation and WebAssembly demo page.
 
 # Code organization
 
@@ -62,12 +72,14 @@ If you wish to update the online documentation. Push directly to the `release` b
 
 # Contributing
 
-To start contributing, there are a lot of things that need to be done.
+Contributions are more than welcome, and in many cases we are happy to guide contributors through PRs or on gitter.
+
+With that in mind, please note this project is maintained by volunteers, some of the best ways to get started are below:
 
 Most tasks are listed in the [issue tracker](https://github.com/RustPython/RustPython/issues).
 Check issues labeled with `good first issue` if you wish to start coding.
 
-Another approach is to checkout the sourcecode: builtin functions and object methods are often the simplest
+Another approach is to checkout the source code: builtin functions and object methods are often the simplest
 and easiest way to contribute.
 
 You can also simply run
@@ -85,7 +97,7 @@ $ pipenv install
 $ pipenv run pytest -v
 ```
 
-There also are some unittests, you can run those will cargo:
+There also are some unit tests, you can run those will cargo:
 
 ```shell
 $ cargo test --all

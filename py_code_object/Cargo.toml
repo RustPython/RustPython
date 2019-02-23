@@ -2,6 +2,7 @@
 name = "py_code_object"
 version = "0.1.0"
 authors = ["Shing Lyu <shing.lyu@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 log = "0.3"

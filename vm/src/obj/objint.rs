@@ -1,12 +1,12 @@
-use super::super::format::FormatSpec;
-use super::super::pyobject::{
-    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
-};
-use super::super::vm::VirtualMachine;
 use super::objfloat;
 use super::objstr;
 use super::objtype;
+use crate::format::FormatSpec;
+use crate::pyobject::{
+    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
@@ -608,6 +608,18 @@ fn int_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(v))
 }
 
+fn int_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.int_type()))]);
+    let value = BigInt::from_pyobj(zelf);
+    Ok(vm.ctx.new_int(value))
+}
+
+fn int_imag(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(_zelf, Some(vm.ctx.int_type()))]);
+    let value = BigInt::from(0);
+    Ok(vm.ctx.new_int(value))
+}
+
 pub fn init(context: &PyContext) {
     let int_doc = "int(x=0) -> integer
 int(x, base=10) -> integer
@@ -680,4 +692,6 @@ Base 0 means to interpret the base from the string as an integer literal.
     );
     context.set_attr(&int_type, "__doc__", context.new_str(int_doc.to_string()));
     context.set_attr(&int_type, "conjugate", context.new_rustfunc(int_conjugate));
+    context.set_attr(&int_type, "real", context.new_property(int_real));
+    context.set_attr(&int_type, "imag", context.new_property(int_imag));
 }

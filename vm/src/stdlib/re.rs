@@ -8,9 +8,9 @@
 extern crate regex;
 use self::regex::Regex;
 
-use super::super::obj::{objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::objstr;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 
 fn re_match(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO:

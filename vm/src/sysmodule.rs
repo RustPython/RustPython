@@ -1,8 +1,7 @@
-use obj::objtype;
-use pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 use std::rc::Rc;
 use std::{env, mem};
-use vm::VirtualMachine;
 
 /*
  * The magic sys module.
@@ -50,9 +49,6 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     };
     let path = ctx.new_list(path_list);
 
-    let modules = ctx.new_dict();
-
-    let sys_name = "sys";
     let sys_doc = "This module provides access to some objects used or maintained by the
 interpreter and to functions that interact strongly with the interpreter.
 
@@ -122,20 +118,22 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
-    let sys_mod = ctx.new_module(&sys_name, ctx.new_scope(None));
+    let modules = ctx.new_dict();
+    let sys_name = "sys";
+    let sys_mod = py_module!(ctx, sys_name, {
+      "argv" => argv(ctx),
+      "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
+      "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
+      "maxsize" => ctx.new_int(std::usize::MAX),
+      "path" => path,
+      "ps1" => ctx.new_str(">>>>> ".to_string()),
+      "ps2" => ctx.new_str("..... ".to_string()),
+      "__doc__" => ctx.new_str(sys_doc.to_string()),
+      "_getframe" => ctx.new_rustfunc(getframe),
+    });
 
     ctx.set_item(&modules, sys_name, sys_mod.clone());
-
     ctx.set_attr(&sys_mod, "modules", modules);
-    ctx.set_attr(&sys_mod, "argv", argv(ctx));
-    ctx.set_attr(&sys_mod, "getrefcount", ctx.new_rustfunc(sys_getrefcount));
-    ctx.set_attr(&sys_mod, "getsizeof", ctx.new_rustfunc(sys_getsizeof));
-    ctx.set_attr(&sys_mod, "maxsize", ctx.new_int(std::usize::MAX));
-    ctx.set_attr(&sys_mod, "path", path);
-    ctx.set_attr(&sys_mod, "ps1", ctx.new_str(">>>>> ".to_string()));
-    ctx.set_attr(&sys_mod, "ps2", ctx.new_str("..... ".to_string()));
-    ctx.set_attr(&sys_mod, "__doc__", ctx.new_str(sys_doc.to_string()));
-    ctx.set_attr(&sys_mod, "_getframe", ctx.new_rustfunc(getframe));
 
     sys_mod
 }

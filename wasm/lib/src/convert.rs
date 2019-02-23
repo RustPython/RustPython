@@ -1,7 +1,8 @@
+use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Reflect, Uint8Array};
+use rustpython_vm::obj::{objbytes, objtype};
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
-use vm_class::{AccessibleVM, WASMVirtualMachine};
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 pub fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
@@ -16,14 +17,20 @@ pub fn js_py_typeerror(vm: &mut VirtualMachine, js_err: JsValue) -> PyObjectRef 
 
 pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
-        let wasm_vm = WASMVirtualMachine {
-            id: wasm_id.clone(),
-        };
-        if rustpython_vm::obj::objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
+        if objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
+            let wasm_vm = WASMVirtualMachine {
+                id: wasm_id.clone(),
+            };
+            let mut py_obj = Some(py_obj);
             let closure =
                 move |args: Option<Array>, kwargs: Option<Object>| -> Result<JsValue, JsValue> {
-                    let py_obj = py_obj.clone();
-                    wasm_vm.assert_valid()?;
+                    let py_obj = match wasm_vm.assert_valid() {
+                        Ok(_) => py_obj.clone().expect("py_obj to be valid if VM is valid"),
+                        Err(err) => {
+                            py_obj = None;
+                            return Err(err);
+                        }
+                    };
                     let acc_vm = AccessibleVM::from(wasm_vm.clone());
                     let vm = &mut acc_vm
                         .upgrade()
@@ -46,7 +53,7 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                     pyresult_to_jsresult(vm, result)
                 };
             let closure = Closure::wrap(Box::new(closure)
-                as Box<dyn Fn(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
+                as Box<dyn FnMut(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
             let func = closure.as_ref().clone();
 
             // TODO: Come up with a way of managing closure handles
@@ -55,19 +62,31 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             return func;
         }
     }
-    let dumps = rustpython_vm::import::import(
-        vm,
-        std::path::PathBuf::default(),
-        "json",
-        &Some("dumps".into()),
-    )
-    .expect("Couldn't get json.dumps function");
-    match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
-        Ok(value) => {
-            let json = vm.to_pystr(&value).unwrap();
-            js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED)
+    if objtype::isinstance(&py_obj, &vm.ctx.bytes_type())
+        || objtype::isinstance(&py_obj, &vm.ctx.bytearray_type())
+    {
+        let bytes = objbytes::get_value(&py_obj);
+        let arr = Uint8Array::new_with_length(bytes.len() as u32);
+        for (i, byte) in bytes.iter().enumerate() {
+            Reflect::set(&arr, &(i as u32).into(), &(*byte).into())
+                .expect("setting Uint8Array value failed");
         }
-        Err(_) => JsValue::UNDEFINED,
+        arr.into()
+    } else {
+        let dumps = rustpython_vm::import::import(
+            vm,
+            std::path::PathBuf::default(),
+            "json",
+            &Some("dumps".into()),
+        )
+        .expect("Couldn't get json.dumps function");
+        match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
+            Ok(value) => {
+                let json = vm.to_pystr(&value).unwrap();
+                js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED)
+            }
+            Err(_) => JsValue::UNDEFINED,
+        }
     }
 }
 

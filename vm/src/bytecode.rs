@@ -8,7 +8,7 @@
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_parser::ast;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 /// Primary container of a single code object. Each python function has
@@ -71,6 +71,7 @@ pub enum Instruction {
     },
     BinaryOperation {
         op: BinaryOperator,
+        inplace: bool,
     },
     LoadAttr {
         name: String,
@@ -171,6 +172,8 @@ pub enum Instruction {
         spec: String,
     },
 }
+
+use self::Instruction::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallType {
@@ -276,17 +279,123 @@ impl CodeObject {
     }
 }
 
+impl fmt::Display for CodeObject {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let label_targets: HashSet<&usize> = self.label_map.values().collect();
+        for (offset, instruction) in self.instructions.iter().enumerate() {
+            let arrow = if label_targets.contains(&offset) {
+                ">>"
+            } else {
+                "  "
+            };
+            write!(f, "          {} {:5} ", arrow, offset)?;
+            instruction.fmt_dis(f, &self.label_map)?;
+        }
+        Ok(())
+    }
+}
+
+impl Instruction {
+    fn fmt_dis(&self, f: &mut fmt::Formatter, label_map: &HashMap<Label, usize>) -> fmt::Result {
+        macro_rules! w {
+            ($variant:ident) => {
+                write!(f, "{:20}\n", stringify!($variant))
+            };
+            ($variant:ident, $var:expr) => {
+                write!(f, "{:20} ({})\n", stringify!($variant), $var)
+            };
+            ($variant:ident, $var1:expr, $var2:expr) => {
+                write!(f, "{:20} ({}, {})\n", stringify!($variant), $var1, $var2)
+            };
+        }
+
+        match self {
+            Import { name, symbol } => w!(Import, name, format!("{:?}", symbol)),
+            ImportStar { name } => w!(ImportStar, name),
+            LoadName { name } => w!(LoadName, name),
+            StoreName { name } => w!(StoreName, name),
+            DeleteName { name } => w!(DeleteName, name),
+            StoreSubscript => w!(StoreSubscript),
+            DeleteSubscript => w!(DeleteSubscript),
+            StoreAttr { name } => w!(StoreAttr, name),
+            DeleteAttr { name } => w!(DeleteAttr, name),
+            LoadConst { value } => w!(LoadConst, value),
+            UnaryOperation { op } => w!(UnaryOperation, format!("{:?}", op)),
+            BinaryOperation { op, inplace } => w!(BinaryOperation, format!("{:?}", op), inplace),
+            LoadAttr { name } => w!(LoadAttr, name),
+            CompareOperation { op } => w!(CompareOperation, format!("{:?}", op)),
+            Pop => w!(Pop),
+            Rotate { amount } => w!(Rotate, amount),
+            Duplicate => w!(Duplicate),
+            GetIter => w!(GetIter),
+            Pass => w!(Pass),
+            Continue => w!(Continue),
+            Break => w!(Break),
+            Jump { target } => w!(Jump, label_map[target]),
+            JumpIf { target } => w!(JumpIf, label_map[target]),
+            JumpIfFalse { target } => w!(JumpIfFalse, label_map[target]),
+            MakeFunction { flags } => w!(MakeFunction, format!("{:?}", flags)),
+            CallFunction { typ } => w!(CallFunction, format!("{:?}", typ)),
+            ForIter { target } => w!(ForIter, label_map[target]),
+            ReturnValue => w!(ReturnValue),
+            YieldValue => w!(YieldValue),
+            YieldFrom => w!(YieldFrom),
+            SetupLoop { start, end } => w!(SetupLoop, label_map[start], label_map[end]),
+            SetupExcept { handler } => w!(SetupExcept, handler),
+            SetupWith { end } => w!(SetupWith, end),
+            CleanupWith { end } => w!(CleanupWith, end),
+            PopBlock => w!(PopBlock),
+            Raise { argc } => w!(Raise, argc),
+            BuildString { size } => w!(BuildString, size),
+            BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
+            BuildList { size, unpack } => w!(BuildList, size, unpack),
+            BuildSet { size, unpack } => w!(BuildSet, size, unpack),
+            BuildMap { size, unpack } => w!(BuildMap, size, unpack),
+            BuildSlice { size } => w!(BuildSlice, size),
+            ListAppend { i } => w!(ListAppend, i),
+            SetAdd { i } => w!(SetAdd, i),
+            MapAdd { i } => w!(MapAdd, i),
+            PrintExpr => w!(PrintExpr),
+            LoadBuildClass => w!(LoadBuildClass),
+            StoreLocals => w!(StoreLocals),
+            UnpackSequence { size } => w!(UnpackSequence, size),
+            UnpackEx { before, after } => w!(UnpackEx, before, after),
+            Unpack => w!(Unpack),
+            FormatValue { spec } => w!(FormatValue, spec),
+        }
+    }
+}
+
+impl fmt::Display for Constant {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Constant::Integer { value } => write!(f, "{}", value),
+            Constant::Float { value } => write!(f, "{}", value),
+            Constant::Complex { value } => write!(f, "{}", value),
+            Constant::Boolean { value } => write!(f, "{}", value),
+            Constant::String { value } => write!(f, "{:?}", value),
+            Constant::Bytes { value } => write!(f, "{:?}", value),
+            Constant::Code { code } => write!(f, "{:?}", code),
+            Constant::Tuple { elements } => write!(
+                f,
+                "({})",
+                elements
+                    .iter()
+                    .map(|e| format!("{}", e))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Constant::None => write!(f, "None"),
+        }
+    }
+}
+
 impl fmt::Debug for CodeObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let inst_str = self
-            .instructions
-            .iter()
-            .zip(self.locations.iter())
-            .enumerate()
-            .map(|(i, inst)| format!("Inst {}: {:?}", i, inst))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let labelmap_str = format!("label_map: {:?}", self.label_map);
-        write!(f, "Code Object {{ \n{}\n{} }}", inst_str, labelmap_str)
+        write!(
+            f,
+            "<code object {} at ??? file {:?}, line {}>",
+            self.obj_name, self.source_path, self.first_line_number
+        )
     }
 }

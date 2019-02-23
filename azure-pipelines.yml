@@ -1,0 +1,56 @@
+trigger:
+- master
+
+jobs:
+
+- job: 'Test'
+  pool:
+    vmImage: 'vs2017-win2016'
+  strategy:
+    matrix:
+      Python37:
+        python.version: '3.7'
+    maxParallel: 10
+
+  steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '$(python.version)'
+      architecture: 'x64'
+
+  - script: |
+      "C:\Program Files\Git\mingw64\bin\curl.exe" -sSf -o rustup-init.exe https://win.rustup.rs/
+      .\rustup-init.exe -y
+      set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+      rustc -V
+      cargo -V
+    displayName: 'Installing Rust'
+
+  - script: |
+      set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+      cargo build --verbose --all
+    displayName: 'Build'
+
+  - script: |
+      set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+      cargo test --verbose --all
+    displayName: 'Run tests'
+
+  - script: |
+      pip install pipenv
+      pushd tests
+      pipenv install
+      popd
+    displayName: 'Install pipenv and python packages'
+
+  - script: |
+      set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+      cargo build --verbose --release
+    displayName: 'Build release'
+
+  - script: |
+      set PATH=%PATH%;%USERPROFILE%\.cargo\bin
+      pushd tests
+      pipenv run pytest
+      popd
+    displayName: 'Run snippet tests'

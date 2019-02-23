@@ -2,12 +2,11 @@
  * The mythical generator.
  */
 
-use super::super::frame::{ExecutionResult, Frame};
-use super::super::pyobject::{
+use crate::frame::{ExecutionResult, Frame};
+use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objtype;
+use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
     let generator_type = &context.generator_type;

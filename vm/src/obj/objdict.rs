@@ -1,11 +1,11 @@
-use super::super::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
-};
-use super::super::vm::{ReprGuard, VirtualMachine};
 use super::objiter;
 use super::objstr;
 use super::objtype;
+use crate::pyobject::{
+    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -244,6 +244,12 @@ fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn dict_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
+    get_mut_elements(dict).clear();
+    Ok(vm.get_none())
+}
+
 /// When iterating over a dictionary, we iterate over the keys of it.
 fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
@@ -337,4 +343,5 @@ pub fn init(context: &PyContext) {
         "__setitem__",
         context.new_rustfunc(dict_setitem),
     );
+    context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
 }

@@ -1,9 +1,8 @@
-use super::super::pyobject::{
+use super::objint;
+use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objint;
-use super::objtype; // Required for arg_check! to use isinstance
+use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 
 fn slice_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

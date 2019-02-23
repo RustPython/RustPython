@@ -6,9 +6,9 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::{ast, parser};
-use super::super::obj::{objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::objstr;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 use num_complex::Complex64;
 use std::ops::Deref;
 

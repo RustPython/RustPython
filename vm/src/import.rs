@@ -5,11 +5,11 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use super::compile;
-use super::pyobject::{AttributeProtocol, DictProtocol, PyResult};
-use super::util;
-use super::vm::VirtualMachine;
-use obj::{objsequence, objstr};
+use crate::compile;
+use crate::obj::{objsequence, objstr};
+use crate::pyobject::{AttributeProtocol, DictProtocol, PyResult};
+use crate::util;
+use crate::vm::VirtualMachine;
 
 fn import_uncached_module(
     vm: &mut VirtualMachine,

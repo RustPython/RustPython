@@ -3,6 +3,7 @@ name = "rustpython_parser"
 version = "0.0.1"
 authors = [ "Shing Lyu", "Windel Bouwman" ]
 build = "build.rs"
+edition = "2018"
 
 [build-dependencies]
 lalrpop="0.15.1"

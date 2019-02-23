@@ -1,4 +1,5 @@
-use convert;
+use crate::convert;
+use crate::wasm_builtins::{self, setup_wasm_builtins};
 use js_sys::{SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
@@ -9,7 +10,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
-use wasm_builtins::{self, setup_wasm_builtins};
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
@@ -29,7 +29,9 @@ impl StoredVirtualMachine {
     }
 }
 
-// It's fine that it's thread local, since WASM doesn't even have threads yet
+// It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local! probably
+// gets compiled down to a normal-ish static varible, like Atomic* types:
+// https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
     static STORED_VMS: PyRef<HashMap<String, PyRef<StoredVirtualMachine>>> = Rc::default();
     static ACTIVE_VMS: PyRef<HashMap<String, *mut VirtualMachine>> = Rc::default();
@@ -237,6 +239,7 @@ impl WASMVirtualMachine {
         )
     }
 
+    #[wasm_bindgen(js_name = setStdout)]
     pub fn set_stdout(&self, stdout: JsValue) -> Result<(), JsValue> {
         self.with(
             move |StoredVirtualMachine {
