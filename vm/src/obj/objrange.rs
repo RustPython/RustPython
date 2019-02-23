@@ -22,6 +22,10 @@ pub struct RangeType {
 type PyRange = RangeType;
 
 impl FromPyObject for PyRange {
+    fn typ(ctx: &PyContext) -> Option<PyObjectRef> {
+        Some(ctx.range_type())
+    }
+
     fn from_pyobject(obj: PyObjectRef) -> PyResult<Self> {
         Ok(get_value(&obj))
     }

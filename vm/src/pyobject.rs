@@ -925,10 +925,16 @@ impl PyFuncArgs {
 }
 
 pub trait FromPyObject: Sized {
+    fn typ(ctx: &PyContext) -> Option<PyObjectRef>;
+
     fn from_pyobject(obj: PyObjectRef) -> PyResult<Self>;
 }
 
 impl FromPyObject for PyObjectRef {
+    fn typ(_ctx: &PyContext) -> Option<PyObjectRef> {
+        None
+    }
+
     fn from_pyobject(obj: PyObjectRef) -> PyResult<Self> {
         Ok(obj)
     }
@@ -951,22 +957,9 @@ impl IntoPyObject for PyResult {
 }
 
 pub trait FromPyFuncArgs: Sized {
-    fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self>;
-}
+    fn required_params(ctx: &PyContext) -> Vec<Parameter>;
 
-impl<T> FromPyFuncArgs for Vec<T>
-where
-    T: FromPyFuncArgs,
-{
-    fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self> {
-        let mut v = Vec::with_capacity(args.args.len());
-        // TODO: This will loop infinitely if T::from_py_func_args doesn't
-        //       consume any positional args. Check for this and panic.
-        while !args.args.is_empty() {
-            v.push(T::from_py_func_args(args)?);
-        }
-        Ok(v)
-    }
+    fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self>;
 }
 
 macro_rules! tuple_from_py_func_args {
@@ -975,6 +968,10 @@ macro_rules! tuple_from_py_func_args {
         where
             $($T: FromPyFuncArgs),+
         {
+            fn required_params(ctx: &PyContext) -> Vec<Parameter> {
+                vec![$($T::required_params(ctx),)+].into_iter().flatten().collect()
+            }
+
             fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self> {
                 Ok(($($T::from_py_func_args(args)?,)+))
             }
@@ -992,6 +989,13 @@ impl<T> FromPyFuncArgs for T
 where
     T: FromPyObject,
 {
+    fn required_params(ctx: &PyContext) -> Vec<Parameter> {
+        vec![Parameter {
+            kind: ParameterKind::PositionalOnly,
+            typ: T::typ(ctx),
+        }]
+    }
+
     fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self> {
         Self::from_pyobject(args.shift())
     }
@@ -1027,7 +1031,21 @@ tuple_py_native_func_factory!(A, B, C);
 tuple_py_native_func_factory!(A, B, C, D);
 tuple_py_native_func_factory!(A, B, C, D, E);
 
+pub struct Parameter {
+    typ: Option<PyObjectRef>,
+    kind: ParameterKind,
+}
+
+pub enum ParameterKind {
+    PositionalOnly,
+    KeywordOnly { name: String },
+}
+
 impl FromPyFuncArgs for PyFuncArgs {
+    fn required_params(_ctx: &PyContext) -> Vec<Parameter> {
+        vec![]
+    }
+
     fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<PyFuncArgs> {
         // HACK HACK HACK
         // TODO: get rid of this clone!
