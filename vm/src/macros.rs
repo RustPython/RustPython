@@ -1,15 +1,18 @@
 // count number of tokens given as arguments.
 // see: https://danielkeep.github.io/tlborm/book/blk-counting.html
+#[macro_export]
 macro_rules! replace_expr {
     ($_t:tt $sub:expr) => {
         $sub
     };
 }
 
+#[macro_export]
 macro_rules! count_tts {
     ($($tts:tt)*) => {0usize $(+ replace_expr!($tts 1usize))*};
 }
 
+#[macro_export]
 macro_rules! type_check {
     ($vm:ident, $args:ident, $arg_count:ident, $arg_name:ident, $arg_type:expr) => {
         // None indicates that we have no type requirement (i.e. we accept any type)
@@ -31,6 +34,7 @@ macro_rules! type_check {
     };
 }
 
+#[macro_export]
 macro_rules! arg_check {
     ( $vm: ident, $args:ident ) => {
         // Zero-arg case
@@ -94,6 +98,7 @@ macro_rules! arg_check {
     };
 }
 
+#[macro_export]
 macro_rules! no_kwargs {
     ( $vm: ident, $args:ident ) => {
         // Zero-arg case

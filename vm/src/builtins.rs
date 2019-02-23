@@ -18,6 +18,8 @@ use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, Scope, TypeProtocol,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
 use crate::vm::VirtualMachine;
@@ -702,7 +704,7 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "__builtins__", {
+    let py_mod = py_module!(ctx, "__builtins__", {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
 
@@ -747,7 +749,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "min" => ctx.new_rustfunc(builtin_min),
         "object" => ctx.object(),
         "oct" => ctx.new_rustfunc(builtin_oct),
-        "open" => ctx.new_rustfunc(io_open),
         "ord" => ctx.new_rustfunc(builtin_ord),
         "next" => ctx.new_rustfunc(builtin_next),
         "pow" => ctx.new_rustfunc(builtin_pow),
@@ -789,7 +790,12 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
-    })
+    });
+
+    #[cfg(not(target_arch = "wasm32"))]
+    ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(io_open));
+
+    py_mod
 }
 
 pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
