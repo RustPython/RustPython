@@ -1,4 +1,4 @@
-from testutils import assert_raises
+from testutils import assert_raises, assertRaises
 
 assert set([1,2]) == set([1,2])
 assert not set([1,2,3]) == set([1,2])
@@ -109,12 +109,8 @@ assert a == b
 a = set([1,2,3])
 a |= set([3,4,5])
 assert a == set([1,2,3,4,5])
-try:
+with assertRaises(TypeError):
 	a |= 1
-except TypeError:
-	pass
-else:
-	assert False, "TypeError not raised"
 
 a = set([1,2,3])
 a.intersection_update([2,3,4,5])
@@ -124,12 +120,8 @@ assert_raises(TypeError, lambda: a.intersection_update(1))
 a = set([1,2,3])
 a &= set([2,3,4,5])
 assert a == set([2,3])
-try:
+with assertRaises(TypeError):
 	a &= 1
-except TypeError:
-	pass
-else:
-	assert False, "TypeError not raised"
 
 a = set([1,2,3])
 a.difference_update([3,4,5])
@@ -139,12 +131,8 @@ assert_raises(TypeError, lambda: a.difference_update(1))
 a = set([1,2,3])
 a -= set([3,4,5])
 assert a == set([1,2])
-try:
+with assertRaises(TypeError):
 	a -= 1
-except TypeError:
-	pass
-else:
-	assert False, "TypeError not raised"
 
 a = set([1,2,3])
 a.symmetric_difference_update([3,4,5])
@@ -154,9 +142,5 @@ assert_raises(TypeError, lambda: a.difference_update(1))
 a = set([1,2,3])
 a ^= set([3,4,5])
 assert a == set([1,2,4,5])
-try:
+with assertRaises(TypeError):
 	a ^= 1
-except TypeError:
-	pass
-else:
-	assert False, "TypeError not raised"
