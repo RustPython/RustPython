@@ -1,7 +1,7 @@
 use crate::obj::objbytes;
 use crate::obj::objint;
+use crate::obj::objsequence::get_elements;
 use crate::obj::objstr;
-
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
@@ -125,14 +125,20 @@ fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(zelf, None), (address, Some(vm.ctx.str_type()))]
+        required = [(zelf, None), (address, Some(vm.ctx.tuple_type()))]
     );
+
+    let elements = get_elements(address);
+    let host = objstr::get_value(&elements[0]);
+    let port = objint::get_value(&elements[1]);
+
+    let address_string = format!("{}:{}", host, port.to_string());
 
     let mut mut_obj = zelf.borrow_mut();
 
     match mut_obj.payload {
         PyObjectPayload::Socket { ref mut socket } => {
-            if let Ok(stream) = TcpStream::connect(objstr::get_value(&address)) {
+            if let Ok(stream) = TcpStream::connect(address_string) {
                 socket.con = Some(Connection::TcpStream(stream));
                 Ok(vm.get_none())
             } else {
@@ -148,14 +154,20 @@ fn socket_bind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(zelf, None), (address, Some(vm.ctx.str_type()))]
+        required = [(zelf, None), (address, Some(vm.ctx.tuple_type()))]
     );
+
+    let elements = get_elements(address);
+    let host = objstr::get_value(&elements[0]);
+    let port = objint::get_value(&elements[1]);
+
+    let address_string = format!("{}:{}", host, port.to_string());
 
     let mut mut_obj = zelf.borrow_mut();
 
     match mut_obj.payload {
         PyObjectPayload::Socket { ref mut socket } => {
-            if let Ok(stream) = TcpListener::bind(objstr::get_value(&address)) {
+            if let Ok(stream) = TcpListener::bind(address_string) {
                 socket.con = Some(Connection::TcpListener(stream));
                 Ok(vm.get_none())
             } else {
@@ -194,9 +206,13 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 con: Some(Connection::TcpStream(tcp_stream)),
             };
 
+            let sock_obj = PyObject::new(PyObjectPayload::Socket { socket }, mut_obj.typ());
+
+            let elements = vec![sock_obj, vm.get_none()];
+
             Ok(PyObject::new(
-                PyObjectPayload::Socket { socket },
-                mut_obj.typ(),
+                PyObjectPayload::Sequence { elements },
+                vm.ctx.tuple_type(),
             ))
         }
         _ => Err(vm.new_type_error("".to_string())),
