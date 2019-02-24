@@ -12,17 +12,34 @@ extern crate wasm_bindgen_futures;
 extern crate web_sys;
 
 use js_sys::{Object, Reflect, TypeError};
+use std::panic;
 use wasm_bindgen::prelude::*;
 
 pub use crate::vm_class::*;
 
 const PY_EVAL_VM_ID: &str = "__py_eval_vm";
 
-extern crate console_error_panic_hook;
+fn panic_hook(info: &panic::PanicInfo) {
+    // If something errors, just ignore it; we don't want to panic in the panic hook
+    use js_sys::WebAssembly::RuntimeError;
+    let window = match web_sys::window() {
+        Some(win) => win,
+        None => return,
+    };
+    let msg = &info.to_string();
+    let _ = Reflect::set(&window, &"__RUSTPYTHON_ERROR_MSG".into(), &msg.into());
+    let error = RuntimeError::new(&msg);
+    let _ = Reflect::set(&window, &"__RUSTPYTHON_ERROR".into(), &error);
+    let stack = match Reflect::get(&error, &"stack".into()) {
+        Ok(stack) => stack,
+        Err(_) => return,
+    };
+    let _ = Reflect::set(&window, &"__RUSTPYTHON_ERROR_STACK".into(), &stack.into());
+}
 
 #[wasm_bindgen(start)]
 pub fn setup_console_error() {
-    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    std::panic::set_hook(Box::new(panic_hook));
 }
 
 // Hack to comment out wasm-bindgen's generated typescript definitons
