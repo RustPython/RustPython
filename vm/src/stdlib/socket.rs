@@ -8,24 +8,24 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use num_traits::ToPrimitive;
-use std::fmt;
+use std::io;
 use std::io::Read;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream, UdpSocket};
 
 #[derive(Debug)]
 enum AddressFamily {
-    AF_UNIX = 1,
-    AF_INET = 2,
-    AF_INET6 = 3,
+    AfUnix = 1,
+    AfInet = 2,
+    AfInet6 = 3,
 }
 
 impl AddressFamily {
     fn from_i32(value: i32) -> AddressFamily {
         match value {
-            1 => AddressFamily::AF_UNIX,
-            2 => AddressFamily::AF_INET,
-            3 => AddressFamily::AF_INET6,
+            1 => AddressFamily::AfUnix,
+            2 => AddressFamily::AfInet,
+            3 => AddressFamily::AfInet6,
             _ => panic!("Unknown value: {}", value),
         }
     }
@@ -33,55 +33,59 @@ impl AddressFamily {
 
 #[derive(Debug)]
 enum SocketKind {
-    SOCK_STREAM = 1,
-    SOCK_DGRAM = 2,
+    SockStream = 1,
+    SockDgram = 2,
 }
 
 impl SocketKind {
     fn from_i32(value: i32) -> SocketKind {
         match value {
-            1 => SocketKind::SOCK_STREAM,
-            2 => SocketKind::SOCK_DGRAM,
+            1 => SocketKind::SockStream,
+            2 => SocketKind::SockDgram,
             _ => panic!("Unknown value: {}", value),
         }
     }
 }
 
-impl fmt::Display for AddressFamily {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+enum Connection {
+    TcpListener(TcpListener),
+    TcpStream(TcpStream),
+    UdpSocket(UdpSocket),
+}
+
+impl Read for Connection {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Connection::TcpStream(con) => con.read(buf),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
+        }
     }
 }
 
-impl fmt::Display for SocketKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+impl Write for Connection {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Connection::TcpStream(con) => con.write(buf),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
+        }
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 
 pub struct Socket {
-    af: AddressFamily,
+    address_family: AddressFamily,
     sk: SocketKind,
-    tcp_listener: Option<TcpListener>,
-    tcp_stream: Option<TcpStream>,
-    udp_socket: Option<UdpSocket>,
+    con: Option<Connection>,
 }
 
 impl Socket {
-    fn new(af: AddressFamily, sk: SocketKind) -> Socket {
+    fn new(address_family: AddressFamily, sk: SocketKind) -> Socket {
         Socket {
-            af: af,
+            address_family,
             sk: sk,
-            tcp_listener: None,
-            tcp_stream: None,
-            udp_socket: None,
-        }
-    }
-
-    fn get_tcp_stream(&self) -> Option<&TcpStream> {
-        match &self.tcp_stream {
-            Some(v) => Some(v),
-            None => None,
+            con: None,
         }
     }
 }
@@ -97,10 +101,10 @@ fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let family = AddressFamily::from_i32(objint::get_value(family_int).to_i32().unwrap());
+    let address_family = AddressFamily::from_i32(objint::get_value(family_int).to_i32().unwrap());
     let kind = SocketKind::from_i32(objint::get_value(kind_int).to_i32().unwrap());
 
-    let socket = Socket::new(family, kind);
+    let socket = Socket::new(address_family, kind);
 
     Ok(PyObject::new(
         PyObjectPayload::Socket { socket },
@@ -120,7 +124,7 @@ fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match mut_obj.payload {
         PyObjectPayload::Socket { ref mut socket } => {
             if let Ok(stream) = TcpStream::connect(objstr::get_value(&address)) {
-                socket.tcp_stream = Some(stream);
+                socket.con = Some(Connection::TcpStream(stream));
                 Ok(vm.get_none())
             } else {
                 // TODO: Socket error
@@ -140,24 +144,17 @@ fn socket_recv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mut_obj = zelf.borrow_mut();
 
     match mut_obj.payload {
-        PyObjectPayload::Socket { ref mut socket } => match socket.af {
-            AddressFamily::AF_INET => match socket.sk {
-                SocketKind::SOCK_STREAM => {
-                    let mut buffer = Vec::new();
-                    socket
-                        .get_tcp_stream()
-                        .unwrap()
-                        .read_to_end(&mut buffer)
-                        .unwrap();
-                    Ok(PyObject::new(
-                        PyObjectPayload::Bytes { value: buffer },
-                        vm.ctx.bytes_type(),
-                    ))
-                }
-                _ => Err(vm.new_type_error("".to_string())),
-            },
-            _ => Err(vm.new_type_error("".to_string())),
-        },
+        PyObjectPayload::Socket { ref mut socket } => {
+            let mut buffer = Vec::new();
+            let _temp = match socket.con {
+                Some(ref mut v) => v.read_to_end(&mut buffer).unwrap(),
+                None => 0,
+            };
+            Ok(PyObject::new(
+                PyObjectPayload::Bytes { value: buffer },
+                vm.ctx.bytes_type(),
+            ))
+        }
         _ => Err(vm.new_type_error("".to_string())),
     }
 }
@@ -171,20 +168,13 @@ fn socket_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mut_obj = zelf.borrow_mut();
 
     match mut_obj.payload {
-        PyObjectPayload::Socket { ref mut socket } => match socket.af {
-            AddressFamily::AF_INET => match socket.sk {
-                SocketKind::SOCK_STREAM => {
-                    socket
-                        .get_tcp_stream()
-                        .unwrap()
-                        .write(&objbytes::get_value(&bytes))
-                        .unwrap();
-                    Ok(vm.get_none())
-                }
-                _ => Err(vm.new_type_error("".to_string())),
-            },
-            _ => Err(vm.new_type_error("".to_string())),
-        },
+        PyObjectPayload::Socket { ref mut socket } => {
+            match socket.con {
+                Some(ref mut v) => v.write(&objbytes::get_value(&bytes)).unwrap(),
+                None => return Err(vm.new_type_error("".to_string())),
+            };
+            Ok(vm.get_none())
+        }
         _ => Err(vm.new_type_error("".to_string())),
     }
 }
@@ -194,10 +184,10 @@ fn socket_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut mut_obj = zelf.borrow_mut();
 
     match mut_obj.payload {
-        PyObjectPayload::Socket { ref mut socket } => match socket.af {
-            AddressFamily::AF_INET => match socket.sk {
-                SocketKind::SOCK_STREAM => {
-                    socket.tcp_stream = None;
+        PyObjectPayload::Socket { ref mut socket } => match socket.address_family {
+            AddressFamily::AfInet => match socket.sk {
+                SocketKind::SockStream => {
+                    socket.con = None;
                     Ok(vm.get_none())
                 }
                 _ => Err(vm.new_type_error("".to_string())),
@@ -213,14 +203,14 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
 
     ctx.set_attr(
         &py_mod,
-        &AddressFamily::AF_INET.to_string(),
-        ctx.new_int(AddressFamily::AF_INET as i32),
+        "AF_INET",
+        ctx.new_int(AddressFamily::AfInet as i32),
     );
 
     ctx.set_attr(
         &py_mod,
-        &SocketKind::SOCK_STREAM.to_string(),
-        ctx.new_int(SocketKind::SOCK_STREAM as i32),
+        "SOCK_STREAM",
+        ctx.new_int(SocketKind::SockStream as i32),
     );
 
     let socket = {
