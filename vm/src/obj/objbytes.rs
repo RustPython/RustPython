@@ -45,6 +45,22 @@ pub fn init(context: &PyContext) {
     );
 }
 
+pub struct ObjBytes {
+    value: Vec<u8>,
+}
+
+impl std::fmt::Debug for ObjBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "bytes {:?}", self.value)
+    }
+}
+
+impl PyObjectPayload for ObjBytes {
+    fn payload_kind(&self) -> &str {
+        "bytes"
+    }
+}
+
 fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -70,7 +86,7 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
 
-    Ok(PyObject::new(PyObjectPayload::Bytes { value }, cls.clone()))
+    Ok(PyObject::new(ObjBytes { value }, cls.clone()))
 }
 
 fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

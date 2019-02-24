@@ -13,7 +13,17 @@ pub struct ObjFloat {
     value: f64,
 }
 
-impl PyObjectPayload for ObjFloat {}
+impl std::fmt::Debug for ObjFloat {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "float {}", self.value)
+    }
+}
+
+impl PyObjectPayload for ObjFloat {
+    fn payload_kind(&self) -> &str {
+        "float"
+    }
+}
 
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);

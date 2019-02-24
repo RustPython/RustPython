@@ -107,11 +107,15 @@ pub struct ObjString {
     value: String,
 }
 
-impl PyObjectPayload for ObjString {}
-
 impl std::fmt::Debug for ObjString {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "str {:?}", self.value)
+    }
+}
+
+impl PyObjectPayload for ObjString {
+    fn payload_kind(&self) -> &str {
+        "str"
     }
 }
 

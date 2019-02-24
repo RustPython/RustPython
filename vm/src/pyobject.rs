@@ -691,7 +691,24 @@ impl PyContext {
     }
 }
 
-pub trait PyObjectPayload: fmt::Debug + std::any::Any {}
+pub trait PyObjectPayload: fmt::Debug + std::any::Any {
+    fn payload_kind(&self) -> &str;
+}
+
+pub fn try_get_value<P: PyObjectPayload>(obj: &PyObjectRef) -> Option<P> {
+    obj.payload.borrow().downcast_ref::<P>()
+}
+
+pub fn get_value<P: PyObjectPayload>(obj: &PyObjectRef) -> P {
+    if let Some(obj) = try_get_value(obj) {
+        obj
+    } else {
+        panic!(
+            "Inner error getting {}",
+            obj.payload.borrow().payload_kind()
+        )
+    }
+}
 
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
@@ -929,9 +946,6 @@ impl PyFuncArgs {
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum _PyObjectPayload {
-    Bytes {
-        value: Vec<u8>,
-    },
     Sequence {
         elements: Vec<PyObjectRef>,
     },
@@ -1014,42 +1028,40 @@ pub enum _PyObjectPayload {
     },
 }
 
-impl fmt::Debug for PyObjectPayload {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            PyObjectPayload::String { ref value } => write!(f, "str \"{}\"", value),
-            PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
-            PyObjectPayload::Float { ref value } => write!(f, "float {}", value),
-            PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
-            PyObjectPayload::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
-            PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
-            PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
-            PyObjectPayload::Dict { .. } => write!(f, "dict"),
-            PyObjectPayload::Set { .. } => write!(f, "set"),
-            PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
-            PyObjectPayload::Range { .. } => write!(f, "range"),
-            PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
-            PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
-            PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),
-            PyObjectPayload::MapIterator { .. } => write!(f, "map"),
-            PyObjectPayload::ZipIterator { .. } => write!(f, "zip"),
-            PyObjectPayload::Slice { .. } => write!(f, "slice"),
-            PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
-            PyObjectPayload::Function { .. } => write!(f, "function"),
-            PyObjectPayload::Generator { .. } => write!(f, "generator"),
-            PyObjectPayload::BoundMethod {
-                ref function,
-                ref object,
-            } => write!(f, "bound-method: {:?} of {:?}", function, object),
-            PyObjectPayload::Module { .. } => write!(f, "module"),
-            PyObjectPayload::Scope { .. } => write!(f, "scope"),
-            PyObjectPayload::None => write!(f, "None"),
-            PyObjectPayload::NotImplemented => write!(f, "NotImplemented"),
-            PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
-            PyObjectPayload::Instance { .. } => write!(f, "instance"),
-            PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
-            PyObjectPayload::Frame { .. } => write!(f, "frame"),
-        }
+fn fmt(a: &dyn PyObjectPayload, f: &mut fmt::Formatter) -> fmt::Result {
+    match a {
+        PyObjectPayload::String { ref value } => write!(f, "str \"{}\"", value),
+        PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
+        PyObjectPayload::Float { ref value } => write!(f, "float {}", value),
+        PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
+        PyObjectPayload::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
+        PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
+        PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
+        PyObjectPayload::Dict { .. } => write!(f, "dict"),
+        PyObjectPayload::Set { .. } => write!(f, "set"),
+        PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
+        PyObjectPayload::Range { .. } => write!(f, "range"),
+        PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
+        PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
+        PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),
+        PyObjectPayload::MapIterator { .. } => write!(f, "map"),
+        PyObjectPayload::ZipIterator { .. } => write!(f, "zip"),
+        PyObjectPayload::Slice { .. } => write!(f, "slice"),
+        PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
+        PyObjectPayload::Function { .. } => write!(f, "function"),
+        PyObjectPayload::Generator { .. } => write!(f, "generator"),
+        PyObjectPayload::BoundMethod {
+            ref function,
+            ref object,
+        } => write!(f, "bound-method: {:?} of {:?}", function, object),
+        PyObjectPayload::Module { .. } => write!(f, "module"),
+        PyObjectPayload::Scope { .. } => write!(f, "scope"),
+        PyObjectPayload::None => write!(f, "None"),
+        PyObjectPayload::NotImplemented => write!(f, "NotImplemented"),
+        PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
+        PyObjectPayload::Instance { .. } => write!(f, "instance"),
+        PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
+        PyObjectPayload::Frame { .. } => write!(f, "frame"),
     }
 }
 

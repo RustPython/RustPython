@@ -3,7 +3,7 @@ use super::objstr;
 use super::objtype;
 use crate::format::FormatSpec;
 use crate::pyobject::{
-    FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    self, FromPyObjectRef, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -19,7 +19,17 @@ pub struct ObjInt {
     value: IntType,
 }
 
-impl PyObjectPayload for ObjInt {}
+impl std::fmt::Debug for ObjInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "int {}", self.value)
+    }
+}
+
+impl PyObjectPayload for ObjInt {
+    fn payload_kind(&self) -> &str {
+        "int"
+    }
+}
 
 fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
@@ -81,7 +91,7 @@ pub fn to_int(
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> IntType {
-    if let Some(objint) = &obj.borrow().payload.downcast_ref::<ObjInt>() {
+    if let Some(objint) = pyobject::get_value::<ObjInt>(obj) {
         objint.value.clone()
     } else {
         panic!("Inner error getting int {:?}", obj);

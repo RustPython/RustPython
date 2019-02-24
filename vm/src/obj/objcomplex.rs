@@ -48,7 +48,17 @@ pub struct ObjComplex {
     value: Complex64,
 }
 
-impl PyObjectPayload for ObjComplex {}
+impl std::fmt::Debug for ObjComplex {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "complex {}", self.value)
+    }
+}
+
+impl PyObjectPayload for ObjComplex {
+    fn payload_kind(&self) -> &str {
+        "complex"
+    }
+}
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
     if let PyObjectPayload::Complex { value } = &obj.borrow().payload {
