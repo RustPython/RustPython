@@ -1,5 +1,6 @@
+use crate::browser_module::setup_browser_module;
 use crate::convert;
-use crate::wasm_builtins::{self, setup_wasm_builtins};
+use crate::wasm_builtins;
 use js_sys::{SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
@@ -17,12 +18,12 @@ pub(crate) struct StoredVirtualMachine {
 }
 
 impl StoredVirtualMachine {
-    fn new(id: String, inject_builtins: bool) -> StoredVirtualMachine {
+    fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut vm = VirtualMachine::new();
         let builtin = vm.get_builtin_scope();
         let scope = vm.context().new_scope(Some(builtin));
-        if inject_builtins {
-            setup_wasm_builtins(&mut vm, &scope);
+        if inject_browser_module {
+            setup_browser_module(&mut vm);
         }
         vm.wasm_id = Some(id);
         StoredVirtualMachine { vm, scope }
@@ -42,12 +43,12 @@ pub struct VMStore;
 
 #[wasm_bindgen(js_class = vmStore)]
 impl VMStore {
-    pub fn init(id: String, inject_builtins: Option<bool>) -> WASMVirtualMachine {
+    pub fn init(id: String, inject_browser_module: Option<bool>) -> WASMVirtualMachine {
         STORED_VMS.with(|cell| {
             let mut vms = cell.borrow_mut();
             if !vms.contains_key(&id) {
                 let stored_vm =
-                    StoredVirtualMachine::new(id.clone(), inject_builtins.unwrap_or(true));
+                    StoredVirtualMachine::new(id.clone(), inject_browser_module.unwrap_or(true));
                 vms.insert(id.clone(), Rc::new(RefCell::new(stored_vm)));
             }
         });

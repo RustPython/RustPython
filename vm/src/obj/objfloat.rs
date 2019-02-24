@@ -418,6 +418,19 @@ fn float_rmul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     float_mul(vm, args)
 }
 
+fn float_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.float_type()))]);
+    let v = get_value(i);
+    Ok(vm.ctx.new_float(v))
+}
+
+fn float_is_integer(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(i, Some(vm.ctx.float_type()))]);
+    let v = get_value(i);
+    let result = v == v.round();
+    Ok(vm.ctx.new_bool(result))
+}
+
 pub fn init(context: &PyContext) {
     let float_type = &context.float_type;
 
@@ -465,4 +478,10 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&float_type, "__mul__", context.new_rustfunc(float_mul));
     context.set_attr(&float_type, "__rmul__", context.new_rustfunc(float_rmul));
+    context.set_attr(&float_type, "real", context.new_property(float_real));
+    context.set_attr(
+        &float_type,
+        "is_integer",
+        context.new_rustfunc(float_is_integer),
+    );
 }

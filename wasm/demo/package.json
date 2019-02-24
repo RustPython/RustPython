@@ -8,13 +8,14 @@
     },
     "devDependencies": {
         "@wasm-tool/wasm-pack-plugin": "0.2.0",
+        "copy-webpack-plugin": "^4.5.2",
+        "css-loader": "^2.0.1",
+        "html-webpack-plugin": "^3.2.0",
+        "mini-css-extract-plugin": "^0.5.0",
+        "raw-loader": "^1.0.0",
         "webpack": "^4.16.3",
         "webpack-cli": "^3.1.0",
-        "webpack-dev-server": "^3.1.5",
-        "copy-webpack-plugin": "^4.5.2",
-        "mini-css-extract-plugin": "^0.5.0",
-        "html-webpack-plugin": "^3.2.0",
-        "css-loader": "^2.0.1"
+        "webpack-dev-server": "^3.1.5"
     },
     "scripts": {
         "dev": "webpack-dev-server -d",
