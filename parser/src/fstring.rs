@@ -1,0 +1,200 @@
+use std::iter;
+use std::mem;
+use std::str;
+
+use lalrpop_util::ParseError as LalrpopError;
+
+use crate::ast::StringGroup;
+use crate::lexer::{LexicalError, Location, Tok};
+use crate::parser::parse_expression;
+
+use self::StringGroup::*;
+
+// TODO: consolidate these with ParseError
+#[derive(Debug, PartialEq)]
+pub enum FStringError {
+    UnclosedLbrace,
+    UnopenedRbrace,
+    InvalidExpression,
+}
+
+impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
+    fn from(_err: FStringError) -> Self {
+        lalrpop_util::ParseError::User {
+            error: LexicalError::StringError,
+        }
+    }
+}
+
+struct FStringParser<'a> {
+    chars: iter::Peekable<str::Chars<'a>>,
+}
+
+impl<'a> FStringParser<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            chars: source.chars().peekable(),
+        }
+    }
+
+    fn parse_formatted_value(&mut self) -> Result<StringGroup, FStringError> {
+        let mut expression = String::new();
+        let mut spec = String::new();
+        let mut depth = 0;
+
+        while let Some(ch) = self.chars.next() {
+            match ch {
+                ':' if depth == 0 => {
+                    while let Some(&next) = self.chars.peek() {
+                        if next != '}' {
+                            spec.push(next);
+                            self.chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                '{' => {
+                    if let Some('{') = self.chars.peek() {
+                        expression.push_str("{{");
+                        self.chars.next();
+                    } else {
+                        expression.push('{');
+                        depth += 1;
+                    }
+                }
+                '}' => {
+                    if let Some('}') = self.chars.peek() {
+                        expression.push_str("}}");
+                        self.chars.next();
+                    } else if depth > 0 {
+                        expression.push('}');
+                        depth -= 1;
+                    } else {
+                        return Ok(FormattedValue {
+                            value: Box::new(
+                                parse_expression(expression.trim())
+                                    .map_err(|_| FStringError::InvalidExpression)?,
+                            ),
+                            spec,
+                        });
+                    }
+                }
+                _ => {
+                    expression.push(ch);
+                }
+            }
+        }
+
+        return Err(FStringError::UnclosedLbrace);
+    }
+
+    fn parse(mut self) -> Result<StringGroup, FStringError> {
+        let mut content = String::new();
+        let mut values = vec![];
+
+        while let Some(ch) = self.chars.next() {
+            match ch {
+                '{' => {
+                    if let Some('{') = self.chars.peek() {
+                        self.chars.next();
+                        content.push('{');
+                    } else {
+                        if !content.is_empty() {
+                            values.push(Constant {
+                                value: mem::replace(&mut content, String::new()),
+                            });
+                        }
+
+                        values.push(self.parse_formatted_value()?);
+                    }
+                }
+                '}' => {
+                    if let Some('}') = self.chars.peek() {
+                        self.chars.next();
+                        content.push('}');
+                    } else {
+                        return Err(FStringError::UnopenedRbrace);
+                    }
+                }
+                _ => {
+                    content.push(ch);
+                }
+            }
+        }
+
+        if !content.is_empty() {
+            values.push(Constant { value: content })
+        }
+
+        Ok(match values.len() {
+            0 => Constant {
+                value: String::new(),
+            },
+            1 => values.into_iter().next().unwrap(),
+            _ => Joined { values },
+        })
+    }
+}
+
+pub fn parse_fstring(source: &str) -> Result<StringGroup, FStringError> {
+    FStringParser::new(source).parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast;
+
+    use super::*;
+
+    fn mk_ident(name: &str) -> ast::Expression {
+        ast::Expression::Identifier {
+            name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn test_parse_fstring() {
+        let source = String::from("{a}{ b }{{foo}}");
+        let parse_ast = parse_fstring(&source).unwrap();
+
+        assert_eq!(
+            parse_ast,
+            Joined {
+                values: vec![
+                    FormattedValue {
+                        value: Box::new(mk_ident("a")),
+                        spec: String::new(),
+                    },
+                    FormattedValue {
+                        value: Box::new(mk_ident("b")),
+                        spec: String::new(),
+                    },
+                    Constant {
+                        value: "{foo}".to_owned()
+                    }
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_empty_fstring() {
+        assert_eq!(
+            parse_fstring(""),
+            Ok(Constant {
+                value: String::new(),
+            }),
+        );
+    }
+
+    #[test]
+    fn test_parse_invalid_fstring() {
+        assert_eq!(parse_fstring("{"), Err(FStringError::UnclosedLbrace));
+        assert_eq!(parse_fstring("}"), Err(FStringError::UnopenedRbrace));
+        assert_eq!(
+            parse_fstring("{class}"),
+            Err(FStringError::InvalidExpression)
+        );
+    }
+}
