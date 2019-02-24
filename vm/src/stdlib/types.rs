@@ -2,9 +2,9 @@
  * Dynamic type creation and names for built in types.
  */
 
-use super::super::obj::{objsequence, objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::{objsequence, objstr, objtype};
+use crate::pyobject::{PyAttributes, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 
 fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -15,7 +15,6 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let name = objstr::get_value(name);
-    let dict = vm.ctx.new_dict();
 
     let bases = match bases {
         Some(b) => {
@@ -28,11 +27,11 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => vec![vm.ctx.object()],
     };
 
-    objtype::new(vm.ctx.type_type(), &name, bases, dict)
+    objtype::new(vm.ctx.type_type(), &name, bases, PyAttributes::new())
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"types".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module("types", ctx.new_scope(None));
 
     // Number theory functions:
     ctx.set_attr(&py_mod, "new_class", ctx.new_rustfunc(types_new_class));

@@ -16,6 +16,7 @@ env:
 cache: cargo
 
 matrix:
+  fast_finish: true
   include:
     # To test the snippets, we use Travis' Python environment (because
     # installing rust ourselves is a lot easier than installing Python)
@@ -31,6 +32,7 @@ matrix:
       env:
         - TRAVIS_RUST_VERSION=stable
         - REGULAR_TEST=false
+        - CODE_COVERAGE=false
       script: tests/.travis-runner.sh
     - language: python
       python: 3.6
@@ -44,6 +46,7 @@ matrix:
       env:
         - TRAVIS_RUST_VERSION=beta
         - REGULAR_TEST=false
+        - CODE_COVERAGE=false
       script: tests/.travis-runner.sh
     - name: rustfmt
       language: rust
@@ -86,9 +89,36 @@ matrix:
       env:
         - REGULAR_TEST=false
         - DEPLOY_DEMO=true
+    - name: cargo-clippy
+      language: rust
+      rust: stable
+      cache: cargo
+      before_script:
+        - rustup component add clippy
+      script:
+        - cargo clippy
+      env:
+        - REGULAR_TEST=true
+    - name: Code Coverage
+      language: python
+      python: 3.6
+      cache:
+        pip: true
+        # Because we're using the Python Travis environment, we can't use
+        # the built-in cargo cacher
+        directories:
+          - /home/travis/.cargo
+          - target
+      script:
+        - tests/.travis-runner.sh
+      env:
+        - TRAVIS_RUST_VERSION=nightly
+        - REGULAR_TEST=false
+        - CODE_COVERAGE=true
   allow_failures:
     - rust: nightly
       env: REGULAR_TEST=true
+    - name: cargo-clippy
 
 deploy:
   - provider: pages

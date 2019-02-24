@@ -1,8 +1,8 @@
 //! The python `time` module.
 
-use super::super::obj::{objfloat, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::objfloat;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -17,7 +17,7 @@ fn time_sleep(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn duration_to_f64(d: Duration) -> f64 {
-    (d.as_secs() as f64) + ((d.subsec_nanos() as f64) / 1e9)
+    (d.as_secs() as f64) + (f64::from(d.subsec_nanos()) / 1e9)
 }
 
 fn time_time(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -31,8 +31,10 @@ fn time_time(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"time".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module("time", ctx.new_scope(None));
+
     ctx.set_attr(&py_mod, "sleep", ctx.new_rustfunc(time_sleep));
     ctx.set_attr(&py_mod, "time", ctx.new_rustfunc(time_time));
+
     py_mod
 }

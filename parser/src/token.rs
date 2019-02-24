@@ -9,7 +9,7 @@ pub enum Tok {
     Int { value: BigInt },
     Float { value: f64 },
     Complex { real: f64, imag: f64 },
-    String { value: String },
+    String { value: String, is_fstring: bool },
     Bytes { value: Vec<u8> },
     Newline,
     Indent,

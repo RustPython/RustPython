@@ -2,6 +2,7 @@
 name = "rustpython"
 version = "0.0.1"
 authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
+edition = "2018"
 
 [workspace]
 members = [".", "vm", "wasm/lib", "parser"]
@@ -13,6 +14,7 @@ clap = "2.31.2"
 rustpython_parser = {path = "parser"}
 rustpython_vm = {path = "vm"}
 rustyline = "2.1.0"
+xdg = "2.2.0"
 
 [profile.release]
 opt-level = "s"

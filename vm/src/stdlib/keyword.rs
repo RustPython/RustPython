@@ -4,9 +4,9 @@
 
 extern crate rustpython_parser;
 use self::rustpython_parser::lexer;
-use super::super::obj::{objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::objstr;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 
 fn keyword_iskeyword(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
@@ -18,8 +18,10 @@ fn keyword_iskeyword(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"keyword".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module("keyword", ctx.new_scope(None));
+
     ctx.set_attr(&py_mod, "iskeyword", ctx.new_rustfunc(keyword_iskeyword));
+
     let keyword_kwlist = ctx.new_list(
         lexer::get_keywords()
             .keys()
@@ -27,5 +29,6 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
             .collect(),
     );
     ctx.set_attr(&py_mod, "kwlist", keyword_kwlist);
+
     py_mod
 }

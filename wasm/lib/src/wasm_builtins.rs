@@ -2,23 +2,30 @@
 //!
 //! This is required because some feature like I/O works differently in the browser comparing to
 //! desktop.
-//! Implements functions listed here: https://docs.python.org/3/library/builtins.html
-//!
+//! Implements functions listed here: https://docs.python.org/3/library/builtins.html and some
+//! others.
+
+extern crate futures;
 extern crate js_sys;
 extern crate wasm_bindgen;
 extern crate web_sys;
 
-use crate::js_to_py;
+use crate::convert;
 use js_sys::Array;
-use rustpython_vm::pyobject::{PyFuncArgs, PyObjectRef, PyResult};
+use rustpython_vm::obj::{objstr, objtype};
+use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
-use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{console, window, HtmlTextAreaElement};
+use wasm_bindgen::{prelude::*, JsCast};
+use web_sys::{console, HtmlTextAreaElement};
+
+fn window() -> web_sys::Window {
+    web_sys::window().expect("Window to be available")
+}
 
 // The HTML id of the textarea element that act as our STDOUT
 
 pub fn print_to_html(text: &str, selector: &str) -> Result<(), JsValue> {
-    let document = window().unwrap().document().unwrap();
+    let document = window().document().expect("Document to be available");
     let element = document
         .query_selector(selector)?
         .ok_or_else(|| js_sys::TypeError::new("Couldn't get element"))?;
@@ -31,15 +38,52 @@ pub fn print_to_html(text: &str, selector: &str) -> Result<(), JsValue> {
 }
 
 pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
+    // Handle 'sep' kwarg:
+    let sep_arg = args
+        .get_optional_kwarg("sep")
+        .filter(|obj| !obj.is(&vm.get_none()));
+    if let Some(ref obj) = sep_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "sep must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let sep_str = sep_arg.as_ref().map(|obj| objstr::borrow_value(obj));
+
+    // Handle 'end' kwarg:
+    let end_arg = args
+        .get_optional_kwarg("end")
+        .filter(|obj| !obj.is(&vm.get_none()));
+    if let Some(ref obj) = end_arg {
+        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+            return Err(vm.new_type_error(format!(
+                "end must be None or a string, not {}",
+                objtype::get_type_name(&obj.typ())
+            )));
+        }
+    }
+    let end_str = end_arg.as_ref().map(|obj| objstr::borrow_value(obj));
+
+    // No need to handle 'flush' kwarg, irrelevant when writing to String
+
     let mut output = String::new();
     let mut first = true;
     for a in args.args {
         if first {
             first = false;
+        } else if let Some(ref sep_str) = sep_str {
+            output.push_str(sep_str);
         } else {
-            output.push_str(" ");
+            output.push(' ');
         }
         output.push_str(&vm.to_pystr(&a)?);
+    }
+
+    if let Some(end_str) = end_str {
+        output.push_str(end_str.as_ref())
+    } else {
         output.push('\n');
     }
     Ok(output)
@@ -47,7 +91,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
 
 pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs, selector: &str) -> PyResult {
     let output = format_print_args(vm, args)?;
-    print_to_html(&output, selector).map_err(|err| js_to_py(vm, err))?;
+    print_to_html(&output, selector).map_err(|err| convert::js_to_py(vm, err))?;
     Ok(vm.get_none())
 }
 
@@ -58,4 +102,9 @@ pub fn builtin_print_console(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyRes
     }
     console::log(&arr);
     Ok(vm.get_none())
+}
+
+pub fn setup_wasm_builtins(vm: &mut VirtualMachine, scope: &PyObjectRef) {
+    let ctx = vm.context();
+    ctx.set_attr(scope, "print", ctx.new_rustfunc(builtin_print_console));
 }

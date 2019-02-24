@@ -14,3 +14,6 @@ c['d'] = 3
 c['a']['g'] = 2
 assert dict_eq(a, {'g': 2})
 assert dict_eq(b, {'a': a, 'd': 9})
+
+a.clear()
+assert len(a) == 0

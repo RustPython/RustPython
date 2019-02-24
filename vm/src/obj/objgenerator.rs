@@ -2,15 +2,14 @@
  * The mythical generator.
  */
 
-use super::super::frame::{ExecutionResult, Frame};
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyResult, TypeProtocol,
+use crate::frame::{ExecutionResult, Frame};
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
-use super::super::vm::VirtualMachine;
-use super::objtype;
+use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
-    let ref generator_type = context.generator_type;
+    let generator_type = &context.generator_type;
     context.set_attr(
         &generator_type,
         "__iter__",
@@ -30,7 +29,7 @@ pub fn init(context: &PyContext) {
 
 pub fn new_generator(vm: &mut VirtualMachine, frame: Frame) -> PyResult {
     let g = PyObject::new(
-        PyObjectKind::Generator { frame: frame },
+        PyObjectPayload::Generator { frame },
         vm.ctx.generator_type.clone(),
     );
     Ok(g)
@@ -57,7 +56,7 @@ fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn send(vm: &mut VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
-    if let PyObjectKind::Generator { ref mut frame } = gen.borrow_mut().kind {
+    if let PyObjectPayload::Generator { ref mut frame } = gen.borrow_mut().payload {
         frame.push_value(value.clone());
         match frame.run_frame(vm)? {
             ExecutionResult::Yield(value) => Ok(value),

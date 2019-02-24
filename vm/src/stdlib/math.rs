@@ -3,9 +3,9 @@
  *
  */
 
-use super::super::obj::{objfloat, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
+use crate::obj::objfloat;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
 use std;
@@ -14,8 +14,8 @@ use std;
 macro_rules! make_math_func {
     ( $fname:ident, $fun:ident ) => {
         fn $fname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-            arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-            let value = objfloat::get_value(value);
+            arg_check!(vm, args, required = [(value, None)]);
+            let value = objfloat::make_float(vm, value)?;
             let value = value.$fun();
             let value = vm.ctx.new_float(value);
             Ok(value)
@@ -27,20 +27,20 @@ macro_rules! make_math_func {
 make_math_func!(math_fabs, abs);
 
 fn math_isfinite(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let value = objfloat::get_value(value).is_finite();
+    arg_check!(vm, args, required = [(value, None)]);
+    let value = objfloat::make_float(vm, value)?.is_finite();
     Ok(vm.ctx.new_bool(value))
 }
 
 fn math_isinf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let value = objfloat::get_value(value).is_infinite();
+    arg_check!(vm, args, required = [(value, None)]);
+    let value = objfloat::make_float(vm, value)?.is_infinite();
     Ok(vm.ctx.new_bool(value))
 }
 
 fn math_isnan(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let value = objfloat::get_value(value).is_nan();
+    arg_check!(vm, args, required = [(value, None)]);
+    let value = objfloat::make_float(vm, value)?.is_nan();
     Ok(vm.ctx.new_bool(value))
 }
 
@@ -49,25 +49,20 @@ make_math_func!(math_exp, exp);
 make_math_func!(math_expm1, exp_m1);
 
 fn math_log(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(x, Some(vm.ctx.float_type()))],
-        optional = [(base, Some(vm.ctx.float_type()))]
-    );
-    let x = objfloat::get_value(x);
+    arg_check!(vm, args, required = [(x, None)], optional = [(base, None)]);
+    let x = objfloat::make_float(vm, x)?;
     match base {
         None => Ok(vm.ctx.new_float(x.ln())),
         Some(base) => {
-            let base = objfloat::get_value(base);
+            let base = objfloat::make_float(vm, base)?;
             Ok(vm.ctx.new_float(x.log(base)))
         }
     }
 }
 
 fn math_log1p(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(x);
+    arg_check!(vm, args, required = [(x, None)]);
+    let x = objfloat::make_float(vm, x)?;
     Ok(vm.ctx.new_float((x + 1.0).ln()))
 }
 
@@ -75,16 +70,9 @@ make_math_func!(math_log2, log2);
 make_math_func!(math_log10, log10);
 
 fn math_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (x, Some(vm.ctx.float_type())),
-            (y, Some(vm.ctx.float_type()))
-        ]
-    );
-    let x = objfloat::get_value(x);
-    let y = objfloat::get_value(y);
+    arg_check!(vm, args, required = [(x, None), (y, None)]);
+    let x = objfloat::make_float(vm, x)?;
+    let y = objfloat::make_float(vm, y)?;
     Ok(vm.ctx.new_float(x.powf(y)))
 }
 
@@ -96,32 +84,18 @@ make_math_func!(math_asin, asin);
 make_math_func!(math_atan, atan);
 
 fn math_atan2(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (y, Some(vm.ctx.float_type())),
-            (x, Some(vm.ctx.float_type()))
-        ]
-    );
-    let y = objfloat::get_value(y);
-    let x = objfloat::get_value(x);
+    arg_check!(vm, args, required = [(y, None), (x, None)]);
+    let y = objfloat::make_float(vm, y)?;
+    let x = objfloat::make_float(vm, x)?;
     Ok(vm.ctx.new_float(y.atan2(x)))
 }
 
 make_math_func!(math_cos, cos);
 
 fn math_hypot(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (x, Some(vm.ctx.float_type())),
-            (y, Some(vm.ctx.float_type()))
-        ]
-    );
-    let x = objfloat::get_value(x);
-    let y = objfloat::get_value(y);
+    arg_check!(vm, args, required = [(x, None), (y, None)]);
+    let x = objfloat::make_float(vm, x)?;
+    let y = objfloat::make_float(vm, y)?;
     Ok(vm.ctx.new_float(x.hypot(y)))
 }
 
@@ -129,14 +103,14 @@ make_math_func!(math_sin, sin);
 make_math_func!(math_tan, tan);
 
 fn math_degrees(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
     Ok(vm.ctx.new_float(x * (180.0 / std::f64::consts::PI)))
 }
 
 fn math_radians(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
     Ok(vm.ctx.new_float(x * (std::f64::consts::PI / 180.0)))
 }
 
@@ -150,8 +124,8 @@ make_math_func!(math_tanh, tanh);
 
 // Special functions:
 fn math_erf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
 
     if x.is_nan() {
         Ok(vm.ctx.new_float(x))
@@ -161,8 +135,8 @@ fn math_erf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn math_erfc(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
 
     if x.is_nan() {
         Ok(vm.ctx.new_float(x))
@@ -172,87 +146,81 @@ fn math_erfc(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn math_gamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
 
     if x.is_finite() {
         Ok(vm.ctx.new_float(gamma(x)))
+    } else if x.is_nan() || x.is_sign_positive() {
+        Ok(vm.ctx.new_float(x))
     } else {
-        if x.is_nan() || x.is_sign_positive() {
-            Ok(vm.ctx.new_float(x))
-        } else {
-            Ok(vm.ctx.new_float(std::f64::NAN))
-        }
+        Ok(vm.ctx.new_float(std::f64::NAN))
     }
 }
 
 fn math_lgamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(value, Some(vm.ctx.float_type()))]);
-    let x = objfloat::get_value(value);
+    arg_check!(vm, args, required = [(value, None)]);
+    let x = objfloat::make_float(vm, value)?;
 
     if x.is_finite() {
         Ok(vm.ctx.new_float(ln_gamma(x)))
+    } else if x.is_nan() {
+        Ok(vm.ctx.new_float(x))
     } else {
-        if x.is_nan() {
-            Ok(vm.ctx.new_float(x))
-        } else {
-            Ok(vm.ctx.new_float(std::f64::INFINITY))
-        }
+        Ok(vm.ctx.new_float(std::f64::INFINITY))
     }
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"math".to_string(), ctx.new_scope(None));
+    py_module!(ctx, "math", {
+        // Number theory functions:
+        "fabs" => ctx.new_rustfunc(math_fabs),
+        "isfinite" => ctx.new_rustfunc(math_isfinite),
+        "isinf" => ctx.new_rustfunc(math_isinf),
+        "isnan" => ctx.new_rustfunc(math_isnan),
 
-    // Number theory functions:
-    ctx.set_attr(&py_mod, "fabs", ctx.new_rustfunc(math_fabs));
-    ctx.set_attr(&py_mod, "isfinite", ctx.new_rustfunc(math_isfinite));
-    ctx.set_attr(&py_mod, "isinf", ctx.new_rustfunc(math_isinf));
-    ctx.set_attr(&py_mod, "isnan", ctx.new_rustfunc(math_isnan));
+        // Power and logarithmic functions:
+        "exp" => ctx.new_rustfunc(math_exp),
+        "expm1" => ctx.new_rustfunc(math_expm1),
+        "log" => ctx.new_rustfunc(math_log),
+        "log1p" => ctx.new_rustfunc(math_log1p),
+        "log2" => ctx.new_rustfunc(math_log2),
+        "log10" => ctx.new_rustfunc(math_log10),
+        "pow" => ctx.new_rustfunc(math_pow),
+        "sqrt" => ctx.new_rustfunc(math_sqrt),
 
-    // Power and logarithmic functions:
-    ctx.set_attr(&py_mod, "exp", ctx.new_rustfunc(math_exp));
-    ctx.set_attr(&py_mod, "expm1", ctx.new_rustfunc(math_expm1));
-    ctx.set_attr(&py_mod, "log", ctx.new_rustfunc(math_log));
-    ctx.set_attr(&py_mod, "log1p", ctx.new_rustfunc(math_log1p));
-    ctx.set_attr(&py_mod, "log2", ctx.new_rustfunc(math_log2));
-    ctx.set_attr(&py_mod, "log10", ctx.new_rustfunc(math_log10));
-    ctx.set_attr(&py_mod, "pow", ctx.new_rustfunc(math_pow));
-    ctx.set_attr(&py_mod, "sqrt", ctx.new_rustfunc(math_sqrt));
+        // Trigonometric functions:
+        "acos" => ctx.new_rustfunc(math_acos),
+        "asin" => ctx.new_rustfunc(math_asin),
+        "atan" => ctx.new_rustfunc(math_atan),
+        "atan2" => ctx.new_rustfunc(math_atan2),
+        "cos" => ctx.new_rustfunc(math_cos),
+        "hypot" => ctx.new_rustfunc(math_hypot),
+        "sin" => ctx.new_rustfunc(math_sin),
+        "tan" => ctx.new_rustfunc(math_tan),
 
-    // Trigonometric functions:
-    ctx.set_attr(&py_mod, "acos", ctx.new_rustfunc(math_acos));
-    ctx.set_attr(&py_mod, "asin", ctx.new_rustfunc(math_asin));
-    ctx.set_attr(&py_mod, "atan", ctx.new_rustfunc(math_atan));
-    ctx.set_attr(&py_mod, "atan2", ctx.new_rustfunc(math_atan2));
-    ctx.set_attr(&py_mod, "cos", ctx.new_rustfunc(math_cos));
-    ctx.set_attr(&py_mod, "hypot", ctx.new_rustfunc(math_hypot));
-    ctx.set_attr(&py_mod, "sin", ctx.new_rustfunc(math_sin));
-    ctx.set_attr(&py_mod, "tan", ctx.new_rustfunc(math_tan));
+        "degrees" => ctx.new_rustfunc(math_degrees),
+        "radians" => ctx.new_rustfunc(math_radians),
 
-    ctx.set_attr(&py_mod, "degrees", ctx.new_rustfunc(math_degrees));
-    ctx.set_attr(&py_mod, "radians", ctx.new_rustfunc(math_radians));
+        // Hyperbolic functions:
+        "acosh" => ctx.new_rustfunc(math_acosh),
+        "asinh" => ctx.new_rustfunc(math_asinh),
+        "atanh" => ctx.new_rustfunc(math_atanh),
+        "cosh" => ctx.new_rustfunc(math_cosh),
+        "sinh" => ctx.new_rustfunc(math_sinh),
+        "tanh" => ctx.new_rustfunc(math_tanh),
 
-    // Hyperbolic functions:
-    ctx.set_attr(&py_mod, "acosh", ctx.new_rustfunc(math_acosh));
-    ctx.set_attr(&py_mod, "asinh", ctx.new_rustfunc(math_asinh));
-    ctx.set_attr(&py_mod, "atanh", ctx.new_rustfunc(math_atanh));
-    ctx.set_attr(&py_mod, "cosh", ctx.new_rustfunc(math_cosh));
-    ctx.set_attr(&py_mod, "sinh", ctx.new_rustfunc(math_sinh));
-    ctx.set_attr(&py_mod, "tanh", ctx.new_rustfunc(math_tanh));
+        // Special functions:
+        "erf" => ctx.new_rustfunc(math_erf),
+        "erfc" => ctx.new_rustfunc(math_erfc),
+        "gamma" => ctx.new_rustfunc(math_gamma),
+        "lgamma" => ctx.new_rustfunc(math_lgamma),
 
-    // Special functions:
-    ctx.set_attr(&py_mod, "erf", ctx.new_rustfunc(math_erf));
-    ctx.set_attr(&py_mod, "erfc", ctx.new_rustfunc(math_erfc));
-    ctx.set_attr(&py_mod, "gamma", ctx.new_rustfunc(math_gamma));
-    ctx.set_attr(&py_mod, "lgamma", ctx.new_rustfunc(math_lgamma));
-
-    // Constants:
-    ctx.set_attr(&py_mod, "pi", ctx.new_float(std::f64::consts::PI)); // 3.14159...
-    ctx.set_attr(&py_mod, "e", ctx.new_float(std::f64::consts::E)); // 2.71..
-    ctx.set_attr(&py_mod, "tau", ctx.new_float(2.0 * std::f64::consts::PI));
-    ctx.set_attr(&py_mod, "inf", ctx.new_float(std::f64::INFINITY));
-    ctx.set_attr(&py_mod, "nan", ctx.new_float(std::f64::NAN));
-
-    py_mod
+        // Constants:
+        "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
+        "e" => ctx.new_float(std::f64::consts::E), // 2.71..
+        "tau" => ctx.new_float(2.0 * std::f64::consts::PI),
+        "inf" => ctx.new_float(std::f64::INFINITY),
+        "nan" => ctx.new_float(std::f64::NAN)
+    })
 }

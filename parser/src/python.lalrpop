@@ -6,6 +6,7 @@
 
 use super::ast;
 use super::lexer;
+use super::parser;
 use std::iter::FromIterator;
 use num_bigint::BigInt;
 
@@ -105,7 +106,11 @@ ExpressionStatement: ast::LocatedStatement = {
         let rhs = e2.into_iter().next().unwrap();
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::AugAssign { target: expr, op: op, value: rhs },
+            node: ast::Statement::AugAssign {
+                target: Box::new(expr),
+                op,
+                value: Box::new(rhs)
+            },
         }
     },
 };
@@ -608,17 +613,26 @@ ClassDef: ast::LocatedStatement = {
     },
 };
 
+Path: ast::Expression = {
+    <n:Identifier> => ast::Expression::Identifier { name: n },
+    <p:Path> "." <n:name> => {
+        ast::Expression::Attribute {
+            value: Box::new(p),
+            name: n,
+        }
+    },
+};
+
 // Decorators:
 Decorator: ast::Expression = {
-    "@" <n:DottedName> <a: ("(" ArgumentList ")")?> "\n" => {
-        let name = ast::Expression::Identifier { name: n };
+    "@" <p:Path> <a: ("(" ArgumentList ")")?> "\n" => {
         match a {
             Some((_, args, _)) => ast::Expression::Call {
-                function: Box::new(name),
+                function: Box::new(p),
                 args: args.0,
                 keywords: args.1,
             },
-            None => name,
+            None => p,
         }
     },
 };
@@ -659,7 +673,7 @@ Test: ast::Expression = {
 };
 
 LambdaDef: ast::Expression = {
-    "lambda" <p:TypedArgsList?> ":" <b:Expression> =>
+    "lambda" <p:TypedArgsList?> ":" <b:Test> =>
         ast::Expression::Lambda {
             args: p.unwrap_or(Default::default()),
             body:Box::new(b)
@@ -785,7 +799,8 @@ SliceOp: ast::Expression = {
 }
 
 Atom: ast::Expression = {
-    StringConstant,
+    <s:StringGroup> => ast::Expression::String { value: s },
+    <b:Bytes> => ast::Expression::Bytes { value: b },
     <n:Number> => ast::Expression::Number { value: n },
     <i:Identifier> => ast::Expression::Identifier { name: i },
     "[" <e:TestListComp?> "]" => {
@@ -988,14 +1003,28 @@ Number: ast::Number = {
     <s:complex> => { ast::Number::Complex { real: s.0, imag: s.1 } },
 };
 
-StringConstant: ast::Expression = {
-    <s:string+> => {
-        let glued = s.join("");
-        ast::Expression::String { value: glued }
+StringGroup: ast::StringGroup = {
+    <s:string+> =>? {
+        let mut values = vec![];
+        for (value, is_fstring) in s {
+            values.push(if is_fstring {
+                parser::parse_fstring(&value)?
+            } else {
+                ast::StringGroup::Constant { value }
+            })
+        }
+
+        Ok(if values.len() > 1 {
+            ast::StringGroup::Joined { values }
+        } else {
+            values.into_iter().next().unwrap()
+        })
     },
+};
+
+Bytes: Vec<u8> = {
     <s:bytes+> => {
-        let glued = s.into_iter().flatten().collect::<Vec<u8>>();
-        ast::Expression::Bytes { value: glued }
+        s.into_iter().flatten().collect::<Vec<u8>>()
     },
 };
 
@@ -1092,7 +1121,7 @@ extern {
         int => lexer::Tok::Int { value: <BigInt> },
         float => lexer::Tok::Float { value: <f64> },
         complex => lexer::Tok::Complex { real: <f64>, imag: <f64> },
-        string => lexer::Tok::String { value: <String> },
+        string => lexer::Tok::String { value: <String>, is_fstring: <bool> },
         bytes => lexer::Tok::Bytes { value: <Vec<u8>> },
         name => lexer::Tok::Name { name: <String> },
         "\n" => lexer::Tok::Newline,

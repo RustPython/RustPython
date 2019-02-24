@@ -3,7 +3,7 @@
  *
  */
 
-use super::super::pyobject::{PyContext, PyObjectRef};
+use crate::pyobject::{PyContext, PyObjectRef};
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"string".to_string(), ctx.new_scope(None));
@@ -21,23 +21,15 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     */
 
     // Constants:
-    ctx.set_attr(&py_mod, "ascii_letters", ctx.new_str(ascii_letters.clone()));
-    ctx.set_attr(
-        &py_mod,
-        "ascii_lowercase",
-        ctx.new_str(ascii_lowercase.clone()),
-    );
-    ctx.set_attr(
-        &py_mod,
-        "ascii_uppercase",
-        ctx.new_str(ascii_uppercase.clone()),
-    );
-    ctx.set_attr(&py_mod, "digits", ctx.new_str(digits.clone()));
-    ctx.set_attr(&py_mod, "hexdigits", ctx.new_str(hexdigits.clone()));
-    ctx.set_attr(&py_mod, "octdigits", ctx.new_str(octdigits.clone()));
-    // ctx.set_attr(&py_mod, "printable", ctx.new_str(printable.clone()));
-    ctx.set_attr(&py_mod, "punctuation", ctx.new_str(punctuation.clone()));
-    // ctx.set_attr(&py_mod, "whitespace", ctx.new_str(whitespace.clone()));
+    ctx.set_attr(&py_mod, "ascii_letters", ctx.new_str(ascii_letters));
+    ctx.set_attr(&py_mod, "ascii_lowercase", ctx.new_str(ascii_lowercase));
+    ctx.set_attr(&py_mod, "ascii_uppercase", ctx.new_str(ascii_uppercase));
+    ctx.set_attr(&py_mod, "digits", ctx.new_str(digits));
+    ctx.set_attr(&py_mod, "hexdigits", ctx.new_str(hexdigits));
+    ctx.set_attr(&py_mod, "octdigits", ctx.new_str(octdigits));
+    // ctx.set_attr(&py_mod, "printable", ctx.new_str(printable));
+    ctx.set_attr(&py_mod, "punctuation", ctx.new_str(punctuation));
+    // ctx.set_attr(&py_mod, "whitespace", ctx.new_str(whitespace));
 
     py_mod
 }

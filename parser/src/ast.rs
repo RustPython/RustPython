@@ -65,9 +65,9 @@ pub enum Statement {
         value: Expression,
     },
     AugAssign {
-        target: Expression,
+        target: Box<Expression>,
         op: Operator,
-        value: Expression,
+        value: Box<Expression>,
     },
     Expression {
         expression: Expression,
@@ -197,7 +197,7 @@ pub enum Expression {
         elements: Vec<Expression>,
     },
     String {
-        value: String,
+        value: StringGroup,
     },
     Bytes {
         value: Vec<u8>,
@@ -219,9 +219,53 @@ pub enum Expression {
     None,
 }
 
+impl Expression {
+    /// Returns a short name for the node suitable for use in error messages.
+    pub fn name(&self) -> &'static str {
+        use self::Expression::*;
+        use self::StringGroup::*;
+
+        match self {
+            BoolOp { .. } | Binop { .. } | Unop { .. } => "operator",
+            Subscript { .. } => "subscript",
+            Yield { .. } | YieldFrom { .. } => "yield expression",
+            Compare { .. } => "comparison",
+            Attribute { .. } => "attribute",
+            Call { .. } => "function call",
+            Number { .. }
+            | String {
+                value: Constant { .. },
+            }
+            | Bytes { .. } => "literal",
+            List { .. } => "list",
+            Tuple { .. } => "tuple",
+            Dict { .. } => "dict display",
+            Set { .. } => "set display",
+            Comprehension { kind, .. } => match **kind {
+                ComprehensionKind::List { .. } => "list comprehension",
+                ComprehensionKind::Dict { .. } => "dict comprehension",
+                ComprehensionKind::Set { .. } => "set comprehension",
+                ComprehensionKind::GeneratorExpression { .. } => "generator expression",
+            },
+            Starred { .. } => "starred",
+            Slice { .. } => "slice",
+            String {
+                value: Joined { .. },
+            }
+            | String {
+                value: FormattedValue { .. },
+            } => "f-string expression",
+            Identifier { .. } => "named expression",
+            Lambda { .. } => "lambda",
+            IfExpression { .. } => "conditional expression",
+            True | False | None => "keyword",
+        }
+    }
+}
+
 /*
  * In cpython this is called arguments, but we choose parameters to
- * distuingish between function parameters and actual call arguments.
+ * distinguish between function parameters and actual call arguments.
  */
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameters {
@@ -311,4 +355,18 @@ pub enum Number {
     Integer { value: BigInt },
     Float { value: f64 },
     Complex { real: f64, imag: f64 },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum StringGroup {
+    Constant {
+        value: String,
+    },
+    FormattedValue {
+        value: Box<Expression>,
+        spec: String,
+    },
+    Joined {
+        values: Vec<StringGroup>,
+    },
 }

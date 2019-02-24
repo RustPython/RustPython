@@ -10,10 +10,10 @@
 extern crate byteorder;
 use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use super::super::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
-use num_bigint::{BigInt, ToBigInt};
+use crate::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
+use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use std::io::{Cursor, Read, Write};
 
@@ -76,7 +76,7 @@ fn pack_bool(
         data.write_u8(v).unwrap();
         Ok(())
     } else {
-        Err(vm.new_type_error(format!("Expected boolean")))
+        Err(vm.new_type_error("Expected boolean".to_string()))
     }
 }
 
@@ -150,7 +150,7 @@ fn pack_f32(
         data.write_f32::<LittleEndian>(v).unwrap();
         Ok(())
     } else {
-        Err(vm.new_type_error(format!("Expected float")))
+        Err(vm.new_type_error("Expected float".to_string()))
     }
 }
 
@@ -164,12 +164,12 @@ fn pack_f64(
         data.write_f64::<LittleEndian>(v).unwrap();
         Ok(())
     } else {
-        Err(vm.new_type_error(format!("Expected float")))
+        Err(vm.new_type_error("Expected float".to_string()))
     }
 }
 
 fn struct_pack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() < 1 {
+    if args.args.is_empty() {
         Err(vm.new_type_error(format!(
             "Expected at least 1 argument (got: {})",
             args.args.len()
@@ -216,7 +216,7 @@ fn struct_pack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 )))
             }
         } else {
-            Err(vm.new_type_error(format!("First argument must be of str type")))
+            Err(vm.new_type_error("First argument must be of str type".to_string()))
         }
     }
 }
@@ -224,14 +224,14 @@ fn struct_pack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn unpack_i8(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_i8() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
+        Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
 fn unpack_u8(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_u8() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
+        Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
@@ -245,49 +245,49 @@ fn unpack_bool(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
 fn unpack_i16(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_i16::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
+        Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
 fn unpack_u16(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_u16::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
+        Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
 fn unpack_i32(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_i32::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
+        Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
 fn unpack_u32(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_u32::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
+        Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
 fn unpack_i64(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_i64::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
+        Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
 fn unpack_u64(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_u64::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_int(v.to_bigint().unwrap())),
+        Ok(v) => Ok(vm.ctx.new_int(v)),
     }
 }
 
 fn unpack_f32(vm: &mut VirtualMachine, rdr: &mut Read) -> PyResult {
     match rdr.read_f32::<LittleEndian>() {
         Err(err) => panic!("Error in reading {:?}", err),
-        Ok(v) => Ok(vm.ctx.new_float(v as f64)),
+        Ok(v) => Ok(vm.ctx.new_float(f64::from(v))),
     }
 }
 
@@ -342,7 +342,9 @@ fn struct_unpack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"struct".to_string(), ctx.new_scope(None));
+
     ctx.set_attr(&py_mod, "pack", ctx.new_rustfunc(struct_pack));
     ctx.set_attr(&py_mod, "unpack", ctx.new_rustfunc(struct_unpack));
+
     py_mod
 }

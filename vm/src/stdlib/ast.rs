@@ -6,12 +6,10 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::{ast, parser};
-use super::super::obj::{objstr, objtype};
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::VirtualMachine;
-use num_bigint::ToBigInt;
+use crate::obj::objstr;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 use num_complex::Complex64;
-use num_traits::One;
 use std::ops::Deref;
 
 /*
@@ -47,8 +45,7 @@ fn program_to_ast(ctx: &PyContext, program: &ast::Program) -> PyObjectRef {
 fn create_node(ctx: &PyContext, _name: &str) -> PyObjectRef {
     // TODO: instantiate a class of type given by name
     // TODO: lookup in the current module?
-    let node = ctx.new_object();
-    node
+    ctx.new_object()
 }
 
 fn statements_to_ast(ctx: &PyContext, statements: &[ast::LocatedStatement]) -> PyObjectRef {
@@ -64,9 +61,8 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
         ast::Statement::ClassDef {
             name,
             body,
-            bases: _,
-            keywords: _,
             decorator_list,
+            ..
         } => {
             let node = create_node(ctx, "ClassDef");
 
@@ -102,18 +98,9 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             ctx.set_attr(&node, "decorator_list", py_decorator_list);
             node
         }
-        ast::Statement::Continue => {
-            let node = create_node(ctx, "Continue");
-            node
-        }
-        ast::Statement::Break => {
-            let node = create_node(ctx, "Break");
-            node
-        }
-        ast::Statement::Pass => {
-            let node = create_node(ctx, "Pass");
-            node
-        }
+        ast::Statement::Continue => create_node(ctx, "Continue"),
+        ast::Statement::Break => create_node(ctx, "Break"),
+        ast::Statement::Pass => create_node(ctx, "Pass"),
         ast::Statement::Assert { test, msg } => {
             let node = create_node(ctx, "Pass");
 
@@ -130,12 +117,8 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
         ast::Statement::Delete { targets } => {
             let node = create_node(ctx, "Delete");
 
-            let py_targets = ctx.new_tuple(
-                targets
-                    .into_iter()
-                    .map(|v| expression_to_ast(ctx, v))
-                    .collect(),
-            );
+            let py_targets =
+                ctx.new_tuple(targets.iter().map(|v| expression_to_ast(ctx, v)).collect());
             ctx.set_attr(&node, "targets", py_targets);
 
             node
@@ -144,12 +127,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             let node = create_node(ctx, "Return");
 
             let py_value = if let Some(value) = value {
-                ctx.new_tuple(
-                    value
-                        .into_iter()
-                        .map(|v| expression_to_ast(ctx, v))
-                        .collect(),
-                )
+                ctx.new_tuple(value.iter().map(|v| expression_to_ast(ctx, v)).collect())
             } else {
                 ctx.none()
             };
@@ -233,13 +211,13 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
     };
 
     // set lineno on node:
-    let lineno = ctx.new_int(statement.location.get_row().to_bigint().unwrap());
+    let lineno = ctx.new_int(statement.location.get_row());
     ctx.set_attr(&node, "lineno", lineno);
 
     node
 }
 
-fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> PyObjectRef {
+fn expressions_to_ast(ctx: &PyContext, expressions: &[ast::Expression]) -> PyObjectRef {
     let mut py_expression_nodes = vec![];
     for expression in expressions {
         py_expression_nodes.push(expression_to_ast(ctx, expression));
@@ -249,11 +227,7 @@ fn expressions_to_ast(ctx: &PyContext, expressions: &Vec<ast::Expression>) -> Py
 
 fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectRef {
     let node = match &expression {
-        ast::Expression::Call {
-            function,
-            args,
-            keywords: _,
-        } => {
+        ast::Expression::Call { function, args, .. } => {
             let node = create_node(ctx, "Call");
 
             let py_func_ast = expression_to_ast(ctx, function);
@@ -390,7 +364,7 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
             let node = create_node(ctx, "Num");
 
             let py_n = match value {
-                ast::Number::Integer { value } => ctx.new_int(value.to_bigint().unwrap()),
+                ast::Number::Integer { value } => ctx.new_int(value.clone()),
                 ast::Number::Float { value } => ctx.new_float(*value),
                 ast::Number::Complex { real, imag } => {
                     ctx.new_complex(Complex64::new(*real, *imag))
@@ -542,11 +516,7 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
 
             node
         }
-        ast::Expression::String { value } => {
-            let node = create_node(ctx, "Str");
-            ctx.set_attr(&node, "s", ctx.new_str(value.clone()));
-            node
-        }
+        ast::Expression::String { value } => string_to_ast(ctx, value),
         ast::Expression::Bytes { value } => {
             let node = create_node(ctx, "Bytes");
             ctx.set_attr(&node, "s", ctx.new_bytes(value.clone()));
@@ -555,7 +525,7 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
     };
 
     // TODO: retrieve correct lineno:
-    let lineno = ctx.new_int(One::one());
+    let lineno = ctx.new_int(1);
     ctx.set_attr(&node, "lineno", lineno);
 
     node
@@ -593,41 +563,62 @@ fn comprehension_to_ast(ctx: &PyContext, comprehension: &ast::Comprehension) -> 
     node
 }
 
+fn string_to_ast(ctx: &PyContext, string: &ast::StringGroup) -> PyObjectRef {
+    match string {
+        ast::StringGroup::Constant { value } => {
+            let node = create_node(ctx, "Str");
+            ctx.set_attr(&node, "s", ctx.new_str(value.clone()));
+            node
+        }
+        ast::StringGroup::FormattedValue { value, .. } => {
+            let node = create_node(ctx, "FormattedValue");
+            let py_value = expression_to_ast(ctx, value);
+            ctx.set_attr(&node, "value", py_value);
+            node
+        }
+        ast::StringGroup::Joined { values } => {
+            let node = create_node(ctx, "JoinedStr");
+            let py_values = ctx.new_list(
+                values
+                    .iter()
+                    .map(|value| string_to_ast(ctx, value))
+                    .collect(),
+            );
+            ctx.set_attr(&node, "values", py_values);
+            node
+        }
+    }
+}
+
 fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(source, Some(vm.ctx.str_type()))]);
 
     let source_string = objstr::get_value(source);
-    let internal_ast = match parser::parse_program(&source_string) {
-        Ok(ast) => ast,
-        Err(msg) => {
-            return Err(vm.new_value_error(msg));
-        }
-    };
-
+    let internal_ast = parser::parse_program(&source_string)
+        .map_err(|err| vm.new_value_error(format!("{}", err)))?;
     // source.clone();
     let ast_node = program_to_ast(&vm.ctx, &internal_ast);
     Ok(ast_node)
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let ast_mod = ctx.new_module(&"ast".to_string(), ctx.new_scope(None));
+    // TODO: maybe we can use some clever macro to generate this?
+    let ast_mod = ctx.new_module("ast", ctx.new_scope(None));
+
     ctx.set_attr(&ast_mod, "parse", ctx.new_rustfunc(ast_parse));
+
     ctx.set_attr(
         &ast_mod,
         "Module",
-        ctx.new_class(&"_ast.Module".to_string(), ctx.object()),
+        ctx.new_class("_ast.Module", ctx.object()),
     );
 
-    // TODO: maybe we can use some clever macro to generate this?
     ctx.set_attr(
         &ast_mod,
         "FunctionDef",
-        ctx.new_class(&"_ast.FunctionDef".to_string(), ctx.object()),
+        ctx.new_class("_ast.FunctionDef", ctx.object()),
     );
-    ctx.set_attr(
-        &ast_mod,
-        "Call",
-        ctx.new_class(&"_ast.Call".to_string(), ctx.object()),
-    );
+    ctx.set_attr(&ast_mod, "Call", ctx.new_class("_ast.Call", ctx.object()));
+
     ast_mod
 }

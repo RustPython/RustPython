@@ -5,16 +5,15 @@
 //! - [rust weak struct](https://doc.rust-lang.org/std/rc/struct.Weak.html)
 //!
 
-use super::super::obj::objtype;
-use super::super::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectKind, PyObjectRef, PyObjectWeakRef, PyResult,
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyObjectWeakRef, PyResult,
     TypeProtocol,
 };
-use super::super::VirtualMachine;
+use crate::VirtualMachine;
 use std::rc::Rc;
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"_weakref".to_string(), ctx.new_scope(None));
+    let py_mod = ctx.new_module("_weakref", ctx.new_scope(None));
 
     let py_ref_class = ctx.new_class("ref", ctx.object());
     ctx.set_attr(&py_ref_class, "__new__", ctx.new_rustfunc(ref_new));
@@ -28,7 +27,7 @@ fn ref_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (referent, None)]);
     let referent = Rc::downgrade(referent);
     Ok(PyObject::new(
-        PyObjectKind::WeakRef { referent: referent },
+        PyObjectPayload::WeakRef { referent },
         cls.clone(),
     ))
 }
@@ -47,7 +46,7 @@ fn ref_call(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn get_value(obj: &PyObjectRef) -> PyObjectWeakRef {
-    if let PyObjectKind::WeakRef { referent } = &obj.borrow().kind {
+    if let PyObjectPayload::WeakRef { referent } = &obj.borrow().payload {
         referent.clone()
     } else {
         panic!("Inner error getting weak ref {:?}", obj);

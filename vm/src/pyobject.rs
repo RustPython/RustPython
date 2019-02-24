@@ -1,28 +1,37 @@
-use super::bytecode;
-use super::exceptions;
-use super::frame::Frame;
-use super::obj::objbool;
-use super::obj::objbytearray;
-use super::obj::objbytes;
-use super::obj::objcode;
-use super::obj::objcomplex;
-use super::obj::objdict;
-use super::obj::objfloat;
-use super::obj::objframe;
-use super::obj::objfunction;
-use super::obj::objgenerator;
-use super::obj::objint;
-use super::obj::objiter;
-use super::obj::objlist;
-use super::obj::objobject;
-use super::obj::objproperty;
-use super::obj::objset;
-use super::obj::objstr;
-use super::obj::objsuper;
-use super::obj::objtuple;
-use super::obj::objtype;
-use super::vm::VirtualMachine;
+use crate::bytecode;
+use crate::exceptions;
+use crate::frame::Frame;
+use crate::obj::objbool;
+use crate::obj::objbytearray;
+use crate::obj::objbytes;
+use crate::obj::objcode;
+use crate::obj::objcomplex;
+use crate::obj::objdict;
+use crate::obj::objenumerate;
+use crate::obj::objfilter;
+use crate::obj::objfloat;
+use crate::obj::objframe;
+use crate::obj::objfunction;
+use crate::obj::objgenerator;
+use crate::obj::objint;
+use crate::obj::objiter;
+use crate::obj::objlist;
+use crate::obj::objmap;
+use crate::obj::objmemory;
+use crate::obj::objnone;
+use crate::obj::objobject;
+use crate::obj::objproperty;
+use crate::obj::objrange;
+use crate::obj::objset;
+use crate::obj::objslice;
+use crate::obj::objstr;
+use crate::obj::objsuper;
+use crate::obj::objtuple;
+use crate::obj::objtype;
+use crate::obj::objzip;
+use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
+use num_bigint::ToBigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
 use std::cell::RefCell;
@@ -65,12 +74,16 @@ pub type PyObjectWeakRef = Weak<RefCell<PyObject>>;
 /// since exceptions are also python objects.
 pub type PyResult = Result<PyObjectRef, PyObjectRef>; // A valid value, or an exception
 
+/// For attributes we do not use a dict, but a hashmap. This is probably
+/// faster, unordered, and only supports strings as keys.
+pub type PyAttributes = HashMap<String, PyObjectRef>;
+
 impl fmt::Display for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
-        match &self.kind {
-            PyObjectKind::Module { name, .. } => write!(f, "module '{}'", name),
-            PyObjectKind::Class { name, .. } => {
+        match &self.payload {
+            PyObjectPayload::Module { name, .. } => write!(f, "module '{}'", name),
+            PyObjectPayload::Class { name, .. } => {
                 let type_name = objtype::get_type_name(&self.typ());
                 // We don't have access to a vm, so just assume that if its parent's name
                 // is type, it's a type
@@ -104,6 +117,8 @@ pub struct PyContext {
     pub classmethod_type: PyObjectRef,
     pub code_type: PyObjectRef,
     pub dict_type: PyObjectRef,
+    pub enumerate_type: PyObjectRef,
+    pub filter_type: PyObjectRef,
     pub float_type: PyObjectRef,
     pub frame_type: PyObjectRef,
     pub frozenset_type: PyObjectRef,
@@ -114,14 +129,21 @@ pub struct PyContext {
     pub true_value: PyObjectRef,
     pub false_value: PyObjectRef,
     pub list_type: PyObjectRef,
+    pub map_type: PyObjectRef,
+    pub memoryview_type: PyObjectRef,
     pub none: PyObjectRef,
+    pub not_implemented: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
     pub staticmethod_type: PyObjectRef,
     pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
+    pub range_type: PyObjectRef,
+    pub slice_type: PyObjectRef,
     pub type_type: PyObjectRef,
+    pub zip_type: PyObjectRef,
     pub function_type: PyObjectRef,
+    pub builtin_function_or_method_type: PyObjectRef,
     pub property_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
@@ -136,13 +158,14 @@ pub struct PyContext {
  */
 #[derive(Debug)]
 pub struct Scope {
-    pub locals: PyObjectRef,         // Variables
+    pub locals: PyObjectRef, // Variables
+    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
     pub parent: Option<PyObjectRef>, // Parent scope
 }
 
 fn _nothing() -> PyObjectRef {
     PyObject {
-        kind: PyObjectKind::None,
+        payload: PyObjectPayload::None,
         typ: None,
     }
     .into_ref()
@@ -152,14 +175,9 @@ pub fn create_type(
     name: &str,
     type_type: &PyObjectRef,
     base: &PyObjectRef,
-    dict_type: &PyObjectRef,
+    _dict_type: &PyObjectRef,
 ) -> PyObjectRef {
-    let dict = PyObject::new(
-        PyObjectKind::Dict {
-            elements: HashMap::new(),
-        },
-        dict_type.clone(),
-    );
+    let dict = PyAttributes::new();
     objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
 }
 
@@ -178,6 +196,12 @@ impl PyContext {
         let classmethod_type = create_type("classmethod", &type_type, &object_type, &dict_type);
         let staticmethod_type = create_type("staticmethod", &type_type, &object_type, &dict_type);
         let function_type = create_type("function", &type_type, &object_type, &dict_type);
+        let builtin_function_or_method_type = create_type(
+            "builtin_function_or_method",
+            &type_type,
+            &object_type,
+            &dict_type,
+        );
         let property_type = create_type("property", &type_type, &object_type, &dict_type);
         let super_type = create_type("super", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
@@ -196,56 +220,77 @@ impl PyContext {
         let bytearray_type = create_type("bytearray", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
+        let enumerate_type = create_type("enumerate", &type_type, &object_type, &dict_type);
+        let filter_type = create_type("filter", &type_type, &object_type, &dict_type);
+        let map_type = create_type("map", &type_type, &object_type, &dict_type);
+        let zip_type = create_type("zip", &type_type, &object_type, &dict_type);
         let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
+        let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
         let code_type = create_type("code", &type_type, &int_type, &dict_type);
+        let range_type = create_type("range", &type_type, &object_type, &dict_type);
+        let slice_type = create_type("slice", &type_type, &object_type, &dict_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
-            PyObjectKind::None,
+            PyObjectPayload::None,
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
+        let not_implemented = PyObject::new(
+            PyObjectPayload::NotImplemented,
+            create_type("NotImplementedType", &type_type, &object_type, &dict_type),
+        );
+
         let true_value = PyObject::new(
-            PyObjectKind::Integer { value: One::one() },
+            PyObjectPayload::Integer { value: One::one() },
             bool_type.clone(),
         );
         let false_value = PyObject::new(
-            PyObjectKind::Integer {
+            PyObjectPayload::Integer {
                 value: Zero::zero(),
             },
             bool_type.clone(),
         );
         let context = PyContext {
-            bool_type: bool_type,
-            bytearray_type: bytearray_type,
-            bytes_type: bytes_type,
-            code_type: code_type,
-            complex_type: complex_type,
-            classmethod_type: classmethod_type,
-            int_type: int_type,
-            float_type: float_type,
-            frame_type: frame_type,
-            staticmethod_type: staticmethod_type,
-            list_type: list_type,
-            set_type: set_type,
-            frozenset_type: frozenset_type,
-            true_value: true_value,
-            false_value: false_value,
-            tuple_type: tuple_type,
-            iter_type: iter_type,
-            dict_type: dict_type,
-            none: none,
-            str_type: str_type,
+            bool_type,
+            memoryview_type,
+            bytearray_type,
+            bytes_type,
+            code_type,
+            complex_type,
+            classmethod_type,
+            int_type,
+            float_type,
+            frame_type,
+            staticmethod_type,
+            list_type,
+            set_type,
+            frozenset_type,
+            true_value,
+            false_value,
+            tuple_type,
+            iter_type,
+            enumerate_type,
+            filter_type,
+            map_type,
+            zip_type,
+            dict_type,
+            none,
+            not_implemented,
+            str_type,
+            range_type,
+            slice_type,
             object: object_type,
-            function_type: function_type,
-            super_type: super_type,
-            property_type: property_type,
-            generator_type: generator_type,
-            module_type: module_type,
-            bound_method_type: bound_method_type,
-            member_descriptor_type: member_descriptor_type,
-            type_type: type_type,
-            exceptions: exceptions,
+            function_type,
+            builtin_function_or_method_type,
+            super_type,
+            property_type,
+            generator_type,
+            module_type,
+            bound_method_type,
+            member_descriptor_type,
+            type_type,
+            exceptions,
         };
         objtype::init(&context);
         objlist::init(&context);
@@ -261,13 +306,21 @@ impl PyContext {
         objbytes::init(&context);
         objbytearray::init(&context);
         objproperty::init(&context);
+        objmemory::init(&context);
         objstr::init(&context);
+        objrange::init(&context);
+        objslice::init(&context);
         objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
+        objenumerate::init(&context);
+        objfilter::init(&context);
+        objmap::init(&context);
+        objzip::init(&context);
         objbool::init(&context);
         objcode::init(&context);
         objframe::init(&context);
+        objnone::init(&context);
         exceptions::init(&context);
         context
     }
@@ -312,6 +365,14 @@ impl PyContext {
         self.set_type.clone()
     }
 
+    pub fn range_type(&self) -> PyObjectRef {
+        self.range_type.clone()
+    }
+
+    pub fn slice_type(&self) -> PyObjectRef {
+        self.slice_type.clone()
+    }
+
     pub fn frozenset_type(&self) -> PyObjectRef {
         self.frozenset_type.clone()
     }
@@ -320,12 +381,32 @@ impl PyContext {
         self.bool_type.clone()
     }
 
+    pub fn memoryview_type(&self) -> PyObjectRef {
+        self.memoryview_type.clone()
+    }
+
     pub fn tuple_type(&self) -> PyObjectRef {
         self.tuple_type.clone()
     }
 
     pub fn iter_type(&self) -> PyObjectRef {
         self.iter_type.clone()
+    }
+
+    pub fn enumerate_type(&self) -> PyObjectRef {
+        self.enumerate_type.clone()
+    }
+
+    pub fn filter_type(&self) -> PyObjectRef {
+        self.filter_type.clone()
+    }
+
+    pub fn map_type(&self) -> PyObjectRef {
+        self.map_type.clone()
+    }
+
+    pub fn zip_type(&self) -> PyObjectRef {
+        self.zip_type.clone()
     }
 
     pub fn str_type(&self) -> PyObjectRef {
@@ -338,6 +419,10 @@ impl PyContext {
 
     pub fn function_type(&self) -> PyObjectRef {
         self.function_type.clone()
+    }
+
+    pub fn builtin_function_or_method_type(&self) -> PyObjectRef {
+        self.builtin_function_or_method_type.clone()
     }
 
     pub fn property_type(&self) -> PyObjectRef {
@@ -369,37 +454,47 @@ impl PyContext {
     pub fn none(&self) -> PyObjectRef {
         self.none.clone()
     }
+    pub fn not_implemented(&self) -> PyObjectRef {
+        self.not_implemented.clone()
+    }
     pub fn object(&self) -> PyObjectRef {
         self.object.clone()
     }
 
     pub fn new_object(&self) -> PyObjectRef {
+        self.new_instance(self.object(), None)
+    }
+
+    pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::Instance {
-                dict: self.new_dict(),
+            PyObjectPayload::Integer {
+                value: i.to_bigint().unwrap(),
             },
-            self.object(),
+            self.int_type(),
         )
     }
 
-    pub fn new_int(&self, i: BigInt) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Integer { value: i }, self.int_type())
-    }
-
     pub fn new_float(&self, i: f64) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Float { value: i }, self.float_type())
+        PyObject::new(PyObjectPayload::Float { value: i }, self.float_type())
     }
 
     pub fn new_complex(&self, i: Complex64) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Complex { value: i }, self.complex_type())
+        PyObject::new(PyObjectPayload::Complex { value: i }, self.complex_type())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(PyObjectKind::String { value: s }, self.str_type())
+        PyObject::new(PyObjectPayload::String { value: s }, self.str_type())
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Bytes { value: data }, self.bytes_type())
+        PyObject::new(PyObjectPayload::Bytes { value: data }, self.bytes_type())
+    }
+
+    pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
+        PyObject::new(
+            PyObjectPayload::Bytes { value: data },
+            self.bytearray_type(),
+        )
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
@@ -411,27 +506,23 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectKind::Sequence { elements: elements },
-            self.tuple_type(),
-        )
+        PyObject::new(PyObjectPayload::Sequence { elements }, self.tuple_type())
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectKind::Sequence { elements: elements },
-            self.list_type(),
-        )
+        PyObject::new(PyObjectPayload::Sequence { elements }, self.list_type())
     }
 
-    pub fn new_set(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        let elements = objset::sequence_to_hashmap(&elements);
-        PyObject::new(PyObjectKind::Set { elements: elements }, self.set_type())
+    pub fn new_set(&self) -> PyObjectRef {
+        // Initialized empty, as calling __hash__ is required for adding each object to the set
+        // which requires a VM context - this is done in the objset code itself.
+        let elements: HashMap<u64, PyObjectRef> = HashMap::new();
+        PyObject::new(PyObjectPayload::Set { elements }, self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::Dict {
+            PyObjectPayload::Dict {
                 elements: HashMap::new(),
             },
             self.dict_type(),
@@ -439,17 +530,14 @@ impl PyContext {
     }
 
     pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
-        objtype::new(self.type_type(), name, vec![base], self.new_dict()).unwrap()
+        objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
     }
 
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
         let locals = self.new_dict();
-        let scope = Scope {
-            locals: locals,
-            parent: parent,
-        };
+        let scope = Scope { locals, parent };
         PyObject {
-            kind: PyObjectKind::Scope { scope: scope },
+            payload: PyObjectPayload::Scope { scope },
             typ: None,
         }
         .into_ref()
@@ -457,7 +545,7 @@ impl PyContext {
 
     pub fn new_module(&self, name: &str, scope: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::Module {
+            PyObjectPayload::Module {
                 name: name.to_string(),
                 dict: scope.clone(),
             },
@@ -470,10 +558,10 @@ impl PyContext {
         function: F,
     ) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::RustFunction {
+            PyObjectPayload::RustFunction {
                 function: Box::new(function),
             },
-            self.function_type(),
+            self.builtin_function_or_method_type(),
         )
     }
 
@@ -482,13 +570,13 @@ impl PyContext {
         function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
     ) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::RustFunction { function },
-            self.function_type(),
+            PyObjectPayload::RustFunction { function },
+            self.builtin_function_or_method_type(),
         )
     }
 
     pub fn new_frame(&self, frame: Frame) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Frame { frame: frame }, self.frame_type())
+        PyObject::new(PyObjectPayload::Frame { frame }, self.frame_type())
     }
 
     pub fn new_property<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
@@ -496,18 +584,13 @@ impl PyContext {
         function: F,
     ) -> PyObjectRef {
         let fget = self.new_rustfunc(function);
-        let py_obj = PyObject::new(
-            PyObjectKind::Instance {
-                dict: self.new_dict(),
-            },
-            self.property_type(),
-        );
+        let py_obj = self.new_instance(self.property_type(), None);
         self.set_attr(&py_obj, "fget", fget.clone());
         py_obj
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Code { code }, self.code_type())
+        PyObject::new(PyObjectPayload::Code { code }, self.code_type())
     }
 
     pub fn new_function(
@@ -517,10 +600,10 @@ impl PyContext {
         defaults: PyObjectRef,
     ) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::Function {
+            PyObjectPayload::Function {
                 code: code_obj,
-                scope: scope,
-                defaults: defaults,
+                scope,
+                defaults,
             },
             self.function_type(),
         )
@@ -528,10 +611,7 @@ impl PyContext {
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectKind::BoundMethod {
-                function: function,
-                object: object,
-            },
+            PyObjectPayload::BoundMethod { function, object },
             self.bound_method_type(),
         )
     }
@@ -540,28 +620,31 @@ impl PyContext {
         &self,
         function: F,
     ) -> PyObjectRef {
-        let dict = self.new_dict();
-        self.set_item(&dict, "function", self.new_rustfunc(function));
-        self.new_instance(dict, self.member_descriptor_type())
+        let mut dict = PyAttributes::new();
+        dict.insert("function".to_string(), self.new_rustfunc(function));
+        self.new_instance(self.member_descriptor_type(), Some(dict))
     }
 
-    pub fn new_instance(&self, dict: PyObjectRef, class: PyObjectRef) -> PyObjectRef {
-        PyObject::new(PyObjectKind::Instance { dict: dict }, class)
+    pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
+        let dict = if let Some(dict) = dict {
+            dict
+        } else {
+            PyAttributes::new()
+        };
+        PyObject::new(
+            PyObjectPayload::Instance {
+                dict: RefCell::new(dict),
+            },
+            class,
+        )
     }
 
     // Item set/get:
     pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
-        match obj.borrow_mut().kind {
-            PyObjectKind::Dict { ref mut elements } => {
+        match obj.borrow_mut().payload {
+            PyObjectPayload::Dict { ref mut elements } => {
                 let key = self.new_str(key.to_string());
                 objdict::set_item_in_content(elements, &key, &v);
-            }
-            PyObjectKind::Module {
-                name: _,
-                ref mut dict,
-            } => self.set_item(dict, key, v),
-            PyObjectKind::Scope { ref mut scope } => {
-                self.set_item(&scope.locals, key, v);
             }
             ref k => panic!("TODO {:?}", k),
         };
@@ -575,16 +658,36 @@ impl PyContext {
     }
 
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
-        match obj.borrow().kind {
-            PyObjectKind::Module { name: _, ref dict } => self.set_item(dict, attr_name, value),
-            PyObjectKind::Instance { ref dict } => self.set_item(dict, attr_name, value),
-            PyObjectKind::Class {
-                name: _,
-                ref dict,
-                mro: _,
-            } => self.set_item(dict, attr_name, value),
-            ref kind => unimplemented!("set_attr unimplemented for: {:?}", kind),
+        match obj.borrow().payload {
+            PyObjectPayload::Module { ref dict, .. } => self.set_attr(dict, attr_name, value),
+            PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
+                dict.borrow_mut().insert(attr_name.to_string(), value);
+            }
+            PyObjectPayload::Scope { ref scope } => {
+                self.set_item(&scope.locals, attr_name, value);
+            }
+            ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
         };
+    }
+
+    pub fn unwrap_constant(&mut self, value: &bytecode::Constant) -> PyObjectRef {
+        match *value {
+            bytecode::Constant::Integer { ref value } => self.new_int(value.clone()),
+            bytecode::Constant::Float { ref value } => self.new_float(*value),
+            bytecode::Constant::Complex { ref value } => self.new_complex(*value),
+            bytecode::Constant::String { ref value } => self.new_str(value.clone()),
+            bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
+            bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
+            bytecode::Constant::Code { ref code } => self.new_code_object(code.clone()),
+            bytecode::Constant::Tuple { ref elements } => {
+                let elements = elements
+                    .iter()
+                    .map(|value| self.unwrap_constant(value))
+                    .collect();
+                self.new_tuple(elements)
+            }
+            bytecode::Constant::None => self.none(),
+        }
     }
 }
 
@@ -592,7 +695,7 @@ impl PyContext {
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
 pub struct PyObject {
-    pub kind: PyObjectKind,
+    pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
     // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
 }
@@ -642,18 +745,15 @@ pub trait ParentProtocol {
 
 impl ParentProtocol for PyObjectRef {
     fn has_parent(&self) -> bool {
-        match self.borrow().kind {
-            PyObjectKind::Scope { ref scope } => match scope.parent {
-                Some(_) => true,
-                None => false,
-            },
+        match self.borrow().payload {
+            PyObjectPayload::Scope { ref scope } => scope.parent.is_some(),
             _ => panic!("Only scopes have parent (not {:?}", self),
         }
     }
 
     fn get_parent(&self) -> PyObjectRef {
-        match self.borrow().kind {
-            PyObjectKind::Scope { ref scope } => match scope.parent {
+        match self.borrow().payload {
+            PyObjectPayload::Scope { ref scope } => match scope.parent {
                 Some(ref value) => value.clone(),
                 None => panic!("OMG"),
             },
@@ -669,16 +769,16 @@ pub trait AttributeProtocol {
 
 fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
     let class = class.borrow();
-    match class.kind {
-        PyObjectKind::Class { ref dict, .. } => dict.get_item(attr_name),
+    match class.payload {
+        PyObjectPayload::Class { ref dict, .. } => dict.borrow().get(attr_name).cloned(),
         _ => panic!("Only classes should be in MRO!"),
     }
 }
 
 fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
     let class = class.borrow();
-    match class.kind {
-        PyObjectKind::Class { ref dict, .. } => dict.contains_key(attr_name),
+    match class.payload {
+        PyObjectPayload::Class { ref dict, .. } => dict.borrow().contains_key(attr_name),
         _ => panic!("Only classes should be in MRO!"),
     }
 }
@@ -686,33 +786,32 @@ fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
 impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         let obj = self.borrow();
-        match obj.kind {
-            PyObjectKind::Module { ref dict, .. } => dict.get_item(attr_name),
-            PyObjectKind::Class { ref mro, .. } => {
+        match obj.payload {
+            PyObjectPayload::Module { ref dict, .. } => dict.get_item(attr_name),
+            PyObjectPayload::Class { ref mro, .. } => {
                 if let Some(item) = class_get_item(self, attr_name) {
                     return Some(item);
                 }
-                for ref class in mro {
+                for class in mro {
                     if let Some(item) = class_get_item(class, attr_name) {
                         return Some(item);
                     }
                 }
                 None
             }
-            PyObjectKind::Instance { ref dict } => dict.get_item(attr_name),
+            PyObjectPayload::Instance { ref dict } => dict.borrow().get(attr_name).cloned(),
             _ => None,
         }
     }
 
     fn has_attr(&self, attr_name: &str) -> bool {
         let obj = self.borrow();
-        match obj.kind {
-            PyObjectKind::Module { name: _, ref dict } => dict.contains_key(attr_name),
-            PyObjectKind::Class { ref mro, .. } => {
-                class_has_item(self, attr_name)
-                    || mro.into_iter().any(|d| class_has_item(d, attr_name))
+        match obj.payload {
+            PyObjectPayload::Module { ref dict, .. } => dict.contains_key(attr_name),
+            PyObjectPayload::Class { ref mro, .. } => {
+                class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
             }
-            PyObjectKind::Instance { ref dict } => dict.contains_key(attr_name),
+            PyObjectPayload::Instance { ref dict } => dict.borrow().contains_key(attr_name),
             _ => false,
         }
     }
@@ -726,36 +825,50 @@ pub trait DictProtocol {
 
 impl DictProtocol for PyObjectRef {
     fn contains_key(&self, k: &str) -> bool {
-        match self.borrow().kind {
-            PyObjectKind::Dict { ref elements } => objdict::content_contains_key_str(elements, k),
-            PyObjectKind::Module { name: _, ref dict } => dict.contains_key(k),
-            PyObjectKind::Scope { ref scope } => scope.locals.contains_key(k),
-            ref kind => unimplemented!("TODO {:?}", kind),
+        match self.borrow().payload {
+            PyObjectPayload::Dict { ref elements } => {
+                objdict::content_contains_key_str(elements, k)
+            }
+            PyObjectPayload::Scope { ref scope } => scope.locals.contains_key(k),
+            ref payload => unimplemented!("TODO {:?}", payload),
         }
     }
 
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
-        match self.borrow().kind {
-            PyObjectKind::Dict { ref elements } => objdict::content_get_key_str(elements, k),
-            PyObjectKind::Module { name: _, ref dict } => dict.get_item(k),
-            PyObjectKind::Scope { ref scope } => scope.locals.get_item(k),
+        match self.borrow().payload {
+            PyObjectPayload::Dict { ref elements } => objdict::content_get_key_str(elements, k),
+            PyObjectPayload::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }
     }
 
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        match self.borrow().kind {
-            PyObjectKind::Dict { elements: _ } => objdict::get_key_value_pairs(self),
-            PyObjectKind::Module { name: _, ref dict } => dict.get_key_value_pairs(),
-            PyObjectKind::Scope { ref scope } => scope.locals.get_key_value_pairs(),
+        match self.borrow().payload {
+            PyObjectPayload::Dict { .. } => objdict::get_key_value_pairs(self),
+            PyObjectPayload::Module { ref dict, .. } => dict.get_key_value_pairs(),
+            PyObjectPayload::Scope { ref scope } => scope.locals.get_key_value_pairs(),
             _ => panic!("TODO"),
+        }
+    }
+}
+
+pub trait BufferProtocol {
+    fn readonly(&self) -> bool;
+}
+
+impl BufferProtocol for PyObjectRef {
+    fn readonly(&self) -> bool {
+        match objtype::get_type_name(&self.typ()).as_ref() {
+            "bytes" => false,
+            "bytearray" | "memoryview" => true,
+            _ => panic!("Bytes-Like type expected not {:?}", self),
         }
     }
 }
 
 impl fmt::Debug for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[PyObj {:?}]", self.kind)
+        write!(f, "[PyObj {:?}]", self.payload)
     }
 }
 
@@ -774,10 +887,7 @@ impl PyFuncArgs {
         for name in kwarg_names.iter().rev() {
             kwargs.push((name.clone(), args.pop().unwrap()));
         }
-        PyFuncArgs {
-            args: args,
-            kwargs: kwargs,
-        }
+        PyFuncArgs { args, kwargs }
     }
 
     pub fn insert(&self, item: PyObjectRef) -> PyFuncArgs {
@@ -786,7 +896,7 @@ impl PyFuncArgs {
             kwargs: self.kwargs.clone(),
         };
         args.args.insert(0, item);
-        return args;
+        args
     }
 
     pub fn shift(&mut self) -> PyObjectRef {
@@ -816,7 +926,7 @@ impl PyFuncArgs {
 /// a holder for the rust payload of a python object. It is more a carrier
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
-pub enum PyObjectKind {
+pub enum PyObjectPayload {
     String {
         value: String,
     },
@@ -839,16 +949,37 @@ pub enum PyObjectKind {
         elements: objdict::DictContentType,
     },
     Set {
-        elements: HashMap<usize, PyObjectRef>,
+        elements: HashMap<u64, PyObjectRef>,
     },
     Iterator {
         position: usize,
         iterated_obj: PyObjectRef,
     },
+    EnumerateIterator {
+        counter: BigInt,
+        iterator: PyObjectRef,
+    },
+    FilterIterator {
+        predicate: PyObjectRef,
+        iterator: PyObjectRef,
+    },
+    MapIterator {
+        mapper: PyObjectRef,
+        iterators: Vec<PyObjectRef>,
+    },
+    ZipIterator {
+        iterators: Vec<PyObjectRef>,
+    },
     Slice {
-        start: Option<i32>,
-        stop: Option<i32>,
-        step: Option<i32>,
+        start: Option<BigInt>,
+        stop: Option<BigInt>,
+        step: Option<BigInt>,
+    },
+    Range {
+        range: objrange::RangeType,
+    },
+    MemoryView {
+        obj: PyObjectRef,
     },
     Code {
         code: bytecode::CodeObject,
@@ -876,137 +1007,73 @@ pub enum PyObjectKind {
         dict: PyObjectRef,
     },
     None,
+    NotImplemented,
     Class {
         name: String,
-        dict: PyObjectRef,
+        dict: RefCell<PyAttributes>,
         mro: Vec<PyObjectRef>,
     },
     WeakRef {
         referent: PyObjectWeakRef,
     },
     Instance {
-        dict: PyObjectRef,
+        dict: RefCell<PyAttributes>,
     },
     RustFunction {
         function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
     },
 }
 
-impl fmt::Debug for PyObjectKind {
+impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &PyObjectKind::String { ref value } => write!(f, "str \"{}\"", value),
-            &PyObjectKind::Integer { ref value } => write!(f, "int {}", value),
-            &PyObjectKind::Float { ref value } => write!(f, "float {}", value),
-            &PyObjectKind::Complex { ref value } => write!(f, "complex {}", value),
-            &PyObjectKind::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
-            &PyObjectKind::Sequence { elements: _ } => write!(f, "list or tuple"),
-            &PyObjectKind::Dict { elements: _ } => write!(f, "dict"),
-            &PyObjectKind::Set { elements: _ } => write!(f, "set"),
-            &PyObjectKind::WeakRef { .. } => write!(f, "weakref"),
-            &PyObjectKind::Iterator {
-                position: _,
-                iterated_obj: _,
-            } => write!(f, "iterator"),
-            &PyObjectKind::Slice {
-                start: _,
-                stop: _,
-                step: _,
-            } => write!(f, "slice"),
-            &PyObjectKind::Code { ref code } => write!(f, "code: {:?}", code),
-            &PyObjectKind::Function { .. } => write!(f, "function"),
-            &PyObjectKind::Generator { .. } => write!(f, "generator"),
-            &PyObjectKind::BoundMethod {
+            PyObjectPayload::String { ref value } => write!(f, "str \"{}\"", value),
+            PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
+            PyObjectPayload::Float { ref value } => write!(f, "float {}", value),
+            PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
+            PyObjectPayload::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
+            PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
+            PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
+            PyObjectPayload::Dict { .. } => write!(f, "dict"),
+            PyObjectPayload::Set { .. } => write!(f, "set"),
+            PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
+            PyObjectPayload::Range { .. } => write!(f, "range"),
+            PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
+            PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
+            PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),
+            PyObjectPayload::MapIterator { .. } => write!(f, "map"),
+            PyObjectPayload::ZipIterator { .. } => write!(f, "zip"),
+            PyObjectPayload::Slice { .. } => write!(f, "slice"),
+            PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
+            PyObjectPayload::Function { .. } => write!(f, "function"),
+            PyObjectPayload::Generator { .. } => write!(f, "generator"),
+            PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
-            &PyObjectKind::Module { name: _, dict: _ } => write!(f, "module"),
-            &PyObjectKind::Scope { scope: _ } => write!(f, "scope"),
-            &PyObjectKind::None => write!(f, "None"),
-            &PyObjectKind::Class {
-                ref name,
-                dict: _,
-                mro: _,
-            } => write!(f, "class {:?}", name),
-            &PyObjectKind::Instance { dict: _ } => write!(f, "instance"),
-            &PyObjectKind::RustFunction { function: _ } => write!(f, "rust function"),
-            &PyObjectKind::Frame { .. } => write!(f, "frame"),
+            PyObjectPayload::Module { .. } => write!(f, "module"),
+            PyObjectPayload::Scope { .. } => write!(f, "scope"),
+            PyObjectPayload::None => write!(f, "None"),
+            PyObjectPayload::NotImplemented => write!(f, "NotImplemented"),
+            PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
+            PyObjectPayload::Instance { .. } => write!(f, "instance"),
+            PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
+            PyObjectPayload::Frame { .. } => write!(f, "frame"),
         }
     }
 }
 
 impl PyObject {
-    pub fn new(kind: PyObjectKind, /* dict: PyObjectRef,*/ typ: PyObjectRef) -> PyObjectRef {
+    pub fn new(
+        payload: PyObjectPayload,
+        /* dict: PyObjectRef,*/ typ: PyObjectRef,
+    ) -> PyObjectRef {
         PyObject {
-            kind: kind,
+            payload,
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
         }
         .into_ref()
-    }
-
-    /// Deprecated method, please call `vm.to_pystr`
-    pub fn str(&self) -> String {
-        match self.kind {
-            PyObjectKind::String { ref value } => value.clone(),
-            PyObjectKind::Integer { ref value } => format!("{:?}", value),
-            PyObjectKind::Float { ref value } => format!("{:?}", value),
-            PyObjectKind::Complex { ref value } => format!("{:?}", value),
-            PyObjectKind::Bytes { ref value } => format!("b'{:?}'", value),
-            PyObjectKind::Sequence { ref elements } => format!(
-                "(/[{}]/)",
-                elements
-                    .iter()
-                    .map(|elem| elem.borrow().str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectKind::Dict { ref elements } => format!(
-                "{{ {} }}",
-                elements
-                    .iter()
-                    .map(|elem| format!("{}: ...", elem.0))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectKind::Set { ref elements } => format!(
-                "{{ {} }}",
-                elements
-                    .iter()
-                    .map(|elem| elem.1.borrow().str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            PyObjectKind::WeakRef { .. } => String::from("weakref"),
-            PyObjectKind::None => String::from("None"),
-            PyObjectKind::Class {
-                ref name,
-                dict: ref _dict,
-                mro: _,
-            } => format!("<class '{}'>", name),
-            PyObjectKind::Instance { dict: _ } => format!("<instance>"),
-            PyObjectKind::Code { code: _ } => format!("<code>"),
-            PyObjectKind::Function { .. } => format!("<func>"),
-            PyObjectKind::Generator { .. } => format!("<generator>"),
-            PyObjectKind::Frame { .. } => format!("<frame>"),
-            PyObjectKind::BoundMethod { .. } => format!("<bound-method>"),
-            PyObjectKind::RustFunction { function: _ } => format!("<rustfunc>"),
-            PyObjectKind::Module { ref name, dict: _ } => format!("<module '{}'>", name),
-            PyObjectKind::Scope { ref scope } => format!("<scope '{:?}'>", scope),
-            PyObjectKind::Slice {
-                ref start,
-                ref stop,
-                ref step,
-            } => format!("<slice '{:?}:{:?}:{:?}'>", start, stop, step),
-            PyObjectKind::Iterator {
-                ref position,
-                ref iterated_obj,
-            } => format!(
-                "<iter pos {} in {}>",
-                position,
-                iterated_obj.borrow_mut().str()
-            ),
-        }
     }
 
     // Move this object into a reference object, transferring ownership.

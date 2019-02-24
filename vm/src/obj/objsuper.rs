@@ -6,13 +6,33 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use super::super::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use super::super::vm::VirtualMachine;
 use super::objtype;
+use crate::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
-    let ref super_type = context.super_type;
+    let super_type = &context.super_type;
+
+    let super_doc = "super() -> same as super(__class__, <first argument>)\n\
+                     super(type) -> unbound super object\n\
+                     super(type, obj) -> bound super object; requires isinstance(obj, type)\n\
+                     super(type, type2) -> bound super object; requires issubclass(type2, type)\n\
+                     Typical use to call a cooperative superclass method:\n\
+                     class C(B):\n    \
+                     def meth(self, arg):\n        \
+                     super().meth(arg)\n\
+                     This works for class methods too:\n\
+                     class C(B):\n    \
+                     @classmethod\n    \
+                     def cmeth(cls, arg):\n        \
+                     super().cmeth(arg)\n";
+
     context.set_attr(&super_type, "__init__", context.new_rustfunc(super_init));
+    context.set_attr(
+        &super_type,
+        "__doc__",
+        context.new_str(super_doc.to_string()),
+    );
 }
 
 fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -53,9 +73,9 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     // Check obj type:
     if !(objtype::isinstance(&py_obj, &py_type) || objtype::issubclass(&py_obj, &py_type)) {
-        return Err(vm.new_type_error(format!(
-            "super(type, obj): obj must be an instance or subtype of type"
-        )));
+        return Err(vm.new_type_error(
+            "super(type, obj): obj must be an instance or subtype of type".to_string(),
+        ));
     }
 
     // TODO: how to store those types?

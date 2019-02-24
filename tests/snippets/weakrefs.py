@@ -8,5 +8,6 @@ class X:
 a = X()
 b = ref(a)
 
+assert callable(b)
 assert b() is a
 
