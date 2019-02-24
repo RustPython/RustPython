@@ -537,8 +537,8 @@ impl PyContext {
         let locals = self.new_dict();
         let scope = Scope { locals, parent };
         PyObject {
-            payload: PyObjectPayload::Scope { scope },
             typ: None,
+            payload: PyObjectPayload::Scope { scope },
         }
         .into_ref()
     }
@@ -691,11 +691,13 @@ impl PyContext {
     }
 }
 
+pub trait PyObjectPayload: fmt::Debug + std::any::Any {}
+
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
 pub struct PyObject {
-    pub payload: PyObjectPayload,
+    pub payload: Box<dyn PyObjectPayload>,
     pub typ: Option<PyObjectRef>,
     // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
 }
@@ -707,7 +709,7 @@ pub trait IdProtocol {
 
 impl IdProtocol for PyObjectRef {
     fn get_id(&self) -> usize {
-        self.as_ptr() as usize
+        self.as_ptr() as *const usize as usize
     }
 
     fn is(&self, other: &PyObjectRef) -> bool {
@@ -926,19 +928,7 @@ impl PyFuncArgs {
 /// a holder for the rust payload of a python object. It is more a carrier
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
-pub enum PyObjectPayload {
-    String {
-        value: String,
-    },
-    Integer {
-        value: BigInt,
-    },
-    Float {
-        value: f64,
-    },
-    Complex {
-        value: Complex64,
-    },
+pub enum _PyObjectPayload {
     Bytes {
         value: Vec<u8>,
     },
@@ -1064,12 +1054,13 @@ impl fmt::Debug for PyObjectPayload {
 }
 
 impl PyObject {
+    #[inline]
     pub fn new(
-        payload: PyObjectPayload,
+        payload: impl PyObjectPayload,
         /* dict: PyObjectRef,*/ typ: PyObjectRef,
     ) -> PyObjectRef {
         PyObject {
-            payload,
+            payload: Box::new(payload),
             typ: Some(typ),
             // dict: HashMap::new(),  // dict,
         }

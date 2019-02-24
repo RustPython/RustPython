@@ -9,6 +9,12 @@ use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
+pub struct ObjFloat {
+    value: f64,
+}
+
+impl PyObjectPayload for ObjFloat {}
+
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);
     let v = get_value(float);
@@ -61,8 +67,8 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // Retrieve inner float value:
 pub fn get_value(obj: &PyObjectRef) -> f64 {
-    if let PyObjectPayload::Float { value } = &obj.borrow().payload {
-        *value
+    if let Some(objfloat) = &obj.borrow().payload.downcast_ref::<ObjFloat>() {
+        *objfloat.value
     } else {
         panic!("Inner error getting float");
     }
@@ -86,7 +92,7 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyO
 }
 
 fn set_value(obj: &PyObjectRef, value: f64) {
-    obj.borrow_mut().payload = PyObjectPayload::Float { value };
+    *obj.borrow_mut().payload = ObjFloat { value };
 }
 
 fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

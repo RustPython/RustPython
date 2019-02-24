@@ -15,6 +15,12 @@ use std::hash::{Hash, Hasher};
 // This proxy allows for easy switching between types.
 type IntType = BigInt;
 
+pub struct ObjInt {
+    value: IntType,
+}
+
+impl PyObjectPayload for ObjInt {}
+
 fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
     let v = get_value(int);
@@ -38,10 +44,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(val) => to_int(vm, val, base)?,
         None => Zero::zero(),
     };
-    Ok(PyObject::new(
-        PyObjectPayload::Integer { value: val },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(ObjInt { value: val }, cls.clone()))
 }
 
 // Casting function:
@@ -78,8 +81,8 @@ pub fn to_int(
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> IntType {
-    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
-        value.clone()
+    if let Some(objint) = &obj.borrow().payload.downcast_ref::<ObjInt>() {
+        objint.value.clone()
     } else {
         panic!("Inner error getting int {:?}", obj);
     }

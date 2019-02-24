@@ -44,6 +44,12 @@ pub fn init(context: &PyContext) {
     );
 }
 
+pub struct ObjComplex {
+    value: Complex64,
+}
+
+impl PyObjectPayload for ObjComplex {}
+
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
     if let PyObjectPayload::Complex { value } = &obj.borrow().payload {
         *value

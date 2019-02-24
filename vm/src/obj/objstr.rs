@@ -103,9 +103,21 @@ pub fn init(context: &PyContext) {
     );
 }
 
+pub struct ObjString {
+    value: String,
+}
+
+impl PyObjectPayload for ObjString {}
+
+impl std::fmt::Debug for ObjString {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "str {:?}", self.value)
+    }
+}
+
 pub fn get_value(obj: &PyObjectRef) -> String {
-    if let PyObjectPayload::String { value } = &obj.borrow().payload {
-        value.to_string()
+    if let Some(objstr) = &obj.borrow().payload.downcast_ref::<ObjString>() {
+        objstr.value.to_string()
     } else {
         panic!("Inner error getting str");
     }
@@ -113,8 +125,8 @@ pub fn get_value(obj: &PyObjectRef) -> String {
 
 pub fn borrow_value(obj: &PyObjectRef) -> Ref<str> {
     Ref::map(obj.borrow(), |py_obj| {
-        if let PyObjectPayload::String { value } = &py_obj.payload {
-            value.as_ref()
+        if let Some(objstr) = &py_obj.payload.downcast_ref::<ObjString>() {
+            objstr.value.as_ref()
         } else {
             panic!("Inner error getting str");
         }
