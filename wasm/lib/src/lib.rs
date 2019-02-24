@@ -1,11 +1,14 @@
+pub mod browser_module;
 pub mod convert;
 pub mod vm_class;
 pub mod wasm_builtins;
 
 extern crate futures;
 extern crate js_sys;
+#[macro_use]
 extern crate rustpython_vm;
 extern crate wasm_bindgen;
+extern crate wasm_bindgen_futures;
 extern crate web_sys;
 
 use js_sys::{Object, Reflect, TypeError};

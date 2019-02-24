@@ -2,23 +2,17 @@
 //!
 //! This is required because some feature like I/O works differently in the browser comparing to
 //! desktop.
-//! Implements functions listed here: https://docs.python.org/3/library/builtins.html and some
-//! others.
-
-extern crate futures;
-extern crate js_sys;
-extern crate wasm_bindgen;
-extern crate web_sys;
+//! Implements functions listed here: https://docs.python.org/3/library/builtins.html.
 
 use crate::convert;
-use js_sys::Array;
+use js_sys::{self, Array};
 use rustpython_vm::obj::{objstr, objtype};
 use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
-use web_sys::{console, HtmlTextAreaElement};
+use web_sys::{self, console, HtmlTextAreaElement};
 
-fn window() -> web_sys::Window {
+pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("Window to be available")
 }
 
@@ -102,9 +96,4 @@ pub fn builtin_print_console(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyRes
     }
     console::log(&arr);
     Ok(vm.get_none())
-}
-
-pub fn setup_wasm_builtins(vm: &mut VirtualMachine, scope: &PyObjectRef) {
-    let ctx = vm.context();
-    ctx.set_attr(scope, "print", ctx.new_rustfunc(builtin_print_console));
 }
