@@ -357,6 +357,17 @@ pub enum Number {
     Complex { real: f64, imag: f64 },
 }
 
+/// Transforms a value prior to formatting it.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ConversionFlag {
+    /// Converts by calling `str(<value>)`.
+    Str,
+    /// Converts by calling `ascii(<value>)`.
+    Ascii,
+    /// Converts by calling `repr(<value>)`.
+    Repr,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum StringGroup {
     Constant {
@@ -364,6 +375,7 @@ pub enum StringGroup {
     },
     FormattedValue {
         value: Box<Expression>,
+        conversion: Option<ConversionFlag>,
         spec: String,
     },
     Joined {

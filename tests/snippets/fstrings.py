@@ -15,3 +15,22 @@ assert f'{foo}' f"{foo}" 'foo' == 'barbarfoo'
 #assert f"{1 != 2}" == 'True'
 assert fr'x={4*10}\n' == 'x=40\\n'
 assert f'{16:0>+#10x}' == '00000+0x10'
+
+
+# conversion flags
+
+class Value:
+    def __format__(self, spec):
+        return "foo"
+
+    def __repr__(self):
+        return "bar"
+
+    def __str__(self):
+        return "baz"
+
+v = Value()
+
+assert f'{v}' == 'foo'
+assert f'{v!r}' == 'bar'
+assert f'{v!s}' == 'baz'

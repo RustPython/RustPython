@@ -4,10 +4,11 @@ use std::str;
 
 use lalrpop_util::ParseError as LalrpopError;
 
-use crate::ast::StringGroup;
+use crate::ast::{ConversionFlag, StringGroup};
 use crate::lexer::{LexicalError, Location, Tok};
 use crate::parser::parse_expression;
 
+use self::FStringError::*;
 use self::StringGroup::*;
 
 // TODO: consolidate these with ParseError
@@ -16,6 +17,7 @@ pub enum FStringError {
     UnclosedLbrace,
     UnopenedRbrace,
     InvalidExpression,
+    InvalidConversionFlag,
 }
 
 impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
@@ -41,9 +43,23 @@ impl<'a> FStringParser<'a> {
         let mut expression = String::new();
         let mut spec = String::new();
         let mut depth = 0;
+        let mut conversion = None;
 
         while let Some(ch) = self.chars.next() {
             match ch {
+                '!' if depth == 0 => {
+                    conversion = Some(match self.chars.next() {
+                        Some('s') => ConversionFlag::Str,
+                        Some('a') => ConversionFlag::Ascii,
+                        Some('r') => ConversionFlag::Repr,
+                        Some(_) => {
+                            return Err(InvalidConversionFlag);
+                        }
+                        None => {
+                            break;
+                        }
+                    })
+                }
                 ':' if depth == 0 => {
                     while let Some(&next) = self.chars.peek() {
                         if next != '}' {
@@ -74,8 +90,9 @@ impl<'a> FStringParser<'a> {
                         return Ok(FormattedValue {
                             value: Box::new(
                                 parse_expression(expression.trim())
-                                    .map_err(|_| FStringError::InvalidExpression)?,
+                                    .map_err(|_| InvalidExpression)?,
                             ),
+                            conversion,
                             spec,
                         });
                     }
@@ -86,7 +103,7 @@ impl<'a> FStringParser<'a> {
             }
         }
 
-        return Err(FStringError::UnclosedLbrace);
+        return Err(UnclosedLbrace);
     }
 
     fn parse(mut self) -> Result<StringGroup, FStringError> {
@@ -114,7 +131,7 @@ impl<'a> FStringParser<'a> {
                         self.chars.next();
                         content.push('}');
                     } else {
-                        return Err(FStringError::UnopenedRbrace);
+                        return Err(UnopenedRbrace);
                     }
                 }
                 _ => {
@@ -164,10 +181,12 @@ mod tests {
                 values: vec![
                     FormattedValue {
                         value: Box::new(mk_ident("a")),
+                        conversion: None,
                         spec: String::new(),
                     },
                     FormattedValue {
                         value: Box::new(mk_ident("b")),
+                        conversion: None,
                         spec: String::new(),
                     },
                     Constant {
@@ -190,11 +209,8 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_fstring() {
-        assert_eq!(parse_fstring("{"), Err(FStringError::UnclosedLbrace));
-        assert_eq!(parse_fstring("}"), Err(FStringError::UnopenedRbrace));
-        assert_eq!(
-            parse_fstring("{class}"),
-            Err(FStringError::InvalidExpression)
-        );
+        assert_eq!(parse_fstring("{"), Err(UnclosedLbrace));
+        assert_eq!(parse_fstring("}"), Err(UnopenedRbrace));
+        assert_eq!(parse_fstring("{class}"), Err(InvalidExpression));
     }
 }
