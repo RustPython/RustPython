@@ -223,10 +223,10 @@ fn socket_recv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     match zelf.payload {
         PyObjectPayload::Socket { ref socket } => {
-            let mut buffer = Vec::new();
-            let _temp = match socket.borrow_mut().con {
-                Some(ref mut v) => v.read_to_end(&mut buffer).unwrap(),
-                None => 0,
+            let mut buffer = vec![0u8; objint::get_value(bufsize).to_usize().unwrap()];
+            match socket.borrow_mut().con {
+                Some(ref mut v) => v.read_exact(&mut buffer).unwrap(),
+                None => return Err(vm.new_type_error("".to_string())),
             };
             Ok(vm.ctx.new_bytes(buffer))
         }

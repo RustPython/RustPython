@@ -12,9 +12,13 @@ message_a = b'aaaa'
 message_b = b'bbbbb'
 
 connector.send(message_a)
-connector.close()
-recv_a = connection.recv(10)
+connection.send(message_b)
+recv_a = connection.recv(len(message_a))
+recv_b = connector.recv(len(message_b))
+assert recv_a == message_a
+assert recv_b == message_b
 
 connection.close()
+connector.close()
 listener.close()
 
