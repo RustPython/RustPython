@@ -1,4 +1,4 @@
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol, DictProtocol};
 use crate::vm::VirtualMachine;
 use std::rc::Rc;
 use std::{env, mem};
@@ -132,7 +132,7 @@ settrace() -- set the global debug tracing function
       "_getframe" => ctx.new_rustfunc(getframe),
     });
 
-    ctx.set_item(&modules, sys_name, sys_mod.clone());
+    modules.set_item(&ctx, sys_name, sys_mod.clone());
     ctx.set_attr(&sys_mod, "modules", modules);
 
     sys_mod

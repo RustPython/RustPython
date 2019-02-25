@@ -640,17 +640,6 @@ impl PyContext {
         )
     }
 
-    // Item set/get:
-    pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
-        match obj.borrow_mut().payload {
-            PyObjectPayload::Dict { ref mut elements } => {
-                let key = self.new_str(key.to_string());
-                objdict::set_item_in_content(elements, &key, &v);
-            }
-            ref k => panic!("TODO {:?}", k),
-        };
-    }
-
     pub fn get_attr(&self, obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
         // This does not need to be on the PyContext.
         // We do not require to make a new key as string for this function
@@ -665,7 +654,7 @@ impl PyContext {
                 dict.borrow_mut().insert(attr_name.to_string(), value);
             }
             PyObjectPayload::Scope { ref scope } => {
-                self.set_item(&scope.locals, attr_name, value);
+                scope.locals.set_item(self, attr_name, value);
             }
             ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
         };
@@ -822,6 +811,7 @@ pub trait DictProtocol {
     fn contains_key(&self, k: &str) -> bool;
     fn get_item(&self, k: &str) -> Option<PyObjectRef>;
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
+    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef);
 }
 
 impl DictProtocol for PyObjectRef {
@@ -838,8 +828,9 @@ impl DictProtocol for PyObjectRef {
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         match self.borrow().payload {
             PyObjectPayload::Dict { ref elements } => objdict::content_get_key_str(elements, k),
+            PyObjectPayload::Module { ref dict, .. } => dict.get_item(k),
             PyObjectPayload::Scope { ref scope } => scope.locals.get_item(k),
-            _ => panic!("TODO"),
+            ref k => panic!("TODO {:?}", k),
         }
     }
 
@@ -850,6 +841,23 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Scope { ref scope } => scope.locals.get_key_value_pairs(),
             _ => panic!("TODO"),
         }
+    }
+
+    // Item set/get:
+    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
+        match self.borrow_mut().payload {
+            PyObjectPayload::Dict { ref mut elements } => {
+                let key = ctx.new_str(key.to_string());
+                objdict::set_item_in_content(elements, &key, &v);
+            }
+            PyObjectPayload::Module { ref mut dict, .. } => {
+                dict.set_item(ctx, key, v);
+            }
+            PyObjectPayload::Scope { ref mut scope, .. } => {
+                scope.locals.set_item(ctx, key, v);
+            }
+            ref k => panic!("TODO {:?}", k),
+        };
     }
 }
 

@@ -2,7 +2,7 @@ use super::objstr;
 use super::objtype;
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    TypeProtocol, DictProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -178,7 +178,7 @@ fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
             let new_dict = vm.new_dict();
             for (attr, value) in dict.borrow().iter() {
-                vm.ctx.set_item(&new_dict, &attr, value.clone());
+                new_dict.set_item(&vm.ctx, &attr, value.clone());
             }
             Ok(new_dict)
         }

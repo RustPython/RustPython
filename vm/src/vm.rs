@@ -26,6 +26,7 @@ use crate::pyobject::{
 };
 use crate::stdlib;
 use crate::sysmodule;
+use num_bigint::ToBigInt;
 
 // use objects::objects;
 
@@ -53,7 +54,7 @@ impl VirtualMachine {
 
         // Add builtins as builtins module:
         let modules = sysmod.get_attr("modules").unwrap();
-        ctx.set_item(&modules, "builtins", builtins.clone());
+        modules.set_item(&ctx, "builtins", builtins.clone());
 
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
@@ -74,6 +75,11 @@ impl VirtualMachine {
     /// Create a new python string object.
     pub fn new_str(&self, s: String) -> PyObjectRef {
         self.ctx.new_str(s)
+    }
+
+    /// Create a new python int object.
+    pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
+        self.ctx.new_int(i)
     }
 
     /// Create a new python bool object.
@@ -395,7 +401,7 @@ impl VirtualMachine {
 
                 self.ctx.set_attr(scope, &name, value);
             } else if let Some(d) = &kwargs {
-                self.ctx.set_item(d, &name, value);
+                d.set_item(&self.ctx, &name, value);
             } else {
                 return Err(
                     self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
