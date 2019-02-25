@@ -130,11 +130,7 @@ fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, None), (address, Some(vm.ctx.tuple_type()))]
     );
 
-    let elements = get_elements(address);
-    let host = objstr::get_value(&elements[0]);
-    let port = objint::get_value(&elements[1]);
-
-    let address_string = format!("{}:{}", host, port.to_string());
+    let address_string = get_address_string(vm, address)?;
 
     match zelf.payload {
         PyObjectPayload::Socket { ref socket } => {
@@ -157,11 +153,7 @@ fn socket_bind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, None), (address, Some(vm.ctx.tuple_type()))]
     );
 
-    let elements = get_elements(address);
-    let host = objstr::get_value(&elements[0]);
-    let port = objint::get_value(&elements[1]);
-
-    let address_string = format!("{}:{}", host, port.to_string());
+    let address_string = get_address_string(vm, address)?;
 
     match zelf.payload {
         PyObjectPayload::Socket { ref socket } => {
@@ -175,6 +167,30 @@ fn socket_bind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
         _ => Err(vm.new_type_error("".to_string())),
     }
+}
+
+fn get_address_string(
+    vm: &mut VirtualMachine,
+    address: &PyObjectRef,
+) -> Result<String, PyObjectRef> {
+    let args = PyFuncArgs {
+        args: get_elements(address).to_vec(),
+        kwargs: vec![],
+    };
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (host, Some(vm.ctx.str_type())),
+            (port, Some(vm.ctx.int_type()))
+        ]
+    );
+
+    Ok(format!(
+        "{}:{}",
+        objstr::get_value(host),
+        objint::get_value(port).to_string()
+    ))
 }
 
 fn socket_listen(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

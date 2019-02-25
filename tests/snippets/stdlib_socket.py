@@ -1,4 +1,5 @@
 import socket
+from testutils import assertRaises
 
 listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 listener.bind(("127.0.0.1", 8080))
@@ -22,3 +23,14 @@ connection.close()
 connector.close()
 listener.close()
 
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+with assertRaises(TypeError):
+	s.connect(("127.0.0.1", 8888, 8888))
+
+with assertRaises(TypeError):
+	s.bind(("127.0.0.1", 8888, 8888))
+
+with assertRaises(TypeError):
+	s.bind((888, 8888))
+
+s.close()
