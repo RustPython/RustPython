@@ -18,6 +18,8 @@ pub enum FStringError {
     UnopenedRbrace,
     InvalidExpression,
     InvalidConversionFlag,
+    EmptyExpression,
+    MismatchedDelimiter,
 }
 
 impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
@@ -42,12 +44,12 @@ impl<'a> FStringParser<'a> {
     fn parse_formatted_value(&mut self) -> Result<StringGroup, FStringError> {
         let mut expression = String::new();
         let mut spec = String::new();
-        let mut depth = 0;
+        let mut delims = Vec::new();
         let mut conversion = None;
 
         while let Some(ch) = self.chars.next() {
             match ch {
-                '!' if depth == 0 => {
+                '!' if delims.is_empty() => {
                     conversion = Some(match self.chars.next() {
                         Some('s') => ConversionFlag::Str,
                         Some('a') => ConversionFlag::Ascii,
@@ -60,7 +62,7 @@ impl<'a> FStringParser<'a> {
                         }
                     })
                 }
-                ':' if depth == 0 => {
+                ':' if delims.is_empty() => {
                     while let Some(&next) = self.chars.peek() {
                         if next != '}' {
                             spec.push(next);
@@ -70,31 +72,47 @@ impl<'a> FStringParser<'a> {
                         }
                     }
                 }
-                '{' => {
-                    if let Some('{') = self.chars.peek() {
-                        expression.push_str("{{");
-                        self.chars.next();
-                    } else {
-                        expression.push('{');
-                        depth += 1;
+                '(' | '{' | '[' => {
+                    expression.push(ch);
+                    delims.push(ch);
+                }
+                ')' => {
+                    if delims.pop() != Some('(') {
+                        return Err(MismatchedDelimiter);
                     }
+                    expression.push(ch);
+                }
+                ']' => {
+                    if delims.pop() != Some('[') {
+                        return Err(MismatchedDelimiter);
+                    }
+                    expression.push(ch);
+                }
+                '}' if !delims.is_empty() => {
+                    if delims.pop() != Some('{') {
+                        return Err(MismatchedDelimiter);
+                    }
+                    expression.push(ch);
                 }
                 '}' => {
-                    if let Some('}') = self.chars.peek() {
-                        expression.push_str("}}");
-                        self.chars.next();
-                    } else if depth > 0 {
-                        expression.push('}');
-                        depth -= 1;
-                    } else {
-                        return Ok(FormattedValue {
-                            value: Box::new(
-                                parse_expression(expression.trim())
-                                    .map_err(|_| InvalidExpression)?,
-                            ),
-                            conversion,
-                            spec,
-                        });
+                    if expression.is_empty() {
+                        return Err(EmptyExpression);
+                    }
+                    return Ok(FormattedValue {
+                        value: Box::new(
+                            parse_expression(expression.trim()).map_err(|_| InvalidExpression)?,
+                        ),
+                        conversion,
+                        spec,
+                    });
+                }
+                '"' | '\'' => {
+                    expression.push(ch);
+                    while let Some(next) = self.chars.next() {
+                        expression.push(next);
+                        if next == ch {
+                            break;
+                        }
                     }
                 }
                 _ => {

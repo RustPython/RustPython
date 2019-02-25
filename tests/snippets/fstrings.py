@@ -11,10 +11,15 @@ assert f"{f'{{}}'}" == '{}' # don't include escaped braces in nested f-strings
 assert f'{f"{{"}' == '{'
 assert f'{f"}}"}' == '}'
 assert f'{foo}' f"{foo}" 'foo' == 'barbarfoo'
-#assert f'{"!:"}' == '!:'
-#assert f"{1 != 2}" == 'True'
+assert f'{"!:"}' == '!:'
 assert fr'x={4*10}\n' == 'x=40\\n'
 assert f'{16:0>+#10x}' == '00000+0x10'
+assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
+
+# Normally `!` cannot appear outside of delimiters in the expression but
+# cpython makes an exception for `!=`, so we should too.
+
+# assert f'{1 != 2}' == 'True'
 
 
 # conversion flags
