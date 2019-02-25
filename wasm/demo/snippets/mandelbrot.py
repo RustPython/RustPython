@@ -3,6 +3,7 @@ from browser import request_animation_frame
 w = 50.0
 h = 50.0
 
+# to make up for the lack of `global`
 _y = {'y': 0.0}
 
 def mandel(_time_elapsed=None):
