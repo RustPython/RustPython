@@ -4,10 +4,12 @@
 // See also: https://greentreesnakes.readthedocs.io/en/latest/nodes.html#keyword
 #![allow(unknown_lints,clippy)]
 
-use super::ast;
-use super::lexer;
-use super::parser;
 use std::iter::FromIterator;
+
+use crate::ast;
+use crate::fstring::parse_fstring;
+use crate::lexer;
+
 use num_bigint::BigInt;
 
 grammar;
@@ -1008,7 +1010,7 @@ StringGroup: ast::StringGroup = {
         let mut values = vec![];
         for (value, is_fstring) in s {
             values.push(if is_fstring {
-                parser::parse_fstring(&value)?
+                parse_fstring(&value)?
             } else {
                 ast::StringGroup::Constant { value }
             })

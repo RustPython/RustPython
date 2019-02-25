@@ -169,6 +169,7 @@ pub enum Instruction {
     },
     Unpack,
     FormatValue {
+        conversion: Option<ast::ConversionFlag>,
         spec: String,
     },
 }
@@ -361,7 +362,10 @@ impl Instruction {
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { before, after } => w!(UnpackEx, before, after),
             Unpack => w!(Unpack),
-            FormatValue { spec } => w!(FormatValue, spec),
+            FormatValue {
+                conversion: _,
+                spec,
+            } => w!(FormatValue, spec), // TODO: write conversion
         }
     }
 }
