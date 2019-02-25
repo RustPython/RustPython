@@ -6,6 +6,7 @@ mod math;
 mod pystruct;
 mod random;
 mod re;
+pub mod socket;
 mod string;
 mod time_module;
 mod tokenize;
@@ -46,6 +47,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     {
         modules.insert("io".to_string(), io::mk_module as StdlibInitFunc);
         modules.insert("os".to_string(), os::mk_module as StdlibInitFunc);
+        modules.insert("socket".to_string(), socket::mk_module as StdlibInitFunc);
     }
 
     modules
