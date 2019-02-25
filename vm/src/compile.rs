@@ -88,7 +88,7 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             obj_name,
-            false
+            false,
         ));
     }
 
@@ -481,7 +481,7 @@ impl Compiler {
                     self.source_path.clone().unwrap(),
                     line_number,
                     name.clone(),
-                    false
+                    false,
                 ));
                 self.emit(Instruction::LoadName {
                     name: String::from("__locals__"),
@@ -671,7 +671,6 @@ impl Compiler {
         name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, CompileError> {
-
         let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
@@ -694,7 +693,7 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
-            true
+            true,
         ));
 
         let mut flags = bytecode::FunctionOpArg::empty();
@@ -1212,7 +1211,7 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             name.clone(),
-            false
+            false,
         ));
 
         // Create empty object of proper type:

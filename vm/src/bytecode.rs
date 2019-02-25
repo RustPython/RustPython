@@ -26,7 +26,7 @@ pub struct CodeObject {
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
     pub is_generator: bool,
-    pub is_function_obj: bool
+    pub is_function_obj: bool,
 }
 
 bitflags! {
@@ -253,7 +253,7 @@ impl CodeObject {
         source_path: String,
         first_line_number: usize,
         obj_name: String,
-        is_function_obj: bool
+        is_function_obj: bool,
     ) -> CodeObject {
         CodeObject {
             instructions: Vec::new(),
@@ -267,7 +267,7 @@ impl CodeObject {
             first_line_number,
             obj_name,
             is_generator: false,
-            is_function_obj
+            is_function_obj,
         }
     }
 
