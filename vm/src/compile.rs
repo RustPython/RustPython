@@ -16,7 +16,7 @@ struct Compiler {
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
-    loop_depth: usize,
+    in_loop: bool,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -74,7 +74,7 @@ impl Compiler {
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
-            loop_depth: 0,
+            in_loop: false,
         }
     }
 
@@ -233,9 +233,10 @@ impl Compiler {
 
                 self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
 
-                self.loop_depth += 1;
+                let was_in_loop = self.in_loop;
+                self.in_loop = true;
                 self.compile_statements(body)?;
-                self.loop_depth -= 1;
+                self.in_loop = was_in_loop;
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
@@ -296,9 +297,10 @@ impl Compiler {
                 // Start of loop iteration, set targets:
                 self.compile_store(target)?;
 
-                self.loop_depth += 1;
+                let was_in_loop = self.in_loop;
+                self.in_loop = true;
                 self.compile_statements(body)?;
-                self.loop_depth -= 1;
+                self.in_loop = was_in_loop;
 
                 self.emit(Instruction::Jump {
                     target: start_label,
@@ -431,9 +433,9 @@ impl Compiler {
                 decorator_list,
             } => {
                 // Create bytecode for this function:
-                // remember to restore self.loop_depth to the original after the function is compiled
-                let original_loop_depth = self.loop_depth;
-                self.loop_depth = 0;
+                // remember to restore self.in_loop to the original after the function is compiled
+                let was_in_loop = self.in_loop;
+                self.in_loop = false;
                 let flags = self.enter_function(name, args)?;
                 self.compile_statements(body)?;
 
@@ -461,7 +463,7 @@ impl Compiler {
                 self.emit(Instruction::StoreName {
                     name: name.to_string(),
                 });
-                self.loop_depth = original_loop_depth;
+                self.in_loop = was_in_loop;
             }
             ast::Statement::ClassDef {
                 name,
@@ -577,13 +579,13 @@ impl Compiler {
                 self.set_label(end_label);
             }
             ast::Statement::Break => {
-                if self.loop_depth == 0 {
+                if !self.in_loop {
                     return Err(CompileError::InvalidBreak);
                 }
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
-                if self.loop_depth == 0 {
+                if !self.in_loop {
                     return Err(CompileError::InvalidContinue);
                 }
                 self.emit(Instruction::Continue);
@@ -1419,6 +1421,7 @@ mod tests {
     use crate::bytecode::Constant::*;
     use crate::bytecode::Instruction::*;
     use rustpython_parser::parser;
+
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
         compiler.source_path = Some("source_path".to_string());
