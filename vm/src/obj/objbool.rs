@@ -1,9 +1,15 @@
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    IntoPyObject, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::Zero;
+
+impl IntoPyObject for bool {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        Ok(ctx.new_bool(self))
+    }
+}
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
     let result = match obj.borrow().payload {

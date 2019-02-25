@@ -1352,9 +1352,16 @@ impl Compiler {
                     },
                 });
             }
-            ast::StringGroup::FormattedValue { value, spec } => {
+            ast::StringGroup::FormattedValue {
+                value,
+                conversion,
+                spec,
+            } => {
                 self.compile_expression(value)?;
-                self.emit(Instruction::FormatValue { spec: spec.clone() });
+                self.emit(Instruction::FormatValue {
+                    conversion: *conversion,
+                    spec: spec.clone(),
+                });
             }
         }
         Ok(())

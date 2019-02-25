@@ -654,8 +654,15 @@ impl Frame {
                 }
                 Ok(None)
             }
-            bytecode::Instruction::FormatValue { spec } => {
-                let value = self.pop_value();
+            bytecode::Instruction::FormatValue { conversion, spec } => {
+                use ast::ConversionFlag::*;
+                let value = match conversion {
+                    Some(Str) => vm.to_str(&self.pop_value())?,
+                    Some(Repr) => vm.to_repr(&self.pop_value())?,
+                    Some(Ascii) => self.pop_value(), // TODO
+                    None => self.pop_value(),
+                };
+
                 let spec = vm.new_str(spec.clone());
                 let formatted = vm.call_method(&value, "__format__", vec![spec])?;
                 self.push_value(formatted);
