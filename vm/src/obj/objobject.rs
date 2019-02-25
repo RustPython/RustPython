@@ -166,6 +166,7 @@ pub fn init(context: &PyContext) {
         "__getattribute__",
         context.new_rustfunc(object_getattribute),
     );
+    context.set_attr(&object, "__setattr__", context.new_rustfunc(object_setattr));
     context.set_attr(&object, "__doc__", context.new_str(object_doc.to_string()));
 }
 
@@ -233,4 +234,20 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             format!("{} has no attribute '{}'", obj.borrow(), name),
         ))
     }
+}
+
+fn object_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(vm.ctx.object())),
+            (name_str, Some(vm.ctx.str_type())),
+            (value, None)
+        ]
+    );
+    trace!("object.__setattr__({:?}, {:?}, {:?})", zelf, name_str, value);
+    let attr_name = objstr::get_value(&name_str);
+    vm.ctx.set_attr(&zelf, &attr_name, value.clone());
+    Ok(vm.get_none())
 }
