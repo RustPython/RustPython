@@ -87,15 +87,15 @@ impl Write for Connection {
 
 pub struct Socket {
     address_family: AddressFamily,
-    sk: SocketKind,
+    socket_kind: SocketKind,
     con: Option<Connection>,
 }
 
 impl Socket {
-    fn new(address_family: AddressFamily, sk: SocketKind) -> Socket {
+    fn new(address_family: AddressFamily, socket_kind: SocketKind) -> Socket {
         Socket {
             address_family,
-            sk: sk,
+            socket_kind: socket_kind,
             con: None,
         }
     }
@@ -198,7 +198,7 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
             let socket = RefCell::new(Socket {
                 address_family: socket.borrow().address_family.clone(),
-                sk: socket.borrow().sk.clone(),
+                socket_kind: socket.borrow().socket_kind.clone(),
                 con: Some(Connection::TcpStream(tcp_stream)),
             });
 
@@ -258,7 +258,7 @@ fn socket_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Socket { ref socket } => {
             let mut socket = socket.borrow_mut();
             match socket.address_family {
-                AddressFamily::AfInet => match socket.sk {
+                AddressFamily::AfInet => match socket.socket_kind {
                     SocketKind::SockStream => {
                         socket.con = None;
                         Ok(vm.get_none())
