@@ -1,11 +1,14 @@
-# NOTE: will take a while, up to around a minute, to run.
-# Expect this page to freeze.
+from browser import request_animation_frame
 
 w = 50.0
 h = 50.0
 
-y = 0.0
-while y < h:
+_y = {'y': 0.0}
+
+def mandel(_time_elapsed=None):
+    y = _y['y']
+    if y >= h:
+        return
     x = 0.0
     while x < w:
         Zr, Zi, Tr, Ti = 0.0, 0.0, 0.0, 0.0
@@ -18,14 +21,17 @@ while y < h:
             Zr = Tr - Ti + Cr
             Tr = Zr * Zr
             Ti = Zi * Zi
-            i = i + 1
+            i += 1
 
         if Tr + Ti <= 4:
             print('*', end='')
         else:
             print('·', end='')
 
-        x = x + 1
+        x += 1
 
     print()
-    y = y + 1
+    _y['y'] += 1
+    request_animation_frame(mandel)
+
+mandel()

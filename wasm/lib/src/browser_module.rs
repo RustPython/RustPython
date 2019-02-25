@@ -1,7 +1,7 @@
 use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
 use futures::{future, Future};
 use js_sys::Promise;
-use rustpython_vm::obj::objstr;
+use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
@@ -125,11 +125,68 @@ fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(func, Some(vm.ctx.function_type()))]);
+
+    use std::{cell::RefCell, rc::Rc};
+
+    // this basic setup for request_animation_frame taken from:
+    // https://rustwasm.github.io/wasm-bindgen/examples/request-animation-frame.html
+
+    let f = Rc::new(RefCell::new(None));
+    let g = f.clone();
+
+    let func = func.clone();
+
+    let acc_vm = AccessibleVM::from_vm(vm);
+
+    *g.borrow_mut() = Some(Closure::wrap(Box::new(move |time: f64| {
+        let vm = &mut acc_vm
+            .upgrade()
+            .expect("that the vm is valid from inside of request_animation_frame");
+        let func = func.clone();
+        let args = PyFuncArgs {
+            args: vec![vm.ctx.new_float(time)],
+            kwargs: vec![],
+        };
+        let _ = vm.invoke(func, args);
+
+        let closure = f.borrow_mut().take();
+        drop(closure);
+    }) as Box<Fn(f64)>));
+
+    let id = window()
+        .request_animation_frame(&js_sys::Function::from(
+            g.borrow().as_ref().unwrap().as_ref().clone(),
+        ))
+        .map_err(|err| convert::js_py_typeerror(vm, err))?;
+
+    Ok(vm.ctx.new_int(id))
+}
+
+fn browser_cancel_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(id, Some(vm.ctx.int_type()))]);
+
+    // fine because
+    let id = objint::get_value(id)
+        .to_string()
+        .parse()
+        .expect("bigint.to_string() to be parsable as i32");
+
+    window()
+        .cancel_animation_frame(id)
+        .map_err(|err| convert::js_py_typeerror(vm, err))?;
+
+    Ok(vm.get_none())
+}
+
 const BROWSER_NAME: &str = "browser";
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, BROWSER_NAME, {
-        "fetch" => ctx.new_rustfunc(browser_fetch)
+        "fetch" => ctx.new_rustfunc(browser_fetch),
+        "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
+        "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
     })
 }
 
