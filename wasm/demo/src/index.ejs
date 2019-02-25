@@ -20,7 +20,7 @@
             <select id="snippets">
                 <% for (const name of snippets) { %>
                     <option
-                        <% if (name == defaultSnippetName) %> selected
+                        <% if (name == defaultSnippetName) { %> selected <% } %>
                     ><%= name %></option>
                 <% } %>
             </select>
