@@ -16,7 +16,7 @@ struct Compiler {
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
-    in_loop: bool,
+    loop_depth: usize,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -74,7 +74,7 @@ impl Compiler {
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
-            in_loop: false,
+            loop_depth: 0,
         }
     }
 
@@ -88,6 +88,7 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             obj_name,
+            false
         ));
     }
 
@@ -232,9 +233,9 @@ impl Compiler {
 
                 self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
 
-                self.in_loop = true;
+                self.loop_depth += 1;
                 self.compile_statements(body)?;
-                self.in_loop = false;
+                self.loop_depth -= 1;
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
@@ -295,10 +296,9 @@ impl Compiler {
                 // Start of loop iteration, set targets:
                 self.compile_store(target)?;
 
-                // Body of loop:
-                self.in_loop = true;
+                self.loop_depth += 1;
                 self.compile_statements(body)?;
-                self.in_loop = false;
+                self.loop_depth -= 1;
 
                 self.emit(Instruction::Jump {
                     target: start_label,
@@ -431,6 +431,9 @@ impl Compiler {
                 decorator_list,
             } => {
                 // Create bytecode for this function:
+                // remember to restore self.loop_depth to the original after the function is compiled
+                let original_loop_depth = self.loop_depth;
+                self.loop_depth = 0;
                 let flags = self.enter_function(name, args)?;
                 self.compile_statements(body)?;
 
@@ -458,6 +461,7 @@ impl Compiler {
                 self.emit(Instruction::StoreName {
                     name: name.to_string(),
                 });
+                self.loop_depth = original_loop_depth;
             }
             ast::Statement::ClassDef {
                 name,
@@ -477,6 +481,7 @@ impl Compiler {
                     self.source_path.clone().unwrap(),
                     line_number,
                     name.clone(),
+                    false
                 ));
                 self.emit(Instruction::LoadName {
                     name: String::from("__locals__"),
@@ -572,18 +577,21 @@ impl Compiler {
                 self.set_label(end_label);
             }
             ast::Statement::Break => {
-                if !self.in_loop {
+                if self.loop_depth == 0 {
                     return Err(CompileError::InvalidBreak);
                 }
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
-                if !self.in_loop {
+                if self.loop_depth == 0 {
                     return Err(CompileError::InvalidContinue);
                 }
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
+                if !self.current_code_object().is_function_obj {
+                    return Err(CompileError::InvalidReturn);
+                }
                 match value {
                     Some(e) => {
                         let size = e.len();
@@ -663,7 +671,7 @@ impl Compiler {
         name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, CompileError> {
-        self.in_loop = false;
+
         let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
@@ -686,6 +694,7 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
+            true
         ));
 
         let mut flags = bytecode::FunctionOpArg::empty();
@@ -971,6 +980,9 @@ impl Compiler {
                 self.emit(Instruction::BuildSlice { size });
             }
             ast::Expression::Yield { value } => {
+                if !self.current_code_object().is_function_obj {
+                    return Err(CompileError::InvalidYield);
+                }
                 self.mark_generator();
                 match value {
                     Some(expression) => self.compile_expression(expression)?,
@@ -1021,6 +1033,7 @@ impl Compiler {
             }
             ast::Expression::Lambda { args, body } => {
                 let name = "<lambda>".to_string();
+                // no need to worry about the self.loop_depth because there are no loops in lambda expressions
                 let flags = self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
@@ -1199,6 +1212,7 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             name.clone(),
+            false
         ));
 
         // Create empty object of proper type:
@@ -1362,10 +1376,11 @@ impl Compiler {
 
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
-        self.current_code_object().instructions.push(instruction);
-        // TODO: insert source filename
         let location = self.current_source_location.clone();
-        self.current_code_object().locations.push(location);
+        let mut cur_code_obj = self.current_code_object();
+        cur_code_obj.instructions.push(instruction);
+        cur_code_obj.locations.push(location);
+        // TODO: insert source filename
     }
 
     fn current_code_object(&mut self) -> &mut CodeObject {
@@ -1374,9 +1389,8 @@ impl Compiler {
 
     // Generate a new label
     fn new_label(&mut self) -> Label {
-        let l = self.nxt_label;
         self.nxt_label += 1;
-        l
+        self.nxt_label - 1
     }
 
     // Assign current position the given label
