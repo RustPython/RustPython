@@ -73,7 +73,7 @@ pub type PyObjectWeakRef = Weak<RefCell<PyObject>>;
 /// Use this type for function which return a python object or and exception.
 /// Both the python object and the python exception are `PyObjectRef` types
 /// since exceptions are also python objects.
-pub type PyResult = Result<PyObjectRef, PyObjectRef>; // A valid value, or an exception
+pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, or an exception
 
 /// For attributes we do not use a dict, but a hashmap. This is probably
 /// faster, unordered, and only supports strings as keys.
@@ -554,13 +554,13 @@ impl PyContext {
         )
     }
 
-    pub fn new_rustfunc<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
-        &self,
-        function: F,
-    ) -> PyObjectRef {
+    pub fn new_rustfunc<F, T, R>(&self, factory: F) -> PyObjectRef
+    where
+        F: PyNativeFuncFactory<T, R>,
+    {
         PyObject::new(
             PyObjectPayload::RustFunction {
-                function: Box::new(function),
+                function: factory.create(self),
             },
             self.builtin_function_or_method_type(),
         )
@@ -945,6 +945,203 @@ impl PyFuncArgs {
         }
     }
 }
+
+pub trait FromPyObject: Sized {
+    fn typ(ctx: &PyContext) -> Option<PyObjectRef>;
+
+    fn from_pyobject(obj: PyObjectRef) -> PyResult<Self>;
+}
+
+impl FromPyObject for PyObjectRef {
+    fn typ(_ctx: &PyContext) -> Option<PyObjectRef> {
+        None
+    }
+
+    fn from_pyobject(obj: PyObjectRef) -> PyResult<Self> {
+        Ok(obj)
+    }
+}
+
+pub trait IntoPyObject {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult;
+}
+
+impl IntoPyObject for PyObjectRef {
+    fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
+        Ok(self)
+    }
+}
+
+impl IntoPyObject for PyResult {
+    fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
+        self
+    }
+}
+
+pub trait FromPyFuncArgs: Sized {
+    fn required_params(ctx: &PyContext) -> Vec<Parameter>;
+
+    fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self>;
+}
+
+macro_rules! tuple_from_py_func_args {
+    ($($T:ident),+) => {
+        impl<$($T),+> FromPyFuncArgs for ($($T,)+)
+        where
+            $($T: FromPyFuncArgs),+
+        {
+            fn required_params(ctx: &PyContext) -> Vec<Parameter> {
+                vec![$($T::required_params(ctx),)+].into_iter().flatten().collect()
+            }
+
+            fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self> {
+                Ok(($($T::from_py_func_args(args)?,)+))
+            }
+        }
+    };
+}
+
+tuple_from_py_func_args!(A);
+tuple_from_py_func_args!(A, B);
+tuple_from_py_func_args!(A, B, C);
+tuple_from_py_func_args!(A, B, C, D);
+tuple_from_py_func_args!(A, B, C, D, E);
+
+impl<T> FromPyFuncArgs for T
+where
+    T: FromPyObject,
+{
+    fn required_params(ctx: &PyContext) -> Vec<Parameter> {
+        vec![Parameter {
+            kind: PositionalOnly,
+            typ: T::typ(ctx),
+        }]
+    }
+
+    fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self> {
+        Self::from_pyobject(args.shift())
+    }
+}
+
+pub type PyNativeFunc = Box<dyn Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>;
+
+pub trait PyNativeFuncFactory<T, R> {
+    fn create(self, ctx: &PyContext) -> PyNativeFunc;
+}
+
+impl<F> PyNativeFuncFactory<PyFuncArgs, PyResult> for F
+where
+    F: Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult + 'static,
+{
+    fn create(self, _ctx: &PyContext) -> PyNativeFunc {
+        Box::new(self)
+    }
+}
+
+macro_rules! tuple_py_native_func_factory {
+    ($($T:ident),+) => {
+        impl<F, $($T,)+ R> PyNativeFuncFactory<($($T,)+), R> for F
+        where
+            F: Fn(&mut VirtualMachine, $($T),+) -> R + 'static,
+            $($T: FromPyFuncArgs,)+
+            R: IntoPyObject,
+        {
+            fn create(self, ctx: &PyContext) -> PyNativeFunc {
+                let parameters = vec![$($T::required_params(ctx)),+]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                let signature = Signature::new(parameters);
+
+                Box::new(move |vm, mut args| {
+                    signature.check(vm, &mut args)?;
+
+                    (self)(vm, $($T::from_py_func_args(&mut args)?,)+)
+                        .into_pyobject(&vm.ctx)
+                })
+            }
+        }
+    };
+}
+
+tuple_py_native_func_factory!(A);
+tuple_py_native_func_factory!(A, B);
+tuple_py_native_func_factory!(A, B, C);
+tuple_py_native_func_factory!(A, B, C, D);
+tuple_py_native_func_factory!(A, B, C, D, E);
+
+#[derive(Debug)]
+pub struct Signature {
+    positional_params: Vec<Parameter>,
+    keyword_params: HashMap<String, Parameter>,
+}
+
+impl Signature {
+    fn new(params: Vec<Parameter>) -> Self {
+        let mut positional_params = Vec::new();
+        let mut keyword_params = HashMap::new();
+        for param in params {
+            match param.kind {
+                PositionalOnly => {
+                    positional_params.push(param);
+                }
+                KeywordOnly { ref name } => {
+                    keyword_params.insert(name.clone(), param);
+                }
+            }
+        }
+
+        Self {
+            positional_params,
+            keyword_params,
+        }
+    }
+
+    fn arg_type(&self, pos: usize) -> Option<&PyObjectRef> {
+        self.positional_params[pos].typ.as_ref()
+    }
+
+    #[allow(unused)]
+    fn kwarg_type(&self, name: &str) -> Option<&PyObjectRef> {
+        self.keyword_params[name].typ.as_ref()
+    }
+
+    fn check(&self, vm: &mut VirtualMachine, args: &PyFuncArgs) -> PyResult<()> {
+        // TODO: check arity
+
+        for (pos, arg) in args.args.iter().enumerate() {
+            if let Some(expected_type) = self.arg_type(pos) {
+                if !objtype::isinstance(arg, expected_type) {
+                    let arg_typ = arg.typ();
+                    let expected_type_name = vm.to_pystr(&expected_type)?;
+                    let actual_type = vm.to_pystr(&arg_typ)?;
+                    return Err(vm.new_type_error(format!(
+                        "argument of type {} is required for parameter {} (got: {})",
+                        expected_type_name,
+                        pos + 1,
+                        actual_type
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct Parameter {
+    typ: Option<PyObjectRef>,
+    kind: ParameterKind,
+}
+
+#[derive(Debug)]
+pub enum ParameterKind {
+    PositionalOnly,
+    KeywordOnly { name: String },
+}
+
+use self::ParameterKind::*;
 
 /// Rather than determining the type of a python object, this enum is more
 /// a holder for the rust payload of a python object. It is more a carrier
