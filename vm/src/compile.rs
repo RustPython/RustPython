@@ -472,6 +472,8 @@ impl Compiler {
                 keywords,
                 decorator_list,
             } => {
+                let was_in_loop = self.in_loop;
+                self.in_loop = false;
                 self.prepare_decorators(decorator_list)?;
                 self.emit(Instruction::LoadBuildClass);
                 let line_number = self.get_source_line_number();
@@ -553,6 +555,7 @@ impl Compiler {
                 self.emit(Instruction::StoreName {
                     name: name.to_string(),
                 });
+                self.in_loop = was_in_loop;
             }
             ast::Statement::Assert { test, msg } => {
                 // TODO: if some flag, ignore all assert statements!
