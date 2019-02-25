@@ -25,7 +25,10 @@ pub type StdlibInitFunc = Box<dyn Fn(&PyContext) -> PyObjectRef>;
 
 pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     let mut modules = HashMap::new();
-    modules.insert("ast".to_string(), Box::new(ast::mk_module) as StdlibInitFunc);
+    modules.insert(
+        "ast".to_string(),
+        Box::new(ast::mk_module) as StdlibInitFunc,
+    );
     modules.insert("dis".to_string(), Box::new(dis::mk_module));
     modules.insert("json".to_string(), Box::new(json::mk_module));
     modules.insert("keyword".to_string(), Box::new(keyword::mk_module));

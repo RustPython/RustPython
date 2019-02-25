@@ -1,4 +1,4 @@
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol, DictProtocol};
+use crate::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use std::rc::Rc;
 use std::{env, mem};
