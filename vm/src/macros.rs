@@ -14,12 +14,12 @@ macro_rules! count_tts {
 
 #[macro_export]
 macro_rules! type_check {
-    ($vm:ident, $args:ident, $arg_count:ident, $arg_name:ident, $arg_type:expr) => {
+
+    ($vm:ident, $arg:expr, $arg_count: expr, $arg_name:ident, $arg_type:expr) => {
         // None indicates that we have no type requirement (i.e. we accept any type)
         if let Some(expected_type) = $arg_type {
-            let arg = &$args.args[$arg_count];
-            if !$crate::obj::objtype::isinstance(arg, &expected_type) {
-                let arg_typ = arg.typ();
+            if !$crate::obj::objtype::isinstance($arg, &expected_type) {
+                let arg_typ = $arg.typ();
                 let expected_type_name = $vm.to_pystr(&expected_type)?;
                 let actual_type = $vm.to_pystr(&arg_typ)?;
                 return Err($vm.new_type_error(format!(
@@ -71,7 +71,7 @@ macro_rules! arg_check {
         //  check if the type matches. If not, return with error
         //  assign the arg to a variable
         $(
-            type_check!($vm, $args, arg_count, $arg_name, $arg_type);
+            type_check!($vm, &$args.args[arg_count], arg_count, $arg_name, $arg_type);
             let $arg_name = &$args.args[arg_count];
             #[allow(unused_assignments)]
             {
@@ -83,14 +83,19 @@ macro_rules! arg_check {
         //  check if the type matches. If not, return with error
         //  assign the arg to a variable
         $(
-            let $optional_arg_name = if arg_count < $args.args.len() {
-                type_check!($vm, $args, arg_count, $optional_arg_name, $optional_arg_type);
-                let ret = Some(&$args.args[arg_count]);
-                #[allow(unused_assignments)]
-                {
-                    arg_count += 1;
+            let len = $args.args.len();
+            let $optional_arg_name = if arg_count >= len && (arg_count - len) < $args.kwargs.len() {
+                type_check!($vm, &$args.kwargs[arg_count-len].1, arg_count-len, $optional_arg_name, $optional_arg_type);
+                let kwarg = &$args.kwargs[arg_count - len];
+                if &kwarg.0 == stringify!($optional_arg_name) {
+                    #[allow(unused_assignments)]
+                    {
+                        arg_count += 1;
+                    }
+                    Some(&kwarg.1)
+                } else {
+                    None
                 }
-                ret
             } else {
                 None
             };
