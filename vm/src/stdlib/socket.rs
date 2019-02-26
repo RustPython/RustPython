@@ -255,16 +255,19 @@ fn socket_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn socket_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None)]);
     match zelf.payload {
-        PyObjectPayload::Socket { ref socket } => match socket.borrow().address_family {
-            AddressFamily::AfInet => match socket.borrow().sk {
-                SocketKind::SockStream => {
-                    socket.borrow_mut().con = None;
-                    Ok(vm.get_none())
-                }
+        PyObjectPayload::Socket { ref socket } => {
+            let mut socket = socket.borrow_mut();
+            match socket.address_family {
+                AddressFamily::AfInet => match socket.sk {
+                    SocketKind::SockStream => {
+                        socket.con = None;
+                        Ok(vm.get_none())
+                    }
+                    _ => Err(vm.new_type_error("".to_string())),
+                },
                 _ => Err(vm.new_type_error("".to_string())),
-            },
-            _ => Err(vm.new_type_error("".to_string())),
-        },
+            }
+        }
         _ => Err(vm.new_type_error("".to_string())),
     }
 }
