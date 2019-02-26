@@ -282,7 +282,7 @@ impl Frame {
 
                 let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
-                    .map(|x| match x.borrow().payload {
+                    .map(|x| match x.payload {
                         PyObjectPayload::Integer { ref value } => Some(value.clone()),
                         PyObjectPayload::None => None,
                         _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
@@ -532,7 +532,7 @@ impl Frame {
                 } else {
                     let msg = format!(
                         "Can only raise BaseException derived types, not {}",
-                        exception.borrow()
+                        exception
                     );
                     let type_error_type = vm.ctx.exceptions.type_error.clone();
                     let type_error = vm.new_exception(type_error_type, msg);
@@ -565,7 +565,7 @@ impl Frame {
             }
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
-                match expr.borrow().payload {
+                match expr.payload {
                     PyObjectPayload::None => (),
                     _ => {
                         let repr = vm.to_repr(&expr)?;
@@ -592,9 +592,9 @@ impl Frame {
             }
             bytecode::Instruction::StoreLocals => {
                 let locals = self.pop_value();
-                match self.locals.borrow_mut().payload {
-                    PyObjectPayload::Scope { ref mut scope } => {
-                        scope.locals = locals;
+                match self.locals.payload {
+                    PyObjectPayload::Scope { ref scope } => {
+                        (*scope.borrow_mut()).locals = locals;
                     }
                     _ => panic!("We really expect our scope to be a scope!"),
                 }
@@ -855,8 +855,8 @@ impl Frame {
     }
 
     fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
-        let locals = match self.locals.borrow().payload {
-            PyObjectPayload::Scope { ref scope } => scope.locals.clone(),
+        let locals = match self.locals.payload {
+            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.clone(),
             _ => panic!("We really expect our scope to be a scope!"),
         };
 
@@ -1128,7 +1128,7 @@ impl fmt::Debug for Frame {
         let stack_str = self
             .stack
             .iter()
-            .map(|elem| format!("\n  > {:?}", elem.borrow()))
+            .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
         let block_str = self
@@ -1137,12 +1137,12 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
-        let local_str = match self.locals.borrow().payload {
-            PyObjectPayload::Scope { ref scope } => match scope.locals.borrow().payload {
+        let local_str = match self.locals.payload {
+            PyObjectPayload::Scope { ref scope } => match scope.borrow().locals.payload {
                 PyObjectPayload::Dict { ref elements } => {
-                    objdict::get_key_value_pairs_from_content(elements)
+                    objdict::get_key_value_pairs_from_content(&elements.borrow())
                         .iter()
-                        .map(|elem| format!("\n  {:?} = {:?}", elem.0.borrow(), elem.1.borrow()))
+                        .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
                         .collect::<Vec<_>>()
                         .join("")
                 }

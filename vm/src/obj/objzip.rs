@@ -19,7 +19,7 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zip, Some(vm.ctx.zip_type()))]);
 
-    if let PyObjectPayload::ZipIterator { ref mut iterators } = zip.borrow_mut().payload {
+    if let PyObjectPayload::ZipIterator { ref iterators } = zip.payload {
         if iterators.is_empty() {
             Err(objiter::new_stop_iteration(vm))
         } else {

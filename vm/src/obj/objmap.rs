@@ -29,9 +29,9 @@ fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(map, Some(vm.ctx.map_type()))]);
 
     if let PyObjectPayload::MapIterator {
-        ref mut mapper,
-        ref mut iterators,
-    } = map.borrow_mut().payload
+        ref mapper,
+        ref iterators,
+    } = map.payload
     {
         let next_objs = iterators
             .iter()

@@ -3,6 +3,7 @@
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
 
 // use std::ops::Deref;
+use std::cell::RefCell;
 use std::char;
 use std::io::{self, Write};
 
@@ -274,7 +275,9 @@ fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObject
     };
 
     PyObject {
-        payload: PyObjectPayload::Scope { scope: scope_inner },
+        payload: PyObjectPayload::Scope {
+            scope: RefCell::new(scope_inner),
+        },
         typ: None,
     }
     .into_ref()

@@ -4,7 +4,7 @@ use crate::wasm_builtins;
 use js_sys::{SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
-    pyobject::{PyFuncArgs, PyObjectRef, PyRef, PyResult},
+    pyobject::{PyFuncArgs, PyObjectRef, PyResult},
     VirtualMachine,
 };
 use std::cell::RefCell;
@@ -34,8 +34,8 @@ impl StoredVirtualMachine {
 // gets compiled down to a normal-ish static varible, like Atomic* types:
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
-    static STORED_VMS: PyRef<HashMap<String, PyRef<StoredVirtualMachine>>> = Rc::default();
-    static ACTIVE_VMS: PyRef<HashMap<String, *mut VirtualMachine>> = Rc::default();
+    static STORED_VMS: Rc<RefCell<HashMap<String, Rc<RefCell<StoredVirtualMachine>>>>> = Rc::default();
+    static ACTIVE_VMS: Rc<RefCell<HashMap<String, *mut VirtualMachine>>> = Rc::default();
 }
 
 #[wasm_bindgen(js_name = vmStore)]

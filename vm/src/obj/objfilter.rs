@@ -26,9 +26,9 @@ fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(filter, Some(vm.ctx.filter_type()))]);
 
     if let PyObjectPayload::FilterIterator {
-        ref mut predicate,
-        ref mut iterator,
-    } = filter.borrow_mut().payload
+        ref predicate,
+        ref iterator,
+    } = filter.payload
     {
         loop {
             let next_obj = objiter::call_next(vm, iterator)?;

@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::ops::Mul;
+
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
@@ -8,7 +11,6 @@ use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::ops::Mul;
 
 #[derive(Debug, Clone)]
 pub struct RangeType {
@@ -151,7 +153,7 @@ impl RangeType {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> RangeType {
-    if let PyObjectPayload::Range { range } = &obj.borrow().payload {
+    if let PyObjectPayload::Range { range } = &obj.payload {
         range.clone()
     } else {
         panic!("Inner error getting range {:?}", obj);
@@ -247,7 +249,7 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     Ok(PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: range.clone(),
         },
         vm.ctx.iter_type(),
@@ -261,7 +263,7 @@ fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     Ok(PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: PyObject::new(PyObjectPayload::Range { range }, vm.ctx.range_type()),
         },
         vm.ctx.iter_type(),
@@ -287,7 +289,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let range = get_value(zelf);
 
-    match subscript.borrow().payload {
+    match subscript.payload {
         PyObjectPayload::Integer { ref value } => {
             if let Some(int) = range.get(value) {
                 Ok(vm.ctx.new_int(int))

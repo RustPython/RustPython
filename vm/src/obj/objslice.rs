@@ -59,7 +59,7 @@ fn get_property_value(vm: &mut VirtualMachine, value: &Option<BigInt>) -> PyResu
 
 fn slice_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let PyObjectPayload::Slice { start, .. } = &slice.borrow().payload {
+    if let PyObjectPayload::Slice { start, .. } = &slice.payload {
         get_property_value(vm, start)
     } else {
         panic!("Slice has incorrect payload.");
@@ -68,7 +68,7 @@ fn slice_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn slice_stop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let PyObjectPayload::Slice { stop, .. } = &slice.borrow().payload {
+    if let PyObjectPayload::Slice { stop, .. } = &slice.payload {
         get_property_value(vm, stop)
     } else {
         panic!("Slice has incorrect payload.");
@@ -77,7 +77,7 @@ fn slice_stop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn slice_step(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let PyObjectPayload::Slice { step, .. } = &slice.borrow().payload {
+    if let PyObjectPayload::Slice { step, .. } = &slice.payload {
         get_property_value(vm, step)
     } else {
         panic!("Slice has incorrect payload.");
