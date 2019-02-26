@@ -4,13 +4,14 @@ use crate::vm::VirtualMachine;
 
 fn dis_dis(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    let code_name = vm.new_str("__code__".to_string());
-    let code = match vm.get_attribute(obj.clone(), code_name) {
-        Ok(co) => co,
-        Err(..) => obj.clone(),
-    };
 
-    dis_disassemble(vm, PyFuncArgs::new(vec![code], vec![]))
+    // Method or function:
+    let code_name = vm.new_str("__code__".to_string());
+    if let Ok(co) = vm.get_attribute(obj.clone(), code_name) {
+        return dis_disassemble(vm, PyFuncArgs::new(vec![co], vec![]));
+    }
+
+    dis_disassemble(vm, PyFuncArgs::new(vec![obj.clone()], vec![]))
 }
 
 fn dis_disassemble(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

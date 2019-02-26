@@ -18,3 +18,17 @@ def f():
             raise not ValueError({1 for i in [1,2,3]})
 
 dis.dis(f)
+
+class A(object):
+    def f():
+        x += 1
+        pass
+    def g():
+        for i in range(5):
+            if i:
+                continue
+            else:
+                break
+
+print("A.f\n")
+dis.dis(A.f)
