@@ -17,6 +17,7 @@ struct Compiler {
     source_path: Option<String>,
     current_source_location: ast::Location,
     in_loop: bool,
+    in_function_def: bool,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -75,6 +76,7 @@ impl Compiler {
             source_path: None,
             current_source_location: ast::Location::default(),
             in_loop: false,
+            in_function_def: false,
         }
     }
 
@@ -88,7 +90,6 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             obj_name,
-            false,
         ));
     }
 
@@ -160,30 +161,30 @@ impl Compiler {
                     symbol,
                     alias,
                 } in import_parts
-                {
-                    match symbol {
-                        Some(name) if name == "*" => {
-                            self.emit(Instruction::ImportStar {
-                                name: module.clone(),
-                            });
-                        }
-                        _ => {
-                            self.emit(Instruction::Import {
-                                name: module.clone(),
-                                symbol: symbol.clone(),
-                            });
-                            self.emit(Instruction::StoreName {
-                                name: match alias {
-                                    Some(alias) => alias.clone(),
-                                    None => match symbol {
-                                        Some(symbol) => symbol.clone(),
-                                        None => module.clone(),
+                    {
+                        match symbol {
+                            Some(name) if name == "*" => {
+                                self.emit(Instruction::ImportStar {
+                                    name: module.clone(),
+                                });
+                            }
+                            _ => {
+                                self.emit(Instruction::Import {
+                                    name: module.clone(),
+                                    symbol: symbol.clone(),
+                                });
+                                self.emit(Instruction::StoreName {
+                                    name: match alias {
+                                        Some(alias) => alias.clone(),
+                                        None => match symbol {
+                                            Some(symbol) => symbol.clone(),
+                                            None => module.clone(),
+                                        },
                                     },
-                                },
-                            });
+                                });
+                            }
                         }
                     }
-                }
             }
             ast::Statement::Expression { expression } => {
                 self.compile_expression(expression)?;
@@ -435,7 +436,9 @@ impl Compiler {
                 // Create bytecode for this function:
                 // remember to restore self.in_loop to the original after the function is compiled
                 let was_in_loop = self.in_loop;
+                let was_in_function_def = self.in_function_def;
                 self.in_loop = false;
+                self.in_function_def = true;
                 let flags = self.enter_function(name, args)?;
                 self.compile_statements(body)?;
 
@@ -464,6 +467,7 @@ impl Compiler {
                     name: name.to_string(),
                 });
                 self.in_loop = was_in_loop;
+                self.in_function_def = was_in_function_def;
             }
             ast::Statement::ClassDef {
                 name,
@@ -485,7 +489,6 @@ impl Compiler {
                     self.source_path.clone().unwrap(),
                     line_number,
                     name.clone(),
-                    false,
                 ));
                 self.emit(Instruction::LoadName {
                     name: String::from("__locals__"),
@@ -594,7 +597,7 @@ impl Compiler {
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
-                if !self.current_code_object().is_function_obj {
+                if !self.in_function_def {
                     return Err(CompileError::InvalidReturn);
                 }
                 match value {
@@ -698,7 +701,6 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
-            true,
         ));
 
         let mut flags = bytecode::FunctionOpArg::empty();
@@ -984,7 +986,7 @@ impl Compiler {
                 self.emit(Instruction::BuildSlice { size });
             }
             ast::Expression::Yield { value } => {
-                if !self.current_code_object().is_function_obj {
+                if !self.in_function_def {
                     return Err(CompileError::InvalidYield);
                 }
                 self.mark_generator();
@@ -1204,7 +1206,7 @@ impl Compiler {
             ast::ComprehensionKind::Set { .. } => "<setcomp>",
             ast::ComprehensionKind::Dict { .. } => "<dictcomp>",
         }
-        .to_string();
+            .to_string();
 
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
@@ -1216,7 +1218,6 @@ impl Compiler {
             self.source_path.clone().unwrap(),
             line_number,
             name.clone(),
-            false,
         ));
 
         // Create empty object of proper type:
