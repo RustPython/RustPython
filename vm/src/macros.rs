@@ -84,9 +84,11 @@ macro_rules! arg_check {
         //  assign the arg to a variable
         $(
             let len = $args.args.len();
+            let klen = $args.kwargs.len();
             let $optional_arg_name = if arg_count >= len && (arg_count - len) < $args.kwargs.len() {
-                type_check!($vm, &$args.kwargs[arg_count-len].1, arg_count-len, $optional_arg_name, $optional_arg_type);
-                let kwarg = &$args.kwargs[arg_count - len];
+                let idx = klen-(arg_count-len) -  1;
+                type_check!($vm, &$args.kwargs[idx].1, arg_count-len, $optional_arg_name, $optional_arg_type);
+                let kwarg = &$args.kwargs[idx];
                 if &kwarg.0 == stringify!($optional_arg_name) {
                     #[allow(unused_assignments)]
                     {
