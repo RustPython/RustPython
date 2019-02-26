@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::path::PathBuf;
 
 //3rd party imports
 use num_bigint::ToBigInt;
@@ -23,6 +24,7 @@ use crate::pyobject::{
     PyResult, TypeProtocol,
 };
 
+use crate::import;
 use crate::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {
@@ -267,7 +269,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
-    let module = mk_module(&vm.ctx);
+    let module = import::import_module(vm, PathBuf::default(), "io").unwrap();
 
     //mode is optional: 'rt' is the default mode (open from reading text)
     let rust_mode = mode.map_or("rt".to_string(), |m| objstr::get_value(m));
