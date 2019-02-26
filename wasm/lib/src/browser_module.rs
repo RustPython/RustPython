@@ -134,5 +134,6 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
 }
 
 pub fn setup_browser_module(vm: &mut VirtualMachine) {
-    vm.stdlib_inits.insert(BROWSER_NAME.to_string(), mk_module);
+    vm.stdlib_inits
+        .insert(BROWSER_NAME.to_string(), Box::new(mk_module));
 }
