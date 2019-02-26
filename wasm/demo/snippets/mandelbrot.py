@@ -35,4 +35,4 @@ def mandel(_time_elapsed=None):
     _y['y'] += 1
     request_animation_frame(mandel)
 
-mandel()
+request_animation_frame(mandel)
