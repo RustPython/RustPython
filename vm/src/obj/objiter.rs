@@ -128,16 +128,15 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
     if let PyObjectPayload::Iterator {
-        ref mut position,
-        iterated_obj: ref mut iterated_obj_ref,
-    } = iter.borrow_mut().payload
+        ref position,
+        iterated_obj: ref iterated_obj_ref,
+    } = iter.payload
     {
-        let iterated_obj = iterated_obj_ref.borrow_mut();
-        match iterated_obj.payload {
+        match iterated_obj_ref.payload {
             PyObjectPayload::Sequence { ref elements } => {
-                if *position < elements.len() {
-                    let obj_ref = elements[*position].clone();
-                    *position += 1;
+                if position.get() < elements.borrow().len() {
+                    let obj_ref = elements.borrow()[position.get()].clone();
+                    position.set(position.get() + 1);
                     Ok(obj_ref)
                 } else {
                     Err(new_stop_iteration(vm))
@@ -145,8 +144,8 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             }
 
             PyObjectPayload::Range { ref range } => {
-                if let Some(int) = range.get(*position) {
-                    *position += 1;
+                if let Some(int) = range.get(position.get()) {
+                    position.set(position.get() + 1);
                     Ok(vm.ctx.new_int(int))
                 } else {
                     Err(new_stop_iteration(vm))
@@ -154,9 +153,9 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             }
 
             PyObjectPayload::Bytes { ref value } => {
-                if *position < value.len() {
-                    let obj_ref = vm.ctx.new_int(value[*position]);
-                    *position += 1;
+                if position.get() < value.borrow().len() {
+                    let obj_ref = vm.ctx.new_int(value.borrow()[position.get()]);
+                    position.set(position.get() + 1);
                     Ok(obj_ref)
                 } else {
                     Err(new_stop_iteration(vm))

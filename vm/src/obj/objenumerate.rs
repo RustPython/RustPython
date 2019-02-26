@@ -1,10 +1,12 @@
+use std::cell::RefCell;
+use std::ops::AddAssign;
+
 use super::objint;
 use super::objiter;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::Zero;
-use std::ops::AddAssign;
 
 fn enumerate_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -20,7 +22,10 @@ fn enumerate_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     let iterator = objiter::get_iter(vm, iterable)?;
     Ok(PyObject::new(
-        PyObjectPayload::EnumerateIterator { counter, iterator },
+        PyObjectPayload::EnumerateIterator {
+            counter: RefCell::new(counter),
+            iterator,
+        },
         cls.clone(),
     ))
 }
@@ -33,16 +38,16 @@ fn enumerate_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     if let PyObjectPayload::EnumerateIterator {
-        ref mut counter,
-        ref mut iterator,
-    } = enumerate.borrow_mut().payload
+        ref counter,
+        ref iterator,
+    } = enumerate.payload
     {
         let next_obj = objiter::call_next(vm, iterator)?;
         let result = vm
             .ctx
-            .new_tuple(vec![vm.ctx.new_int(counter.clone()), next_obj]);
+            .new_tuple(vec![vm.ctx.new_int(counter.borrow().clone()), next_obj]);
 
-        AddAssign::add_assign(counter, 1);
+        AddAssign::add_assign(&mut counter.borrow_mut() as &mut BigInt, 1);
 
         Ok(result)
     } else {

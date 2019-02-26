@@ -29,7 +29,7 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
-    if let PyObjectPayload::Code { code } = &obj.borrow().payload {
+    if let PyObjectPayload::Code { code } = &obj.payload {
         code.clone()
     } else {
         panic!("Inner error getting code {:?}", obj)

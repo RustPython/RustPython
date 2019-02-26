@@ -30,7 +30,7 @@ fn sys_getrefcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn sys_getsizeof(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     // TODO: implement default optional argument.
-    let size = mem::size_of_val(&object.borrow());
+    let size = mem::size_of_val(&object);
     Ok(vm.ctx.new_int(size))
 }
 
