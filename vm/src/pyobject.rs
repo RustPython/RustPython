@@ -1287,6 +1287,7 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::Socket { .. } => write!(f, "socket"),
+            PyObjectPayload::AnyRustValue { .. } => write!(f, "some rust value"),
         }
     }
 }
