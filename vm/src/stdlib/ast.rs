@@ -602,23 +602,10 @@ fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    // TODO: maybe we can use some clever macro to generate this?
-    let ast_mod = ctx.new_module("ast", ctx.new_scope(None));
-
-    ctx.set_attr(&ast_mod, "parse", ctx.new_rustfunc(ast_parse));
-
-    ctx.set_attr(
-        &ast_mod,
-        "Module",
-        ctx.new_class("_ast.Module", ctx.object()),
-    );
-
-    ctx.set_attr(
-        &ast_mod,
-        "FunctionDef",
-        ctx.new_class("_ast.FunctionDef", ctx.object()),
-    );
-    ctx.set_attr(&ast_mod, "Call", ctx.new_class("_ast.Call", ctx.object()));
-
-    ast_mod
+    py_module!(ctx, "ast", {
+        "parse" => ctx.new_rustfunc(ast_parse),
+        "Module" => ctx.new_class("_ast.Module", ctx.object()),
+        "FunctionDef" =>ctx.new_class("_ast.FunctionDef", ctx.object()),
+        "Call" => ctx.new_class("_ast.Call", ctx.object())
+    })
 }
