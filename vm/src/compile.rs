@@ -1394,8 +1394,9 @@ impl Compiler {
 
     // Generate a new label
     fn new_label(&mut self) -> Label {
+        let l = self.nxt_label;
         self.nxt_label += 1;
-        self.nxt_label - 1
+        l
     }
 
     // Assign current position the given label
