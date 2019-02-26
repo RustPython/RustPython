@@ -21,13 +21,15 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             let wasm_vm = WASMVirtualMachine {
                 id: wasm_id.clone(),
             };
-            let mut py_obj = Some(py_obj);
+            let weak_py_obj = wasm_vm.push_held_rc(py_obj).unwrap();
+
             let closure =
                 move |args: Option<Array>, kwargs: Option<Object>| -> Result<JsValue, JsValue> {
                     let py_obj = match wasm_vm.assert_valid() {
-                        Ok(_) => py_obj.clone().expect("py_obj to be valid if VM is valid"),
+                        Ok(_) => weak_py_obj
+                            .upgrade()
+                            .expect("weak_py_obj to be valid if VM is valid"),
                         Err(err) => {
-                            py_obj = None;
                             return Err(err);
                         }
                     };
@@ -56,7 +58,8 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                 as Box<dyn FnMut(Option<Array>, Option<Object>) -> Result<JsValue, JsValue>>);
             let func = closure.as_ref().clone();
 
-            // TODO: Come up with a way of managing closure handles
+            // stores pretty much nothing, it's fine to leak this because if it gets dropped
+            // the error message is worse
             closure.forget();
 
             return func;
