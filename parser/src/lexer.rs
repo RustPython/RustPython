@@ -688,7 +688,9 @@ where
 
             match self.chr0 {
                 Some('0'..='9') => return Some(self.lex_number()),
-                Some('_') | Some('a'..='z') | Some('A'..='Z') => { return Some(self.lex_identifier()); }
+                Some('_') | Some('a'..='z') | Some('A'..='Z') => {
+                    return Some(self.lex_identifier());
+                }
                 Some('#') => {
                     self.lex_comment();
                     continue;
