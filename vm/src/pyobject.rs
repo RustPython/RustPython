@@ -551,7 +551,7 @@ impl PyContext {
 
     pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
         let locals = self.new_dict();
-        let scope = Scope { locals, parent };
+        let scope = RefCell::new(Scope { locals, parent });
         PyObject {
             payload: PyObjectPayload::Scope { scope },
             typ: None,
@@ -680,7 +680,7 @@ impl PyContext {
                 dict.borrow_mut().insert(attr_name.to_string(), value);
             }
             PyObjectPayload::Scope { ref scope } => {
-                self.set_item(&scope.locals, attr_name, value);
+                self.set_item(&scope.borrow().locals, attr_name, value);
             }
             ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
         };
@@ -762,14 +762,14 @@ pub trait ParentProtocol {
 impl ParentProtocol for PyObjectRef {
     fn has_parent(&self) -> bool {
         match self.payload {
-            PyObjectPayload::Scope { ref scope } => scope.parent.is_some(),
+            PyObjectPayload::Scope { ref scope } => scope.borrow().parent.is_some(),
             _ => panic!("Only scopes have parent (not {:?}", self),
         }
     }
 
     fn get_parent(&self) -> PyObjectRef {
         match self.payload {
-            PyObjectPayload::Scope { ref scope } => match scope.parent {
+            PyObjectPayload::Scope { ref scope } => match scope.borrow().parent {
                 Some(ref value) => value.clone(),
                 None => panic!("OMG"),
             },
@@ -841,7 +841,7 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_contains_key_str(&elements.borrow(), k)
             }
-            PyObjectPayload::Scope { ref scope } => scope.locals.contains_key(k),
+            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.contains_key(k),
             ref payload => unimplemented!("TODO {:?}", payload),
         }
     }
@@ -851,7 +851,7 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_get_key_str(&elements.borrow(), k)
             }
-            PyObjectPayload::Scope { ref scope } => scope.locals.get_item(k),
+            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_item(k),
             _ => panic!("TODO"),
         }
     }
@@ -860,7 +860,7 @@ impl DictProtocol for PyObjectRef {
         match self.payload {
             PyObjectPayload::Dict { .. } => objdict::get_key_value_pairs(self),
             PyObjectPayload::Module { ref dict, .. } => dict.get_key_value_pairs(),
-            PyObjectPayload::Scope { ref scope } => scope.locals.get_key_value_pairs(),
+            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_key_value_pairs(),
             _ => panic!("TODO"),
         }
     }
@@ -1234,7 +1234,7 @@ pub enum PyObjectPayload {
         object: PyObjectRef,
     },
     Scope {
-        scope: Scope,
+        scope: RefCell<Scope>,
     },
     Module {
         name: String,

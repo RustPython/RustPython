@@ -33,7 +33,7 @@ fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_scope = frame.locals.clone();
 
     if let PyObjectPayload::Scope { scope } = &py_scope.payload {
-        Ok(scope.locals.clone())
+        Ok(scope.borrow().locals.clone())
     } else {
         panic!("The scope isn't a scope!");
     }

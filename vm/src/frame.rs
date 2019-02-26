@@ -593,7 +593,7 @@ impl Frame {
                 let locals = self.pop_value();
                 match self.locals.payload {
                     PyObjectPayload::Scope { ref scope } => {
-                        //scope.locals = locals; // FIXME
+                        (*scope.borrow_mut()).locals = locals;
                     }
                     _ => panic!("We really expect our scope to be a scope!"),
                 }
@@ -855,7 +855,7 @@ impl Frame {
 
     fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let locals = match self.locals.payload {
-            PyObjectPayload::Scope { ref scope } => scope.locals.clone(),
+            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.clone(),
             _ => panic!("We really expect our scope to be a scope!"),
         };
 
@@ -1137,7 +1137,7 @@ impl fmt::Debug for Frame {
             .collect::<Vec<_>>()
             .join("");
         let local_str = match self.locals.payload {
-            PyObjectPayload::Scope { ref scope } => match scope.locals.payload {
+            PyObjectPayload::Scope { ref scope } => match scope.borrow().locals.payload {
                 PyObjectPayload::Dict { ref elements } => {
                     objdict::get_key_value_pairs_from_content(&elements.borrow())
                         .iter()
