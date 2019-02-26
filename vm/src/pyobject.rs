@@ -1246,6 +1246,9 @@ pub enum PyObjectPayload {
     Socket {
         socket: Socket,
     },
+    AnyRustValue {
+        value: Box<dyn std::any::Any>,
+    },
 }
 
 impl fmt::Debug for PyObjectPayload {
