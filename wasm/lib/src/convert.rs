@@ -1,7 +1,7 @@
 use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Reflect, Uint8Array};
 use rustpython_vm::obj::{objbytes, objtype};
-use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult, DictProtocol};
+use rustpython_vm::pyobject::{self, DictProtocol, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 

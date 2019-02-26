@@ -849,7 +849,9 @@ impl DictProtocol for PyObjectRef {
 
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         match self.payload {
-            PyObjectPayload::Dict { ref elements } => objdict::content_get_key_str(&elements.borrow(), k),
+            PyObjectPayload::Dict { ref elements } => {
+                objdict::content_get_key_str(&elements.borrow(), k)
+            }
             PyObjectPayload::Module { ref dict, .. } => dict.get_item(k),
             PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_item(k),
             ref k => panic!("TODO {:?}", k),
