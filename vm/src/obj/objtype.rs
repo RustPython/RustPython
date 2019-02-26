@@ -14,12 +14,16 @@ use std::collections::HashMap;
  */
 
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type: PyObjectRef) {
-    (*type_type.borrow_mut()).payload = PyObjectPayload::Class {
-        name: String::from("type"),
-        dict: RefCell::new(PyAttributes::new()),
-        mro: vec![object_type],
-    };
-    (*type_type.borrow_mut()).typ = Some(type_type.clone());
+    // this is not ideal
+    let ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
+    unsafe {
+        (*ptr).payload = PyObjectPayload::Class {
+            name: String::from("type"),
+            dict: RefCell::new(PyAttributes::new()),
+            mro: vec![object_type],
+        };
+        (*ptr).typ = Some(type_type);
+    }
 }
 
 pub fn init(context: &PyContext) {
@@ -71,7 +75,7 @@ fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
-    match cls.borrow().payload {
+    match cls.payload {
         PyObjectPayload::Class { ref mro, .. } => {
             let mut mro = mro.clone();
             mro.insert(0, cls.clone());
@@ -96,7 +100,7 @@ pub fn issubclass(typ: &PyObjectRef, cls: &PyObjectRef) -> bool {
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let PyObjectPayload::Class { name, .. } = &typ.borrow().payload {
+    if let PyObjectPayload::Class { name, .. } = &typ.payload {
         name.clone()
     } else {
         panic!("Cannot get type_name of non-type type {:?}", typ);
@@ -211,7 +215,7 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
         let attribute_error = vm.context().exceptions.attribute_error.clone();
         Err(vm.new_exception(
             attribute_error,
-            format!("{} has no attribute '{}'", cls.borrow(), name),
+            format!("{} has no attribute '{}'", cls, name),
         ))
     }
 }
@@ -224,7 +228,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     let mut base_classes = objtype::base_classes(obj);
     base_classes.reverse();
     for bc in base_classes {
-        if let PyObjectPayload::Class { dict, .. } = &bc.borrow().payload {
+        if let PyObjectPayload::Class { dict, .. } = &bc.payload {
             for (name, value) in dict.borrow().iter() {
                 attributes.insert(name.to_string(), value.clone());
             }
@@ -232,7 +236,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     }
 
     // Get instance attributes:
-    if let PyObjectPayload::Instance { dict } = &obj.borrow().payload {
+    if let PyObjectPayload::Instance { dict } = &obj.payload {
         for (name, value) in dict.borrow().iter() {
             attributes.insert(name.to_string(), value.clone());
         }

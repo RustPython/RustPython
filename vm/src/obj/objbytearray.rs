@@ -1,5 +1,7 @@
 //! Implementation of the python bytearray object.
 
+use std::cell::RefCell;
+
 use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
 
 use super::objint;
@@ -140,7 +142,12 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         vec![]
     };
-    Ok(PyObject::new(PyObjectPayload::Bytes { value }, cls.clone()))
+    Ok(PyObject::new(
+        PyObjectPayload::Bytes {
+            value: RefCell::new(value),
+        },
+        cls.clone(),
+    ))
 }
 
 fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -283,10 +290,9 @@ fn bytearray_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn bytearray_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let mut mut_obj = zelf.borrow_mut();
-    match mut_obj.payload {
-        PyObjectPayload::Bytes { ref mut value } => {
-            value.clear();
+    match zelf.payload {
+        PyObjectPayload::Bytes { ref value } => {
+            value.borrow_mut().clear();
             Ok(vm.get_none())
         }
         _ => panic!("Bytearray has incorrect payload."),
@@ -307,17 +313,11 @@ fn bytearray_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn bytearray_lower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
     let value = get_value(obj).to_vec().to_ascii_lowercase();
-    Ok(PyObject::new(
-        PyObjectPayload::Bytes { value },
-        vm.ctx.bytearray_type(),
-    ))
+    Ok(vm.ctx.new_bytearray(value))
 }
 
 fn bytearray_upper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
     let value = get_value(obj).to_vec().to_ascii_uppercase();
-    Ok(PyObject::new(
-        PyObjectPayload::Bytes { value },
-        vm.ctx.bytearray_type(),
-    ))
+    Ok(vm.ctx.new_bytearray(value))
 }

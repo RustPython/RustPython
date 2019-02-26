@@ -31,10 +31,9 @@ fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
     let frame = get_value(frame);
     let py_scope = frame.locals.clone();
-    let py_scope = py_scope.borrow();
 
     if let PyObjectPayload::Scope { scope } = &py_scope.payload {
-        Ok(scope.locals.clone())
+        Ok(scope.borrow().locals.clone())
     } else {
         panic!("The scope isn't a scope!");
     }
@@ -46,7 +45,7 @@ fn frame_fcode(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Frame {
-    if let PyObjectPayload::Frame { frame } = &obj.borrow().payload {
+    if let PyObjectPayload::Frame { frame } = &obj.payload {
         frame.clone()
     } else {
         panic!("Inner error getting int {:?}", obj);

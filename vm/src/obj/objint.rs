@@ -94,7 +94,7 @@ pub fn to_int(
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> IntType {
-    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
+    if let PyObjectPayload::Integer { value } = &obj.payload {
         value.clone()
     } else {
         panic!("Inner error getting int {:?}", obj);

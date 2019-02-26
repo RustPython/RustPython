@@ -1,8 +1,8 @@
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -16,12 +16,16 @@ pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
 }
 
 pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type: PyObjectRef) {
-    (*object_type.borrow_mut()).payload = PyObjectPayload::Class {
-        name: String::from("object"),
-        dict: RefCell::new(HashMap::new()),
-        mro: vec![],
-    };
-    (*object_type.borrow_mut()).typ = Some(type_type.clone());
+    // this is not ideal
+    let ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject;
+    unsafe {
+        (*ptr).payload = PyObjectPayload::Class {
+            name: String::from("object"),
+            dict: RefCell::new(HashMap::new()),
+            mro: vec![],
+        };
+        (*ptr).typ = Some(type_type.clone());
+    }
 }
 
 fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -101,7 +105,7 @@ fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    match zelf.borrow().payload {
+    match zelf.payload {
         PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
             let attr_name = objstr::get_value(attr);
             dict.borrow_mut().remove(&attr_name);
@@ -174,7 +178,7 @@ fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].borrow().payload {
+    match args.args[0].payload {
         PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
             let new_dict = vm.new_dict();
             for (attr, value) in dict.borrow().iter() {
@@ -230,7 +234,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let attribute_error = vm.context().exceptions.attribute_error.clone();
         Err(vm.new_exception(
             attribute_error,
-            format!("{} has no attribute '{}'", obj.borrow(), name),
+            format!("{} has no attribute '{}'", obj, name),
         ))
     }
 }
