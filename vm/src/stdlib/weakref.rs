@@ -46,7 +46,7 @@ fn ref_call(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn get_value(obj: &PyObjectRef) -> PyObjectWeakRef {
-    if let PyObjectPayload::WeakRef { referent } = &obj.borrow().payload {
+    if let PyObjectPayload::WeakRef { referent } = &obj.payload {
         referent.clone()
     } else {
         panic!("Inner error getting weak ref {:?}", obj);

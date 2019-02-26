@@ -56,16 +56,17 @@ fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn send(vm: &mut VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
-    if let PyObjectPayload::Generator { ref mut frame } = gen.borrow_mut().payload {
-        frame.push_value(value.clone());
-        match frame.run_frame(vm)? {
-            ExecutionResult::Yield(value) => Ok(value),
-            ExecutionResult::Return(_value) => {
-                // Stop iteration!
-                let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
-                Err(vm.new_exception(stop_iteration, "End of generator".to_string()))
-            }
-        }
+    if let PyObjectPayload::Generator { ref frame } = gen.payload {
+        //frame.push_value(value.clone());
+        //match frame.run_frame(vm)? {
+        //    ExecutionResult::Yield(value) => Ok(value),
+        //    ExecutionResult::Return(_value) => {
+        //        // Stop iteration!
+        //        let stop_iteration = vm.ctx.exceptions.stop_iteration.clone();
+        //        Err(vm.new_exception(stop_iteration, "End of generator".to_string()))
+        //    }
+        //}
+        unimplemented!("FIXME")
     } else {
         panic!("Cannot extract frame from non-generator");
     }

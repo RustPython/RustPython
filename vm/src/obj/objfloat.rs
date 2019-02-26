@@ -61,7 +61,7 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // Retrieve inner float value:
 pub fn get_value(obj: &PyObjectRef) -> f64 {
-    if let PyObjectPayload::Float { value } = &obj.borrow().payload {
+    if let PyObjectPayload::Float { value } = &obj.payload {
         *value
     } else {
         panic!("Inner error getting float");
@@ -81,12 +81,12 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyO
         )?;
         Ok(get_value(&res))
     } else {
-        Err(vm.new_type_error(format!("Cannot cast {} to float", obj.borrow())))
+        Err(vm.new_type_error(format!("Cannot cast {} to float", obj)))
     }
 }
 
 fn set_value(obj: &PyObjectRef, value: f64) {
-    obj.borrow_mut().payload = PyObjectPayload::Float { value };
+    //obj.payload = PyObjectPayload::Float { value }; // FIXME
 }
 
 fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

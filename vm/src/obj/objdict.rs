@@ -6,7 +6,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
@@ -19,30 +19,26 @@ pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
 pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
     PyObject::new(
         PyObjectPayload::Dict {
-            elements: HashMap::new(),
+            elements: RefCell::new(HashMap::new()),
         },
         dict_type.clone(),
     )
 }
 
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = DictContentType> + 'a {
-    Ref::map(obj.borrow(), |py_obj| {
-        if let PyObjectPayload::Dict { ref elements } = py_obj.payload {
-            elements
-        } else {
-            panic!("Cannot extract dict elements");
-        }
-    })
+    if let PyObjectPayload::Dict { ref elements } = obj.payload {
+        elements.borrow()
+    } else {
+        panic!("Cannot extract dict elements");
+    }
 }
 
 fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictContentType> + 'a {
-    RefMut::map(obj.borrow_mut(), |py_obj| {
-        if let PyObjectPayload::Dict { ref mut elements } = py_obj.payload {
-            elements
-        } else {
-            panic!("Cannot extract dict elements");
-        }
-    })
+    if let PyObjectPayload::Dict { ref elements } = obj.payload {
+        elements.borrow_mut()
+    } else {
+        panic!("Cannot extract dict elements");
+    }
 }
 
 pub fn set_item(
@@ -309,12 +305,16 @@ fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
-    (*dict_type.borrow_mut()).payload = PyObjectPayload::Class {
-        name: String::from("dict"),
-        dict: RefCell::new(HashMap::new()),
-        mro: vec![object_type],
-    };
-    (*dict_type.borrow_mut()).typ = Some(type_type.clone());
+    // this is not ideal
+    let ptr = PyObjectRef::into_raw(dict_type.clone()) as *mut PyObject;
+    unsafe {
+        (*ptr).payload = PyObjectPayload::Class {
+            name: String::from("dict"),
+            dict: RefCell::new(HashMap::new()),
+            mro: vec![object_type],
+        };
+        (*ptr).typ = Some(type_type.clone());
+    }
 }
 
 pub fn init(context: &PyContext) {

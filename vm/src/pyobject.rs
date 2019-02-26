@@ -54,21 +54,15 @@ Basically reference counting, but then done by rust.
  * Good reference: https://github.com/ProgVal/pythonvm-rust/blob/master/src/objects/mod.rs
  */
 
-/*
-The PyRef type implements
-https://doc.rust-lang.org/std/cell/index.html#introducing-mutability-inside-of-something-immutable
-*/
-pub type PyRef<T> = Rc<RefCell<T>>;
-
 /// The `PyObjectRef` is one of the most used types. It is a reference to a
 /// python object. A single python object can have multiple references, and
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = PyRef<PyObject>;
+pub type PyObjectRef = Rc<PyObject>;
 
 /// Same as PyObjectRef, except for being a weak reference.
-pub type PyObjectWeakRef = Weak<RefCell<PyObject>>;
+pub type PyObjectWeakRef = Weak<PyObject>;
 
 /// Use this type for function which return a python object or and exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -488,12 +482,19 @@ impl PyContext {
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Bytes { value: data }, self.bytes_type())
+        PyObject::new(
+            PyObjectPayload::Bytes {
+                value: RefCell::new(data),
+            },
+            self.bytes_type(),
+        )
     }
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Bytes { value: data },
+            PyObjectPayload::Bytes {
+                value: RefCell::new(data),
+            },
             self.bytearray_type(),
         )
     }
@@ -507,24 +508,38 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Sequence { elements }, self.tuple_type())
+        PyObject::new(
+            PyObjectPayload::Sequence {
+                elements: RefCell::new(elements),
+            },
+            self.tuple_type(),
+        )
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Sequence { elements }, self.list_type())
+        PyObject::new(
+            PyObjectPayload::Sequence {
+                elements: RefCell::new(elements),
+            },
+            self.list_type(),
+        )
     }
 
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        let elements: HashMap<u64, PyObjectRef> = HashMap::new();
-        PyObject::new(PyObjectPayload::Set { elements }, self.set_type())
+        PyObject::new(
+            PyObjectPayload::Set {
+                elements: RefCell::new(HashMap::new()),
+            },
+            self.set_type(),
+        )
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
         PyObject::new(
             PyObjectPayload::Dict {
-                elements: HashMap::new(),
+                elements: RefCell::new(HashMap::new()),
             },
             self.dict_type(),
         )
@@ -642,10 +657,10 @@ impl PyContext {
 
     // Item set/get:
     pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
-        match obj.borrow_mut().payload {
-            PyObjectPayload::Dict { ref mut elements } => {
+        match obj.payload {
+            PyObjectPayload::Dict { ref elements } => {
                 let key = self.new_str(key.to_string());
-                objdict::set_item_in_content(elements, &key, &v);
+                objdict::set_item_in_content(&mut elements.borrow_mut(), &key, &v);
             }
             ref k => panic!("TODO {:?}", k),
         };
@@ -659,7 +674,7 @@ impl PyContext {
     }
 
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
-        match obj.borrow().payload {
+        match obj.payload {
             PyObjectPayload::Module { ref dict, .. } => self.set_attr(dict, attr_name, value),
             PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
                 dict.borrow_mut().insert(attr_name.to_string(), value);
@@ -708,7 +723,7 @@ pub trait IdProtocol {
 
 impl IdProtocol for PyObjectRef {
     fn get_id(&self) -> usize {
-        self.as_ptr() as usize
+        &*self as &PyObject as *const PyObject as usize
     }
 
     fn is(&self, other: &PyObjectRef) -> bool {
@@ -726,7 +741,7 @@ pub trait TypeProtocol {
 
 impl TypeProtocol for PyObjectRef {
     fn typ(&self) -> PyObjectRef {
-        self.borrow().typ()
+        (**self).typ()
     }
 }
 
@@ -746,14 +761,14 @@ pub trait ParentProtocol {
 
 impl ParentProtocol for PyObjectRef {
     fn has_parent(&self) -> bool {
-        match self.borrow().payload {
+        match self.payload {
             PyObjectPayload::Scope { ref scope } => scope.parent.is_some(),
             _ => panic!("Only scopes have parent (not {:?}", self),
         }
     }
 
     fn get_parent(&self) -> PyObjectRef {
-        match self.borrow().payload {
+        match self.payload {
             PyObjectPayload::Scope { ref scope } => match scope.parent {
                 Some(ref value) => value.clone(),
                 None => panic!("OMG"),
@@ -769,7 +784,6 @@ pub trait AttributeProtocol {
 }
 
 fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-    let class = class.borrow();
     match class.payload {
         PyObjectPayload::Class { ref dict, .. } => dict.borrow().get(attr_name).cloned(),
         _ => panic!("Only classes should be in MRO!"),
@@ -777,7 +791,6 @@ fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
 }
 
 fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
-    let class = class.borrow();
     match class.payload {
         PyObjectPayload::Class { ref dict, .. } => dict.borrow().contains_key(attr_name),
         _ => panic!("Only classes should be in MRO!"),
@@ -786,8 +799,7 @@ fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
 
 impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        let obj = self.borrow();
-        match obj.payload {
+        match self.payload {
             PyObjectPayload::Module { ref dict, .. } => dict.get_item(attr_name),
             PyObjectPayload::Class { ref mro, .. } => {
                 if let Some(item) = class_get_item(self, attr_name) {
@@ -806,8 +818,7 @@ impl AttributeProtocol for PyObjectRef {
     }
 
     fn has_attr(&self, attr_name: &str) -> bool {
-        let obj = self.borrow();
-        match obj.payload {
+        match self.payload {
             PyObjectPayload::Module { ref dict, .. } => dict.contains_key(attr_name),
             PyObjectPayload::Class { ref mro, .. } => {
                 class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
@@ -826,9 +837,9 @@ pub trait DictProtocol {
 
 impl DictProtocol for PyObjectRef {
     fn contains_key(&self, k: &str) -> bool {
-        match self.borrow().payload {
+        match self.payload {
             PyObjectPayload::Dict { ref elements } => {
-                objdict::content_contains_key_str(elements, k)
+                objdict::content_contains_key_str(&elements.borrow(), k)
             }
             PyObjectPayload::Scope { ref scope } => scope.locals.contains_key(k),
             ref payload => unimplemented!("TODO {:?}", payload),
@@ -836,15 +847,17 @@ impl DictProtocol for PyObjectRef {
     }
 
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
-        match self.borrow().payload {
-            PyObjectPayload::Dict { ref elements } => objdict::content_get_key_str(elements, k),
+        match self.payload {
+            PyObjectPayload::Dict { ref elements } => {
+                objdict::content_get_key_str(&elements.borrow(), k)
+            }
             PyObjectPayload::Scope { ref scope } => scope.locals.get_item(k),
             _ => panic!("TODO"),
         }
     }
 
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        match self.borrow().payload {
+        match self.payload {
             PyObjectPayload::Dict { .. } => objdict::get_key_value_pairs(self),
             PyObjectPayload::Module { ref dict, .. } => dict.get_key_value_pairs(),
             PyObjectPayload::Scope { ref scope } => scope.locals.get_key_value_pairs(),
@@ -1161,23 +1174,23 @@ pub enum PyObjectPayload {
         value: Complex64,
     },
     Bytes {
-        value: Vec<u8>,
+        value: RefCell<Vec<u8>>,
     },
     Sequence {
-        elements: Vec<PyObjectRef>,
+        elements: RefCell<Vec<PyObjectRef>>,
     },
     Dict {
-        elements: objdict::DictContentType,
+        elements: RefCell<objdict::DictContentType>,
     },
     Set {
-        elements: HashMap<u64, PyObjectRef>,
+        elements: RefCell<HashMap<u64, PyObjectRef>>,
     },
     Iterator {
         position: usize,
         iterated_obj: PyObjectRef,
     },
     EnumerateIterator {
-        counter: BigInt,
+        counter: RefCell<BigInt>,
         iterator: PyObjectRef,
     },
     FilterIterator {
@@ -1244,7 +1257,7 @@ pub enum PyObjectPayload {
         function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
     },
     Socket {
-        socket: Socket,
+        socket: RefCell<Socket>,
     },
 }
 
@@ -1303,7 +1316,7 @@ impl PyObject {
 
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
-        Rc::new(RefCell::new(self))
+        Rc::new(self)
     }
 }
 

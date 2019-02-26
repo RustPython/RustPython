@@ -151,7 +151,7 @@ impl RangeType {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> RangeType {
-    if let PyObjectPayload::Range { range } = &obj.borrow().payload {
+    if let PyObjectPayload::Range { range } = &obj.payload {
         range.clone()
     } else {
         panic!("Inner error getting range {:?}", obj);
@@ -287,7 +287,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let range = get_value(zelf);
 
-    match subscript.borrow().payload {
+    match subscript.payload {
         PyObjectPayload::Integer { ref value } => {
             if let Some(int) = range.get(value) {
                 Ok(vm.ctx.new_int(int))

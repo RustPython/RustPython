@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -55,7 +57,9 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements },
+        PyObjectPayload::Sequence {
+            elements: RefCell::new(elements),
+        },
         cls.clone(),
     ))
 }
@@ -93,11 +97,7 @@ fn list_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let other = get_elements(other);
         seq_lt(vm, &zelf, &other)?
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '<'",
-            zelf.borrow(),
-            other.borrow()
-        )));
+        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<'", zelf, other)));
     };
 
     Ok(vm.ctx.new_bool(result))
@@ -115,11 +115,7 @@ fn list_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let other = get_elements(other);
         seq_gt(vm, &zelf, &other)?
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '>'",
-            zelf.borrow(),
-            other.borrow()
-        )));
+        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>'", zelf, other)));
     };
 
     Ok(vm.ctx.new_bool(result))
@@ -137,11 +133,7 @@ fn list_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let other = get_elements(other);
         seq_ge(vm, &zelf, &other)?
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '>='",
-            zelf.borrow(),
-            other.borrow()
-        )));
+        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>='", zelf, other)));
     };
 
     Ok(vm.ctx.new_bool(result))
@@ -159,11 +151,7 @@ fn list_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let other = get_elements(other);
         seq_le(vm, &zelf, &other)?
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '<='",
-            zelf.borrow(),
-            other.borrow()
-        )));
+        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<='", zelf, other)));
     };
 
     Ok(vm.ctx.new_bool(result))
@@ -182,7 +170,7 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let elements = e1.iter().chain(e2.iter()).cloned().collect();
         Ok(vm.ctx.new_list(elements))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", o.borrow(), o2.borrow())))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", o, o2)))
     }
 }
 
