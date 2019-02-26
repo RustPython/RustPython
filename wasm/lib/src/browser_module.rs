@@ -6,6 +6,7 @@ use rustpython_vm::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, Type
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
+use std::collections::HashMap;
 
 enum FetchResponseFormat {
     Json,
@@ -147,7 +148,7 @@ fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) ->
         let func = func.clone();
         let args = PyFuncArgs {
             args: vec![vm.ctx.new_float(time)],
-            kwargs: vec![],
+            kwargs: HashMap::new(),
         };
         let _ = vm.invoke(func, args);
 
