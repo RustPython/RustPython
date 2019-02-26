@@ -3,7 +3,7 @@ use super::objint;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -15,14 +15,9 @@ fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(v.to_string()))
 }
 
-// __init__()
-fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.float_type())), (arg, None)]
-    );
-    let val = if objtype::isinstance(arg, &vm.ctx.float_type()) {
+fn float_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(cls, None), (arg, None)]);
+    let value = if objtype::isinstance(arg, &vm.ctx.float_type()) {
         get_value(arg)
     } else if objtype::isinstance(arg, &vm.ctx.int_type()) {
         match objint::get_value(arg).to_f64() {
@@ -55,8 +50,7 @@ fn float_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let type_name = objtype::get_type_name(&arg.typ());
         return Err(vm.new_type_error(format!("can't convert {} to float", type_name)));
     };
-    set_value(zelf, val);
-    Ok(vm.get_none())
+    Ok(PyObject::new(PyObjectPayload::Float { value }, cls.clone()))
 }
 
 // Retrieve inner float value:
@@ -64,7 +58,7 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
     if let PyObjectPayload::Float { value } = &obj.payload {
         *value
     } else {
-        panic!("Inner error getting float");
+        panic!("Inner error getting float: {}", obj);
     }
 }
 
@@ -83,10 +77,6 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyO
     } else {
         Err(vm.new_type_error(format!("Cannot cast {} to float", obj)))
     }
-}
-
-fn set_value(obj: &PyObjectRef, value: f64) {
-    //obj.payload = PyObjectPayload::Float { value }; // FIXME
 }
 
 fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -454,7 +444,7 @@ pub fn init(context: &PyContext) {
         "__floordiv__",
         context.new_rustfunc(float_floordiv),
     );
-    context.set_attr(&float_type, "__init__", context.new_rustfunc(float_init));
+    context.set_attr(&float_type, "__new__", context.new_rustfunc(float_new));
     context.set_attr(&float_type, "__mod__", context.new_rustfunc(float_mod));
     context.set_attr(&float_type, "__neg__", context.new_rustfunc(float_neg));
     context.set_attr(&float_type, "__pow__", context.new_rustfunc(float_pow));
