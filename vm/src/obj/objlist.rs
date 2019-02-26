@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use super::objbool;
 use super::objint;
@@ -381,7 +381,7 @@ fn list_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let iter_obj = PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: list.clone(),
         },
         vm.ctx.iter_type(),

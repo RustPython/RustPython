@@ -134,9 +134,9 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     {
         match iterated_obj_ref.payload {
             PyObjectPayload::Sequence { ref elements } => {
-                if *position < elements.borrow().len() {
-                    let obj_ref = elements.borrow()[*position].clone();
-                    //*position += 1; // FIXME
+                if position.get() < elements.borrow().len() {
+                    let obj_ref = elements.borrow()[position.get()].clone();
+                    position.set(position.get() + 1);
                     Ok(obj_ref)
                 } else {
                     Err(new_stop_iteration(vm))
@@ -144,8 +144,8 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             }
 
             PyObjectPayload::Range { ref range } => {
-                if let Some(int) = range.get(*position) {
-                    //*position += 1; // FIXME
+                if let Some(int) = range.get(position.get()) {
+                    position.set(position.get() + 1);
                     Ok(vm.ctx.new_int(int))
                 } else {
                     Err(new_stop_iteration(vm))
@@ -153,9 +153,9 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             }
 
             PyObjectPayload::Bytes { ref value } => {
-                if *position < value.borrow().len() {
-                    let obj_ref = vm.ctx.new_int(value.borrow()[*position]);
-                    // *position += 1; // FIXME
+                if position.get() < value.borrow().len() {
+                    let obj_ref = vm.ctx.new_int(value.borrow()[position.get()]);
+                    position.set(position.get() + 1);
                     Ok(obj_ref)
                 } else {
                     Err(new_stop_iteration(vm))

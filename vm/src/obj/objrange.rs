@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::ops::Mul;
+
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
@@ -8,7 +11,6 @@ use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::ops::Mul;
 
 #[derive(Debug, Clone)]
 pub struct RangeType {
@@ -247,7 +249,7 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     Ok(PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: range.clone(),
         },
         vm.ctx.iter_type(),
@@ -261,7 +263,7 @@ fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     Ok(PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: PyObject::new(PyObjectPayload::Range { range }, vm.ctx.range_type()),
         },
         vm.ctx.iter_type(),

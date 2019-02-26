@@ -35,7 +35,7 @@ use num_bigint::BigInt;
 use num_bigint::ToBigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::{Rc, Weak};
@@ -1186,7 +1186,7 @@ pub enum PyObjectPayload {
         elements: RefCell<HashMap<u64, PyObjectRef>>,
     },
     Iterator {
-        position: usize,
+        position: Cell<usize>,
         iterated_obj: PyObjectRef,
     },
     EnumerateIterator {

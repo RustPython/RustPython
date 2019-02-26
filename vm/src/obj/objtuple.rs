@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};
 
 use super::objbool;
@@ -151,7 +151,7 @@ fn tuple_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let iter_obj = PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: tuple.clone(),
         },
         vm.ctx.iter_type(),

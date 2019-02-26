@@ -1,3 +1,7 @@
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::ops::{Deref, DerefMut};
+
 use super::objiter;
 use super::objstr;
 use super::objtype;
@@ -6,9 +10,6 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
 
 // This typedef abstracts the actual dict type used.
 // pub type DictContentType = HashMap<usize, Vec<(PyObjectRef, PyObjectRef)>>;
@@ -258,7 +259,7 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let iter_obj = PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: key_list,
         },
         vm.ctx.iter_type(),

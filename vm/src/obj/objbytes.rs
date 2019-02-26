@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -197,7 +197,7 @@ fn bytes_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let iter_obj = PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: obj.clone(),
         },
         vm.ctx.iter_type(),

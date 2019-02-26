@@ -2,7 +2,7 @@
  * Builtin set type with a sequence of unique items.
  */
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -547,7 +547,7 @@ fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let set_list = vm.ctx.new_list(items);
     let iter_obj = PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: set_list,
         },
         vm.ctx.iter_type(),
