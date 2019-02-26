@@ -1227,7 +1227,7 @@ pub enum PyObjectPayload {
         defaults: PyObjectRef,
     },
     Generator {
-        frame: Frame,
+        frame: RefCell<Frame>,
     },
     BoundMethod {
         function: PyObjectRef,
