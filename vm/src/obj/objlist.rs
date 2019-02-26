@@ -22,7 +22,7 @@ fn set_item(
     idx: PyObjectRef,
     obj: PyObjectRef,
 ) -> PyResult {
-    if objtype::isinstance(&idx, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(&idx, &vm.ctx.int_type()) {
         let value = objint::get_value(&idx).to_i32().unwrap();
         if let Some(pos_index) = l.get_pos(value) {
             l[pos_index] = obj;
@@ -46,7 +46,7 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(iterable, None)]
     );
 
-    if !objtype::issubclass(cls, &vm.ctx.list_type()) {
+    if !objtype::real_issubclass(cls, &vm.ctx.list_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of list", cls)));
     }
 
@@ -75,7 +75,7 @@ fn list_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Ok(vm.ctx.new_bool(true));
     }
 
-    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_equal(vm, &zelf, &other)?
@@ -92,7 +92,7 @@ fn list_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_lt(vm, &zelf, &other)?
@@ -110,7 +110,7 @@ fn list_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_gt(vm, &zelf, &other)?
@@ -128,7 +128,7 @@ fn list_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_ge(vm, &zelf, &other)?
@@ -146,7 +146,7 @@ fn list_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.list_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.list_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_le(vm, &zelf, &other)?
@@ -164,7 +164,7 @@ fn list_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(o, Some(vm.ctx.list_type())), (o2, None)]
     );
 
-    if objtype::isinstance(o2, &vm.ctx.list_type()) {
+    if objtype::real_isinstance(o2, &vm.ctx.list_type()) {
         let e1 = get_elements(o);
         let e2 = get_elements(o2);
         let elements = e1.iter().chain(e2.iter()).cloned().collect();
@@ -181,7 +181,7 @@ fn list_iadd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.list_type())), (other, None)]
     );
 
-    if objtype::isinstance(other, &vm.ctx.list_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.list_type()) {
         get_mut_elements(zelf).extend_from_slice(&get_elements(other));
         Ok(zelf.clone())
     } else {

@@ -44,7 +44,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(cls, None)],
         optional = [(val_option, None)]
     );
-    if !objtype::issubclass(cls, &vm.ctx.int_type()) {
+    if !objtype::real_issubclass(cls, &vm.ctx.int_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of int", cls)));
     }
 
@@ -68,11 +68,11 @@ pub fn to_int(
     obj: &PyObjectRef,
     base: u32,
 ) -> Result<IntType, PyObjectRef> {
-    let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
+    let val = if objtype::real_isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj)
-    } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
+    } else if objtype::real_isinstance(obj, &vm.ctx.float_type()) {
         objfloat::get_value(obj).to_bigint().unwrap()
-    } else if objtype::isinstance(obj, &vm.ctx.str_type()) {
+    } else if objtype::real_isinstance(obj, &vm.ctx.str_type()) {
         let s = objstr::get_value(obj);
         match i32::from_str_radix(&s, base) {
             Ok(v) => v.to_bigint().unwrap(),
@@ -131,7 +131,7 @@ fn int_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let zelf = BigInt::from_pyobj(zelf);
-    let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         let other = BigInt::from_pyobj(other);
         zelf == other
     } else {
@@ -148,7 +148,7 @@ fn int_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let zelf = BigInt::from_pyobj(zelf);
-    let result = if objtype::isinstance(other, &vm.ctx.int_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         let other = BigInt::from_pyobj(other);
         zelf != other
     } else {
@@ -164,7 +164,7 @@ fn int_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+    if !objtype::real_isinstance(other, &vm.ctx.int_type()) {
         return Ok(vm.ctx.not_implemented());
     }
 
@@ -181,7 +181,7 @@ fn int_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+    if !objtype::real_isinstance(other, &vm.ctx.int_type()) {
         return Ok(vm.ctx.not_implemented());
     }
 
@@ -198,7 +198,7 @@ fn int_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+    if !objtype::real_isinstance(other, &vm.ctx.int_type()) {
         return Ok(vm.ctx.not_implemented());
     }
 
@@ -215,7 +215,7 @@ fn int_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    if !objtype::isinstance(other, &vm.ctx.int_type()) {
+    if !objtype::real_isinstance(other, &vm.ctx.int_type()) {
         return Ok(vm.ctx.not_implemented());
     }
 
@@ -232,7 +232,7 @@ fn int_lshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
 
-    if !objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if !objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         return Err(vm.new_type_error(format!(
             "unsupported operand type(s) for << '{}' and '{}'",
             objtype::get_type_name(&i.typ()),
@@ -261,7 +261,7 @@ fn int_rshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
 
-    if !objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if !objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         return Err(vm.new_type_error(format!(
             "unsupported operand type(s) for >> '{}' and '{}'",
             objtype::get_type_name(&i.typ()),
@@ -303,7 +303,7 @@ fn int_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
-    if objtype::isinstance(other, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(zelf) + get_value(other)))
     } else {
         Ok(vm.ctx.not_implemented())
@@ -326,7 +326,7 @@ fn int_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let (v1, v2) = (get_value(i), get_value(i2));
 
         if v2 != BigInt::zero() {
@@ -378,7 +378,7 @@ fn int_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
-    if objtype::isinstance(other, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(zelf) - get_value(other)))
     } else {
         Ok(vm.ctx.not_implemented())
@@ -391,7 +391,7 @@ fn int_rsub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
-    if objtype::isinstance(other, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(other) - get_value(zelf)))
     } else {
         Ok(vm.ctx.not_implemented())
@@ -404,7 +404,7 @@ fn int_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
-    if objtype::isinstance(other, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(get_value(zelf) * get_value(other)))
     } else {
         Ok(vm.ctx.not_implemented())
@@ -422,7 +422,7 @@ fn int_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    if objtype::isinstance(other, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         div_ints(vm, &get_value(zelf), &get_value(other))
     } else {
         Ok(vm.ctx.not_implemented())
@@ -436,7 +436,7 @@ fn int_rtruediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.int_type())), (other, None)]
     );
 
-    if objtype::isinstance(other, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         div_ints(vm, &get_value(other), &get_value(zelf))
     } else {
         Ok(vm.ctx.not_implemented())
@@ -482,7 +482,7 @@ fn int_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2);
 
         if v2 != BigInt::zero() {
@@ -513,10 +513,10 @@ fn int_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2).to_u32().unwrap();
         Ok(vm.ctx.new_int(v1.pow(v2)))
-    } else if objtype::isinstance(i2, &vm.ctx.float_type()) {
+    } else if objtype::real_isinstance(i2, &vm.ctx.float_type()) {
         let v2 = objfloat::get_value(i2);
         Ok(vm.ctx.new_float((v1.to_f64().unwrap()).powf(v2)))
     } else {
@@ -531,7 +531,7 @@ fn int_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
 
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let v1 = get_value(i);
         let v2 = get_value(i2);
 
@@ -556,7 +556,7 @@ fn int_xor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 ^ v2))
     } else {
@@ -571,7 +571,7 @@ fn int_rxor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
 
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let right_val = get_value(i);
         let left_val = get_value(i2);
 
@@ -588,7 +588,7 @@ fn int_or(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 | v2))
     } else {
@@ -603,7 +603,7 @@ fn int_and(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.int_type())), (i2, None)]
     );
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let v2 = get_value(i2);
         Ok(vm.ctx.new_int(v1 & v2))
     } else {

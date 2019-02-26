@@ -135,7 +135,7 @@ fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(a, Some(vm.ctx.str_type())), (b, None)]
     );
 
-    let result = if objtype::isinstance(b, &vm.ctx.str_type()) {
+    let result = if objtype::real_isinstance(b, &vm.ctx.str_type()) {
         get_value(a) == get_value(b)
     } else {
         false
@@ -151,7 +151,7 @@ fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.str_type()) {
         Ok(vm.ctx.new_bool(v1 > get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot compare {} and {}", i, i2)))
@@ -166,7 +166,7 @@ fn str_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.str_type()) {
         Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot compare {} and {}", i, i2)))
@@ -181,7 +181,7 @@ fn str_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.str_type()) {
         Ok(vm.ctx.new_bool(v1 < get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot compare {} and {}", i, i2)))
@@ -196,7 +196,7 @@ fn str_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.str_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.str_type()) {
         Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
     } else {
         Err(vm.new_type_error(format!("Cannot compare {} and {}", i, i2)))
@@ -249,7 +249,7 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(s, Some(vm.ctx.str_type())), (s2, None)]
     );
-    if objtype::isinstance(s2, &vm.ctx.str_type()) {
+    if objtype::real_isinstance(s2, &vm.ctx.str_type()) {
         Ok(vm
             .ctx
             .new_str(format!("{}{}", get_value(&s), get_value(&s2))))
@@ -266,7 +266,7 @@ fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     let zelf = &args.args[0];
-    if !objtype::isinstance(&zelf, &vm.ctx.str_type()) {
+    if !objtype::real_isinstance(&zelf, &vm.ctx.str_type()) {
         let zelf_typ = zelf.typ();
         let actual_type = vm.to_pystr(&zelf_typ)?;
         return Err(vm.new_type_error(format!(
@@ -293,7 +293,7 @@ fn call_object_format(
 ) -> PyResult {
     let returned_type = vm.ctx.new_str(format_spec.to_string());
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
-    if !objtype::isinstance(&result, &vm.ctx.str_type()) {
+    if !objtype::real_isinstance(&result, &vm.ctx.str_type()) {
         let result_type = result.typ();
         let actual_type = vm.to_pystr(&result_type)?;
         return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
@@ -374,7 +374,7 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(s, Some(vm.ctx.str_type())), (s2, None)]
     );
-    if objtype::isinstance(s2, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(s2, &vm.ctx.int_type()) {
         let value1 = get_value(&s);
         let value2 = objint::get_value(s2).to_i32().unwrap();
         let mut result = String::new();
@@ -1092,7 +1092,7 @@ fn to_graphemes<S: AsRef<str>>(value: S) -> Vec<String> {
 }
 
 pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
-    if objtype::isinstance(&b, &vm.ctx.int_type()) {
+    if objtype::real_isinstance(&b, &vm.ctx.int_type()) {
         match objint::get_value(&b).to_i32() {
             Some(pos) => {
                 let graphemes = to_graphemes(value);

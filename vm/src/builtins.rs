@@ -198,9 +198,9 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     // Determine code object:
-    let code_obj = if objtype::isinstance(source, &vm.ctx.code_type()) {
+    let code_obj = if objtype::real_isinstance(source, &vm.ctx.code_type()) {
         source.clone()
-    } else if objtype::isinstance(source, &vm.ctx.str_type()) {
+    } else if objtype::real_isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Eval;
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
@@ -235,7 +235,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     // Determine code object:
-    let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
+    let code_obj = if objtype::real_isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Exec;
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
@@ -246,7 +246,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 vm.new_exception(syntax_error, err.to_string())
             },
         )?
-    } else if objtype::isinstance(source, &vm.ctx.code_type()) {
+    } else if objtype::real_isinstance(source, &vm.ctx.code_type()) {
         source.clone()
     } else {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
@@ -349,21 +349,25 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_input
 
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None), (typ, None)]);
+    arg_check!(
+        vm,
+        args,
+        required = [(obj, None), (typ, Some(vm.get_type()))]
+    );
 
-    let isinstance = objtype::isinstance(obj, typ);
-    Ok(vm.context().new_bool(isinstance))
+    let isinstance = objtype::isinstance(vm, obj, typ)?;
+    Ok(vm.new_bool(isinstance))
 }
 
 fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 2 {
-        panic!("issubclass expects exactly two parameters");
-    }
+    arg_check!(
+        vm,
+        args,
+        required = [(subclass, Some(vm.get_type())), (cls, Some(vm.get_type()))]
+    );
 
-    let cls1 = &args.args[0];
-    let cls2 = &args.args[1];
-
-    Ok(vm.context().new_bool(objtype::issubclass(cls1, cls2)))
+    let issubclass = objtype::issubclass(vm, subclass, cls)?;
+    Ok(vm.context().new_bool(issubclass))
 }
 
 fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -501,7 +505,7 @@ fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match vm.call_method(iterator, "__next__", vec![]) {
         Ok(value) => Ok(value),
         Err(value) => {
-            if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
+            if objtype::real_isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
                 match default_value {
                     None => Err(value),
                     Some(value) => Ok(value.clone()),
@@ -581,7 +585,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .get_optional_kwarg("sep")
         .filter(|obj| !obj.is(&vm.get_none()));
     if let Some(ref obj) = sep_arg {
-        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+        if !objtype::real_isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
                 "sep must be None or a string, not {}",
                 objtype::get_type_name(&obj.typ())
@@ -595,7 +599,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .get_optional_kwarg("end")
         .filter(|obj| !obj.is(&vm.get_none()));
     if let Some(ref obj) = end_arg {
-        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+        if !objtype::real_isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
                 "end must be None or a string, not {}",
                 objtype::get_type_name(&obj.typ())
@@ -818,9 +822,9 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let mut metaclass = args.get_kwarg("metaclass", vm.get_type());
 
     for base in bases.clone() {
-        if objtype::issubclass(&base.typ(), &metaclass) {
+        if objtype::issubclass(vm, &base.typ(), &metaclass)? {
             metaclass = base.typ();
-        } else if !objtype::issubclass(&metaclass, &base.typ()) {
+        } else if !objtype::real_issubclass(&metaclass, &base.typ()) {
             return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
         }
     }

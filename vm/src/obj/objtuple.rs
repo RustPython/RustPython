@@ -18,7 +18,7 @@ fn tuple_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.tuple_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_lt(vm, &zelf, &other)?
@@ -36,7 +36,7 @@ fn tuple_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.tuple_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_gt(vm, &zelf, &other)?
@@ -54,7 +54,7 @@ fn tuple_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.tuple_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_ge(vm, &zelf, &other)?
@@ -72,7 +72,7 @@ fn tuple_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.tuple_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_le(vm, &zelf, &other)?
@@ -90,7 +90,7 @@ fn tuple_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
     );
 
-    if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.tuple_type()) {
         let e1 = get_elements(zelf);
         let e2 = get_elements(other);
         let elements = e1.iter().chain(e2.iter()).cloned().collect();
@@ -124,7 +124,7 @@ fn tuple_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.tuple_type())), (other, None)]
     );
 
-    let result = if objtype::isinstance(other, &vm.ctx.tuple_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.tuple_type()) {
         let zelf = get_elements(zelf);
         let other = get_elements(other);
         seq_equal(vm, &zelf, &other)?
@@ -174,7 +174,7 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(iterable, None)]
     );
 
-    if !objtype::issubclass(cls, &vm.ctx.tuple_type()) {
+    if !objtype::real_issubclass(cls, &vm.ctx.tuple_type()) {
         return Err(vm.new_type_error(format!("{} is not a subtype of tuple", cls)));
     }
 

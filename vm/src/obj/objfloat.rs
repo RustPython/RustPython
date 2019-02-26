@@ -17,16 +17,16 @@ fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn float_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (arg, None)]);
-    let value = if objtype::isinstance(arg, &vm.ctx.float_type()) {
+    let value = if objtype::real_isinstance(arg, &vm.ctx.float_type()) {
         get_value(arg)
-    } else if objtype::isinstance(arg, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(arg, &vm.ctx.int_type()) {
         match objint::get_value(arg).to_f64() {
             Some(f) => f,
             None => {
                 return Err(vm.new_overflow_error("int too large to convert to float".to_string()));
             }
         }
-    } else if objtype::isinstance(arg, &vm.ctx.str_type()) {
+    } else if objtype::real_isinstance(arg, &vm.ctx.str_type()) {
         match lexical::try_parse(objstr::get_value(arg)) {
             Ok(f) => f,
             Err(_) => {
@@ -36,7 +36,7 @@ fn float_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 );
             }
         }
-    } else if objtype::isinstance(arg, &vm.ctx.bytes_type()) {
+    } else if objtype::real_isinstance(arg, &vm.ctx.bytes_type()) {
         match lexical::try_parse(objbytes::get_value(arg).as_slice()) {
             Ok(f) => f,
             Err(_) => {
@@ -63,7 +63,7 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
 }
 
 pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyObjectRef> {
-    if objtype::isinstance(obj, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else if let Ok(method) = vm.get_method(obj.clone(), "__float__") {
         let res = vm.invoke(
@@ -86,10 +86,10 @@ fn float_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
     let zelf = get_value(zelf);
-    let result = if objtype::isinstance(other, &vm.ctx.float_type()) {
+    let result = if objtype::real_isinstance(other, &vm.ctx.float_type()) {
         let other = get_value(other);
         zelf == other
-    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         let other_int = objint::get_value(other);
 
         if let (Some(zelf_int), Some(other_float)) = (zelf.to_bigint(), other_int.to_f64()) {
@@ -111,9 +111,9 @@ fn float_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_bool(v1 < get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_bool(v1 < objint::get_value(i2).to_f64().unwrap()))
@@ -130,9 +130,9 @@ fn float_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_bool(v1 <= objint::get_value(i2).to_f64().unwrap()))
@@ -149,9 +149,9 @@ fn float_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_bool(v1 > get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_bool(v1 > objint::get_value(i2).to_f64().unwrap()))
@@ -168,9 +168,9 @@ fn float_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_bool(v1 >= objint::get_value(i2).to_f64().unwrap()))
@@ -192,9 +192,9 @@ fn float_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(zelf);
-    if objtype::isinstance(other, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(v1 + get_value(other)))
-    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_float(v1 + objint::get_value(other).to_f64().unwrap()))
@@ -214,7 +214,8 @@ fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
     let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
-    if objtype::isinstance(i2, &vm.ctx.float_type()) || objtype::isinstance(i2, &vm.ctx.int_type())
+    if objtype::real_isinstance(i2, &vm.ctx.float_type())
+        || objtype::real_isinstance(i2, &vm.ctx.int_type())
     {
         let r1 = float_floordiv(vm, args.clone())?;
         let r2 = float_mod(vm, args.clone())?;
@@ -232,9 +233,9 @@ fn float_floordiv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    let v2 = if objtype::isinstance(i2, &vm.ctx.float_type) {
+    let v2 = if objtype::real_isinstance(i2, &vm.ctx.float_type) {
         get_value(i2)
-    } else if objtype::isinstance(i2, &vm.ctx.int_type) {
+    } else if objtype::real_isinstance(i2, &vm.ctx.int_type) {
         objint::get_value(i2)
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
@@ -256,9 +257,9 @@ fn float_sub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
     let v1 = get_value(zelf);
-    if objtype::isinstance(other, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(v1 - get_value(other)))
-    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_float(v1 - objint::get_value(other).to_f64().unwrap()))
@@ -274,9 +275,9 @@ fn float_rsub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
     let v1 = get_value(zelf);
-    if objtype::isinstance(other, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(other, &vm.ctx.float_type()) {
         Ok(vm.ctx.new_float(get_value(other) - v1))
-    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(other, &vm.ctx.int_type()) {
         Ok(vm
             .ctx
             .new_float(objint::get_value(other).to_f64().unwrap() - v1))
@@ -293,9 +294,9 @@ fn float_mod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    let v2 = if objtype::isinstance(i2, &vm.ctx.float_type) {
+    let v2 = if objtype::real_isinstance(i2, &vm.ctx.float_type) {
         get_value(i2)
-    } else if objtype::isinstance(i2, &vm.ctx.int_type) {
+    } else if objtype::real_isinstance(i2, &vm.ctx.int_type) {
         objint::get_value(i2)
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
@@ -325,10 +326,10 @@ fn float_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.float_type()) {
+    if objtype::real_isinstance(i2, &vm.ctx.float_type()) {
         let result = v1.powf(get_value(i2));
         Ok(vm.ctx.new_float(result))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
+    } else if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
         let result = v1.powf(objint::get_value(i2).to_f64().unwrap());
         Ok(vm.ctx.new_float(result))
     } else {
@@ -344,9 +345,9 @@ fn float_truediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(zelf);
-    let v2 = if objtype::isinstance(other, &vm.ctx.float_type) {
+    let v2 = if objtype::real_isinstance(other, &vm.ctx.float_type) {
         get_value(other)
-    } else if objtype::isinstance(other, &vm.ctx.int_type) {
+    } else if objtype::real_isinstance(other, &vm.ctx.int_type) {
         objint::get_value(other)
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
@@ -369,9 +370,9 @@ fn float_rtruediv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(zelf);
-    let v2 = if objtype::isinstance(other, &vm.ctx.float_type) {
+    let v2 = if objtype::real_isinstance(other, &vm.ctx.float_type) {
         get_value(other)
-    } else if objtype::isinstance(other, &vm.ctx.int_type) {
+    } else if objtype::real_isinstance(other, &vm.ctx.int_type) {
         objint::get_value(other)
             .to_f64()
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))?
@@ -393,9 +394,9 @@ fn float_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.float_type())), (other, None)]
     );
     let v1 = get_value(zelf);
-    if objtype::isinstance(other, &vm.ctx.float_type) {
+    if objtype::real_isinstance(other, &vm.ctx.float_type) {
         Ok(vm.ctx.new_float(v1 * get_value(other)))
-    } else if objtype::isinstance(other, &vm.ctx.int_type) {
+    } else if objtype::real_isinstance(other, &vm.ctx.int_type) {
         Ok(vm
             .ctx
             .new_float(v1 * objint::get_value(other).to_f64().unwrap()))

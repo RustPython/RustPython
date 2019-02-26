@@ -47,7 +47,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
         .get_optional_kwarg("sep")
         .filter(|obj| !obj.is(&vm.get_none()));
     if let Some(ref obj) = sep_arg {
-        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+        if !objtype::real_isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
                 "sep must be None or a string, not {}",
                 objtype::get_type_name(&obj.typ())
@@ -61,7 +61,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
         .get_optional_kwarg("end")
         .filter(|obj| !obj.is(&vm.get_none()));
     if let Some(ref obj) = end_arg {
-        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
+        if !objtype::real_isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
                 "end must be None or a string, not {}",
                 objtype::get_type_name(&obj.typ())

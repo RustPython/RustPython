@@ -121,7 +121,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(cls, None)],
         optional = [(val_option, None)]
     );
-    if !objtype::issubclass(cls, &vm.ctx.bytearray_type()) {
+    if !objtype::real_issubclass(cls, &vm.ctx.bytearray_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of bytearray", cls)));
     }
 
@@ -164,7 +164,7 @@ fn bytearray_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(a, Some(vm.ctx.bytearray_type())), (b, None)]
     );
 
-    let result = if objtype::isinstance(b, &vm.ctx.bytearray_type()) {
+    let result = if objtype::real_isinstance(b, &vm.ctx.bytearray_type()) {
         get_value(a).to_vec() == get_value(b).to_vec()
     } else {
         false
