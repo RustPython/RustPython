@@ -893,7 +893,7 @@ pub struct PyFuncArgs {
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
         let mut kwargs = vec![];
-        for name in kwarg_names.iter().rev() {
+        for name in kwarg_names.iter() {
             kwargs.push((name.clone(), args.pop().unwrap()));
         }
         PyFuncArgs { args, kwargs }
