@@ -196,7 +196,7 @@ impl VirtualMachine {
     }
 
     pub fn get_builtin_scope(&mut self) -> PyObjectRef {
-        let a2 = &*self.builtins.borrow();
+        let a2 = &*self.builtins;
         match a2.payload {
             PyObjectPayload::Module { ref dict, .. } => dict.clone(),
             _ => {
@@ -277,7 +277,7 @@ impl VirtualMachine {
 
     pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         trace!("Invoke: {:?} {:?}", func_ref, args);
-        match func_ref.borrow().payload {
+        match func_ref.payload {
             PyObjectPayload::RustFunction { ref function } => function(self, args),
             PyObjectPayload::Function {
                 ref code,
@@ -412,8 +412,8 @@ impl VirtualMachine {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let available_defaults = match defaults.borrow().payload {
-                PyObjectPayload::Sequence { ref elements } => elements.clone(),
+            let available_defaults = match defaults.payload {
+                PyObjectPayload::Sequence { ref elements } => elements.borrow().clone(),
                 PyObjectPayload::None => vec![],
                 _ => panic!("function defaults not tuple or None"),
             };
@@ -499,11 +499,7 @@ impl VirtualMachine {
         let cls = obj.typ();
         match cls.get_attr(method_name) {
             Some(method) => self.call_get_descriptor(method, obj.clone()),
-            None => Err(self.new_type_error(format!(
-                "{} has no method {:?}",
-                obj.borrow(),
-                method_name
-            ))),
+            None => Err(self.new_type_error(format!("{} has no method {:?}", obj, method_name))),
         }
     }
 

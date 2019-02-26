@@ -31,14 +31,11 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module("types", ctx.new_scope(None));
-
-    // Number theory functions:
-    ctx.set_attr(&py_mod, "new_class", ctx.new_rustfunc(types_new_class));
-    ctx.set_attr(&py_mod, "FunctionType", ctx.function_type());
-    ctx.set_attr(&py_mod, "LambdaType", ctx.function_type());
-    ctx.set_attr(&py_mod, "CodeType", ctx.code_type());
-    ctx.set_attr(&py_mod, "FrameType", ctx.frame_type());
-
-    py_mod
+    py_module!(ctx, "types", {
+        "new_class" => ctx.new_rustfunc(types_new_class),
+        "FunctionType" => ctx.function_type(),
+        "LambdaType" => ctx.function_type(),
+        "CodeType" => ctx.code_type(),
+        "FrameType" => ctx.frame_type()
+    })
 }

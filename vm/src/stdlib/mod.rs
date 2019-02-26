@@ -3,6 +3,7 @@ mod dis;
 mod json;
 mod keyword;
 mod math;
+mod platform;
 mod pystruct;
 mod random;
 mod re;
@@ -33,6 +34,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("json".to_string(), Box::new(json::mk_module));
     modules.insert("keyword".to_string(), Box::new(keyword::mk_module));
     modules.insert("math".to_string(), Box::new(math::mk_module));
+    modules.insert("platform".to_string(), Box::new(platform::mk_module));
     modules.insert("re".to_string(), Box::new(re::mk_module));
     modules.insert("random".to_string(), Box::new(random::mk_module));
     modules.insert("string".to_string(), Box::new(string::mk_module));
