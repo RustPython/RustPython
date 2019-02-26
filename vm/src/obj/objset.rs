@@ -429,10 +429,13 @@ fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
 
     match s.payload {
-        PyObjectPayload::Set { ref elements } => match elements.borrow().clone().keys().next() {
-            Some(key) => Ok(elements.borrow_mut().remove(key).unwrap()),
-            None => Err(vm.new_key_error("pop from an empty set".to_string())),
-        },
+        PyObjectPayload::Set { ref elements } => {
+            let mut elements = elements.borrow_mut();
+            match elements.clone().keys().next() {
+                Some(key) => Ok(elements.remove(key).unwrap()),
+                None => Err(vm.new_key_error("pop from an empty set".to_string())),
+            }
+        }
         _ => Err(vm.new_type_error("".to_string())),
     }
 }
@@ -492,14 +495,15 @@ fn set_combine_update_inner(
 
     match zelf.payload {
         PyObjectPayload::Set { ref elements } => {
-            for element in elements.borrow().clone().iter() {
+            let mut elements = elements.borrow_mut();
+            for element in elements.clone().iter() {
                 let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
                 let should_remove = match op {
                     SetCombineOperation::Intersection => !objbool::get_value(&value),
                     SetCombineOperation::Difference => objbool::get_value(&value),
                 };
                 if should_remove {
-                    elements.borrow_mut().remove(&element.0.clone());
+                    elements.remove(&element.0.clone());
                 }
             }
         }
