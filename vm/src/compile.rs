@@ -161,30 +161,30 @@ impl Compiler {
                     symbol,
                     alias,
                 } in import_parts
-                    {
-                        match symbol {
-                            Some(name) if name == "*" => {
-                                self.emit(Instruction::ImportStar {
-                                    name: module.clone(),
-                                });
-                            }
-                            _ => {
-                                self.emit(Instruction::Import {
-                                    name: module.clone(),
-                                    symbol: symbol.clone(),
-                                });
-                                self.emit(Instruction::StoreName {
-                                    name: match alias {
-                                        Some(alias) => alias.clone(),
-                                        None => match symbol {
-                                            Some(symbol) => symbol.clone(),
-                                            None => module.clone(),
-                                        },
+                {
+                    match symbol {
+                        Some(name) if name == "*" => {
+                            self.emit(Instruction::ImportStar {
+                                name: module.clone(),
+                            });
+                        }
+                        _ => {
+                            self.emit(Instruction::Import {
+                                name: module.clone(),
+                                symbol: symbol.clone(),
+                            });
+                            self.emit(Instruction::StoreName {
+                                name: match alias {
+                                    Some(alias) => alias.clone(),
+                                    None => match symbol {
+                                        Some(symbol) => symbol.clone(),
+                                        None => module.clone(),
                                     },
-                                });
-                            }
+                                },
+                            });
                         }
                     }
+                }
             }
             ast::Statement::Expression { expression } => {
                 self.compile_expression(expression)?;
@@ -1206,7 +1206,7 @@ impl Compiler {
             ast::ComprehensionKind::Set { .. } => "<setcomp>",
             ast::ComprehensionKind::Dict { .. } => "<dictcomp>",
         }
-            .to_string();
+        .to_string();
 
         let line_number = self.get_source_line_number();
         // Create magnificent function <listcomp>:
