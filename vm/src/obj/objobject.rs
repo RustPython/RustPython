@@ -1,12 +1,12 @@
 use super::objstr;
 use super::objtype;
+use std::collections::hash_map::HashMap;
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
@@ -207,7 +207,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     descriptor,
                     PyFuncArgs {
                         args: vec![attr, obj.clone(), cls],
-                        kwargs: vec![],
+                        kwargs: HashMap::new(),
                     },
                 );
             }
@@ -223,7 +223,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             getter,
             PyFuncArgs {
                 args: vec![cls, name_str.clone()],
-                kwargs: vec![],
+                kwargs: HashMap::new(),
             },
         )
     } else {

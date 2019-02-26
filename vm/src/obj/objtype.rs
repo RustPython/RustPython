@@ -5,9 +5,9 @@ use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
     PyObjectRef, PyResult, TypeProtocol,
 };
+use std::collections::hash_map::HashMap;
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 /*
  * The magical type type
@@ -174,7 +174,7 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
                     descriptor,
                     PyFuncArgs {
                         args: vec![attr, cls.clone(), mcl],
-                        kwargs: vec![],
+                        kwargs: HashMap::new(),
                     },
                 );
             }
@@ -189,7 +189,7 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
                 descriptor,
                 PyFuncArgs {
                     args: vec![attr, none, cls.clone()],
-                    kwargs: vec![],
+                    kwargs: HashMap::new(),
                 },
             );
         }
@@ -204,7 +204,7 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
             getter,
             PyFuncArgs {
                 args: vec![mcl, name_str.clone()],
-                kwargs: vec![],
+                kwargs: HashMap::new(),
             },
         )
     } else {

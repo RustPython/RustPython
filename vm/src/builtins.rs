@@ -9,6 +9,7 @@ use std::io::{self, Write};
 use crate::compile;
 use crate::obj::objbool;
 use crate::obj::objdict;
+use std::collections::hash_map::HashMap;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr;
@@ -821,7 +822,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         prepare,
         PyFuncArgs {
             args: vec![name_arg.clone(), bases.clone()],
-            kwargs: vec![],
+            kwargs: HashMap::new(),
         },
     )?;
 
@@ -829,7 +830,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         function,
         PyFuncArgs {
             args: vec![namespace.clone()],
-            kwargs: vec![],
+            kwargs: HashMap::new(),
         },
     )?;
 

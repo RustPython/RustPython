@@ -1,5 +1,6 @@
 use super::objiter;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
+use std::collections::hash_map::HashMap;
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
 fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -42,7 +43,7 @@ fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             mapper.clone(),
             PyFuncArgs {
                 args: next_objs,
-                kwargs: vec![],
+                kwargs: HashMap::new(),
             },
         )
     } else {

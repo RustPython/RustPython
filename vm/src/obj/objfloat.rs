@@ -1,5 +1,6 @@
 use super::objbytes;
 use super::objint;
+use std::collections::hash_map::HashMap;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
@@ -76,7 +77,7 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyO
             method,
             PyFuncArgs {
                 args: vec![],
-                kwargs: vec![],
+                kwargs: HashMap::new(),
             },
         )?;
         Ok(get_value(&res))

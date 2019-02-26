@@ -1,5 +1,6 @@
 use super::objbool;
 use super::objiter;
+use std::collections::hash_map::HashMap;
 use crate::pyobject::{
     IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
 };
@@ -40,7 +41,7 @@ fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     predicate.clone(),
                     PyFuncArgs {
                         args: vec![next_obj.clone()],
-                        kwargs: vec![],
+                        kwargs: HashMap::new(),
                     },
                 )?
             };

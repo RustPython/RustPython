@@ -9,6 +9,7 @@ use crate::builtins;
 use crate::bytecode;
 use crate::import::{import, import_module};
 use crate::obj::objbool;
+use std::collections::hash_map::HashMap;
 use crate::obj::objcode;
 use crate::obj::objdict;
 use crate::obj::objiter;
@@ -131,7 +132,7 @@ impl Frame {
                         vm,
                         PyFuncArgs {
                             args: vec![traceback, pos],
-                            kwargs: vec![],
+                            kwargs: HashMap::new(),
                         },
                     )
                     .unwrap();
@@ -306,7 +307,7 @@ impl Frame {
                     vm,
                     PyFuncArgs {
                         args: vec![list_obj.clone(), item],
-                        kwargs: vec![],
+                        kwargs: HashMap::new(),
                     },
                 )?;
                 Ok(None)
@@ -460,7 +461,7 @@ impl Frame {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
                             args,
-                            kwargs: vec![],
+                            kwargs: HashMap::new(),
                         }
                     }
                     bytecode::CallType::Keyword(count) => {
@@ -483,7 +484,7 @@ impl Frame {
                                 .map(|elem| (elem.0, (elem.1).1))
                                 .collect()
                         } else {
-                            vec![]
+                            HashMap::new()
                         };
                         let args = self.pop_value();
                         let args = vm.extract_elements(&args)?;
@@ -572,7 +573,7 @@ impl Frame {
                             vm,
                             PyFuncArgs {
                                 args: vec![repr],
-                                kwargs: vec![],
+                                kwargs: HashMap::new(),
                             },
                         )?;
                     }

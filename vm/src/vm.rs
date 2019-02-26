@@ -92,7 +92,7 @@ impl VirtualMachine {
         let args: Vec<PyObjectRef> = vec![pymsg];
         let args = PyFuncArgs {
             args,
-            kwargs: vec![],
+            kwargs: HashMap::new(),
         };
 
         // Call function:
@@ -221,7 +221,7 @@ impl VirtualMachine {
                 descriptor,
                 PyFuncArgs {
                     args: vec![attr, obj.clone(), cls],
-                    kwargs: vec![],
+                    kwargs: HashMap::new(),
                 },
             )
         } else {
@@ -240,7 +240,7 @@ impl VirtualMachine {
             method_name,
             PyFuncArgs {
                 args,
-                kwargs: vec![],
+                kwargs: HashMap::new(),
             },
         )
     }
@@ -520,7 +520,7 @@ impl VirtualMachine {
                 method,
                 PyFuncArgs {
                     args: vec![arg.clone()],
-                    kwargs: vec![],
+                    kwargs: HashMap::new(),
                 },
             )?;
             if !result.is(&self.ctx.not_implemented()) {

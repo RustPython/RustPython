@@ -879,14 +879,14 @@ impl fmt::Debug for PyObject {
 #[derive(Debug, Default, Clone)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
-    pub kwargs: Vec<(String, PyObjectRef)>,
+    pub kwargs: HashMap<String, PyObjectRef>,
 }
 
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
-        let mut kwargs = vec![];
+        let mut kwargs = HashMap::new();
         for name in kwarg_names.iter().rev() {
-            kwargs.push((name.clone(), args.pop().unwrap()));
+            kwargs.insert(name.clone(), args.pop().unwrap());
         }
         PyFuncArgs { args, kwargs }
     }
