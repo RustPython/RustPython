@@ -225,11 +225,6 @@ fn json_loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let json_mod = ctx.new_module("json", ctx.new_scope(None));
-
-    ctx.set_attr(&json_mod, "dumps", ctx.new_rustfunc(json_dumps));
-    ctx.set_attr(&json_mod, "loads", ctx.new_rustfunc(json_loads));
-
     // TODO: Make this a proper type with a constructor
     let json_decode_error = create_type(
         "JSONDecodeError",
@@ -237,7 +232,10 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
         &ctx.exceptions.exception_type,
         &ctx.dict_type,
     );
-    ctx.set_attr(&json_mod, "JSONDecodeError", json_decode_error);
 
-    json_mod
+    py_module!(ctx, "json", {
+        "dumps" => ctx.new_rustfunc(json_dumps),
+        "loads" => ctx.new_rustfunc(json_loads),
+        "JSONDecodeError" => json_decode_error
+    })
 }
