@@ -82,7 +82,7 @@ impl VirtualMachine {
 
     pub fn run_frame(&mut self, frame: PyObjectRef) -> Result<ExecutionResult, PyObjectRef> {
         self.frames.push(frame.clone());
-        let mut frame = objframe::get_value(&frame);
+        let frame = objframe::get_value(&frame);
         let result = frame.run(self);
         self.frames.pop();
         result
