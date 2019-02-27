@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 # int to int comparisons
 
 assert 1 == 1
@@ -36,6 +38,7 @@ assert (2).__rtruediv__(1) == 0.5
 assert (1).real == 1
 assert (1).imag == 0
 
+assert_raises(OverflowError, lambda: 1 << 10 ** 100000)
 
 assert (1).__eq__(1.0) == NotImplemented
 assert (1).__ne__(1.0) == NotImplemented
