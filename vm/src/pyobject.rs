@@ -717,7 +717,9 @@ pub struct PyObject {
 }
 
 pub trait IdProtocol {
+    /// Get the underlying pointer address as id
     fn get_id(&self) -> usize;
+    /// Checks referential equality. Python `a is b`
     fn is(&self, other: &PyObjectRef) -> bool;
 }
 
@@ -735,7 +737,9 @@ pub trait FromPyObjectRef {
     fn from_pyobj(obj: &PyObjectRef) -> Self;
 }
 
+/// Python type information
 pub trait TypeProtocol {
+    /// Get type for object
     fn typ(&self) -> PyObjectRef;
 }
 
@@ -754,6 +758,8 @@ impl TypeProtocol for PyObject {
     }
 }
 
+/// Helper function for getting parent scope for scope
+/// Note: Only scopes have parent
 pub trait ParentProtocol {
     fn has_parent(&self) -> bool;
     fn get_parent(&self) -> PyObjectRef;
@@ -778,8 +784,13 @@ impl ParentProtocol for PyObjectRef {
     }
 }
 
+/// Handles Python object model attributes
 pub trait AttributeProtocol {
+    /// Retrieves an attribute value.
+    /// This is equivalent to the Python expression `self.attr_name`.
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
+    /// Sets an attribute value.
+    /// This is equivalent to the Python expression `self.attr_name = value`.
     fn has_attr(&self, attr_name: &str) -> bool;
 }
 
@@ -890,7 +901,10 @@ impl DictProtocol for PyObjectRef {
     }
 }
 
+/// Functions for Python `bytes()`, `bytearray()`, `memoryview` buffer objects
 pub trait BufferProtocol {
+    /// "bytes" => false,
+    /// "bytearray" | "memoryview" => true,
     fn readonly(&self) -> bool;
 }
 
