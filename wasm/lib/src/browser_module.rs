@@ -167,7 +167,7 @@ impl PyPromise {
     }
 }
 
-fn get_value(obj: &PyObjectRef) -> Promise {
+pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
     if let PyObjectPayload::AnyRustValue { value } = &obj.payload {
         if let Some(promise) = value.downcast_ref::<PyPromise>() {
             return promise.value.clone();
@@ -176,7 +176,7 @@ fn get_value(obj: &PyObjectRef) -> Promise {
     panic!("Inner error getting promise")
 }
 
-fn import_promise_type(vm: &mut VirtualMachine) -> PyResult {
+pub fn import_promise_type(vm: &mut VirtualMachine) -> PyResult {
     import(
         vm,
         PathBuf::default(),
@@ -202,7 +202,7 @@ fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let acc_vm = AccessibleVM::from_vm(vm);
 
-    let promise = get_value(zelf);
+    let promise = get_promise_value(zelf);
 
     let ret_future = JsFuture::from(promise).then(move |res| {
         let vm = &mut acc_vm
@@ -246,7 +246,7 @@ fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let acc_vm = AccessibleVM::from_vm(vm);
 
-    let promise = get_value(zelf);
+    let promise = get_promise_value(zelf);
 
     let ret_future = JsFuture::from(promise).then(move |res| match res {
         Ok(val) => Ok(val),

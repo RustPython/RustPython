@@ -1,5 +1,6 @@
+use crate::browser_module;
 use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
-use js_sys::{Array, ArrayBuffer, Object, Reflect, Uint8Array};
+use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, Uint8Array};
 use rustpython_vm::obj::{objbytes, objtype};
 use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
@@ -61,6 +62,12 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
 
             return func;
         }
+        // the browser module might not be injected
+        if let Ok(promise_type) = browser_module::import_promise_type(vm) {
+            if objtype::isinstance(&py_obj, &promise_type) {
+                return browser_module::get_promise_value(&py_obj).into();
+            }
+        }
     }
     if objtype::isinstance(&py_obj, &vm.ctx.bytes_type())
         || objtype::isinstance(&py_obj, &vm.ctx.bytearray_type())
@@ -108,6 +115,12 @@ pub fn pyresult_to_jsresult(vm: &mut VirtualMachine, result: PyResult) -> Result
 
 pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
     if js_val.is_object() {
+        if let Some(promise) = js_val.dyn_ref::<Promise>() {
+            // the browser module might not be injected
+            if let Ok(promise_type) = browser_module::import_promise_type(vm) {
+                return browser_module::PyPromise::new(promise_type, promise.clone());
+            }
+        }
         if Array::is_array(&js_val) {
             let js_arr: Array = js_val.into();
             let elems = js_arr
