@@ -1,6 +1,7 @@
 use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
 use futures::{future, Future};
 use js_sys::Promise;
+use num_traits::cast::ToPrimitive;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
@@ -168,11 +169,12 @@ fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) ->
 fn browser_cancel_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(id, Some(vm.ctx.int_type()))]);
 
-    // fine because
-    let id = objint::get_value(id)
-        .to_string()
-        .parse()
-        .expect("bigint.to_string() to be parsable as i32");
+    let id = objint::get_value(id).to_i32().ok_or_else(|| {
+        vm.new_exception(
+            vm.ctx.exceptions.value_error.clone(),
+            "Integer too large to convert to i32 for animationFrame id".into(),
+        )
+    })?;
 
     window()
         .cancel_animation_frame(id)

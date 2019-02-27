@@ -690,7 +690,16 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_slice
-// builtin_sorted
+
+fn builtin_sorted(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(iterable, None)]);
+    let items = vm.extract_elements(iterable)?;
+    let lst = vm.ctx.new_list(items);
+
+    args.shift();
+    vm.call_method_pyargs(&lst, "sort", args)?;
+    Ok(lst)
+}
 
 fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
@@ -764,6 +773,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "round" => ctx.new_rustfunc(builtin_round),
         "set" => ctx.set_type(),
         "setattr" => ctx.new_rustfunc(builtin_setattr),
+        "sorted" => ctx.new_rustfunc(builtin_sorted),
         "slice" => ctx.slice_type(),
         "staticmethod" => ctx.staticmethod_type(),
         "str" => ctx.str_type(),

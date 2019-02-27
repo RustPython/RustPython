@@ -302,6 +302,14 @@ pub fn seq_mul(elements: &[PyObjectRef], product: &PyObjectRef) -> Vec<PyObjectR
     new_elements
 }
 
+pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRef>> {
+    if let PyObjectPayload::Sequence { ref elements } = obj.payload {
+        elements
+    } else {
+        panic!("Cannot extract elements from non-sequence");
+    }
+}
+
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
     if let PyObjectPayload::Sequence { ref elements } = obj.payload {
         elements.borrow()

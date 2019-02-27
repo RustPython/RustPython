@@ -55,6 +55,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
 pub enum LexicalError {
     StringError,
     NestingError,
+    UnrecognizedToken { tok: char },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1035,7 +1036,7 @@ where
                 None => return None,
                 _ => {
                     let c = self.next_char();
-                    panic!("Not impl {:?}", c)
+                    return Some(Err(LexicalError::UnrecognizedToken { tok: c.unwrap() }));
                 } // Ignore all the rest..
             }
         }
