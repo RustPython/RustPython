@@ -833,6 +833,7 @@ pub trait DictProtocol {
     fn contains_key(&self, k: &str) -> bool;
     fn get_item(&self, k: &str) -> Option<PyObjectRef>;
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
+    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef);
 }
 
 impl DictProtocol for PyObjectRef {
@@ -851,8 +852,9 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_get_key_str(&elements.borrow(), k)
             }
+            PyObjectPayload::Module { ref dict, .. } => dict.get_item(k),
             PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_item(k),
-            _ => panic!("TODO"),
+            ref k => panic!("TODO {:?}", k),
         }
     }
 
@@ -863,6 +865,23 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_key_value_pairs(),
             _ => panic!("TODO"),
         }
+    }
+
+    // Item set/get:
+    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
+        match &self.payload {
+            PyObjectPayload::Dict { elements } => {
+                let key = ctx.new_str(key.to_string());
+                objdict::set_item_in_content(&mut elements.borrow_mut(), &key, &v);
+            }
+            PyObjectPayload::Module { dict, .. } => {
+                dict.set_item(ctx, key, v);
+            }
+            PyObjectPayload::Scope { scope, .. } => {
+                scope.borrow().locals.set_item(ctx, key, v);
+            }
+            ref k => panic!("TODO {:?}", k),
+        };
     }
 }
 

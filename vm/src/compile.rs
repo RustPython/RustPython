@@ -1389,7 +1389,7 @@ impl Compiler {
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
         let location = self.current_source_location.clone();
-        let mut cur_code_obj = self.current_code_object();
+        let cur_code_obj = self.current_code_object();
         cur_code_obj.instructions.push(instruction);
         cur_code_obj.locations.push(location);
         // TODO: insert source filename
