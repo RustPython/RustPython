@@ -3,8 +3,8 @@ use super::objiter;
 use crate::pyobject::{
     IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
 };
-use crate::vm::VirtualMachine;
-use std::collections::hash_map::HashMap; // Required for arg_check! to use isinstance
+use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
+use indexmap::IndexMap;
 
 fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -41,7 +41,7 @@ fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     predicate.clone(),
                     PyFuncArgs {
                         args: vec![next_obj.clone()],
-                        kwargs: HashMap::new(),
+                        kwargs: IndexMap::new(),
                     },
                 )?
             };

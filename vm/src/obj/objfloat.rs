@@ -8,7 +8,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
-use std::collections::hash_map::HashMap;
+use indexmap::IndexMap;
 
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);
@@ -71,7 +71,7 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyO
             method,
             PyFuncArgs {
                 args: vec![],
-                kwargs: HashMap::new(),
+                kwargs: IndexMap::new(),
             },
         )?;
         Ok(get_value(&res))

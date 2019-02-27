@@ -4,6 +4,7 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
+use indexmap::IndexMap;
 extern crate rustpython_parser;
 
 use std::collections::hash_map::HashMap;
@@ -98,7 +99,7 @@ impl VirtualMachine {
         let args: Vec<PyObjectRef> = vec![pymsg];
         let args = PyFuncArgs {
             args,
-            kwargs: HashMap::new(),
+            kwargs: IndexMap::new(),
         };
 
         // Call function:
@@ -227,7 +228,7 @@ impl VirtualMachine {
                 descriptor,
                 PyFuncArgs {
                     args: vec![attr, obj.clone(), cls],
-                    kwargs: HashMap::new(),
+                    kwargs: IndexMap::new(),
                 },
             )
         } else {
@@ -246,7 +247,7 @@ impl VirtualMachine {
             method_name,
             PyFuncArgs {
                 args,
-                kwargs: HashMap::new(),
+                kwargs: IndexMap::new(),
             },
         )
     }
@@ -522,7 +523,7 @@ impl VirtualMachine {
                 method,
                 PyFuncArgs {
                     args: vec![arg.clone()],
-                    kwargs: HashMap::new(),
+                    kwargs: IndexMap::new(),
                 },
             )?;
             if !result.is(&self.ctx.not_implemented()) {

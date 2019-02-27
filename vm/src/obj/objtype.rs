@@ -8,6 +8,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::hash_map::HashMap;
+use indexmap::IndexMap;
 
 /*
  * The magical type type
@@ -178,7 +179,7 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
                     descriptor,
                     PyFuncArgs {
                         args: vec![attr, cls.clone(), mcl],
-                        kwargs: HashMap::new(),
+                        kwargs: IndexMap::new(),
                     },
                 );
             }
@@ -193,7 +194,7 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
                 descriptor,
                 PyFuncArgs {
                     args: vec![attr, none, cls.clone()],
-                    kwargs: HashMap::new(),
+                    kwargs: IndexMap::new(),
                 },
             );
         }
@@ -208,7 +209,7 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
             getter,
             PyFuncArgs {
                 args: vec![mcl, name_str.clone()],
-                kwargs: HashMap::new(),
+                kwargs: IndexMap::new(),
             },
         )
     } else {

@@ -20,6 +20,7 @@ extern crate num_traits;
 extern crate serde;
 extern crate serde_json;
 extern crate statrs;
+extern crate indexmap;
 
 extern crate rustpython_parser;
 

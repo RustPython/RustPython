@@ -21,7 +21,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
-use std::collections::hash_map::HashMap;
+use indexmap::IndexMap;
 
 #[derive(Clone, Debug)]
 struct Block {
@@ -132,7 +132,7 @@ impl Frame {
                         vm,
                         PyFuncArgs {
                             args: vec![traceback, pos],
-                            kwargs: HashMap::new(),
+                            kwargs: IndexMap::new(),
                         },
                     )
                     .unwrap();
@@ -307,7 +307,7 @@ impl Frame {
                     vm,
                     PyFuncArgs {
                         args: vec![list_obj.clone(), item],
-                        kwargs: HashMap::new(),
+                        kwargs: IndexMap::new(),
                     },
                 )?;
                 Ok(None)
@@ -461,7 +461,7 @@ impl Frame {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
                             args,
-                            kwargs: HashMap::new(),
+                            kwargs: IndexMap::new(),
                         }
                     }
                     bytecode::CallType::Keyword(count) => {
@@ -484,7 +484,7 @@ impl Frame {
                                 .map(|elem| (elem.0, (elem.1).1))
                                 .collect()
                         } else {
-                            HashMap::new()
+                            IndexMap::new()
                         };
                         let args = self.pop_value();
                         let args = vm.extract_elements(&args)?;
@@ -573,7 +573,7 @@ impl Frame {
                             vm,
                             PyFuncArgs {
                                 args: vec![repr],
-                                kwargs: HashMap::new(),
+                                kwargs: IndexMap::new(),
                             },
                         )?;
                     }

@@ -7,6 +7,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::hash_map::HashMap;
+use indexmap::IndexMap;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
@@ -211,7 +212,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     descriptor,
                     PyFuncArgs {
                         args: vec![attr, obj.clone(), cls],
-                        kwargs: HashMap::new(),
+                        kwargs: IndexMap::new(),
                     },
                 );
             }
@@ -227,7 +228,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             getter,
             PyFuncArgs {
                 args: vec![cls, name_str.clone()],
-                kwargs: HashMap::new(),
+                kwargs: IndexMap::new(),
             },
         )
     } else {

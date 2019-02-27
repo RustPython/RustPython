@@ -1,3 +1,5 @@
+use indexmap::IndexMap;
+
 use crate::bytecode;
 use crate::exceptions;
 use crate::frame::Frame;
@@ -911,12 +913,12 @@ impl fmt::Debug for PyObject {
 #[derive(Debug, Default, Clone)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
-    pub kwargs: HashMap<String, PyObjectRef>,
+    pub kwargs: IndexMap<String, PyObjectRef>,
 }
 
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
-        let mut kwargs = HashMap::new();
+        let mut kwargs = IndexMap::new();
         for name in kwarg_names.iter().rev() {
             kwargs.insert(name.clone(), args.pop().unwrap());
         }

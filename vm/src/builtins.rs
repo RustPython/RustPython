@@ -14,7 +14,7 @@ use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objtype;
-use std::collections::hash_map::HashMap;
+use indexmap::IndexMap;
 
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
@@ -825,7 +825,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         prepare,
         PyFuncArgs {
             args: vec![name_arg.clone(), bases.clone()],
-            kwargs: HashMap::new(),
+            kwargs: IndexMap::new(),
         },
     )?;
 
@@ -833,7 +833,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         function,
         PyFuncArgs {
             args: vec![namespace.clone()],
-            kwargs: HashMap::new(),
+            kwargs: IndexMap::new(),
         },
     )?;
 
