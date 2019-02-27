@@ -13,7 +13,7 @@ extern crate lexical;
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
-extern crate indexmap;
+pub extern crate indexmap;
 extern crate num_bigint;
 extern crate num_complex;
 extern crate num_integer;

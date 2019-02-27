@@ -2,10 +2,10 @@ use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
 use futures::{future, Future};
 use js_sys::Promise;
 use num_traits::cast::ToPrimitive;
+use rustpython_vm::indexmap::IndexMap;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
-use std::collections::HashMap;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
@@ -149,7 +149,7 @@ fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) ->
         let func = func.clone();
         let args = PyFuncArgs {
             args: vec![vm.ctx.new_float(time)],
-            kwargs: HashMap::new(),
+            kwargs: IndexMap::new(),
         };
         let _ = vm.invoke(func, args);
 

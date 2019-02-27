@@ -13,6 +13,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
+use indexmap::IndexMap;
 use num_traits::ToPrimitive;
 
 // set_item:
@@ -390,7 +391,7 @@ fn do_sort(
                 (*func).clone(),
                 PyFuncArgs {
                     args: vec![x.clone()],
-                    kwargs: vec![],
+                    kwargs: IndexMap::new(),
                 },
             )?,
         });
