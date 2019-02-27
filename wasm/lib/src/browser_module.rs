@@ -180,6 +180,51 @@ fn browser_cancel_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> 
     Ok(vm.get_none())
 }
 
+fn browser_alert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(message, Some(vm.ctx.str_type()))]);
+
+    window()
+        .alert_with_message(&objstr::get_value(message))
+        .expect("alert() not to fail");
+
+    Ok(vm.get_none())
+}
+
+fn browser_confirm(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(message, Some(vm.ctx.str_type()))]);
+
+    let result = window()
+        .confirm_with_message(&objstr::get_value(message))
+        .expect("confirm() not to fail");
+
+    Ok(vm.new_bool(result))
+}
+
+fn browser_prompt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(message, Some(vm.ctx.str_type()))],
+        optional = [(default, Some(vm.ctx.str_type()))]
+    );
+
+    let result = if let Some(default) = default {
+        window().prompt_with_message_and_default(
+            &objstr::get_value(message),
+            &objstr::get_value(default),
+        )
+    } else {
+        window().prompt_with_message(&objstr::get_value(message))
+    };
+
+    let result = match result.expect("prompt() not to fail") {
+        Some(result) => vm.new_str(result),
+        None => vm.get_none(),
+    };
+
+    Ok(result)
+}
+
 const BROWSER_NAME: &str = "browser";
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
@@ -187,6 +232,9 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
         "fetch" => ctx.new_rustfunc(browser_fetch),
         "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
+        "alert" => ctx.new_rustfunc(browser_alert),
+        "confirm" => ctx.new_rustfunc(browser_confirm),
+        "prompt" => ctx.new_rustfunc(browser_prompt),
     })
 }
 
