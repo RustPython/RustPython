@@ -50,7 +50,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let base = match args.get_optional_kwarg("base") {
         Some(argument) => get_value(&argument).to_u32().unwrap(),
-        None => 10
+        None => 10,
     };
     let val = match val_option {
         Some(val) => to_int(vm, val, base)?,
