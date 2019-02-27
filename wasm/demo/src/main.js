@@ -12,7 +12,11 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
         'Cmd-Enter': runCodeFromTextarea,
         'Shift-Tab': 'indentLess',
         'Ctrl-/': 'toggleComment',
-        'Cmd-/': 'toggleComment'
+        'Cmd-/': 'toggleComment',
+        Tab: editor => {
+            var spaces = Array(editor.getOption('indentUnit') + 1).join(' ');
+            editor.replaceSelection(spaces);
+        }
     },
     lineNumbers: true,
     mode: 'text/x-python',
@@ -20,10 +24,10 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
     autofocus: true
 });
 
-function runCodeFromTextarea() {
-    const consoleElement = document.getElementById('console');
-    const errorElement = document.getElementById('error');
+const consoleElement = document.getElementById('console');
+const errorElement = document.getElementById('error');
 
+function runCodeFromTextarea() {
     // Clean the console and errors
     consoleElement.value = '';
     errorElement.textContent = '';
@@ -51,7 +55,7 @@ document
 
 const snippets = document.getElementById('snippets');
 
-snippets.addEventListener('change', () => {
+const updateSnippet = () => {
     const selected = snippets.value;
 
     // the require here creates a webpack context; it's fine to use it
@@ -60,9 +64,11 @@ snippets.addEventListener('change', () => {
     const snippet = require(`raw-loader!../snippets/${selected}.py`);
 
     editor.setValue(snippet);
-
     runCodeFromTextarea();
-});
+};
 
-// Run once for demo
-runCodeFromTextarea();
+snippets.addEventListener('change', updateSnippet);
+
+// Run once for demo (updateSnippet b/c the browser might try to keep the same
+// option selected for the `select`, but the textarea won't be updated)
+updateSnippet();
