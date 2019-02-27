@@ -37,6 +37,7 @@ pub fn print_to_html(text: &str, selector: &str) -> Result<(), JsValue> {
     if scrolled_to_bottom {
         textarea.scroll_with_x_and_y(0.0, scroll_height.into());
     }
+
     Ok(())
 }
 
