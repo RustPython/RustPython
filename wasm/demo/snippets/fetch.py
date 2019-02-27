@@ -5,8 +5,8 @@ def fetch_handler(res):
 
 fetch(
     "https://httpbin.org/get",
-    fetch_handler,
-    lambda err: print(f"error: {err}"),
     response_format="json",
-    headers={"X-Header-Thing": "rustpython is neat!"},
-)
+    headers={
+        "X-Header-Thing": "rustpython is neat!"
+    },
+).then(fetch_handler, lambda err: print(f"error: {err}"))

@@ -1,9 +1,12 @@
 use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
-use futures::{future, Future};
+use futures::Future;
 use js_sys::Promise;
 use rustpython_vm::obj::{objint, objstr};
-use rustpython_vm::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use rustpython_vm::VirtualMachine;
+use rustpython_vm::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+};
+use rustpython_vm::{import::import, VirtualMachine};
+use std::path::PathBuf;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
@@ -32,15 +35,10 @@ impl FetchResponseFormat {
 }
 
 fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (url, Some(vm.ctx.str_type())),
-            (handler, Some(vm.ctx.function_type()))
-        ],
-        optional = [(reject_handler, Some(vm.ctx.function_type()))]
-    );
+    arg_check!(vm, args, required = [(url, Some(vm.ctx.str_type()))]);
+
+    let promise_type = import_promise_type(vm)?;
+
     let response_format =
         args.get_optional_kwarg_with_type("response_format", vm.ctx.str_type(), vm)?;
     let method = args.get_optional_kwarg_with_type("method", vm.ctx.str_type(), vm)?;
@@ -87,11 +85,6 @@ fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let window = window();
     let request_prom = window.fetch_with_request(&request);
 
-    let handler = handler.clone();
-    let reject_handler = reject_handler.cloned();
-
-    let acc_vm = AccessibleVM::from_vm(vm);
-
     let future = JsFuture::from(request_prom)
         .and_then(move |val| {
             let response = val
@@ -99,30 +92,9 @@ fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 .expect("val to be of type Response");
             response_format.get_response(&response)
         })
-        .and_then(JsFuture::from)
-        .then(move |val| {
-            let vm = &mut acc_vm
-                .upgrade()
-                .expect("that the VM *not* be destroyed while promise is being resolved");
-            match val {
-                Ok(val) => {
-                    let val = convert::js_to_py(vm, val);
-                    let args = PyFuncArgs::new(vec![val], vec![]);
-                    let _ = vm.invoke(handler, args);
-                }
-                Err(val) => {
-                    if let Some(reject_handler) = reject_handler {
-                        let val = convert::js_to_py(vm, val);
-                        let args = PyFuncArgs::new(vec![val], vec![]);
-                        let _ = vm.invoke(reject_handler, args);
-                    }
-                }
-            }
-            future::ok(JsValue::UNDEFINED)
-        });
-    future_to_promise(future);
+        .and_then(JsFuture::from);
 
-    Ok(vm.get_none())
+    Ok(PyPromise::new(promise_type, future_to_promise(future)))
 }
 
 fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -167,7 +139,7 @@ fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) ->
 fn browser_cancel_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(id, Some(vm.ctx.int_type()))]);
 
-    // fine because
+    // questionable, but it's probably fine
     let id = objint::get_value(id)
         .to_string()
         .parse()
@@ -180,13 +152,135 @@ fn browser_cancel_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> 
     Ok(vm.get_none())
 }
 
+pub struct PyPromise {
+    value: Promise,
+}
+
+impl PyPromise {
+    pub fn new(promise_type: PyObjectRef, value: Promise) -> PyObjectRef {
+        PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyPromise { value }),
+            },
+            promise_type,
+        )
+    }
+}
+
+fn get_value(obj: &PyObjectRef) -> Promise {
+    if let PyObjectPayload::AnyRustValue { value } = &obj.payload {
+        if let Some(promise) = value.downcast_ref::<PyPromise>() {
+            return promise.value.clone();
+        }
+    }
+    panic!("Inner error getting promise")
+}
+
+fn import_promise_type(vm: &mut VirtualMachine) -> PyResult {
+    import(
+        vm,
+        PathBuf::default(),
+        BROWSER_NAME,
+        &Some("Promise".into()),
+    )
+}
+
+fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let promise_type = import_promise_type(vm)?;
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(promise_type.clone())),
+            (on_fulfill, Some(vm.ctx.function_type()))
+        ],
+        optional = [(on_reject, Some(vm.ctx.function_type()))]
+    );
+
+    let on_fulfill = on_fulfill.clone();
+    let on_reject = on_reject.cloned();
+
+    let acc_vm = AccessibleVM::from_vm(vm);
+
+    let promise = get_value(zelf);
+
+    let ret_future = JsFuture::from(promise).then(move |res| {
+        let vm = &mut acc_vm
+            .upgrade()
+            .expect("that the vm is valid when the promise resolves");
+        let ret = match res {
+            Ok(val) => {
+                let val = convert::js_to_py(vm, val);
+                vm.invoke(on_fulfill, PyFuncArgs::new(vec![val], vec![]))
+            }
+            Err(err) => {
+                if let Some(on_reject) = on_reject {
+                    let err = convert::js_to_py(vm, err);
+                    vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]))
+                } else {
+                    return Err(err);
+                }
+            }
+        };
+        ret.map(|val| convert::py_to_js(vm, val))
+            .map_err(|err| convert::py_to_js(vm, err))
+    });
+
+    let ret_promise = future_to_promise(ret_future);
+
+    Ok(PyPromise::new(promise_type, ret_promise))
+}
+
+fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    let promise_type = import_promise_type(vm)?;
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (zelf, Some(promise_type.clone())),
+            (on_reject, Some(vm.ctx.function_type()))
+        ]
+    );
+
+    let on_reject = on_reject.clone();
+
+    let acc_vm = AccessibleVM::from_vm(vm);
+
+    let promise = get_value(zelf);
+
+    let ret_future = JsFuture::from(promise).then(move |res| match res {
+        Ok(val) => Ok(val),
+        Err(err) => {
+            let vm = &mut acc_vm
+                .upgrade()
+                .expect("that the vm is valid when the promise resolves");
+            let err = convert::js_to_py(vm, err);
+            vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]))
+                .map(|val| convert::py_to_js(vm, val))
+                .map_err(|err| convert::py_to_js(vm, err))
+        }
+    });
+
+    let ret_promise = future_to_promise(ret_future);
+
+    Ok(PyPromise::new(promise_type, ret_promise))
+}
+
 const BROWSER_NAME: &str = "browser";
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+    let promise = {
+        let promise = ctx.new_class("Promise", ctx.object());
+        ctx.set_attr(&promise, "then", ctx.new_rustfunc(promise_then));
+        ctx.set_attr(&promise, "catch", ctx.new_rustfunc(promise_catch));
+        promise
+    };
+
     py_module!(ctx, BROWSER_NAME, {
         "fetch" => ctx.new_rustfunc(browser_fetch),
         "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
+        "Promise" => promise,
     })
 }
 
