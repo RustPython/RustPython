@@ -1094,7 +1094,8 @@ impl Frame {
     }
 
     fn nth_value(&self, depth: usize) -> PyObjectRef {
-        self.stack.borrow_mut()[self.stack.borrow().len() - depth - 1].clone()
+        let stack = self.stack.borrow_mut();
+        stack[stack.len() - depth - 1].clone()
     }
 }
 
