@@ -62,6 +62,13 @@ impl Connection {
             _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
         }
     }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        match self {
+            Connection::TcpListener(con) => con.local_addr(),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
+        }
+    }
 }
 
 impl Read for Connection {
@@ -293,6 +300,33 @@ fn socket_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn socket_getsockname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(zelf, None)]);
+    match zelf.payload {
+        PyObjectPayload::Socket { ref socket } => {
+            let addr = match socket.borrow_mut().con {
+                Some(ref mut v) => v.local_addr(),
+                None => return Err(vm.new_type_error("".to_string())),
+            };
+
+            match addr {
+                Ok(addr) => {
+                    let port = vm.ctx.new_int(addr.port());
+                    let ip = vm.ctx.new_str(addr.ip().to_string());
+                    let elements = RefCell::new(vec![ip, port]);
+
+                    Ok(PyObject::new(
+                        PyObjectPayload::Sequence { elements },
+                        vm.ctx.tuple_type(),
+                    ))
+                }
+                _ => return Err(vm.new_type_error("".to_string())),
+            }
+        }
+        _ => Err(vm.new_type_error("".to_string())),
+    }
+}
+
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"socket".to_string(), ctx.new_scope(None));
 
@@ -318,6 +352,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
         ctx.set_attr(&socket, "accept", ctx.new_rustfunc(socket_accept));
         ctx.set_attr(&socket, "listen", ctx.new_rustfunc(socket_listen));
         ctx.set_attr(&socket, "close", ctx.new_rustfunc(socket_close));
+        ctx.set_attr(&socket, "getsockname", ctx.new_rustfunc(socket_getsockname));
         socket
     };
     ctx.set_attr(&py_mod, "socket", socket.clone());
