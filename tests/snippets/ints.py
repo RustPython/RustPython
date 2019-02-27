@@ -15,6 +15,10 @@ assert not 1 < 1.0
 assert 1 >= 1.0
 assert 1 <= 1.0
 
+# check for argument handling
+
+assert int("101", base=2) == 5
+
 # magic methods should only be implemented for other ints
 
 assert (1).__eq__(1) == True
