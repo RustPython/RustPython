@@ -24,10 +24,10 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
     autofocus: true
 });
 
-function runCodeFromTextarea() {
-    const consoleElement = document.getElementById('console');
-    const errorElement = document.getElementById('error');
+const consoleElement = document.getElementById('console');
+const errorElement = document.getElementById('error');
 
+function runCodeFromTextarea() {
     // Clean the console and errors
     consoleElement.value = '';
     errorElement.textContent = '';
