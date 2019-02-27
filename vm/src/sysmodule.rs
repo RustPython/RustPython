@@ -132,7 +132,8 @@ settrace() -- set the global debug tracing function
       "_getframe" => ctx.new_rustfunc(getframe),
     });
 
-    modules.set_item(&ctx, sys_name, sys_mod.clone());
+    let sys_name = ctx.new_str(sys_name.to_string());
+    modules.set_item(sys_name, sys_mod.clone());
     ctx.set_attr(&sys_mod, "modules", modules);
 
     sys_mod

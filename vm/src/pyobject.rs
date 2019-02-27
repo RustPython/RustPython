@@ -829,11 +829,17 @@ impl AttributeProtocol for PyObjectRef {
     }
 }
 
+/// Represents a Python dict
+/// Note: it may also be implemented for Modules and scopes
 pub trait DictProtocol {
+    /// Return whether key is present
     fn contains_key(&self, k: &str) -> bool;
+    /// Gets an item from the dictionary. Returns None if the item is not present.
     fn get_item(&self, k: &str) -> Option<PyObjectRef>;
+    /// Return all the key value pairs present in the dictionary.
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
-    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef);
+    /// Sets an item value. This is equivalent to the Python expression `self[key] = value`.
+    fn set_item(&self, key: PyObjectRef, v: PyObjectRef);
 }
 
 impl DictProtocol for PyObjectRef {
@@ -868,17 +874,16 @@ impl DictProtocol for PyObjectRef {
     }
 
     // Item set/get:
-    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
+    fn set_item(&self, key: PyObjectRef, v: PyObjectRef) {
         match &self.payload {
             PyObjectPayload::Dict { elements } => {
-                let key = ctx.new_str(key.to_string());
                 objdict::set_item_in_content(&mut elements.borrow_mut(), &key, &v);
             }
             PyObjectPayload::Module { dict, .. } => {
-                dict.set_item(ctx, key, v);
+                dict.set_item(key, v);
             }
             PyObjectPayload::Scope { scope, .. } => {
-                scope.borrow().locals.set_item(ctx, key, v);
+                scope.borrow().locals.set_item(key, v);
             }
             ref k => panic!("TODO {:?}", k),
         };

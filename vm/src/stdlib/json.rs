@@ -171,7 +171,8 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
                 PyObjectPayload::String { ref value } => value.clone(),
                 _ => unimplemented!("map keys must be strings"),
             };
-            dict.set_item(&self.vm.ctx, &key, value);
+            let key = self.vm.ctx.new_str(key.to_string());
+            dict.set_item(key, value);
         }
         Ok(dict)
     }

@@ -60,7 +60,8 @@ pub fn import_module(
         return Ok(module);
     }
     let module = import_uncached_module(vm, current_path, module_name)?;
-    sys_modules.set_item(&vm.ctx, module_name, module.clone());
+    let module_name = vm.ctx.new_str(module_name.to_string());
+    sys_modules.set_item(module_name, module.clone());
     Ok(module)
 }
 

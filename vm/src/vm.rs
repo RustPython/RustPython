@@ -54,7 +54,9 @@ impl VirtualMachine {
 
         // Add builtins as builtins module:
         let modules = sysmod.get_attr("modules").unwrap();
-        modules.set_item(&ctx, "builtins", builtins.clone());
+
+        let key = ctx.new_str("builtins".to_string());
+        modules.set_item(key, builtins.clone());
 
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
@@ -401,7 +403,8 @@ impl VirtualMachine {
 
                 self.ctx.set_attr(scope, &name, value);
             } else if let Some(d) = &kwargs {
-                d.set_item(&self.ctx, &name, value);
+                let name = self.ctx.new_str(name.to_string());
+                d.set_item(name, value);
             } else {
                 return Err(
                     self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))

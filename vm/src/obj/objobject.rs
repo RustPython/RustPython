@@ -182,7 +182,8 @@ fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
             let new_dict = vm.new_dict();
             for (attr, value) in dict.borrow().iter() {
-                new_dict.set_item(&vm.ctx, &attr, value.clone());
+                let attr = vm.ctx.new_str(attr.to_string());
+                new_dict.set_item(attr, value.clone());
             }
             Ok(new_dict)
         }
