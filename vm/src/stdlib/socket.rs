@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 
 use crate::obj::objbytes;
 use crate::obj::objint;
@@ -52,7 +52,7 @@ impl SocketKind {
 enum Connection {
     TcpListener(TcpListener),
     TcpStream(TcpStream),
-    UdpSocket(UdpSocket),
+    // UdpSocket(UdpSocket),
 }
 
 impl Connection {
@@ -194,6 +194,11 @@ fn get_address_string(
 }
 
 fn socket_listen(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, None), (_num, Some(vm.ctx.int_type()))]
+    );
     Ok(vm.get_none())
 }
 
