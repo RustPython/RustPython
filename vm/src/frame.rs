@@ -1,8 +1,8 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::ast;
+use std::cell::RefCell;
 use std::fmt;
-use std::mem;
 use std::path::PathBuf;
 
 use crate::builtins;
@@ -49,10 +49,10 @@ enum BlockType {
 pub struct Frame {
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame
-    stack: Vec<PyObjectRef>, // The main data frame of the stack machine
-    blocks: Vec<Block>,      // Block frames, for controlling loops and exceptions
-    pub locals: PyObjectRef, // Variables
-    pub lasti: usize,        // index of last instruction ran
+    stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
+    blocks: Vec<Block>,               // Block frames, for controlling loops and exceptions
+    pub locals: PyObjectRef,          // Variables
+    pub lasti: usize,                 // index of last instruction ran
 }
 
 // Running a frame can result in one of the below:
@@ -79,7 +79,7 @@ impl Frame {
 
         Frame {
             code: objcode::get_value(&code),
-            stack: vec![],
+            stack: RefCell::new(vec![]),
             blocks: vec![],
             // save the callargs as locals
             // globals: locals.clone(),
@@ -88,17 +88,8 @@ impl Frame {
         }
     }
 
-    pub fn run_frame_full(&mut self, vm: &mut VirtualMachine) -> PyResult {
-        match self.run_frame(vm)? {
-            ExecutionResult::Return(value) => Ok(value),
-            _ => panic!("Got unexpected result from function"),
-        }
-    }
-
-    pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
+    pub fn run(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
         let filename = &self.code.source_path.to_string();
-
-        let prev_frame = mem::replace(&mut vm.current_frame, Some(vm.ctx.new_frame(self.clone())));
 
         // This is the name of the object being run:
         let run_obj_name = &self.code.obj_name.to_string();
@@ -148,7 +139,6 @@ impl Frame {
             }
         };
 
-        vm.current_frame = prev_frame;
         value
     }
 
@@ -1082,13 +1072,13 @@ impl Frame {
     fn push_block(&mut self, typ: BlockType) {
         self.blocks.push(Block {
             typ,
-            level: self.stack.len(),
+            level: self.stack.borrow().len(),
         });
     }
 
     fn pop_block(&mut self) -> Option<Block> {
         let block = self.blocks.pop()?;
-        self.stack.truncate(block.level);
+        self.stack.borrow_mut().truncate(block.level);
         Some(block)
     }
 
@@ -1096,29 +1086,29 @@ impl Frame {
         self.blocks.last()
     }
 
-    pub fn push_value(&mut self, obj: PyObjectRef) {
-        self.stack.push(obj);
+    pub fn push_value(&self, obj: PyObjectRef) {
+        self.stack.borrow_mut().push(obj);
     }
 
-    fn pop_value(&mut self) -> PyObjectRef {
-        self.stack.pop().unwrap()
+    fn pop_value(&self) -> PyObjectRef {
+        self.stack.borrow_mut().pop().unwrap()
     }
 
     fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
         let mut objs: Vec<PyObjectRef> = Vec::new();
         for _x in 0..count {
-            objs.push(self.stack.pop().unwrap());
+            objs.push(self.pop_value());
         }
         objs.reverse();
         objs
     }
 
     fn last_value(&self) -> PyObjectRef {
-        self.stack.last().unwrap().clone()
+        self.stack.borrow().last().unwrap().clone()
     }
 
     fn nth_value(&self, depth: usize) -> PyObjectRef {
-        self.stack[self.stack.len() - depth - 1].clone()
+        self.stack.borrow_mut()[self.stack.borrow().len() - depth - 1].clone()
     }
 }
 
@@ -1126,6 +1116,7 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let stack_str = self
             .stack
+            .borrow()
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
