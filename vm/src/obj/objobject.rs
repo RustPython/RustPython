@@ -5,9 +5,9 @@ use crate::pyobject::{
     PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::collections::hash_map::HashMap;
-use indexmap::IndexMap;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator

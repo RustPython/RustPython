@@ -20,8 +20,8 @@ use crate::pyobject::{
     PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use num_bigint::BigInt;
 use indexmap::IndexMap;
+use num_bigint::BigInt;
 
 #[derive(Clone, Debug)]
 struct Block {

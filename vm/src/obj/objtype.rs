@@ -6,9 +6,9 @@ use crate::pyobject::{
     PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
 use std::cell::RefCell;
 use std::collections::hash_map::HashMap;
-use indexmap::IndexMap;
 
 /*
  * The magical type type

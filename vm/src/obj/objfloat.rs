@@ -6,9 +6,9 @@ use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
-use indexmap::IndexMap;
 
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);
