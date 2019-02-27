@@ -18,6 +18,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.3"
 js-sys = "0.3"
 futures = "0.1"
+num-traits = "0.2"
 
 [dependencies.web-sys]
 version = "0.3"

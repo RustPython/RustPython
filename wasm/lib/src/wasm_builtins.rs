@@ -26,8 +26,18 @@ pub fn print_to_html(text: &str, selector: &str) -> Result<(), JsValue> {
     let textarea = element
         .dyn_ref::<HtmlTextAreaElement>()
         .ok_or_else(|| js_sys::TypeError::new("Element must be a textarea"))?;
+
     let value = textarea.value();
+
+    let scroll_height = textarea.scroll_height();
+    let scrolled_to_bottom = scroll_height - textarea.scroll_top() == textarea.client_height();
+
     textarea.set_value(&format!("{}{}", value, text));
+
+    if scrolled_to_bottom {
+        textarea.scroll_with_x_and_y(0.0, scroll_height.into());
+    }
+
     Ok(())
 }
 

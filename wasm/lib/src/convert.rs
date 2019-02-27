@@ -2,7 +2,7 @@ use crate::browser_module;
 use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, Uint8Array};
 use rustpython_vm::obj::{objbytes, objtype};
-use rustpython_vm::pyobject::{self, PyFuncArgs, PyObjectRef, PyResult};
+use rustpython_vm::pyobject::{self, DictProtocol, PyFuncArgs, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
@@ -147,8 +147,7 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
             for pair in object_entries(&Object::from(js_val)) {
                 let (key, val) = pair.expect("iteration over object to not fail");
                 let py_val = js_to_py(vm, val);
-                vm.ctx
-                    .set_item(&dict, &String::from(js_sys::JsString::from(key)), py_val);
+                dict.set_item(&vm.ctx, &String::from(js_sys::JsString::from(key)), py_val);
             }
             dict
         }

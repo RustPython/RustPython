@@ -3,8 +3,8 @@ use std::cell::{Cell, RefCell};
 use super::objbool;
 use super::objint;
 use super::objsequence::{
-    get_elements, get_item, get_mut_elements, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
-    PySliceableSequence,
+    get_elements, get_elements_cell, get_item, get_mut_elements, seq_equal, seq_ge, seq_gt, seq_le,
+    seq_lt, seq_mul, PySliceableSequence,
 };
 use super::objstr;
 use super::objtype;
@@ -334,12 +334,99 @@ fn list_reverse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn quicksort(
+    vm: &mut VirtualMachine,
+    keys: &mut [PyObjectRef],
+    values: &mut [PyObjectRef],
+) -> PyResult<()> {
+    let len = values.len();
+    if len >= 2 {
+        let pivot = partition(vm, keys, values)?;
+        quicksort(vm, &mut keys[0..pivot], &mut values[0..pivot])?;
+        quicksort(vm, &mut keys[pivot + 1..len], &mut values[pivot + 1..len])?;
+    }
+    Ok(())
+}
+
+fn partition(
+    vm: &mut VirtualMachine,
+    keys: &mut [PyObjectRef],
+    values: &mut [PyObjectRef],
+) -> PyResult<usize> {
+    let len = values.len();
+    let pivot = len / 2;
+
+    values.swap(pivot, len - 1);
+    keys.swap(pivot, len - 1);
+
+    let mut store_idx = 0;
+    for i in 0..len - 1 {
+        let result = vm._lt(keys[i].clone(), keys[len - 1].clone())?;
+        let boolval = objbool::boolval(vm, result)?;
+        if boolval {
+            values.swap(i, store_idx);
+            keys.swap(i, store_idx);
+            store_idx += 1;
+        }
+    }
+
+    values.swap(store_idx, len - 1);
+    keys.swap(store_idx, len - 1);
+    Ok(store_idx)
+}
+
+fn do_sort(
+    vm: &mut VirtualMachine,
+    values: &mut Vec<PyObjectRef>,
+    key_func: Option<PyObjectRef>,
+    reverse: bool,
+) -> PyResult<()> {
+    // build a list of keys. If no keyfunc is provided, it's a copy of the list.
+    let mut keys: Vec<PyObjectRef> = vec![];
+    for x in values.iter() {
+        keys.push(match &key_func {
+            None => x.clone(),
+            Some(ref func) => vm.invoke(
+                (*func).clone(),
+                PyFuncArgs {
+                    args: vec![x.clone()],
+                    kwargs: vec![],
+                },
+            )?,
+        });
+    }
+
+    quicksort(vm, &mut keys, values)?;
+
+    if reverse {
+        values.reverse();
+    }
+
+    Ok(())
+}
+
 fn list_sort(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
-    let mut _elements = get_mut_elements(list);
-    unimplemented!("TODO: figure out how to invoke `sort_by` on a Vec");
-    // elements.sort_by();
-    // Ok(vm.get_none())
+    let key_func = args.get_optional_kwarg("key");
+    let reverse = args.get_optional_kwarg("reverse");
+    let reverse = match reverse {
+        None => false,
+        Some(val) => objbool::boolval(vm, val)?,
+    };
+
+    let elements_cell = get_elements_cell(list);
+    // replace list contents with [] for duration of sort.
+    // this prevents keyfunc from messing with the list and makes it easy to
+    // check if it tries to append elements to it.
+    let mut elements = elements_cell.replace(vec![]);
+    do_sort(vm, &mut elements, key_func, reverse)?;
+    let temp_elements = elements_cell.replace(elements);
+
+    if !temp_elements.is_empty() {
+        return Err(vm.new_value_error("list modified during sort".to_string()));
+    }
+
+    Ok(vm.get_none())
 }
 
 fn list_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
