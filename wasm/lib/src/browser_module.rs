@@ -4,9 +4,9 @@ use js_sys::Promise;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
+use std::collections::HashMap;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
-use std::collections::HashMap;
 
 enum FetchResponseFormat {
     Json,

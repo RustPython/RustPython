@@ -5,9 +5,9 @@ use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
     PyObjectRef, PyResult, TypeProtocol,
 };
-use std::collections::hash_map::HashMap;
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
+use std::collections::hash_map::HashMap;
 
 /*
  * The magical type type

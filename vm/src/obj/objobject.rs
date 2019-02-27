@@ -1,12 +1,12 @@
 use super::objstr;
 use super::objtype;
-use std::collections::hash_map::HashMap;
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
     PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
+use std::collections::hash_map::HashMap;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator

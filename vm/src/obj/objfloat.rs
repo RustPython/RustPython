@@ -1,6 +1,5 @@
 use super::objbytes;
 use super::objint;
-use std::collections::hash_map::HashMap;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
@@ -9,6 +8,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
+use std::collections::hash_map::HashMap;
 
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);

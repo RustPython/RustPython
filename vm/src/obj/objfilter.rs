@@ -1,10 +1,10 @@
 use super::objbool;
 use super::objiter;
-use std::collections::hash_map::HashMap;
 use crate::pyobject::{
     IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
 };
-use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
+use crate::vm::VirtualMachine;
+use std::collections::hash_map::HashMap; // Required for arg_check! to use isinstance
 
 fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(

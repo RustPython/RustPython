@@ -9,7 +9,6 @@ use crate::builtins;
 use crate::bytecode;
 use crate::import::{import, import_module};
 use crate::obj::objbool;
-use std::collections::hash_map::HashMap;
 use crate::obj::objcode;
 use crate::obj::objdict;
 use crate::obj::objiter;
@@ -22,6 +21,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
+use std::collections::hash_map::HashMap;
 
 #[derive(Clone, Debug)]
 struct Block {

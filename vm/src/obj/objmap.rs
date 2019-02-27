@@ -1,7 +1,7 @@
 use super::objiter;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
-use std::collections::hash_map::HashMap;
-use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
+use crate::vm::VirtualMachine;
+use std::collections::hash_map::HashMap; // Required for arg_check! to use isinstance
 
 fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);
