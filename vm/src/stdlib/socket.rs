@@ -213,8 +213,8 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
 
             let socket = RefCell::new(Socket {
-                address_family: socket.borrow().address_family.clone(),
-                socket_kind: socket.borrow().socket_kind.clone(),
+                address_family: socket.borrow().address_family,
+                socket_kind: socket.borrow().socket_kind,
                 con: Some(Connection::TcpStream(tcp_stream)),
             });
 
