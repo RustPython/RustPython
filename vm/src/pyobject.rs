@@ -591,8 +591,13 @@ impl PyContext {
         )
     }
 
-    pub fn new_frame(&self, frame: Frame) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Frame { frame }, self.frame_type())
+    pub fn new_frame(&self, code: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
+        PyObject::new(
+            PyObjectPayload::Frame {
+                frame: Frame::new(code, scope),
+            },
+            self.frame_type(),
+        )
     }
 
     pub fn new_property<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
@@ -1246,7 +1251,7 @@ pub enum PyObjectPayload {
         defaults: PyObjectRef,
     },
     Generator {
-        frame: RefCell<Frame>,
+        frame: PyObjectRef,
     },
     BoundMethod {
         function: PyObjectRef,

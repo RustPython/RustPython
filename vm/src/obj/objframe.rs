@@ -41,12 +41,12 @@ fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn frame_fcode(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
-    Ok(vm.ctx.new_code_object(get_value(frame).code))
+    Ok(vm.ctx.new_code_object(get_value(frame).code.clone()))
 }
 
-pub fn get_value(obj: &PyObjectRef) -> Frame {
+pub fn get_value(obj: &PyObjectRef) -> &Frame {
     if let PyObjectPayload::Frame { frame } = &obj.payload {
-        frame.clone()
+        frame
     } else {
         panic!("Inner error getting int {:?}", obj);
     }
