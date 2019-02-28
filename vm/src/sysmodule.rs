@@ -1,5 +1,7 @@
+use crate::obj::objint;
 use crate::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+use num_traits::ToPrimitive;
 use std::rc::Rc;
 use std::{env, mem};
 
@@ -13,12 +15,30 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
     ctx.new_list(argv)
 }
 
-fn getframe(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    if let Some(frame) = &vm.current_frame {
-        Ok(frame.clone())
-    } else {
-        panic!("Current frame is undefined!")
+fn frame_idx(vm: &mut VirtualMachine, offset: Option<&PyObjectRef>) -> Result<usize, PyObjectRef> {
+    if let Some(int) = offset {
+        if let Some(offset) = objint::get_value(&int).to_usize() {
+            if offset > vm.frames.len() - 1 {
+                return Err(vm.new_value_error("call stack is not deep enough".to_string()));
+            }
+            return Ok(offset);
+        }
     }
+    return Ok(0);
+}
+
+fn getframe(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [],
+        optional = [(offset, Some(vm.ctx.int_type()))]
+    );
+
+    let idx = frame_idx(vm, offset)?;
+    let idx = vm.frames.len() - idx - 1;
+    let frame = &vm.frames[idx];
+    Ok(frame.clone())
 }
 
 fn sys_getrefcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

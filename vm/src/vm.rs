@@ -12,9 +12,10 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
-use crate::frame::Frame;
+use crate::frame::ExecutionResult;
 use crate::obj::objbool;
 use crate::obj::objcode;
+use crate::obj::objframe;
 use crate::obj::objgenerator;
 use crate::obj::objiter;
 use crate::obj::objsequence;
@@ -39,7 +40,7 @@ pub struct VirtualMachine {
     pub sys_module: PyObjectRef,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub ctx: PyContext,
-    pub current_frame: Option<PyObjectRef>,
+    pub frames: Vec<PyObjectRef>,
     pub wasm_id: Option<String>,
 }
 
@@ -62,14 +63,29 @@ impl VirtualMachine {
             sys_module: sysmod,
             stdlib_inits,
             ctx,
-            current_frame: None,
+            frames: vec![],
             wasm_id: None,
         }
     }
 
     pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
-        let mut frame = Frame::new(code, scope);
-        frame.run_frame_full(self)
+        let frame = self.ctx.new_frame(code, scope);
+        self.run_frame_full(frame)
+    }
+
+    pub fn run_frame_full(&mut self, frame: PyObjectRef) -> PyResult {
+        match self.run_frame(frame)? {
+            ExecutionResult::Return(value) => Ok(value),
+            _ => panic!("Got unexpected result from function"),
+        }
+    }
+
+    pub fn run_frame(&mut self, frame: PyObjectRef) -> Result<ExecutionResult, PyObjectRef> {
+        self.frames.push(frame.clone());
+        let frame = objframe::get_value(&frame);
+        let result = frame.run(self);
+        self.frames.pop();
+        result
     }
 
     /// Create a new python string object.
@@ -312,13 +328,13 @@ impl VirtualMachine {
         self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
 
         // Construct frame:
-        let mut frame = Frame::new(code.clone(), scope);
+        let frame = self.ctx.new_frame(code.clone(), scope);
 
         // If we have a generator, create a new generator
         if code_object.is_generator {
             objgenerator::new_generator(self, frame)
         } else {
-            frame.run_frame_full(self)
+            self.run_frame_full(frame)
         }
     }
 

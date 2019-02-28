@@ -1,8 +1,8 @@
 extern crate rustpython_parser;
 
 use self::rustpython_parser::ast;
+use std::cell::RefCell;
 use std::fmt;
-use std::mem;
 use std::path::PathBuf;
 
 use crate::builtins;
@@ -45,14 +45,13 @@ enum BlockType {
     },
 }
 
-#[derive(Clone)]
 pub struct Frame {
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame
-    stack: Vec<PyObjectRef>, // The main data frame of the stack machine
-    blocks: Vec<Block>,      // Block frames, for controlling loops and exceptions
-    pub locals: PyObjectRef, // Variables
-    pub lasti: usize,        // index of last instruction ran
+    stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
+    blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
+    pub locals: PyObjectRef,          // Variables
+    pub lasti: RefCell<usize>,        // index of last instruction ran
 }
 
 // Running a frame can result in one of the below:
@@ -79,26 +78,17 @@ impl Frame {
 
         Frame {
             code: objcode::get_value(&code),
-            stack: vec![],
-            blocks: vec![],
+            stack: RefCell::new(vec![]),
+            blocks: RefCell::new(vec![]),
             // save the callargs as locals
             // globals: locals.clone(),
             locals,
-            lasti: 0,
+            lasti: RefCell::new(0),
         }
     }
 
-    pub fn run_frame_full(&mut self, vm: &mut VirtualMachine) -> PyResult {
-        match self.run_frame(vm)? {
-            ExecutionResult::Return(value) => Ok(value),
-            _ => panic!("Got unexpected result from function"),
-        }
-    }
-
-    pub fn run_frame(&mut self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
+    pub fn run(&self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
         let filename = &self.code.source_path.to_string();
-
-        let prev_frame = mem::replace(&mut vm.current_frame, Some(vm.ctx.new_frame(self.clone())));
 
         // This is the name of the object being run:
         let run_obj_name = &self.code.obj_name.to_string();
@@ -148,20 +138,19 @@ impl Frame {
             }
         };
 
-        vm.current_frame = prev_frame;
         value
     }
 
-    pub fn fetch_instruction(&mut self) -> bytecode::Instruction {
+    pub fn fetch_instruction(&self) -> bytecode::Instruction {
         // TODO: an immutable reference is enough, we should not
         // clone the instruction.
-        let ins2 = self.code.instructions[self.lasti].clone();
-        self.lasti += 1;
+        let ins2 = self.code.instructions[*self.lasti.borrow()].clone();
+        *self.lasti.borrow_mut() += 1;
         ins2
     }
 
     // Execute a single instruction:
-    fn execute_instruction(&mut self, vm: &mut VirtualMachine) -> FrameResult {
+    fn execute_instruction(&self, vm: &mut VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
         {
             trace!("=======");
@@ -354,7 +343,7 @@ impl Frame {
                 match next_obj {
                     Some(value) => {
                         // Set back program counter:
-                        self.lasti -= 1;
+                        *self.lasti.borrow_mut() -= 1;
                         Ok(Some(ExecutionResult::Yield(value)))
                     }
                     None => {
@@ -672,7 +661,7 @@ impl Frame {
     }
 
     fn get_elements(
-        &mut self,
+        &self,
         vm: &mut VirtualMachine,
         size: usize,
         unpack: bool,
@@ -693,7 +682,7 @@ impl Frame {
     }
 
     fn import(
-        &mut self,
+        &self,
         vm: &mut VirtualMachine,
         module: &str,
         symbol: &Option<String>,
@@ -711,7 +700,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn import_star(&mut self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
+    fn import_star(&self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
         let current_path = {
             let mut source_pathbuf = PathBuf::from(&self.code.source_path);
             source_pathbuf.pop();
@@ -729,7 +718,7 @@ impl Frame {
     }
 
     // Unwind all blocks:
-    fn unwind_blocks(&mut self, vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+    fn unwind_blocks(&self, vm: &mut VirtualMachine) -> Option<PyObjectRef> {
         while let Some(block) = self.pop_block() {
             match block.typ {
                 BlockType::Loop { .. } => {}
@@ -753,9 +742,9 @@ impl Frame {
         None
     }
 
-    fn unwind_loop(&mut self, vm: &mut VirtualMachine) -> Block {
+    fn unwind_loop(&self, vm: &mut VirtualMachine) -> Block {
         loop {
-            let block = self.current_block().cloned().expect("not in a loop");
+            let block = self.current_block().expect("not in a loop");
             match block.typ {
                 BlockType::Loop { .. } => break block,
                 BlockType::TryExcept { .. } => {
@@ -775,11 +764,7 @@ impl Frame {
         }
     }
 
-    fn unwind_exception(
-        &mut self,
-        vm: &mut VirtualMachine,
-        exc: PyObjectRef,
-    ) -> Option<PyObjectRef> {
+    fn unwind_exception(&self, vm: &mut VirtualMachine, exc: PyObjectRef) -> Option<PyObjectRef> {
         // unwind block stack on exception and find any handlers:
         while let Some(block) = self.pop_block() {
             match block.typ {
@@ -847,13 +832,13 @@ impl Frame {
         vm.call_method(context_manager, "__exit__", args)
     }
 
-    fn store_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
+    fn store_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
         vm.ctx.set_attr(&self.locals, name, obj);
         Ok(None)
     }
 
-    fn delete_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
+    fn delete_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let locals = match self.locals.payload {
             PyObjectPayload::Scope { ref scope } => scope.borrow().locals.clone(),
             _ => panic!("We really expect our scope to be a scope!"),
@@ -865,7 +850,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn load_name(&mut self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
+    fn load_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         // Lookup name in scope and put it onto the stack!
         let mut scope = self.locals.clone();
         loop {
@@ -884,11 +869,11 @@ impl Frame {
         }
     }
 
-    fn subscript(&mut self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    fn subscript(&self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         vm.call_method(&a, "__getitem__", vec![b])
     }
 
-    fn execute_store_subscript(&mut self, vm: &mut VirtualMachine) -> FrameResult {
+    fn execute_store_subscript(&self, vm: &mut VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
@@ -896,21 +881,21 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_delete_subscript(&mut self, vm: &mut VirtualMachine) -> FrameResult {
+    fn execute_delete_subscript(&self, vm: &mut VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         vm.call_method(&obj, "__delitem__", vec![idx])?;
         Ok(None)
     }
 
-    fn jump(&mut self, label: bytecode::Label) {
+    fn jump(&self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
         trace!("program counter from {:?} to {:?}", self.lasti, target_pc);
-        self.lasti = target_pc;
+        *self.lasti.borrow_mut() = target_pc;
     }
 
     fn execute_binop(
-        &mut self,
+        &self,
         vm: &mut VirtualMachine,
         op: &bytecode::BinaryOperator,
         inplace: bool,
@@ -953,11 +938,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_unop(
-        &mut self,
-        vm: &mut VirtualMachine,
-        op: &bytecode::UnaryOperator,
-    ) -> FrameResult {
+    fn execute_unop(&self, vm: &mut VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
         let a = self.pop_value();
         let value = match *op {
             bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
@@ -978,7 +959,7 @@ impl Frame {
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
     fn _membership(
-        &mut self,
+        &self,
         vm: &mut VirtualMachine,
         needle: PyObjectRef,
         haystack: &PyObjectRef,
@@ -988,12 +969,7 @@ impl Frame {
         // not implemented.
     }
 
-    fn _in(
-        &mut self,
-        vm: &mut VirtualMachine,
-        needle: PyObjectRef,
-        haystack: PyObjectRef,
-    ) -> PyResult {
+    fn _in(&self, vm: &mut VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
         match self._membership(vm, needle, &haystack) {
             Ok(found) => Ok(found),
             Err(_) => Err(vm.new_type_error(format!(
@@ -1004,7 +980,7 @@ impl Frame {
     }
 
     fn _not_in(
-        &mut self,
+        &self,
         vm: &mut VirtualMachine,
         needle: PyObjectRef,
         haystack: PyObjectRef,
@@ -1030,7 +1006,7 @@ impl Frame {
     }
 
     fn execute_compare(
-        &mut self,
+        &self,
         vm: &mut VirtualMachine,
         op: &bytecode::ComparisonOperator,
     ) -> FrameResult {
@@ -1053,7 +1029,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn load_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
+    fn load_attr(&self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let attr_name = vm.new_str(attr_name.to_string());
         let obj = vm.get_attribute(parent, attr_name)?;
@@ -1061,14 +1037,14 @@ impl Frame {
         Ok(None)
     }
 
-    fn store_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
+    fn store_attr(&self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
         vm.ctx.set_attr(&parent, attr_name, value);
         Ok(None)
     }
 
-    fn delete_attr(&mut self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
+    fn delete_attr(&self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let name = vm.ctx.new_str(attr_name.to_string());
         vm.del_attr(&parent, name)?;
@@ -1076,49 +1052,50 @@ impl Frame {
     }
 
     pub fn get_lineno(&self) -> ast::Location {
-        self.code.locations[self.lasti].clone()
+        self.code.locations[*self.lasti.borrow()].clone()
     }
 
-    fn push_block(&mut self, typ: BlockType) {
-        self.blocks.push(Block {
+    fn push_block(&self, typ: BlockType) {
+        self.blocks.borrow_mut().push(Block {
             typ,
-            level: self.stack.len(),
+            level: self.stack.borrow().len(),
         });
     }
 
-    fn pop_block(&mut self) -> Option<Block> {
-        let block = self.blocks.pop()?;
-        self.stack.truncate(block.level);
+    fn pop_block(&self) -> Option<Block> {
+        let block = self.blocks.borrow_mut().pop()?;
+        self.stack.borrow_mut().truncate(block.level);
         Some(block)
     }
 
-    fn current_block(&self) -> Option<&Block> {
-        self.blocks.last()
+    fn current_block(&self) -> Option<Block> {
+        self.blocks.borrow().last().cloned()
     }
 
-    pub fn push_value(&mut self, obj: PyObjectRef) {
-        self.stack.push(obj);
+    pub fn push_value(&self, obj: PyObjectRef) {
+        self.stack.borrow_mut().push(obj);
     }
 
-    fn pop_value(&mut self) -> PyObjectRef {
-        self.stack.pop().unwrap()
+    fn pop_value(&self) -> PyObjectRef {
+        self.stack.borrow_mut().pop().unwrap()
     }
 
-    fn pop_multiple(&mut self, count: usize) -> Vec<PyObjectRef> {
+    fn pop_multiple(&self, count: usize) -> Vec<PyObjectRef> {
         let mut objs: Vec<PyObjectRef> = Vec::new();
         for _x in 0..count {
-            objs.push(self.stack.pop().unwrap());
+            objs.push(self.pop_value());
         }
         objs.reverse();
         objs
     }
 
     fn last_value(&self) -> PyObjectRef {
-        self.stack.last().unwrap().clone()
+        self.stack.borrow().last().unwrap().clone()
     }
 
     fn nth_value(&self, depth: usize) -> PyObjectRef {
-        self.stack[self.stack.len() - depth - 1].clone()
+        let stack = self.stack.borrow_mut();
+        stack[stack.len() - depth - 1].clone()
     }
 }
 
@@ -1126,12 +1103,14 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let stack_str = self
             .stack
+            .borrow()
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
         let block_str = self
             .blocks
+            .borrow()
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
