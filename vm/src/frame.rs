@@ -515,6 +515,12 @@ impl Frame {
                 if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);
                     Err(exception)
+                } else if objtype::isinstance(&exception, &vm.ctx.type_type())
+                    && objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type)
+                {
+                    let exception = vm.new_empty_exception(exception)?;
+                    info!("Exception raised: {:?}", exception);
+                    Err(exception)
                 } else {
                     let msg = format!(
                         "Can only raise BaseException derived types, not {}",
