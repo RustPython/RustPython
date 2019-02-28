@@ -110,7 +110,11 @@ pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
 
 /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via the
 /// __instancecheck__ magic method.
-pub fn real_isinstance(vm: &mut VirtualMachine, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+pub fn real_isinstance(
+    vm: &mut VirtualMachine,
+    obj: &PyObjectRef,
+    cls: &PyObjectRef,
+) -> PyResult<bool> {
     // cpython first does an exact check on the type, although documentation doesn't state that
     // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
     if Rc::ptr_eq(&obj.typ(), cls) {

@@ -72,7 +72,8 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     // Check obj type:
-    if !(objtype::real_isinstance(vm, &py_obj, &py_type)? || objtype::real_issubclass(vm, &py_obj, &py_type)?)
+    if !(objtype::real_isinstance(vm, &py_obj, &py_type)?
+        || objtype::real_issubclass(vm, &py_obj, &py_type)?)
     {
         return Err(vm.new_type_error(
             "super(type, obj): obj must be an instance or subtype of type".to_string(),

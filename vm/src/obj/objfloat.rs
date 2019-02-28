@@ -214,8 +214,7 @@ fn float_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(i, Some(vm.ctx.float_type())), (i2, None)]
     );
     let args = PyFuncArgs::new(vec![i.clone(), i2.clone()], vec![]);
-    if objtype::isinstance(i2, &vm.ctx.float_type())
-        || objtype::isinstance(i2, &vm.ctx.int_type())
+    if objtype::isinstance(i2, &vm.ctx.float_type()) || objtype::isinstance(i2, &vm.ctx.int_type())
     {
         let r1 = float_floordiv(vm, args.clone())?;
         let r2 = float_mod(vm, args.clone())?;
