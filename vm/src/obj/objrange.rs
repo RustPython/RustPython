@@ -4,7 +4,8 @@ use std::ops::Mul;
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, Sign};
@@ -12,7 +13,7 @@ use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 #[derive(Debug, Clone)]
-pub struct RangeType {
+pub struct PyRange {
     // Unfortunately Rust's built in range type doesn't support things like indexing
     // or ranges where start > end so we need to roll our own.
     pub start: BigInt,
@@ -20,7 +21,13 @@ pub struct RangeType {
     pub step: BigInt,
 }
 
-impl RangeType {
+impl PyObjectPayload2 for PyRange {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.range_type()
+    }
+}
+
+impl PyRange {
     #[inline]
     pub fn try_len(&self) -> Option<usize> {
         match self.step.sign() {
@@ -116,12 +123,12 @@ impl RangeType {
         };
 
         match self.step.sign() {
-            Sign::Plus => RangeType {
+            Sign::Plus => PyRange {
                 start,
                 end: &self.start - 1,
                 step: -&self.step,
             },
-            Sign::Minus => RangeType {
+            Sign::Minus => PyRange {
                 start,
                 end: &self.start + 1,
                 step: -&self.step,
@@ -139,12 +146,8 @@ impl RangeType {
     }
 }
 
-pub fn get_value(obj: &PyObjectRef) -> RangeType {
-    if let PyObjectPayload::Range { range } = &obj.payload {
-        range.clone()
-    } else {
-        panic!("Inner error getting range {:?}", obj);
-    }
+pub fn get_value(obj: &PyObjectRef) -> PyRange {
+    obj.payload::<PyRange>().unwrap().clone()
 }
 
 pub fn init(context: &PyContext) {
@@ -223,8 +226,8 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Err(vm.new_value_error("range with 0 step size".to_string()))
     } else {
         Ok(PyObject::new(
-            PyObjectPayload::Range {
-                range: RangeType { start, end, step },
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyRange { start, end, step }),
             },
             cls.clone(),
         ))
@@ -251,7 +254,12 @@ fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(PyObject::new(
         PyObjectPayload::Iterator {
             position: Cell::new(0),
-            iterated_obj: PyObject::new(PyObjectPayload::Range { range }, vm.ctx.range_type()),
+            iterated_obj: PyObject::new(
+                PyObjectPayload::AnyRustValue {
+                    value: Box::new(range),
+                },
+                vm.ctx.range_type(),
+            ),
         },
         vm.ctx.iter_type(),
     ))
@@ -316,12 +324,12 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             };
 
             Ok(PyObject::new(
-                PyObjectPayload::Range {
-                    range: RangeType {
+                PyObjectPayload::AnyRustValue {
+                    value: Box::new(PyRange {
                         start: new_start,
                         end: new_end,
                         step: new_step,
-                    },
+                    }),
                 },
                 vm.ctx.range_type(),
             ))

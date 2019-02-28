@@ -459,8 +459,13 @@ impl PyContext {
         )
     }
 
-    pub fn new_float(&self, i: f64) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Float { value: i }, self.float_type())
+    pub fn new_float(&self, value: f64) -> PyObjectRef {
+        PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(objfloat::PyFloat::from(value)),
+            },
+            self.float_type(),
+        )
     }
 
     pub fn new_complex(&self, i: Complex64) -> PyObjectRef {
@@ -1245,9 +1250,6 @@ pub enum PyObjectPayload {
     Integer {
         value: BigInt,
     },
-    Float {
-        value: f64,
-    },
     Complex {
         value: Complex64,
     },
@@ -1283,9 +1285,6 @@ pub enum PyObjectPayload {
         start: Option<BigInt>,
         stop: Option<BigInt>,
         step: Option<BigInt>,
-    },
-    Range {
-        range: objrange::RangeType,
     },
     MemoryView {
         obj: PyObjectRef,
@@ -1340,7 +1339,6 @@ impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
-            PyObjectPayload::Float { ref value } => write!(f, "float {}", value),
             PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
             PyObjectPayload::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
@@ -1348,7 +1346,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Dict { .. } => write!(f, "dict"),
             PyObjectPayload::Set { .. } => write!(f, "set"),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
-            PyObjectPayload::Range { .. } => write!(f, "range"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
             PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),

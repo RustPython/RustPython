@@ -1,3 +1,4 @@
+use super::objfloat::PyFloat;
 use super::objstr::PyString;
 use super::objtype;
 use crate::pyobject::{
@@ -16,9 +17,11 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
     if let Some(s) = obj.payload::<PyString>() {
         return Ok(!s.value.is_empty());
     }
+    if let Some(value) = obj.payload::<PyFloat>() {
+        return Ok(*value != PyFloat::from(0.0));
+    }
     let result = match obj.payload {
         PyObjectPayload::Integer { ref value } => !value.is_zero(),
-        PyObjectPayload::Float { value } => value != 0.0,
         PyObjectPayload::Sequence { ref elements } => !elements.borrow().is_empty(),
         PyObjectPayload::Dict { ref elements } => !elements.borrow().is_empty(),
         PyObjectPayload::None { .. } => false,
