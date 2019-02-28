@@ -1,3 +1,4 @@
+use super::objbool;
 use super::objdict;
 use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
@@ -8,6 +9,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /*
  * The magical type type
@@ -56,6 +58,16 @@ pub fn init(context: &PyContext) {
         "__getattribute__",
         context.new_rustfunc(type_getattribute),
     );
+    context.set_attr(
+        &type_type,
+        "__instancecheck__",
+        context.new_rustfunc(type_instance_check),
+    );
+    context.set_attr(
+        &type_type,
+        "__subclasscheck__",
+        context.new_rustfunc(type_subclass_check),
+    );
     context.set_attr(&type_type, "__doc__", context.new_str(type_doc.to_string()));
 }
 
@@ -89,14 +101,68 @@ pub fn base_classes(obj: &PyObjectRef) -> Vec<PyObjectRef> {
     _mro(obj.typ()).unwrap()
 }
 
+/// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
+/// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let mro = _mro(obj.typ()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
 
-pub fn issubclass(typ: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    let mro = _mro(typ.clone()).unwrap();
+/// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via the
+/// __instancecheck__ magic method.
+pub fn real_isinstance(
+    vm: &mut VirtualMachine,
+    obj: &PyObjectRef,
+    cls: &PyObjectRef,
+) -> PyResult<bool> {
+    // cpython first does an exact check on the type, although documentation doesn't state that
+    // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
+    if Rc::ptr_eq(&obj.typ(), cls) {
+        Ok(true)
+    } else {
+        let ret = vm.call_method(cls, "__instancecheck__", vec![obj.clone()])?;
+        objbool::boolval(vm, ret)
+    }
+}
+
+fn type_instance_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(typ, Some(vm.ctx.type_type())), (obj, None)]
+    );
+    Ok(vm.new_bool(isinstance(obj, typ)))
+}
+
+/// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
+/// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
+/// method.
+pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
+    let mro = _mro(subclass.clone()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
+}
+
+/// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually via
+/// the __subclasscheck__ magic method.
+pub fn real_issubclass(
+    vm: &mut VirtualMachine,
+    subclass: &PyObjectRef,
+    cls: &PyObjectRef,
+) -> PyResult<bool> {
+    let ret = vm.call_method(cls, "__subclasscheck__", vec![subclass.clone()])?;
+    objbool::boolval(vm, ret)
+}
+
+fn type_subclass_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (cls, Some(vm.ctx.type_type())),
+            (subclass, Some(vm.ctx.type_type()))
+        ]
+    );
+    Ok(vm.new_bool(issubclass(subclass, cls)))
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {

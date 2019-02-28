@@ -967,7 +967,7 @@ impl PyFuncArgs {
     ) -> Result<Option<PyObjectRef>, PyObjectRef> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if objtype::isinstance(&kwarg, &ty) {
+                if objtype::real_isinstance(vm, &kwarg, &ty)? {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = vm.to_pystr(&ty)?;
@@ -1148,7 +1148,7 @@ impl Signature {
 
         for (pos, arg) in args.args.iter().enumerate() {
             if let Some(expected_type) = self.arg_type(pos) {
-                if !objtype::isinstance(arg, expected_type) {
+                if !objtype::real_isinstance(vm, arg, expected_type)? {
                     let arg_typ = arg.typ();
                     let expected_type_name = vm.to_pystr(&expected_type)?;
                     let actual_type = vm.to_pystr(&arg_typ)?;
