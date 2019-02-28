@@ -17,7 +17,8 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
         PyObjectPayload::Float { value } => value != 0.0,
         PyObjectPayload::Sequence { ref elements } => !elements.borrow().is_empty(),
         PyObjectPayload::Dict { ref elements } => !elements.borrow().is_empty(),
-        PyObjectPayload::String { ref value } => !value.is_empty(),
+        // FIXME
+        //PyObjectPayload::String { ref value } => !value.is_empty(),
         PyObjectPayload::None { .. } => false,
         _ => {
             if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {

@@ -2,8 +2,10 @@ use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objtype;
 use crate::format::{FormatParseError, FormatPart, FormatString};
+use crate::function::PyRef;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    OptArg, PyContext, PyFuncArgs, PyIterable, PyObjectPayload, PyObjectPayload2, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
@@ -15,6 +17,74 @@ extern crate caseless;
 extern crate unicode_segmentation;
 
 use self::unicode_segmentation::UnicodeSegmentation;
+
+#[derive(Clone, Debug)]
+pub struct PyString {
+    // TODO: shouldn't be public
+    pub value: String,
+}
+
+impl PyString {
+    pub fn endswith(
+        zelf: PyRef<Self>,
+        suffix: PyRef<Self>,
+        start: OptArg<usize>,
+        end: OptArg<usize>,
+        _vm: &mut VirtualMachine,
+    ) -> bool {
+        let start = start.unwrap_or(0);
+        let end = end.unwrap_or(zelf.value.len());
+        zelf.value[start..end].ends_with(&suffix.value)
+    }
+
+    pub fn startswith(
+        zelf: PyRef<Self>,
+        prefix: PyRef<Self>,
+        start: OptArg<usize>,
+        end: OptArg<usize>,
+        _vm: &mut VirtualMachine,
+    ) -> bool {
+        let start = start.unwrap_or(0);
+        let end = end.unwrap_or(zelf.value.len());
+        zelf.value[start..end].starts_with(&prefix.value)
+    }
+
+    fn upper(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> PyString {
+        PyString {
+            value: zelf.value.to_uppercase(),
+        }
+    }
+
+    fn lower(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> PyString {
+        PyString {
+            value: zelf.value.to_lowercase(),
+        }
+    }
+
+    fn join(
+        zelf: PyRef<Self>,
+        iterable: PyIterable<PyRef<Self>>,
+        vm: &mut VirtualMachine,
+    ) -> PyResult<PyString> {
+        let mut joined = String::new();
+
+        for (idx, elem) in iterable.iter(vm)?.enumerate() {
+            let elem = elem?;
+            if idx != 0 {
+                joined.push_str(&zelf.value);
+            }
+            joined.push_str(&elem.value)
+        }
+
+        Ok(PyString { value: joined })
+    }
+}
+
+impl PyObjectPayload2 for PyString {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.str_type()
+    }
+}
 
 pub fn init(context: &PyContext) {
     let str_type = &context.str_type;
@@ -37,9 +107,9 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "__str__", context.new_rustfunc(str_str));
     context.set_attr(&str_type, "__repr__", context.new_rustfunc(str_repr));
     context.set_attr(&str_type, "format", context.new_rustfunc(str_format));
-    context.set_attr(&str_type, "lower", context.new_rustfunc(str_lower));
+    context.set_attr(&str_type, "lower", context.new_rustfunc(PyString::lower));
     context.set_attr(&str_type, "casefold", context.new_rustfunc(str_casefold));
-    context.set_attr(&str_type, "upper", context.new_rustfunc(str_upper));
+    context.set_attr(&str_type, "upper", context.new_rustfunc(PyString::upper));
     context.set_attr(
         &str_type,
         "capitalize",
@@ -50,11 +120,15 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "strip", context.new_rustfunc(str_strip));
     context.set_attr(&str_type, "lstrip", context.new_rustfunc(str_lstrip));
     context.set_attr(&str_type, "rstrip", context.new_rustfunc(str_rstrip));
-    context.set_attr(&str_type, "endswith", context.new_rustfunc(str_endswith));
+    context.set_attr(
+        &str_type,
+        "endswith",
+        context.new_rustfunc(PyString::endswith),
+    );
     context.set_attr(
         &str_type,
         "startswith",
-        context.new_rustfunc(str_startswith),
+        context.new_rustfunc(PyString::startswith),
     );
     context.set_attr(&str_type, "isalnum", context.new_rustfunc(str_isalnum));
     context.set_attr(&str_type, "isnumeric", context.new_rustfunc(str_isnumeric));
@@ -74,7 +148,7 @@ pub fn init(context: &PyContext) {
         "splitlines",
         context.new_rustfunc(str_splitlines),
     );
-    context.set_attr(&str_type, "join", context.new_rustfunc(str_join));
+    context.set_attr(&str_type, "join", context.new_rustfunc(PyString::join));
     context.set_attr(&str_type, "find", context.new_rustfunc(str_find));
     context.set_attr(&str_type, "rfind", context.new_rustfunc(str_rfind));
     context.set_attr(&str_type, "index", context.new_rustfunc(str_index));
@@ -103,19 +177,11 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
-    if let PyObjectPayload::String { value } = &obj.payload {
-        value.to_string()
-    } else {
-        panic!("Inner error getting str");
-    }
+    obj.payload::<PyString>().unwrap().value.clone()
 }
 
 pub fn borrow_value(obj: &PyObjectRef) -> &str {
-    if let PyObjectPayload::String { value } = &obj.payload {
-        value.as_str()
-    } else {
-        panic!("Inner error getting str");
-    }
+    &obj.payload::<PyString>().unwrap().value
 }
 
 fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -377,18 +443,6 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn str_upper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let value = get_value(&s).to_uppercase();
-    Ok(vm.ctx.new_str(value))
-}
-
-fn str_lower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let value = get_value(&s).to_lowercase();
-    Ok(vm.ctx.new_str(value))
-}
-
 fn str_capitalize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s);
@@ -465,17 +519,6 @@ fn str_rstrip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
     let value = get_value(&s).trim_end().to_string();
     Ok(vm.ctx.new_str(value))
-}
-
-fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (pat, Some(vm.ctx.str_type()))]
-    );
-    let value = get_value(&s);
-    let pat = get_value(&pat);
-    Ok(vm.ctx.new_bool(value.ends_with(pat.as_str())))
 }
 
 fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -555,22 +598,6 @@ fn str_zfill(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         format!("{}{}", "0".repeat(len - value.len()), value)
     };
     Ok(vm.ctx.new_str(new_str))
-}
-
-fn str_join(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (iterable, None)]
-    );
-    let value = get_value(&s);
-    let elements: Vec<String> = vm
-        .extract_elements(iterable)?
-        .iter()
-        .map(|w| get_value(&w))
-        .collect();
-    let joined = elements.join(&value);
-    Ok(vm.ctx.new_str(joined))
 }
 
 fn str_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -860,17 +887,6 @@ fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         rep_char.repeat(right_buff)
     );
     Ok(vm.ctx.new_str(new_str))
-}
-
-fn str_startswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (pat, Some(vm.ctx.str_type()))]
-    );
-    let value = get_value(&s);
-    let pat = get_value(&pat);
-    Ok(vm.ctx.new_bool(value.starts_with(pat.as_str())))
 }
 
 fn str_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

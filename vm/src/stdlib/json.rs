@@ -167,8 +167,9 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         // than wrapping the given object up and then unwrapping it to determine whether or
         // not it is a string
         while let Some((key_obj, value)) = access.next_entry_seed(self.clone(), self.clone())? {
-            let key = match key_obj.payload {
-                PyObjectPayload::String { ref value } => value.clone(),
+            let key: String = match key_obj.payload {
+                // FIXME
+                // PyObjectPayload::String { ref value } => value.clone(),
                 _ => unimplemented!("map keys must be strings"),
             };
             self.vm.ctx.set_item(&dict, &key, value);

@@ -480,7 +480,12 @@ impl PyContext {
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::String { value: s }, self.str_type())
+        PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(objstr::PyString { value: s }),
+            },
+            self.str_type(),
+        )
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
@@ -1251,9 +1256,6 @@ py_native_func_factory_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum PyObjectPayload {
-    String {
-        value: String,
-    },
     Integer {
         value: BigInt,
     },
@@ -1357,7 +1359,6 @@ pub enum PyObjectPayload {
 impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PyObjectPayload::String { ref value } => write!(f, "str \"{}\"", value),
             PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
             PyObjectPayload::Float { ref value } => write!(f, "float {}", value),
             PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
