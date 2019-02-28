@@ -60,7 +60,7 @@ fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(real, None), (imag, None)]
     );
 
-    if !objtype::real_issubclass(cls, &vm.ctx.complex_type()) {
+    if !objtype::issubclass(cls, &vm.ctx.complex_type()) {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of complex", cls)));
     }
 
@@ -109,9 +109,9 @@ fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let v1 = get_value(i);
-    if objtype::real_isinstance(i2, &vm.ctx.complex_type()) {
+    if objtype::isinstance(i2, &vm.ctx.complex_type()) {
         Ok(vm.ctx.new_complex(v1 + get_value(i2)))
-    } else if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
+    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_complex(Complex64::new(
             v1.re + objint::get_value(i2).to_f64().unwrap(),
             v1.im,
@@ -130,7 +130,7 @@ fn complex_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let v1 = get_value(i);
 
-    if objtype::real_isinstance(i2, &vm.ctx.int_type()) {
+    if objtype::isinstance(i2, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_complex(Complex64::new(
             v1.re + objint::get_value(i2).to_f64().unwrap(),
             v1.im,
@@ -156,14 +156,14 @@ fn complex_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let z = get_value(zelf);
 
-    let result = if objtype::real_isinstance(other, &vm.ctx.complex_type()) {
+    let result = if objtype::isinstance(other, &vm.ctx.complex_type()) {
         z == get_value(other)
-    } else if objtype::real_isinstance(other, &vm.ctx.int_type()) {
+    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
         match objint::get_value(other).to_f64() {
             Some(f) => z.im == 0.0f64 && z.re == f,
             None => false,
         }
-    } else if objtype::real_isinstance(other, &vm.ctx.float_type()) {
+    } else if objtype::isinstance(other, &vm.ctx.float_type()) {
         z.im == 0.0 && z.re == objfloat::get_value(other)
     } else {
         return Ok(vm.ctx.not_implemented());

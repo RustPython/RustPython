@@ -42,23 +42,23 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 }
                 seq.end()
             };
-        if objtype::real_isinstance(self.pyobject, &self.vm.ctx.str_type()) {
+        if objtype::isinstance(self.pyobject, &self.vm.ctx.str_type()) {
             serializer.serialize_str(&objstr::get_value(&self.pyobject))
-        } else if objtype::real_isinstance(self.pyobject, &self.vm.ctx.float_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.float_type()) {
             serializer.serialize_f64(objfloat::get_value(self.pyobject))
-        } else if objtype::real_isinstance(self.pyobject, &self.vm.ctx.bool_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.bool_type()) {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
-        } else if objtype::real_isinstance(self.pyobject, &self.vm.ctx.int_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.int_type()) {
             let v = objint::get_value(self.pyobject);
             serializer.serialize_i64(v.to_i64().unwrap())
         // Although this may seem nice, it does not give the right result:
         // v.serialize(serializer)
-        } else if objtype::real_isinstance(self.pyobject, &self.vm.ctx.list_type())
-            || objtype::real_isinstance(self.pyobject, &self.vm.ctx.tuple_type())
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.list_type())
+            || objtype::isinstance(self.pyobject, &self.vm.ctx.tuple_type())
         {
             let elements = objsequence::get_elements(self.pyobject);
             serialize_seq_elements(serializer, &elements)
-        } else if objtype::real_isinstance(self.pyobject, &self.vm.ctx.dict_type()) {
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.dict_type()) {
             let pairs = objdict::get_elements(self.pyobject);
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
             for (key, e) in pairs.iter() {

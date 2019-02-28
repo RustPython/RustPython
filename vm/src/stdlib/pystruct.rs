@@ -71,7 +71,7 @@ fn pack_bool(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    if objtype::real_isinstance(&arg, &vm.ctx.bool_type()) {
+    if objtype::isinstance(&arg, &vm.ctx.bool_type()) {
         let v = if objbool::get_value(arg) { 1 } else { 0 };
         data.write_u8(v).unwrap();
         Ok(())
@@ -145,7 +145,7 @@ fn pack_f32(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    if objtype::real_isinstance(&arg, &vm.ctx.float_type()) {
+    if objtype::isinstance(&arg, &vm.ctx.float_type()) {
         let v = objfloat::get_value(arg) as f32;
         data.write_f32::<LittleEndian>(v).unwrap();
         Ok(())
@@ -159,7 +159,7 @@ fn pack_f64(
     arg: &PyObjectRef,
     data: &mut Write,
 ) -> Result<(), PyObjectRef> {
-    if objtype::real_isinstance(&arg, &vm.ctx.float_type()) {
+    if objtype::isinstance(&arg, &vm.ctx.float_type()) {
         let v = objfloat::get_value(arg) as f64;
         data.write_f64::<LittleEndian>(v).unwrap();
         Ok(())
@@ -176,7 +176,7 @@ fn struct_pack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         )))
     } else {
         let fmt_arg = args.args[0].clone();
-        if objtype::real_isinstance(&fmt_arg, &vm.ctx.str_type()) {
+        if objtype::isinstance(&fmt_arg, &vm.ctx.str_type()) {
             let fmt_str = objstr::get_value(&fmt_arg);
 
             let codes = parse_format_string(fmt_str);

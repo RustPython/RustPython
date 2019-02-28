@@ -142,7 +142,7 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let dict = vm.ctx.new_dict();
     if let Some(dict_obj) = dict_obj {
-        if objtype::real_isinstance(&dict_obj, &vm.ctx.dict_type()) {
+        if objtype::isinstance(&dict_obj, &vm.ctx.dict_type()) {
             for (needle, value) in get_key_value_pairs(&dict_obj) {
                 set_item(&dict, vm, &needle, &value);
             }

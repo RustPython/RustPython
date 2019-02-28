@@ -56,7 +56,7 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     // Check type argument:
-    if !objtype::real_isinstance(&py_type, &vm.get_type()) {
+    if !objtype::isinstance(&py_type, &vm.get_type()) {
         let type_name = objtype::get_type_name(&py_type.typ());
         return Err(vm.new_type_error(format!(
             "super() argument 1 must be type, not {}",
@@ -72,7 +72,7 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     // Check obj type:
-    if !(objtype::isinstance(vm, &py_obj, &py_type)? || objtype::issubclass(vm, &py_obj, &py_type)?)
+    if !(objtype::real_isinstance(vm, &py_obj, &py_type)? || objtype::real_issubclass(vm, &py_obj, &py_type)?)
     {
         return Err(vm.new_type_error(
             "super(type, obj): obj must be an instance or subtype of type".to_string(),

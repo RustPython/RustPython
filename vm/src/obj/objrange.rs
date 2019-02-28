@@ -361,7 +361,7 @@ fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn range_contains(vm: &mut VirtualMachine, zelf: PyRange, needle: PyObjectRef) -> bool {
-    if objtype::real_isinstance(&needle, &vm.ctx.int_type()) {
+    if objtype::isinstance(&needle, &vm.ctx.int_type()) {
         zelf.contains(&objint::get_value(&needle))
     } else {
         false
@@ -377,7 +377,7 @@ fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let range = get_value(zelf);
 
-    if objtype::real_isinstance(needle, &vm.ctx.int_type()) {
+    if objtype::isinstance(needle, &vm.ctx.int_type()) {
         let needle = objint::get_value(needle);
 
         match range.index_of(&needle) {
@@ -398,7 +398,7 @@ fn range_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let range = get_value(zelf);
 
-    if objtype::real_isinstance(item, &vm.ctx.int_type()) {
+    if objtype::isinstance(item, &vm.ctx.int_type()) {
         Ok(vm.ctx.new_int(range.count(&objint::get_value(item))))
     } else {
         Ok(vm.ctx.new_int(0))

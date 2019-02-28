@@ -17,7 +17,7 @@ pub fn js_py_typeerror(vm: &mut VirtualMachine, js_err: JsValue) -> PyObjectRef 
 
 pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     if let Some(ref wasm_id) = vm.wasm_id {
-        if objtype::real_isinstance(&py_obj, &vm.ctx.function_type()) {
+        if objtype::isinstance(&py_obj, &vm.ctx.function_type()) {
             let wasm_vm = WASMVirtualMachine {
                 id: wasm_id.clone(),
             };
@@ -62,8 +62,8 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             return func;
         }
     }
-    if objtype::real_isinstance(&py_obj, &vm.ctx.bytes_type())
-        || objtype::real_isinstance(&py_obj, &vm.ctx.bytearray_type())
+    if objtype::isinstance(&py_obj, &vm.ctx.bytes_type())
+        || objtype::isinstance(&py_obj, &vm.ctx.bytearray_type())
     {
         let bytes = objbytes::get_value(&py_obj);
         let arr = Uint8Array::new_with_length(bytes.len() as u32);

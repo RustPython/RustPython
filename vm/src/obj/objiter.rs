@@ -39,7 +39,7 @@ pub fn get_next_object(
         Ok(value) => Ok(Some(value)),
         Err(next_error) => {
             // Check if we have stopiteration, or something else:
-            if objtype::real_isinstance(&next_error, &vm.ctx.exceptions.stop_iteration) {
+            if objtype::isinstance(&next_error, &vm.ctx.exceptions.stop_iteration) {
                 Ok(None)
             } else {
                 Err(next_error)

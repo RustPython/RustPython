@@ -105,7 +105,7 @@ impl Frame {
                 Err(exception) => {
                     // unwind block stack on exception and find any handlers.
                     // Add an entry in the traceback:
-                    assert!(objtype::real_isinstance(
+                    assert!(objtype::isinstance(
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
                     ));
@@ -514,7 +514,7 @@ impl Frame {
                     0 | 2 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                if objtype::real_isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
+                if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);
                     Err(exception)
                 } else {

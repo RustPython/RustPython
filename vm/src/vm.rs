@@ -488,8 +488,8 @@ impl VirtualMachine {
         value: &PyObjectRef,
     ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
         // Extract elements from item, if possible:
-        let elements = if objtype::real_isinstance(value, &self.ctx.tuple_type())
-            || objtype::real_isinstance(value, &self.ctx.list_type())
+        let elements = if objtype::isinstance(value, &self.ctx.tuple_type())
+            || objtype::isinstance(value, &self.ctx.list_type())
         {
             objsequence::get_elements(value).to_vec()
         } else {

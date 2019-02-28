@@ -50,7 +50,7 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
 }
 
 pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
-    if objtype::real_isinstance(obj, &vm.ctx.bool_type()) {
+    if objtype::isinstance(obj, &vm.ctx.bool_type()) {
         let value = get_value(obj);
         Ok(vm.ctx.new_bool(!value))
     } else {

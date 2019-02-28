@@ -101,14 +101,16 @@ pub fn base_classes(obj: &PyObjectRef) -> Vec<PyObjectRef> {
     _mro(obj.typ()).unwrap()
 }
 
-/// Determines if obj actually an instance of cls, this doesn't call __instancecheck__, so only use
-/// this if cls is known to have not overridden the base __instancecheck__ magic method.
-pub fn real_isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
+/// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
+/// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
+pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let mro = _mro(obj.typ()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
 
-pub fn isinstance(vm: &mut VirtualMachine, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+/// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via the
+/// __instancecheck__ magic method.
+pub fn real_isinstance(vm: &mut VirtualMachine, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
     // cpython first does an exact check on the type, although documentation doesn't state that
     // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
     if Rc::ptr_eq(&obj.typ(), cls) {
@@ -125,15 +127,20 @@ fn type_instance_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(typ, Some(vm.ctx.type_type())), (obj, None)]
     );
-    Ok(vm.new_bool(real_isinstance(obj, typ)))
+    Ok(vm.new_bool(isinstance(obj, typ)))
 }
 
-pub fn real_issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
+/// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
+/// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
+/// method.
+pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let mro = _mro(subclass.clone()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
 
-pub fn issubclass(
+/// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually via
+/// the __subclasscheck__ magic method.
+pub fn real_issubclass(
     vm: &mut VirtualMachine,
     subclass: &PyObjectRef,
     cls: &PyObjectRef,
@@ -151,7 +158,7 @@ fn type_subclass_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (subclass, Some(vm.ctx.type_type()))
         ]
     );
-    Ok(vm.new_bool(real_issubclass(subclass, cls)))
+    Ok(vm.new_bool(issubclass(subclass, cls)))
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
