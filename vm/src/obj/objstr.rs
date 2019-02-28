@@ -3,7 +3,7 @@ use super::objsequence::PySliceableSequence;
 use super::objtype;
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::pyobject::{
-    FromPyObject, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
@@ -15,16 +15,6 @@ extern crate caseless;
 extern crate unicode_segmentation;
 
 use self::unicode_segmentation::UnicodeSegmentation;
-
-impl FromPyObject for String {
-    fn typ(ctx: &PyContext) -> Option<PyObjectRef> {
-        Some(ctx.str_type())
-    }
-
-    fn from_pyobject(obj: PyObjectRef) -> PyResult<Self> {
-        Ok(get_value(&obj))
-    }
-}
 
 pub fn init(context: &PyContext) {
     let str_type = &context.str_type;
@@ -477,8 +467,15 @@ fn str_rstrip(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_str(value))
 }
 
-fn str_endswith(_vm: &mut VirtualMachine, zelf: String, suffix: String) -> bool {
-    zelf.ends_with(&suffix)
+fn str_endswith(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(s, Some(vm.ctx.str_type())), (pat, Some(vm.ctx.str_type()))]
+    );
+    let value = get_value(&s);
+    let pat = get_value(&pat);
+    Ok(vm.ctx.new_bool(value.ends_with(pat.as_str())))
 }
 
 fn str_isidentifier(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

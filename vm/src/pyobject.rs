@@ -1,3 +1,9 @@
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::fmt;
+use std::iter;
+use std::rc::{Rc, Weak};
+
 use crate::bytecode;
 use crate::exceptions;
 use crate::frame::Frame;
@@ -35,10 +41,6 @@ use num_bigint::BigInt;
 use num_bigint::ToBigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
-use std::fmt;
-use std::rc::{Rc, Weak};
 
 /* Python objects and references.
 
@@ -575,7 +577,7 @@ impl PyContext {
     {
         PyObject::new(
             PyObjectPayload::RustFunction {
-                function: factory.create(self),
+                function: factory.create(),
             },
             self.builtin_function_or_method_type(),
         )
@@ -957,22 +959,189 @@ impl PyFuncArgs {
             None => Ok(None),
         }
     }
-}
 
-pub trait FromPyObject: Sized {
-    fn typ(ctx: &PyContext) -> Option<PyObjectRef>;
-
-    fn from_pyobject(obj: PyObjectRef) -> PyResult<Self>;
-}
-
-impl FromPyObject for PyObjectRef {
-    fn typ(_ctx: &PyContext) -> Option<PyObjectRef> {
-        None
+    fn into_iter(self) -> impl Iterator<Item = PyArg> {
+        self.args.into_iter().map(PyArg::Positional).chain(
+            self.kwargs
+                .into_iter()
+                .map(|(name, value)| PyArg::Keyword(name, value)),
+        )
     }
 
-    fn from_pyobject(obj: PyObjectRef) -> PyResult<Self> {
+    fn bind<T: FromArgs>(self, vm: &mut VirtualMachine) -> PyResult<T> {
+        let mut args = self.into_iter().peekable();
+        let bound = T::from_args(vm, &mut args)?;
+
+        if args.next().is_none() {
+            Ok(bound)
+        } else {
+            Err(vm.new_type_error("too many args".to_string())) // TODO: improve error message
+        }
+    }
+}
+
+pub trait FromArgs: Sized {
+    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    where
+        I: Iterator<Item = PyArg>;
+}
+
+pub struct PyIterable<T> {
+    obj: PyObjectRef,
+    method: PyObjectRef,
+    _item: std::marker::PhantomData<T>,
+}
+
+impl<T> PyIterable<T> {
+    pub fn iter<'a>(&self, vm: &'a mut VirtualMachine) -> PyResult<PyIterator<'a, T>> {
+        let iter_obj = vm.invoke(
+            self.method.clone(),
+            PyFuncArgs {
+                args: vec![],
+                kwargs: vec![],
+            },
+        )?;
+
+        Ok(PyIterator {
+            vm,
+            obj: iter_obj,
+            _item: std::marker::PhantomData,
+        })
+    }
+}
+
+pub struct PyIterator<'a, T> {
+    vm: &'a mut VirtualMachine,
+    obj: PyObjectRef,
+    _item: std::marker::PhantomData<T>,
+}
+
+impl<'a, T> Iterator for PyIterator<'a, T>
+where
+    T: TryFromObject,
+{
+    type Item = PyResult<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.vm.call_method(&self.obj, "__next__", vec![]) {
+            Ok(value) => Some(T::try_from_object(self.vm, value)),
+            Err(ref err) if objtype::isinstance(err, &self.vm.ctx.exceptions.stop_iteration) => {
+                None
+            }
+            Err(err) => Some(Err(err)),
+        }
+    }
+}
+
+impl<T> TryFromObject for PyIterable<T>
+where
+    T: TryFromObject,
+{
+    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Ok(PyIterable {
+            obj: obj.clone(),
+            method: vm.get_method(obj, "__iter__")?,
+            _item: std::marker::PhantomData,
+        })
+    }
+}
+
+impl TryFromObject for PyObjectRef {
+    fn try_from_object(_vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Ok(obj)
     }
+}
+
+pub struct KwArgs<T>(HashMap<String, T>);
+
+impl<T> FromArgs for KwArgs<T>
+where
+    T: TryFromObject,
+{
+    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    where
+        I: Iterator<Item = PyArg>,
+    {
+        let mut kwargs = HashMap::new();
+        while let Some(PyArg::Keyword(name, value)) = args.next() {
+            kwargs.insert(name, T::try_from_object(vm, value)?);
+        }
+        Ok(KwArgs(kwargs))
+    }
+}
+
+pub struct Args<T>(Vec<T>);
+
+impl<T> FromArgs for Args<T>
+where
+    T: TryFromObject,
+{
+    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    where
+        I: Iterator<Item = PyArg>,
+    {
+        let mut varargs = Vec::new();
+        while let Some(PyArg::Positional(value)) = args.next() {
+            varargs.push(T::try_from_object(vm, value)?);
+        }
+        Ok(Args(varargs))
+    }
+}
+
+impl<T> FromArgs for T
+where
+    T: TryFromObject,
+{
+    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    where
+        I: Iterator<Item = PyArg>,
+    {
+        if let Some(PyArg::Positional(value)) = args.next() {
+            Ok(T::try_from_object(vm, value)?)
+        } else {
+            Err(vm.new_type_error("not enough args".to_string())) // TODO: improve error message
+        }
+    }
+}
+
+pub struct OptArg<T>(Option<T>);
+
+impl<T> std::ops::Deref for OptArg<T> {
+    type Target = Option<T>;
+
+    fn deref(&self) -> &Option<T> {
+        &self.0
+    }
+}
+
+impl<T> FromArgs for OptArg<T>
+where
+    T: TryFromObject,
+{
+    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    where
+        I: Iterator<Item = PyArg>,
+    {
+        Ok(OptArg(if let Some(PyArg::Positional(_)) = args.peek() {
+            let value = if let Some(PyArg::Positional(value)) = args.next() {
+                value
+            } else {
+                unreachable!()
+            };
+            Some(T::try_from_object(vm, value)?)
+        } else {
+            None
+        }))
+    }
+}
+
+pub enum PyArg {
+    Positional(PyObjectRef),
+    Keyword(String, PyObjectRef),
+}
+
+pub trait TryFromObject: Sized {
+    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
 pub trait IntoPyObject {
@@ -985,30 +1154,46 @@ impl IntoPyObject for PyObjectRef {
     }
 }
 
-impl IntoPyObject for PyResult {
-    fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
-        self
+impl<T> IntoPyObject for PyResult<T>
+where
+    T: IntoPyObject,
+{
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        self.and_then(|res| T::into_pyobject(res, ctx))
     }
 }
 
-pub trait FromPyFuncArgs: Sized {
-    fn required_params(ctx: &PyContext) -> Vec<Parameter>;
+impl IntoPyObject for () {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        Ok(ctx.none())
+    }
+}
 
-    fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self>;
+impl<T> IntoPyObject for T
+where
+    T: PyObjectPayload2 + Sized,
+{
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        Ok(PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(self),
+            },
+            T::required_type(ctx),
+        ))
+    }
 }
 
 macro_rules! tuple_from_py_func_args {
     ($($T:ident),+) => {
-        impl<$($T),+> FromPyFuncArgs for ($($T,)+)
+        impl<$($T),+> FromArgs for ($($T,)+)
         where
-            $($T: FromPyFuncArgs),+
+            $($T: FromArgs),+
         {
-            fn required_params(ctx: &PyContext) -> Vec<Parameter> {
-                vec![$($T::required_params(ctx),)+].into_iter().flatten().collect()
-            }
-
-            fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self> {
-                Ok(($($T::from_py_func_args(args)?,)+))
+            fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+            where
+                I: Iterator<Item = PyArg>
+            {
+                Ok(($($T::from_args(vm, args)?,)+))
             }
         }
     };
@@ -1020,141 +1205,46 @@ tuple_from_py_func_args!(A, B, C);
 tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 
-impl<T> FromPyFuncArgs for T
-where
-    T: FromPyObject,
-{
-    fn required_params(ctx: &PyContext) -> Vec<Parameter> {
-        vec![Parameter {
-            kind: PositionalOnly,
-            typ: T::typ(ctx),
-        }]
-    }
-
-    fn from_py_func_args(args: &mut PyFuncArgs) -> PyResult<Self> {
-        Self::from_pyobject(args.shift())
-    }
-}
-
 pub type PyNativeFunc = Box<dyn Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>;
 
 pub trait PyNativeFuncFactory<T, R> {
-    fn create(self, ctx: &PyContext) -> PyNativeFunc;
+    fn create(self) -> PyNativeFunc;
 }
 
 impl<F> PyNativeFuncFactory<PyFuncArgs, PyResult> for F
 where
     F: Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult + 'static,
 {
-    fn create(self, _ctx: &PyContext) -> PyNativeFunc {
+    fn create(self) -> PyNativeFunc {
         Box::new(self)
     }
 }
 
-macro_rules! tuple_py_native_func_factory {
-    ($($T:ident),+) => {
+macro_rules! py_native_func_factory_tuple {
+    ($(($n:tt, $T:ident)),+) => {
         impl<F, $($T,)+ R> PyNativeFuncFactory<($($T,)+), R> for F
         where
-            F: Fn(&mut VirtualMachine, $($T),+) -> R + 'static,
-            $($T: FromPyFuncArgs,)+
+            F: Fn($($T,)+ &mut VirtualMachine) -> R + 'static,
+            $($T: FromArgs,)+
+            ($($T,)+): FromArgs,
             R: IntoPyObject,
         {
-            fn create(self, ctx: &PyContext) -> PyNativeFunc {
-                let parameters = vec![$($T::required_params(ctx)),+]
-                    .into_iter()
-                    .flatten()
-                    .collect();
-                let signature = Signature::new(parameters);
+            fn create(self) -> PyNativeFunc {
+                Box::new(move |vm, args| {
+                    let ($($n,)+) = args.bind::<($($T,)+)>(vm)?;
 
-                Box::new(move |vm, mut args| {
-                    signature.check(vm, &mut args)?;
-
-                    (self)(vm, $($T::from_py_func_args(&mut args)?,)+)
-                        .into_pyobject(&vm.ctx)
+                    (self)($($n,)+ vm).into_pyobject(&vm.ctx)
                 })
             }
         }
     };
 }
 
-tuple_py_native_func_factory!(A);
-tuple_py_native_func_factory!(A, B);
-tuple_py_native_func_factory!(A, B, C);
-tuple_py_native_func_factory!(A, B, C, D);
-tuple_py_native_func_factory!(A, B, C, D, E);
-
-#[derive(Debug)]
-pub struct Signature {
-    positional_params: Vec<Parameter>,
-    keyword_params: HashMap<String, Parameter>,
-}
-
-impl Signature {
-    fn new(params: Vec<Parameter>) -> Self {
-        let mut positional_params = Vec::new();
-        let mut keyword_params = HashMap::new();
-        for param in params {
-            match param.kind {
-                PositionalOnly => {
-                    positional_params.push(param);
-                }
-                KeywordOnly { ref name } => {
-                    keyword_params.insert(name.clone(), param);
-                }
-            }
-        }
-
-        Self {
-            positional_params,
-            keyword_params,
-        }
-    }
-
-    fn arg_type(&self, pos: usize) -> Option<&PyObjectRef> {
-        self.positional_params[pos].typ.as_ref()
-    }
-
-    #[allow(unused)]
-    fn kwarg_type(&self, name: &str) -> Option<&PyObjectRef> {
-        self.keyword_params[name].typ.as_ref()
-    }
-
-    fn check(&self, vm: &mut VirtualMachine, args: &PyFuncArgs) -> PyResult<()> {
-        // TODO: check arity
-
-        for (pos, arg) in args.args.iter().enumerate() {
-            if let Some(expected_type) = self.arg_type(pos) {
-                if !objtype::isinstance(arg, expected_type) {
-                    let arg_typ = arg.typ();
-                    let expected_type_name = vm.to_pystr(&expected_type)?;
-                    let actual_type = vm.to_pystr(&arg_typ)?;
-                    return Err(vm.new_type_error(format!(
-                        "argument of type {} is required for parameter {} (got: {})",
-                        expected_type_name,
-                        pos + 1,
-                        actual_type
-                    )));
-                }
-            }
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct Parameter {
-    typ: Option<PyObjectRef>,
-    kind: ParameterKind,
-}
-
-#[derive(Debug)]
-pub enum ParameterKind {
-    PositionalOnly,
-    KeywordOnly { name: String },
-}
-
-use self::ParameterKind::*;
+py_native_func_factory_tuple!((a, A));
+py_native_func_factory_tuple!((a, A), (b, B));
+py_native_func_factory_tuple!((a, A), (b, B), (c, C));
+py_native_func_factory_tuple!((a, A), (b, B), (c, C), (d, D));
+py_native_func_factory_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 
 /// Rather than determining the type of a python object, this enum is more
 /// a holder for the rust payload of a python object. It is more a carrier
@@ -1181,9 +1271,6 @@ pub enum PyObjectPayload {
     },
     Dict {
         elements: RefCell<objdict::DictContentType>,
-    },
-    Set {
-        elements: RefCell<HashMap<u64, PyObjectRef>>,
     },
     Iterator {
         position: Cell<usize>,
@@ -1246,6 +1333,9 @@ pub enum PyObjectPayload {
         name: String,
         dict: RefCell<PyAttributes>,
         mro: Vec<PyObjectRef>,
+    },
+    Set {
+        elements: RefCell<HashMap<u64, PyObjectRef>>,
     },
     WeakRef {
         referent: PyObjectWeakRef,
@@ -1322,6 +1412,20 @@ impl PyObject {
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(self)
     }
+
+    pub fn payload<T: PyObjectPayload2>(&self) -> Option<&T> {
+        if let PyObjectPayload::AnyRustValue { ref value } = self.payload {
+            value.downcast_ref()
+        } else {
+            None
+        }
+    }
+}
+
+// The intention is for this to replace `PyObjectPayload` once everything is
+// converted to use `PyObjectPayload::AnyRustvalue`.
+pub trait PyObjectPayload2: std::any::Any + fmt::Debug {
+    fn required_type(ctx: &PyContext) -> PyObjectRef;
 }
 
 #[cfg(test)]

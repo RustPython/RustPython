@@ -38,6 +38,7 @@ pub mod eval;
 mod exceptions;
 pub mod format;
 mod frame;
+pub mod function;
 pub mod import;
 pub mod obj;
 pub mod pyobject;
