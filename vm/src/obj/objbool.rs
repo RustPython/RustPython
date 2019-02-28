@@ -1,3 +1,4 @@
+use super::objstr::PyString;
 use super::objtype;
 use crate::pyobject::{
     IntoPyObject, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
@@ -12,13 +13,14 @@ impl IntoPyObject for bool {
 }
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
+    if let Some(s) = obj.payload::<PyString>() {
+        return Ok(!s.value.is_empty());
+    }
     let result = match obj.payload {
         PyObjectPayload::Integer { ref value } => !value.is_zero(),
         PyObjectPayload::Float { value } => value != 0.0,
         PyObjectPayload::Sequence { ref elements } => !elements.borrow().is_empty(),
         PyObjectPayload::Dict { ref elements } => !elements.borrow().is_empty(),
-        // FIXME
-        //PyObjectPayload::String { ref value } => !value.is_empty(),
         PyObjectPayload::None { .. } => false,
         _ => {
             if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
