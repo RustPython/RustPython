@@ -141,10 +141,8 @@ impl Frame {
         value
     }
 
-    pub fn fetch_instruction(&self) -> bytecode::Instruction {
-        // TODO: an immutable reference is enough, we should not
-        // clone the instruction.
-        let ins2 = self.code.instructions[*self.lasti.borrow()].clone();
+    pub fn fetch_instruction(&self) -> &bytecode::Instruction {
+        let ins2 = &self.code.instructions[*self.lasti.borrow()];
         *self.lasti.borrow_mut() += 1;
         ins2
     }
