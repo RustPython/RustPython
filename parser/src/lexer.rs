@@ -55,6 +55,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
 pub enum LexicalError {
     StringError,
     NestingError,
+    UnrecognizedToken { tok: char },
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -687,7 +688,9 @@ where
 
             match self.chr0 {
                 Some('0'..='9') => return Some(self.lex_number()),
-                Some('_') | Some('a'..='z') | Some('A'..='Z') => return Some(self.lex_identifier()),
+                Some('_') | Some('a'..='z') | Some('A'..='Z') => {
+                    return Some(self.lex_identifier());
+                }
                 Some('#') => {
                     self.lex_comment();
                     continue;
@@ -1033,7 +1036,7 @@ where
                 None => return None,
                 _ => {
                     let c = self.next_char();
-                    panic!("Not impl {:?}", c)
+                    return Some(Err(LexicalError::UnrecognizedToken { tok: c.unwrap() }));
                 } // Ignore all the rest..
             }
         }

@@ -306,7 +306,9 @@ mod tests {
 
     #[test]
     fn test_parse_class() {
-        let source = String::from("class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass\n");
+        let source = String::from(
+            "class Foo(A, B):\n def __init__(self):\n  pass\n def method_with_default(self, arg='default'):\n  pass\n",
+        );
         assert_eq!(
             parse_statement(&source),
             Ok(ast::LocatedStatement {

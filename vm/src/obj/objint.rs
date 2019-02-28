@@ -68,8 +68,10 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of int", cls)));
     }
 
-    // TODO: extract kwargs:
-    let base = 10;
+    let base = match args.get_optional_kwarg("base") {
+        Some(argument) => get_value(&argument).to_u32().unwrap(),
+        None => 10,
+    };
     let val = match val_option {
         Some(val) => to_int(vm, val, base)?,
         None => Zero::zero(),
@@ -266,8 +268,7 @@ fn int_lshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match get_value(i2) {
         ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
         ref v if *v > BigInt::from(usize::max_value()) => {
-            // TODO: raise OverflowError
-            panic!("Failed converting {} to rust usize", get_value(i2));
+            Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
         }
         _ => panic!("Failed converting {} to rust usize", get_value(i2)),
     }
@@ -296,8 +297,7 @@ fn int_rshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match get_value(i2) {
         ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
         ref v if *v > BigInt::from(usize::max_value()) => {
-            // TODO: raise OverflowError
-            panic!("Failed converting {} to rust usize", get_value(i2));
+            Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
         }
         _ => panic!("Failed converting {} to rust usize", get_value(i2)),
     }

@@ -598,8 +598,13 @@ impl PyContext {
         )
     }
 
-    pub fn new_frame(&self, frame: Frame) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Frame { frame }, self.frame_type())
+    pub fn new_frame(&self, code: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
+        PyObject::new(
+            PyObjectPayload::Frame {
+                frame: Frame::new(code, scope),
+            },
+            self.frame_type(),
+        )
     }
 
     pub fn new_property<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
@@ -840,6 +845,7 @@ pub trait DictProtocol {
     fn contains_key(&self, k: &str) -> bool;
     fn get_item(&self, k: &str) -> Option<PyObjectRef>;
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
+    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef);
 }
 
 impl DictProtocol for PyObjectRef {
@@ -858,8 +864,9 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_get_key_str(&elements.borrow(), k)
             }
+            PyObjectPayload::Module { ref dict, .. } => dict.get_item(k),
             PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_item(k),
-            _ => panic!("TODO"),
+            ref k => panic!("TODO {:?}", k),
         }
     }
 
@@ -870,6 +877,23 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_key_value_pairs(),
             _ => panic!("TODO"),
         }
+    }
+
+    // Item set/get:
+    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
+        match &self.payload {
+            PyObjectPayload::Dict { elements } => {
+                let key = ctx.new_str(key.to_string());
+                objdict::set_item_in_content(&mut elements.borrow_mut(), &key, &v);
+            }
+            PyObjectPayload::Module { dict, .. } => {
+                dict.set_item(ctx, key, v);
+            }
+            PyObjectPayload::Scope { scope, .. } => {
+                scope.borrow().locals.set_item(ctx, key, v);
+            }
+            ref k => panic!("TODO {:?}", k),
+        };
     }
 }
 
@@ -950,7 +974,7 @@ impl PyFuncArgs {
     ) -> Result<Option<PyObjectRef>, PyObjectRef> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if objtype::isinstance(&kwarg, &ty) {
+                if objtype::real_isinstance(vm, &kwarg, &ty)? {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = vm.to_pystr(&ty)?;
@@ -992,7 +1016,6 @@ pub trait FromArgs: Sized {
 }
 
 pub struct PyIterable<T> {
-    obj: PyObjectRef,
     method: PyObjectRef,
     _item: std::marker::PhantomData<T>,
 }
@@ -1030,10 +1053,20 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         match self.vm.call_method(&self.obj, "__next__", vec![]) {
             Ok(value) => Some(T::try_from_object(self.vm, value)),
-            Err(ref err) if objtype::isinstance(err, &self.vm.ctx.exceptions.stop_iteration) => {
-                None
+            Err(err) => {
+                let stop_ex = self.vm.ctx.exceptions.stop_iteration.clone();
+                let stop = match objtype::real_isinstance(self.vm, &err, &stop_ex) {
+                    Ok(stop) => stop,
+                    Err(e) => {
+                        return Some(Err(e));
+                    }
+                };
+                if stop {
+                    None
+                } else {
+                    Some(Err(err))
+                }
             }
-            Err(err) => Some(Err(err)),
         }
     }
 }
@@ -1044,7 +1077,6 @@ where
 {
     fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Ok(PyIterable {
-            obj: obj.clone(),
             method: vm.get_method(obj, "__iter__")?,
             _item: std::marker::PhantomData,
         })
@@ -1316,7 +1348,7 @@ pub enum PyObjectPayload {
         defaults: PyObjectRef,
     },
     Generator {
-        frame: RefCell<Frame>,
+        frame: PyObjectRef,
     },
     BoundMethod {
         function: PyObjectRef,
