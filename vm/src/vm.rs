@@ -107,7 +107,17 @@ impl VirtualMachine {
         self.ctx.new_dict()
     }
 
+    pub fn new_empty_exception(&mut self, exc_type: PyObjectRef) -> PyResult {
+        info!("New exception created: no msg");
+        let args = PyFuncArgs {
+            args: vec![],
+            kwargs: vec![],
+        };
+        self.invoke(exc_type, args)
+    }
+
     pub fn new_exception(&mut self, exc_type: PyObjectRef, msg: String) -> PyObjectRef {
+        // TODO: exc_type may be user-defined exception, so we should return PyResult
         // TODO: maybe there is a clearer way to create an instance:
         info!("New exception created: {}", msg);
         let pymsg = self.new_str(msg);
