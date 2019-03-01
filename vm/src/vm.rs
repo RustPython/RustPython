@@ -14,6 +14,7 @@ use std::sync::{Mutex, MutexGuard};
 use crate::builtins;
 use crate::bytecode;
 use crate::frame::ExecutionResult;
+use crate::frame::{Scope, ScopeRef};
 use crate::obj::objbool;
 use crate::obj::objcode;
 use crate::obj::objframe;
@@ -24,7 +25,7 @@ use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload,
-    PyObjectRef, PyResult, Scope, ScopeRef, TypeProtocol,
+    PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::stdlib;
 use crate::sysmodule;

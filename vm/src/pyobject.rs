@@ -1,6 +1,6 @@
 use crate::bytecode;
 use crate::exceptions;
-use crate::frame::Frame;
+use crate::frame::{Frame, Scope, ScopeRef};
 use crate::obj::objbool;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
@@ -146,18 +146,6 @@ pub struct PyContext {
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
-
-/*
- * So a scope is a linked list of scopes.
- * When a name is looked up, it is check in its scope.
- */
-#[derive(Debug)]
-pub struct Scope {
-    pub locals: PyObjectRef, // Variables
-    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
-    pub parent: Option<Rc<Scope>>, // Parent scope
-}
-pub type ScopeRef = Rc<Scope>;
 
 fn _nothing() -> PyObjectRef {
     PyObject {

@@ -14,9 +14,9 @@ use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objtype;
 
+use crate::frame::{Scope, ScopeRef};
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, Scope, ScopeRef,
-    TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 use std::rc::Rc;
 

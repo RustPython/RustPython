@@ -17,10 +17,23 @@ use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
     DictProtocol, IdProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    ScopeRef, TypeProtocol,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
+use std::rc::Rc;
+
+/*
+ * So a scope is a linked list of scopes.
+ * When a name is looked up, it is check in its scope.
+ */
+#[derive(Debug)]
+pub struct Scope {
+    pub locals: PyObjectRef, // Variables
+    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
+    pub parent: Option<Rc<Scope>>, // Parent scope
+}
+pub type ScopeRef = Rc<Scope>;
 
 #[derive(Clone, Debug)]
 struct Block {

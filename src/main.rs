@@ -12,10 +12,11 @@ use rustpython_parser::error::ParseError;
 use rustpython_vm::{
     compile,
     error::CompileError,
+    frame::ScopeRef,
     import,
     obj::objstr,
     print_exception,
-    pyobject::{AttributeProtocol, PyResult, ScopeRef},
+    pyobject::{AttributeProtocol, PyResult},
     util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};

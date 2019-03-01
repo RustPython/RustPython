@@ -4,7 +4,8 @@ use crate::wasm_builtins;
 use js_sys::{Object, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
-    pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, ScopeRef},
+    frame::ScopeRef,
+    pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult},
     VirtualMachine,
 };
 use std::cell::RefCell;
