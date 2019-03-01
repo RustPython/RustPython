@@ -159,7 +159,6 @@ pub enum Instruction {
     },
     PrintExpr,
     LoadBuildClass,
-    StoreLocals,
     UnpackSequence {
         size: usize,
     },
@@ -358,7 +357,6 @@ impl Instruction {
             MapAdd { i } => w!(MapAdd, i),
             PrintExpr => w!(PrintExpr),
             LoadBuildClass => w!(LoadBuildClass),
-            StoreLocals => w!(StoreLocals),
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { before, after } => w!(UnpackEx, before, after),
             Unpack => w!(Unpack),

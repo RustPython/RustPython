@@ -4,7 +4,7 @@ use crate::wasm_builtins;
 use js_sys::{Object, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
-    pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult},
+    pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, ScopeRef},
     VirtualMachine,
 };
 use std::cell::RefCell;
@@ -14,7 +14,7 @@ use wasm_bindgen::prelude::*;
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
-    pub scope: PyObjectRef,
+    pub scope: ScopeRef,
 }
 
 impl StoredVirtualMachine {
@@ -235,7 +235,7 @@ impl WASMVirtualMachine {
                       ref mut scope,
                   }| {
                 let value = convert::js_to_py(vm, value);
-                vm.ctx.set_attr(scope, &name, value);
+                scope.locals.set_item(&vm.ctx, &name, value);
             },
         )
     }
@@ -274,8 +274,9 @@ impl WASMVirtualMachine {
                         )
                         .into());
                     };
-                vm.ctx
-                    .set_attr(scope, "print", vm.ctx.new_rustfunc_from_box(print_fn));
+                scope
+                    .locals
+                    .set_item(&vm.ctx, "print", vm.ctx.new_rustfunc_from_box(print_fn));
                 Ok(())
             },
         )?

@@ -155,8 +155,9 @@ pub struct PyContext {
 pub struct Scope {
     pub locals: PyObjectRef, // Variables
     // TODO: pub locals: RefCell<PyAttributes>,         // Variables
-    pub parent: Option<PyObjectRef>, // Parent scope
+    pub parent: Option<Rc<Scope>>, // Parent scope
 }
+pub type ScopeRef = Rc<Scope>;
 
 fn _nothing() -> PyObjectRef {
     PyObject {
@@ -549,21 +550,16 @@ impl PyContext {
         objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
     }
 
-    pub fn new_scope(&self, parent: Option<PyObjectRef>) -> PyObjectRef {
+    pub fn new_scope(&self, parent: Option<ScopeRef>) -> ScopeRef {
         let locals = self.new_dict();
-        let scope = RefCell::new(Scope { locals, parent });
-        PyObject {
-            payload: PyObjectPayload::Scope { scope },
-            typ: None,
-        }
-        .into_ref()
+        Rc::new(Scope { locals, parent })
     }
 
-    pub fn new_module(&self, name: &str, scope: PyObjectRef) -> PyObjectRef {
+    pub fn new_module(&self, name: &str, scope: ScopeRef) -> PyObjectRef {
         PyObject::new(
             PyObjectPayload::Module {
                 name: name.to_string(),
-                dict: scope.clone(),
+                scope: scope,
             },
             self.module_type.clone(),
         )
@@ -591,7 +587,7 @@ impl PyContext {
         )
     }
 
-    pub fn new_frame(&self, code: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
+    pub fn new_frame(&self, code: PyObjectRef, scope: ScopeRef) -> PyObjectRef {
         PyObject::new(
             PyObjectPayload::Frame {
                 frame: Frame::new(code, scope),
@@ -617,7 +613,7 @@ impl PyContext {
     pub fn new_function(
         &self,
         code_obj: PyObjectRef,
-        scope: PyObjectRef,
+        scope: ScopeRef,
         defaults: PyObjectRef,
     ) -> PyObjectRef {
         PyObject::new(
@@ -680,12 +676,11 @@ impl PyContext {
 
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
         match obj.payload {
-            PyObjectPayload::Module { ref dict, .. } => self.set_attr(dict, attr_name, value),
+            PyObjectPayload::Module { ref scope, .. } => {
+                scope.locals.set_item(self, attr_name, value)
+            }
             PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
                 dict.borrow_mut().insert(attr_name.to_string(), value);
-            }
-            PyObjectPayload::Scope { ref scope } => {
-                self.set_item(&scope.borrow().locals, attr_name, value);
             }
             ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
         };
@@ -759,30 +754,6 @@ impl TypeProtocol for PyObject {
     }
 }
 
-pub trait ParentProtocol {
-    fn has_parent(&self) -> bool;
-    fn get_parent(&self) -> PyObjectRef;
-}
-
-impl ParentProtocol for PyObjectRef {
-    fn has_parent(&self) -> bool {
-        match self.payload {
-            PyObjectPayload::Scope { ref scope } => scope.borrow().parent.is_some(),
-            _ => panic!("Only scopes have parent (not {:?}", self),
-        }
-    }
-
-    fn get_parent(&self) -> PyObjectRef {
-        match self.payload {
-            PyObjectPayload::Scope { ref scope } => match scope.borrow().parent {
-                Some(ref value) => value.clone(),
-                None => panic!("OMG"),
-            },
-            _ => panic!("TODO"),
-        }
-    }
-}
-
 pub trait AttributeProtocol {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
     fn has_attr(&self, attr_name: &str) -> bool;
@@ -805,7 +776,7 @@ fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
 impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
         match self.payload {
-            PyObjectPayload::Module { ref dict, .. } => dict.get_item(attr_name),
+            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(attr_name),
             PyObjectPayload::Class { ref mro, .. } => {
                 if let Some(item) = class_get_item(self, attr_name) {
                     return Some(item);
@@ -824,7 +795,7 @@ impl AttributeProtocol for PyObjectRef {
 
     fn has_attr(&self, attr_name: &str) -> bool {
         match self.payload {
-            PyObjectPayload::Module { ref dict, .. } => dict.contains_key(attr_name),
+            PyObjectPayload::Module { ref scope, .. } => scope.locals.contains_key(attr_name),
             PyObjectPayload::Class { ref mro, .. } => {
                 class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
             }
@@ -847,7 +818,6 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_contains_key_str(&elements.borrow(), k)
             }
-            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.contains_key(k),
             ref payload => unimplemented!("TODO {:?}", payload),
         }
     }
@@ -857,8 +827,7 @@ impl DictProtocol for PyObjectRef {
             PyObjectPayload::Dict { ref elements } => {
                 objdict::content_get_key_str(&elements.borrow(), k)
             }
-            PyObjectPayload::Module { ref dict, .. } => dict.get_item(k),
-            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_item(k),
+            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(k),
             ref k => panic!("TODO {:?}", k),
         }
     }
@@ -866,8 +835,7 @@ impl DictProtocol for PyObjectRef {
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
         match self.payload {
             PyObjectPayload::Dict { .. } => objdict::get_key_value_pairs(self),
-            PyObjectPayload::Module { ref dict, .. } => dict.get_key_value_pairs(),
-            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.get_key_value_pairs(),
+            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_key_value_pairs(),
             _ => panic!("TODO"),
         }
     }
@@ -879,11 +847,8 @@ impl DictProtocol for PyObjectRef {
                 let key = ctx.new_str(key.to_string());
                 objdict::set_item_in_content(&mut elements.borrow_mut(), &key, &v);
             }
-            PyObjectPayload::Module { dict, .. } => {
-                dict.set_item(ctx, key, v);
-            }
-            PyObjectPayload::Scope { scope, .. } => {
-                scope.borrow().locals.set_item(ctx, key, v);
+            PyObjectPayload::Module { scope, .. } => {
+                scope.locals.set_item(ctx, key, v);
             }
             ref k => panic!("TODO {:?}", k),
         };
@@ -1247,7 +1212,7 @@ pub enum PyObjectPayload {
     },
     Function {
         code: PyObjectRef,
-        scope: PyObjectRef,
+        scope: ScopeRef,
         defaults: PyObjectRef,
     },
     Generator {
@@ -1257,12 +1222,9 @@ pub enum PyObjectPayload {
         function: PyObjectRef,
         object: PyObjectRef,
     },
-    Scope {
-        scope: RefCell<Scope>,
-    },
     Module {
         name: String,
-        dict: PyObjectRef,
+        scope: ScopeRef,
     },
     None,
     NotImplemented,
@@ -1316,7 +1278,6 @@ impl fmt::Debug for PyObjectPayload {
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
             PyObjectPayload::Module { .. } => write!(f, "module"),
-            PyObjectPayload::Scope { .. } => write!(f, "scope"),
             PyObjectPayload::None => write!(f, "None"),
             PyObjectPayload::NotImplemented => write!(f, "NotImplemented"),
             PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
