@@ -588,16 +588,6 @@ impl PyContext {
         )
     }
 
-    pub fn new_rustfunc_from_box(
-        &self,
-        function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
-    ) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::RustFunction { function },
-            self.builtin_function_or_method_type(),
-        )
-    }
-
     pub fn new_frame(&self, code: PyObjectRef, scope: PyObjectRef) -> PyObjectRef {
         PyObject::new(
             PyObjectPayload::Frame {
@@ -1242,7 +1232,7 @@ tuple_from_py_func_args!(A, B, C);
 tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 
-pub type PyNativeFunc = Box<dyn Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>;
+pub type PyNativeFunc = Box<dyn Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
 
 pub trait PyNativeFuncFactory<T, R> {
     fn create(self) -> PyNativeFunc;
@@ -1254,6 +1244,12 @@ where
 {
     fn create(self) -> PyNativeFunc {
         Box::new(self)
+    }
+}
+
+impl PyNativeFuncFactory<PyFuncArgs, PyResult> for PyNativeFunc {
+    fn create(self) -> PyNativeFunc {
+        self
     }
 }
 
@@ -1378,7 +1374,7 @@ pub enum PyObjectPayload {
         dict: RefCell<PyAttributes>,
     },
     RustFunction {
-        function: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>,
+        function: PyNativeFunc,
     },
     Socket {
         socket: RefCell<Socket>,

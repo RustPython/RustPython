@@ -275,7 +275,7 @@ impl WASMVirtualMachine {
                         .into());
                     };
                 vm.ctx
-                    .set_attr(scope, "print", vm.ctx.new_rustfunc_from_box(print_fn));
+                    .set_attr(scope, "print", vm.ctx.new_rustfunc(print_fn));
                 Ok(())
             },
         )?
