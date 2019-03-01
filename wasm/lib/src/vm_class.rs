@@ -1,10 +1,10 @@
 use crate::browser_module::setup_browser_module;
 use crate::convert;
 use crate::wasm_builtins;
-use js_sys::{SyntaxError, TypeError};
+use js_sys::{Object, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
-    pyobject::{PyFuncArgs, PyObjectRef, PyResult},
+    pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult},
     VirtualMachine,
 };
 use std::cell::RefCell;
@@ -279,6 +279,32 @@ impl WASMVirtualMachine {
                 Ok(())
             },
         )?
+    }
+
+    #[wasm_bindgen(js_name = injectModule)]
+    pub fn inject_module(&self, name: String, module: Object) -> Result<(), JsValue> {
+        self.with(|StoredVirtualMachine { ref mut vm, .. }| {
+            let mut module_items: HashMap<String, PyObjectRef> = HashMap::new();
+            for entry in convert::object_entries(&module) {
+                let (key, value) = entry?;
+                let key = Object::from(key).to_string();
+                module_items.insert(key.into(), convert::js_to_py(vm, value));
+            }
+
+            let mod_name = name.clone();
+
+            let stdlib_init_fn = move |ctx: &PyContext| {
+                let py_mod = ctx.new_module(&name, ctx.new_scope(None));
+                for (key, value) in module_items.clone() {
+                    ctx.set_attr(&py_mod, &key, value);
+                }
+                py_mod
+            };
+
+            vm.stdlib_inits.insert(mod_name, Box::new(stdlib_init_fn));
+
+            Ok(())
+        })?
     }
 
     fn run(&self, mut source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {
