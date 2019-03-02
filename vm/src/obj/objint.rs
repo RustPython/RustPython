@@ -4,7 +4,7 @@ use super::objtype;
 use crate::format::FormatSpec;
 use crate::pyobject::{
     FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TypeProtocol,
+    PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -28,6 +28,26 @@ impl IntoPyObject for PyInt {
 impl IntoPyObject for usize {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult {
         Ok(ctx.new_int(self))
+    }
+}
+
+impl TryFromObject for usize {
+    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // FIXME: don't use get_value
+        match get_value(&obj).to_usize() {
+            Some(value) => Ok(value),
+            None => Err(vm.new_overflow_error("Int value cannot fit into Rust usize".to_string())),
+        }
+    }
+}
+
+impl TryFromObject for isize {
+    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // FIXME: don't use get_value
+        match get_value(&obj).to_isize() {
+            Some(value) => Ok(value),
+            None => Err(vm.new_overflow_error("Int value cannot fit into Rust isize".to_string())),
+        }
     }
 }
 

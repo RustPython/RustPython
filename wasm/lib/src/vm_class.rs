@@ -277,7 +277,7 @@ impl WASMVirtualMachine {
                     };
                 scope
                     .locals
-                    .set_item(&vm.ctx, "print", vm.ctx.new_rustfunc_from_box(print_fn));
+                    .set_item(&vm.ctx, "print", vm.ctx.new_rustfunc(print_fn));
                 Ok(())
             },
         )?
