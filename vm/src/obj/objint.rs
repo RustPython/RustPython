@@ -67,7 +67,7 @@ pub fn to_int(
     vm: &mut VirtualMachine,
     obj: &PyObjectRef,
     base: u32,
-) -> Result<IntType, PyObjectRef> {
+) -> PyResult<IntType> {
     let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj)
     } else if objtype::isinstance(obj, &vm.ctx.float_type()) {

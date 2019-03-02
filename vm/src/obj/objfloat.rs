@@ -62,7 +62,7 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
     }
 }
 
-pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> Result<f64, PyObjectRef> {
+pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else if let Ok(method) = vm.get_method(obj.clone(), "__float__") {

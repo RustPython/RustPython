@@ -42,7 +42,7 @@ fn parse_format_string(fmt: String) -> Vec<FormatCode> {
     codes
 }
 
-fn get_int(vm: &mut VirtualMachine, arg: &PyObjectRef) -> Result<BigInt, PyObjectRef> {
+fn get_int(vm: &mut VirtualMachine, arg: &PyObjectRef) -> PyResult<BigInt> {
     objint::to_int(vm, arg, 10)
 }
 
@@ -50,7 +50,7 @@ fn pack_i8(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_i8().unwrap();
     data.write_i8(v).unwrap();
     Ok(())
@@ -60,7 +60,7 @@ fn pack_u8(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_u8().unwrap();
     data.write_u8(v).unwrap();
     Ok(())
@@ -70,7 +70,7 @@ fn pack_bool(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     if objtype::isinstance(&arg, &vm.ctx.bool_type()) {
         let v = if objbool::get_value(arg) { 1 } else { 0 };
         data.write_u8(v).unwrap();
@@ -84,7 +84,7 @@ fn pack_i16(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_i16().unwrap();
     data.write_i16::<LittleEndian>(v).unwrap();
     Ok(())
@@ -94,7 +94,7 @@ fn pack_u16(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_u16().unwrap();
     data.write_u16::<LittleEndian>(v).unwrap();
     Ok(())
@@ -104,7 +104,7 @@ fn pack_i32(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_i32().unwrap();
     data.write_i32::<LittleEndian>(v).unwrap();
     Ok(())
@@ -114,7 +114,7 @@ fn pack_u32(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_u32().unwrap();
     data.write_u32::<LittleEndian>(v).unwrap();
     Ok(())
@@ -124,7 +124,7 @@ fn pack_i64(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_i64().unwrap();
     data.write_i64::<LittleEndian>(v).unwrap();
     Ok(())
@@ -134,7 +134,7 @@ fn pack_u64(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     let v = get_int(vm, arg)?.to_u64().unwrap();
     data.write_u64::<LittleEndian>(v).unwrap();
     Ok(())
@@ -144,7 +144,7 @@ fn pack_f32(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     if objtype::isinstance(&arg, &vm.ctx.float_type()) {
         let v = objfloat::get_value(arg) as f32;
         data.write_f32::<LittleEndian>(v).unwrap();
@@ -158,7 +158,7 @@ fn pack_f64(
     vm: &mut VirtualMachine,
     arg: &PyObjectRef,
     data: &mut Write,
-) -> Result<(), PyObjectRef> {
+) -> PyResult<()> {
     if objtype::isinstance(&arg, &vm.ctx.float_type()) {
         let v = objfloat::get_value(arg) as f64;
         data.write_f64::<LittleEndian>(v).unwrap();
