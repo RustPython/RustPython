@@ -5,6 +5,9 @@
 //! - Import mechanics
 //! - Base objects
 
+// for methods like vm.to_str(), not the typical use of 'to' as a method prefix
+#![allow(clippy::wrong_self_convention)]
+
 #[macro_use]
 extern crate bitflags;
 #[macro_use]

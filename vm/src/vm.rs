@@ -804,6 +804,12 @@ impl VirtualMachine {
     }
 }
 
+impl Default for VirtualMachine {
+    fn default() -> Self {
+        VirtualMachine::new()
+    }
+}
+
 lazy_static! {
     static ref REPR_GUARDS: Mutex<HashSet<usize>> = { Mutex::new(HashSet::new()) };
 }

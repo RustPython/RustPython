@@ -17,17 +17,17 @@ use num_traits::ToPrimitive;
 
 #[derive(Copy, Clone)]
 enum AddressFamily {
-    AfUnix = 1,
-    AfInet = 2,
-    AfInet6 = 3,
+    Unix = 1,
+    Inet = 2,
+    Inet6 = 3,
 }
 
 impl AddressFamily {
     fn from_i32(value: i32) -> AddressFamily {
         match value {
-            1 => AddressFamily::AfUnix,
-            2 => AddressFamily::AfInet,
-            3 => AddressFamily::AfInet6,
+            1 => AddressFamily::Unix,
+            2 => AddressFamily::Inet,
+            3 => AddressFamily::Inet6,
             _ => panic!("Unknown value: {}", value),
         }
     }
@@ -35,15 +35,15 @@ impl AddressFamily {
 
 #[derive(Copy, Clone)]
 enum SocketKind {
-    SockStream = 1,
-    SockDgram = 2,
+    Stream = 1,
+    Dgram = 2,
 }
 
 impl SocketKind {
     fn from_i32(value: i32) -> SocketKind {
         match value {
-            1 => SocketKind::SockStream,
-            2 => SocketKind::SockDgram,
+            1 => SocketKind::Stream,
+            2 => SocketKind::Dgram,
             _ => panic!("Unknown value: {}", value),
         }
     }
@@ -102,7 +102,7 @@ impl Socket {
     fn new(address_family: AddressFamily, socket_kind: SocketKind) -> Socket {
         Socket {
             address_family,
-            socket_kind: socket_kind,
+            socket_kind,
             con: None,
         }
     }
@@ -286,8 +286,8 @@ fn socket_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Socket { ref socket } => {
             let mut socket = socket.borrow_mut();
             match socket.address_family {
-                AddressFamily::AfInet => match socket.socket_kind {
-                    SocketKind::SockStream => {
+                AddressFamily::Inet => match socket.socket_kind {
+                    SocketKind::Stream => {
                         socket.con = None;
                         Ok(vm.get_none())
                     }
@@ -320,7 +320,7 @@ fn socket_getsockname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                         vm.ctx.tuple_type(),
                     ))
                 }
-                _ => return Err(vm.new_type_error("".to_string())),
+                _ => Err(vm.new_type_error("".to_string())),
             }
         }
         _ => Err(vm.new_type_error("".to_string())),
@@ -330,16 +330,12 @@ fn socket_getsockname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = ctx.new_module(&"socket".to_string(), ctx.new_scope(None));
 
-    ctx.set_attr(
-        &py_mod,
-        "AF_INET",
-        ctx.new_int(AddressFamily::AfInet as i32),
-    );
+    ctx.set_attr(&py_mod, "AF_INET", ctx.new_int(AddressFamily::Inet as i32));
 
     ctx.set_attr(
         &py_mod,
         "SOCK_STREAM",
-        ctx.new_int(SocketKind::SockStream as i32),
+        ctx.new_int(SocketKind::Stream as i32),
     );
 
     let socket = {

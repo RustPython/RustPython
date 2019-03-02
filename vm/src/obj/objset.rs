@@ -547,7 +547,7 @@ fn set_ixor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.set_type()))]);
 
-    let items = get_elements(zelf).values().map(|x| x.clone()).collect();
+    let items = get_elements(zelf).values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
     let iter_obj = PyObject::new(
         PyObjectPayload::Iterator {

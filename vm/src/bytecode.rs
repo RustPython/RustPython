@@ -269,7 +269,7 @@ impl CodeObject {
         }
     }
 
-    pub fn get_constants<'a>(&'a self) -> impl Iterator<Item = &'a Constant> {
+    pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
         self.instructions.iter().filter_map(|x| {
             if let Instruction::LoadConst { value } = x {
                 Some(value)
@@ -362,10 +362,7 @@ impl Instruction {
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { before, after } => w!(UnpackEx, before, after),
             Unpack => w!(Unpack),
-            FormatValue {
-                conversion: _,
-                spec,
-            } => w!(FormatValue, spec), // TODO: write conversion
+            FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
         }
     }
 }
