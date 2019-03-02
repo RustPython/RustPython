@@ -110,11 +110,12 @@ impl Socket {
 }
 
 fn get_socket<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Socket> + 'a {
-    if let PyObjectPayload::Socket { ref socket } = obj.payload {
-        socket.borrow_mut()
-    } else {
-        panic!("Inner error getting socket {:?}", obj);
+    if let PyObjectPayload::AnyRustValue { ref value } = obj.payload {
+        if let Some(socket) = value.downcast_ref::<RefCell<Socket>>() {
+            return socket.borrow_mut();
+        }
     }
+    panic!("Inner error getting socket {:?}", obj);
 }
 
 fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -134,7 +135,9 @@ fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let socket = RefCell::new(Socket::new(address_family, kind));
 
     Ok(PyObject::new(
-        PyObjectPayload::Socket { socket },
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(socket),
+        },
         cls.clone(),
     ))
 }
@@ -233,7 +236,12 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         con: Some(Connection::TcpStream(tcp_stream)),
     });
 
-    let sock_obj = PyObject::new(PyObjectPayload::Socket { socket }, zelf.typ());
+    let sock_obj = PyObject::new(
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(socket),
+        },
+        zelf.typ(),
+    );
 
     let elements = RefCell::new(vec![sock_obj, vm.get_none()]);
 
