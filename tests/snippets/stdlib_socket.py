@@ -41,8 +41,12 @@ sock1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock1.bind(("127.0.0.1", 0))
 
 sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock2.bind(("127.0.0.1", 0))
 
+sock2.sendto(MESSAGE_A, sock1.getsockname())
+(recv_a, addr) = sock1.recvfrom(len(MESSAGE_A))
+assert recv_a == MESSAGE_A
+
+sock2.bind(("127.0.0.1", 0))
 sock1.connect(("127.0.0.1", sock2.getsockname()[1]))
 sock2.connect(("127.0.0.1", sock1.getsockname()[1]))
 
