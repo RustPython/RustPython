@@ -68,7 +68,7 @@ impl Connection {
         match self {
             Connection::TcpListener(con) => con.local_addr(),
             Connection::UdpSocket(con) => con.local_addr(),
-            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
+            Connection::TcpStream(con) => con.local_addr(),
         }
     }
 
@@ -263,8 +263,8 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => return Err(vm.new_type_error("".to_string())),
     };
 
-    let tcp_stream = match ret {
-        Ok((socket, _addr)) => socket,
+    let (tcp_stream, addr) = match ret {
+        Ok((socket, addr)) => (socket, addr),
         _ => return Err(vm.new_type_error("".to_string())),
     };
 
@@ -281,7 +281,7 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         zelf.typ(),
     );
 
-    let elements = RefCell::new(vec![sock_obj, vm.get_none()]);
+    let elements = RefCell::new(vec![sock_obj, get_addr_tuple(vm, addr)?]);
 
     Ok(PyObject::new(
         PyObjectPayload::Sequence { elements },

@@ -12,7 +12,8 @@ listener.listen(1)
 
 connector = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 connector.connect(("127.0.0.1", listener.getsockname()[1]))
-connection = listener.accept()[0]
+(connection, addr) = listener.accept()
+assert addr == connector.getsockname()
 
 connector.send(MESSAGE_A)
 connection.send(MESSAGE_B)
