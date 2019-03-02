@@ -712,6 +712,12 @@ impl PyContext {
     }
 }
 
+impl Default for PyContext {
+    fn default() -> Self {
+        PyContext::new()
+    }
+}
+
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
@@ -1091,7 +1097,7 @@ macro_rules! tuple_py_native_func_factory {
                 let signature = Signature::new(parameters);
 
                 Box::new(move |vm, mut args| {
-                    signature.check(vm, &mut args)?;
+                    signature.check(vm, &args)?;
 
                     (self)(vm, $($T::from_py_func_args(&mut args)?,)+)
                         .into_pyobject(&vm.ctx)

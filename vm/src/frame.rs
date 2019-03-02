@@ -94,7 +94,7 @@ impl Frame {
         let run_obj_name = &self.code.obj_name.to_string();
 
         // Execute until return or exception:
-        let value = loop {
+        loop {
             let lineno = self.get_lineno();
             let result = self.execute_instruction(vm);
             match result {
@@ -136,9 +136,7 @@ impl Frame {
                     }
                 }
             }
-        };
-
-        value
+        }
     }
 
     pub fn fetch_instruction(&self) -> &bytecode::Instruction {
