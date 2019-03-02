@@ -29,7 +29,7 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
-    if let PyObjectPayload::Code { code } = &obj.borrow().payload {
+    if let PyObjectPayload::Code { code } = &obj.payload {
         code.clone()
     } else {
         panic!("Inner error getting code {:?}", obj)
@@ -58,7 +58,7 @@ fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn member_code_obj(
     vm: &mut VirtualMachine,
     args: PyFuncArgs,
-) -> Result<bytecode::CodeObject, PyObjectRef> {
+) -> PyResult<bytecode::CodeObject> {
     arg_check!(
         vm,
         args,

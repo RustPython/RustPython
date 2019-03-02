@@ -1,3 +1,8 @@
+use std::cell::{Cell, RefCell};
+use std::hash::{Hash, Hasher};
+use std::ops::Deref;
+use std::ops::DerefMut;
+
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
@@ -5,11 +10,6 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
-use std::cell::Ref;
-use std::cell::RefMut;
-use std::hash::{Hash, Hasher};
-use std::ops::Deref;
-use std::ops::DerefMut;
 
 // Binary data support
 
@@ -70,7 +70,12 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
 
-    Ok(PyObject::new(PyObjectPayload::Bytes { value }, cls.clone()))
+    Ok(PyObject::new(
+        PyObjectPayload::Bytes {
+            value: RefCell::new(value),
+        },
+        cls.clone(),
+    ))
 }
 
 fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -98,11 +103,7 @@ fn bytes_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a).to_vec() >= get_value(b).to_vec()
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '>'",
-            a.borrow(),
-            b.borrow()
-        )));
+        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>'", a, b)));
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -117,11 +118,7 @@ fn bytes_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a).to_vec() > get_value(b).to_vec()
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '>='",
-            a.borrow(),
-            b.borrow()
-        )));
+        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>='", a, b)));
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -136,11 +133,7 @@ fn bytes_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a).to_vec() <= get_value(b).to_vec()
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '<'",
-            a.borrow(),
-            b.borrow()
-        )));
+        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<'", a, b)));
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -155,11 +148,7 @@ fn bytes_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
         get_value(a).to_vec() < get_value(b).to_vec()
     } else {
-        return Err(vm.new_type_error(format!(
-            "Cannot compare {} and {} using '<='",
-            a.borrow(),
-            b.borrow()
-        )));
+        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<='", a, b)));
     };
     Ok(vm.ctx.new_bool(result))
 }
@@ -181,23 +170,19 @@ fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
-    Ref::map(obj.borrow(), |py_obj| {
-        if let PyObjectPayload::Bytes { ref value } = py_obj.payload {
-            value
-        } else {
-            panic!("Inner error getting bytearray {:?}", obj);
-        }
-    })
+    if let PyObjectPayload::Bytes { ref value } = obj.payload {
+        value.borrow()
+    } else {
+        panic!("Inner error getting bytearray {:?}", obj);
+    }
 }
 
 pub fn get_mut_value<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<u8>> + 'a {
-    RefMut::map(obj.borrow_mut(), |py_obj| {
-        if let PyObjectPayload::Bytes { ref mut value } = py_obj.payload {
-            value
-        } else {
-            panic!("Inner error getting bytearray {:?}", obj);
-        }
-    })
+    if let PyObjectPayload::Bytes { ref value } = obj.payload {
+        value.borrow_mut()
+    } else {
+        panic!("Inner error getting bytearray {:?}", obj);
+    }
 }
 
 fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -212,7 +197,7 @@ fn bytes_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let iter_obj = PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: obj.clone(),
         },
         vm.ctx.iter_type(),

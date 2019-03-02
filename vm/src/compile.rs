@@ -17,6 +17,7 @@ struct Compiler {
     source_path: Option<String>,
     current_source_location: ast::Location,
     in_loop: bool,
+    in_function_def: bool,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -47,10 +48,7 @@ pub fn compile(
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(PyObject::new(
-        PyObjectPayload::Code { code: code },
-        code_type,
-    ))
+    Ok(PyObject::new(PyObjectPayload::Code { code }, code_type))
 }
 
 pub enum Mode {
@@ -75,6 +73,7 @@ impl Compiler {
             source_path: None,
             current_source_location: ast::Location::default(),
             in_loop: false,
+            in_function_def: false,
         }
     }
 
@@ -232,9 +231,10 @@ impl Compiler {
 
                 self.compile_test(test, None, Some(else_label), EvalContext::Statement)?;
 
+                let was_in_loop = self.in_loop;
                 self.in_loop = true;
                 self.compile_statements(body)?;
-                self.in_loop = false;
+                self.in_loop = was_in_loop;
                 self.emit(Instruction::Jump {
                     target: start_label,
                 });
@@ -271,45 +271,7 @@ impl Compiler {
                 iter,
                 body,
                 orelse,
-            } => {
-                // Start loop
-                let start_label = self.new_label();
-                let else_label = self.new_label();
-                let end_label = self.new_label();
-                self.emit(Instruction::SetupLoop {
-                    start: start_label,
-                    end: end_label,
-                });
-
-                // The thing iterated:
-                for i in iter {
-                    self.compile_expression(i)?;
-                }
-
-                // Retrieve Iterator
-                self.emit(Instruction::GetIter);
-
-                self.set_label(start_label);
-                self.emit(Instruction::ForIter { target: else_label });
-
-                // Start of loop iteration, set targets:
-                self.compile_store(target)?;
-
-                // Body of loop:
-                self.in_loop = true;
-                self.compile_statements(body)?;
-                self.in_loop = false;
-
-                self.emit(Instruction::Jump {
-                    target: start_label,
-                });
-                self.set_label(else_label);
-                self.emit(Instruction::PopBlock);
-                if let Some(orelse) = orelse {
-                    self.compile_statements(orelse)?;
-                }
-                self.set_label(end_label);
-            }
+            } => self.compile_for(target, iter, body, orelse)?,
             ast::Statement::Raise { exception, cause } => match exception {
                 Some(value) => {
                     self.compile_expression(value)?;
@@ -332,221 +294,20 @@ impl Compiler {
                 handlers,
                 orelse,
                 finalbody,
-            } => {
-                let mut handler_label = self.new_label();
-                let finally_label = self.new_label();
-                let else_label = self.new_label();
-                // try:
-                self.emit(Instruction::SetupExcept {
-                    handler: handler_label,
-                });
-                self.compile_statements(body)?;
-                self.emit(Instruction::PopBlock);
-                self.emit(Instruction::Jump { target: else_label });
-
-                // except handlers:
-                self.set_label(handler_label);
-                // Exception is on top of stack now
-                handler_label = self.new_label();
-                for handler in handlers {
-                    // If we gave a typ,
-                    // check if this handler can handle the exception:
-                    if let Some(exc_type) = &handler.typ {
-                        // Duplicate exception for test:
-                        self.emit(Instruction::Duplicate);
-
-                        // Check exception type:
-                        self.emit(Instruction::LoadName {
-                            name: String::from("isinstance"),
-                        });
-                        self.emit(Instruction::Rotate { amount: 2 });
-                        self.compile_expression(exc_type)?;
-                        self.emit(Instruction::CallFunction {
-                            typ: CallType::Positional(2),
-                        });
-
-                        // We cannot handle this exception type:
-                        self.emit(Instruction::JumpIfFalse {
-                            target: handler_label,
-                        });
-
-                        // We have a match, store in name (except x as y)
-                        if let Some(alias) = &handler.name {
-                            self.emit(Instruction::StoreName {
-                                name: alias.clone(),
-                            });
-                        } else {
-                            // Drop exception from top of stack:
-                            self.emit(Instruction::Pop);
-                        }
-                    } else {
-                        // Catch all!
-                        // Drop exception from top of stack:
-                        self.emit(Instruction::Pop);
-                    }
-
-                    // Handler code:
-                    self.compile_statements(&handler.body)?;
-                    self.emit(Instruction::Jump {
-                        target: finally_label,
-                    });
-
-                    // Emit a new label for the next handler
-                    self.set_label(handler_label);
-                    handler_label = self.new_label();
-                }
-                self.emit(Instruction::Jump {
-                    target: handler_label,
-                });
-                self.set_label(handler_label);
-                // If code flows here, we have an unhandled exception,
-                // emit finally code and raise again!
-                // Duplicate finally code here:
-                // TODO: this bytecode is now duplicate, could this be
-                // improved?
-                if let Some(statements) = finalbody {
-                    self.compile_statements(statements)?;
-                }
-                self.emit(Instruction::Raise { argc: 1 });
-
-                // We successfully ran the try block:
-                // else:
-                self.set_label(else_label);
-                if let Some(statements) = orelse {
-                    self.compile_statements(statements)?;
-                }
-
-                // finally:
-                self.set_label(finally_label);
-                if let Some(statements) = finalbody {
-                    self.compile_statements(statements)?;
-                }
-
-                // unimplemented!();
-            }
+            } => self.compile_try_statement(body, handlers, orelse, finalbody)?,
             ast::Statement::FunctionDef {
                 name,
                 args,
                 body,
                 decorator_list,
-            } => {
-                // Create bytecode for this function:
-                let flags = self.enter_function(name, args)?;
-                self.compile_statements(body)?;
-
-                // Emit None at end:
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::None,
-                });
-                self.emit(Instruction::ReturnValue);
-                let code = self.pop_code_object();
-
-                self.prepare_decorators(decorator_list)?;
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code },
-                });
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: name.clone(),
-                    },
-                });
-
-                // Turn code object into function object:
-                self.emit(Instruction::MakeFunction { flags });
-                self.apply_decorators(decorator_list);
-
-                self.emit(Instruction::StoreName {
-                    name: name.to_string(),
-                });
-            }
+            } => self.compile_function_def(name, args, body, decorator_list)?,
             ast::Statement::ClassDef {
                 name,
                 body,
                 bases,
                 keywords,
                 decorator_list,
-            } => {
-                self.prepare_decorators(decorator_list)?;
-                self.emit(Instruction::LoadBuildClass);
-                let line_number = self.get_source_line_number();
-                self.code_object_stack.push(CodeObject::new(
-                    vec![String::from("__locals__")],
-                    None,
-                    vec![],
-                    None,
-                    self.source_path.clone().unwrap(),
-                    line_number,
-                    name.clone(),
-                ));
-                self.emit(Instruction::LoadName {
-                    name: String::from("__locals__"),
-                });
-                self.emit(Instruction::StoreLocals);
-                self.compile_statements(body)?;
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::None,
-                });
-                self.emit(Instruction::ReturnValue);
-
-                let code = self.pop_code_object();
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code },
-                });
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: name.clone(),
-                    },
-                });
-
-                // Turn code object into function object:
-                self.emit(Instruction::MakeFunction {
-                    flags: bytecode::FunctionOpArg::empty(),
-                });
-
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: name.clone(),
-                    },
-                });
-
-                for base in bases {
-                    self.compile_expression(base)?;
-                }
-
-                if !keywords.is_empty() {
-                    let mut kwarg_names = vec![];
-                    for keyword in keywords {
-                        if let Some(name) = &keyword.name {
-                            kwarg_names.push(bytecode::Constant::String {
-                                value: name.to_string(),
-                            });
-                        } else {
-                            // This means **kwargs!
-                            panic!("name must be set");
-                        }
-                        self.compile_expression(&keyword.value)?;
-                    }
-
-                    self.emit(Instruction::LoadConst {
-                        value: bytecode::Constant::Tuple {
-                            elements: kwarg_names,
-                        },
-                    });
-                    self.emit(Instruction::CallFunction {
-                        typ: CallType::Keyword(2 + keywords.len() + bases.len()),
-                    });
-                } else {
-                    self.emit(Instruction::CallFunction {
-                        typ: CallType::Positional(2 + bases.len()),
-                    });
-                }
-
-                self.apply_decorators(decorator_list);
-
-                self.emit(Instruction::StoreName {
-                    name: name.to_string(),
-                });
-            }
+            } => self.compile_class_def(name, body, bases, keywords, decorator_list)?,
             ast::Statement::Assert { test, msg } => {
                 // TODO: if some flag, ignore all assert statements!
 
@@ -584,6 +345,9 @@ impl Compiler {
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
+                if !self.in_function_def {
+                    return Err(CompileError::InvalidReturn);
+                }
                 match value {
                     Some(e) => {
                         let size = e.len();
@@ -663,7 +427,6 @@ impl Compiler {
         name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, CompileError> {
-        self.in_loop = false;
         let have_kwargs = !args.defaults.is_empty();
         if have_kwargs {
             // Construct a tuple:
@@ -713,6 +476,292 @@ impl Compiler {
                 typ: CallType::Positional(1),
             });
         }
+    }
+
+    fn compile_try_statement(
+        &mut self,
+        body: &[ast::LocatedStatement],
+        handlers: &[ast::ExceptHandler],
+        orelse: &Option<Vec<ast::LocatedStatement>>,
+        finalbody: &Option<Vec<ast::LocatedStatement>>,
+    ) -> Result<(), CompileError> {
+        let mut handler_label = self.new_label();
+        let finally_label = self.new_label();
+        let else_label = self.new_label();
+        // try:
+        self.emit(Instruction::SetupExcept {
+            handler: handler_label,
+        });
+        self.compile_statements(body)?;
+        self.emit(Instruction::PopBlock);
+        self.emit(Instruction::Jump { target: else_label });
+
+        // except handlers:
+        self.set_label(handler_label);
+        // Exception is on top of stack now
+        handler_label = self.new_label();
+        for handler in handlers {
+            // If we gave a typ,
+            // check if this handler can handle the exception:
+            if let Some(exc_type) = &handler.typ {
+                // Duplicate exception for test:
+                self.emit(Instruction::Duplicate);
+
+                // Check exception type:
+                self.emit(Instruction::LoadName {
+                    name: String::from("isinstance"),
+                });
+                self.emit(Instruction::Rotate { amount: 2 });
+                self.compile_expression(exc_type)?;
+                self.emit(Instruction::CallFunction {
+                    typ: CallType::Positional(2),
+                });
+
+                // We cannot handle this exception type:
+                self.emit(Instruction::JumpIfFalse {
+                    target: handler_label,
+                });
+
+                // We have a match, store in name (except x as y)
+                if let Some(alias) = &handler.name {
+                    self.emit(Instruction::StoreName {
+                        name: alias.clone(),
+                    });
+                } else {
+                    // Drop exception from top of stack:
+                    self.emit(Instruction::Pop);
+                }
+            } else {
+                // Catch all!
+                // Drop exception from top of stack:
+                self.emit(Instruction::Pop);
+            }
+
+            // Handler code:
+            self.compile_statements(&handler.body)?;
+            self.emit(Instruction::Jump {
+                target: finally_label,
+            });
+
+            // Emit a new label for the next handler
+            self.set_label(handler_label);
+            handler_label = self.new_label();
+        }
+        self.emit(Instruction::Jump {
+            target: handler_label,
+        });
+        self.set_label(handler_label);
+        // If code flows here, we have an unhandled exception,
+        // emit finally code and raise again!
+        // Duplicate finally code here:
+        // TODO: this bytecode is now duplicate, could this be
+        // improved?
+        if let Some(statements) = finalbody {
+            self.compile_statements(statements)?;
+        }
+        self.emit(Instruction::Raise { argc: 1 });
+
+        // We successfully ran the try block:
+        // else:
+        self.set_label(else_label);
+        if let Some(statements) = orelse {
+            self.compile_statements(statements)?;
+        }
+
+        // finally:
+        self.set_label(finally_label);
+        if let Some(statements) = finalbody {
+            self.compile_statements(statements)?;
+        }
+
+        // unimplemented!();
+        Ok(())
+    }
+
+    fn compile_function_def(
+        &mut self,
+        name: &str,
+        args: &ast::Parameters,
+        body: &[ast::LocatedStatement],
+        decorator_list: &[ast::Expression],
+    ) -> Result<(), CompileError> {
+        // Create bytecode for this function:
+        // remember to restore self.in_loop to the original after the function is compiled
+        let was_in_loop = self.in_loop;
+        let was_in_function_def = self.in_function_def;
+        self.in_loop = false;
+        self.in_function_def = true;
+        let flags = self.enter_function(name, args)?;
+        self.compile_statements(body)?;
+
+        // Emit None at end:
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::None,
+        });
+        self.emit(Instruction::ReturnValue);
+        let code = self.pop_code_object();
+
+        self.prepare_decorators(decorator_list)?;
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::Code {
+                code: Box::new(code),
+            },
+        });
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String {
+                value: name.to_string(),
+            },
+        });
+
+        // Turn code object into function object:
+        self.emit(Instruction::MakeFunction { flags });
+        self.apply_decorators(decorator_list);
+
+        self.emit(Instruction::StoreName {
+            name: name.to_string(),
+        });
+        self.in_loop = was_in_loop;
+        self.in_function_def = was_in_function_def;
+        Ok(())
+    }
+
+    fn compile_class_def(
+        &mut self,
+        name: &str,
+        body: &[ast::LocatedStatement],
+        bases: &[ast::Expression],
+        keywords: &[ast::Keyword],
+        decorator_list: &[ast::Expression],
+    ) -> Result<(), CompileError> {
+        let was_in_loop = self.in_loop;
+        self.in_loop = false;
+        self.prepare_decorators(decorator_list)?;
+        self.emit(Instruction::LoadBuildClass);
+        let line_number = self.get_source_line_number();
+        self.code_object_stack.push(CodeObject::new(
+            vec![],
+            None,
+            vec![],
+            None,
+            self.source_path.clone().unwrap(),
+            line_number,
+            name.to_string(),
+        ));
+        self.compile_statements(body)?;
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::None,
+        });
+        self.emit(Instruction::ReturnValue);
+
+        let code = self.pop_code_object();
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::Code {
+                code: Box::new(code),
+            },
+        });
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String {
+                value: name.to_string(),
+            },
+        });
+
+        // Turn code object into function object:
+        self.emit(Instruction::MakeFunction {
+            flags: bytecode::FunctionOpArg::empty(),
+        });
+
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String {
+                value: name.to_string(),
+            },
+        });
+
+        for base in bases {
+            self.compile_expression(base)?;
+        }
+
+        if !keywords.is_empty() {
+            let mut kwarg_names = vec![];
+            for keyword in keywords {
+                if let Some(name) = &keyword.name {
+                    kwarg_names.push(bytecode::Constant::String {
+                        value: name.to_string(),
+                    });
+                } else {
+                    // This means **kwargs!
+                    panic!("name must be set");
+                }
+                self.compile_expression(&keyword.value)?;
+            }
+
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::Tuple {
+                    elements: kwarg_names,
+                },
+            });
+            self.emit(Instruction::CallFunction {
+                typ: CallType::Keyword(2 + keywords.len() + bases.len()),
+            });
+        } else {
+            self.emit(Instruction::CallFunction {
+                typ: CallType::Positional(2 + bases.len()),
+            });
+        }
+
+        self.apply_decorators(decorator_list);
+
+        self.emit(Instruction::StoreName {
+            name: name.to_string(),
+        });
+        self.in_loop = was_in_loop;
+        Ok(())
+    }
+
+    fn compile_for(
+        &mut self,
+        target: &ast::Expression,
+        iter: &[ast::Expression],
+        body: &[ast::LocatedStatement],
+        orelse: &Option<Vec<ast::LocatedStatement>>,
+    ) -> Result<(), CompileError> {
+        // Start loop
+        let start_label = self.new_label();
+        let else_label = self.new_label();
+        let end_label = self.new_label();
+        self.emit(Instruction::SetupLoop {
+            start: start_label,
+            end: end_label,
+        });
+
+        // The thing iterated:
+        for i in iter {
+            self.compile_expression(i)?;
+        }
+
+        // Retrieve Iterator
+        self.emit(Instruction::GetIter);
+
+        self.set_label(start_label);
+        self.emit(Instruction::ForIter { target: else_label });
+
+        // Start of loop iteration, set targets:
+        self.compile_store(target)?;
+
+        let was_in_loop = self.in_loop;
+        self.in_loop = true;
+        self.compile_statements(body)?;
+        self.in_loop = was_in_loop;
+
+        self.emit(Instruction::Jump {
+            target: start_label,
+        });
+        self.set_label(else_label);
+        self.emit(Instruction::PopBlock);
+        if let Some(orelse) = orelse {
+            self.compile_statements(orelse)?;
+        }
+        self.set_label(end_label);
+        Ok(())
     }
 
     fn compile_store(&mut self, target: &ast::Expression) -> Result<(), CompileError> {
@@ -971,6 +1020,9 @@ impl Compiler {
                 self.emit(Instruction::BuildSlice { size });
             }
             ast::Expression::Yield { value } => {
+                if !self.in_function_def {
+                    return Err(CompileError::InvalidYield);
+                }
                 self.mark_generator();
                 match value {
                     Some(expression) => self.compile_expression(expression)?,
@@ -1021,12 +1073,15 @@ impl Compiler {
             }
             ast::Expression::Lambda { args, body } => {
                 let name = "<lambda>".to_string();
+                // no need to worry about the self.loop_depth because there are no loops in lambda expressions
                 let flags = self.enter_function(&name, args)?;
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code },
+                    value: bytecode::Constant::Code {
+                        code: Box::new(code),
+                    },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String { value: name },
@@ -1311,7 +1366,9 @@ impl Compiler {
 
         // List comprehension code:
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::Code { code },
+            value: bytecode::Constant::Code {
+                code: Box::new(code),
+            },
         });
 
         // List comprehension function name:
@@ -1369,10 +1426,11 @@ impl Compiler {
 
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
-        self.current_code_object().instructions.push(instruction);
-        // TODO: insert source filename
         let location = self.current_source_location.clone();
-        self.current_code_object().locations.push(location);
+        let cur_code_obj = self.current_code_object();
+        cur_code_obj.instructions.push(instruction);
+        cur_code_obj.locations.push(location);
+        // TODO: insert source filename
     }
 
     fn current_code_object(&mut self) -> &mut CodeObject {
@@ -1413,6 +1471,7 @@ mod tests {
     use crate::bytecode::Constant::*;
     use crate::bytecode::Instruction::*;
     use rustpython_parser::parser;
+
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
         compiler.source_path = Some("source_path".to_string());

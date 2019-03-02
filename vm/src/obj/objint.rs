@@ -48,8 +48,10 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of int", cls)));
     }
 
-    // TODO: extract kwargs:
-    let base = 10;
+    let base = match args.get_optional_kwarg("base") {
+        Some(argument) => get_value(&argument).to_u32().unwrap(),
+        None => 10,
+    };
     let val = match val_option {
         Some(val) => to_int(vm, val, base)?,
         None => Zero::zero(),
@@ -65,7 +67,7 @@ pub fn to_int(
     vm: &mut VirtualMachine,
     obj: &PyObjectRef,
     base: u32,
-) -> Result<IntType, PyObjectRef> {
+) -> PyResult<IntType> {
     let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj)
     } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
@@ -94,7 +96,7 @@ pub fn to_int(
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> IntType {
-    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
+    if let PyObjectPayload::Integer { value } = &obj.payload {
         value.clone()
     } else {
         panic!("Inner error getting int {:?}", obj);
@@ -246,8 +248,7 @@ fn int_lshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match get_value(i2) {
         ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
         ref v if *v > BigInt::from(usize::max_value()) => {
-            // TODO: raise OverflowError
-            panic!("Failed converting {} to rust usize", get_value(i2));
+            Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
         }
         _ => panic!("Failed converting {} to rust usize", get_value(i2)),
     }
@@ -276,8 +277,7 @@ fn int_rshift(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match get_value(i2) {
         ref v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
         ref v if *v > BigInt::from(usize::max_value()) => {
-            // TODO: raise OverflowError
-            panic!("Failed converting {} to rust usize", get_value(i2));
+            Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
         }
         _ => panic!("Failed converting {} to rust usize", get_value(i2)),
     }

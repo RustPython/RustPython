@@ -159,7 +159,6 @@ pub enum Instruction {
     },
     PrintExpr,
     LoadBuildClass,
-    StoreLocals,
     UnpackSequence {
         size: usize,
     },
@@ -191,7 +190,7 @@ pub enum Constant {
     Boolean { value: bool },
     String { value: String },
     Bytes { value: Vec<u8> },
-    Code { code: CodeObject },
+    Code { code: Box<CodeObject> },
     Tuple { elements: Vec<Constant> },
     None,
 }
@@ -269,7 +268,7 @@ impl CodeObject {
         }
     }
 
-    pub fn get_constants<'a>(&'a self) -> impl Iterator<Item = &'a Constant> {
+    pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
         self.instructions.iter().filter_map(|x| {
             if let Instruction::LoadConst { value } = x {
                 Some(value)
@@ -358,14 +357,10 @@ impl Instruction {
             MapAdd { i } => w!(MapAdd, i),
             PrintExpr => w!(PrintExpr),
             LoadBuildClass => w!(LoadBuildClass),
-            StoreLocals => w!(StoreLocals),
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { before, after } => w!(UnpackEx, before, after),
             Unpack => w!(Unpack),
-            FormatValue {
-                conversion: _,
-                spec,
-            } => w!(FormatValue, spec), // TODO: write conversion
+            FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
         }
     }
 }

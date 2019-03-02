@@ -12,22 +12,20 @@ impl IntoPyObject for bool {
 }
 
 pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
-    let result = match obj.borrow().payload {
+    let result = match obj.payload {
         PyObjectPayload::Integer { ref value } => !value.is_zero(),
         PyObjectPayload::Float { value } => value != 0.0,
-        PyObjectPayload::Sequence { ref elements } => !elements.is_empty(),
-        PyObjectPayload::Dict { ref elements } => !elements.is_empty(),
+        PyObjectPayload::Sequence { ref elements } => !elements.borrow().is_empty(),
+        PyObjectPayload::Dict { ref elements } => !elements.borrow().is_empty(),
         PyObjectPayload::String { ref value } => !value.is_empty(),
         PyObjectPayload::None { .. } => false,
         _ => {
             if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
                 let bool_res = vm.invoke(f, PyFuncArgs::default())?;
-                let v = match bool_res.borrow().payload {
+                match bool_res.payload {
                     PyObjectPayload::Integer { ref value } => !value.is_zero(),
                     _ => return Err(vm.new_type_error(String::from("TypeError"))),
-                };
-
-                v
+                }
             } else {
                 true
             }
@@ -60,7 +58,7 @@ pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
-    if let PyObjectPayload::Integer { value } = &obj.borrow().payload {
+    if let PyObjectPayload::Integer { value } = &obj.payload {
         !value.is_zero()
     } else {
         panic!("Inner error getting inner boolean");

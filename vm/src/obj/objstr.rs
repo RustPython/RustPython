@@ -3,12 +3,10 @@ use super::objsequence::PySliceableSequence;
 use super::objtype;
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::pyobject::{
-    FromPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    FromPyObject, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
-use std::cell::Ref;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
@@ -115,21 +113,19 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
-    if let PyObjectPayload::String { value } = &obj.borrow().payload {
+    if let PyObjectPayload::String { value } = &obj.payload {
         value.to_string()
     } else {
         panic!("Inner error getting str");
     }
 }
 
-pub fn borrow_value(obj: &PyObjectRef) -> Ref<str> {
-    Ref::map(obj.borrow(), |py_obj| {
-        if let PyObjectPayload::String { value } = &py_obj.payload {
-            value.as_ref()
-        } else {
-            panic!("Inner error getting str");
-        }
-    })
+pub fn borrow_value(obj: &PyObjectRef) -> &str {
+    if let PyObjectPayload::String { value } = &obj.payload {
+        value.as_str()
+    } else {
+        panic!("Inner error getting str");
+    }
 }
 
 fn str_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -158,7 +154,7 @@ fn str_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.str_type()) {
         Ok(vm.ctx.new_bool(v1 > get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i, i2)))
     }
 }
 
@@ -173,7 +169,7 @@ fn str_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.str_type()) {
         Ok(vm.ctx.new_bool(v1 >= get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i, i2)))
     }
 }
 
@@ -188,7 +184,7 @@ fn str_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.str_type()) {
         Ok(vm.ctx.new_bool(v1 < get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i, i2)))
     }
 }
 
@@ -203,7 +199,7 @@ fn str_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if objtype::isinstance(i2, &vm.ctx.str_type()) {
         Ok(vm.ctx.new_bool(v1 <= get_value(i2)))
     } else {
-        Err(vm.new_type_error(format!("Cannot compare {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot compare {} and {}", i, i2)))
     }
 }
 
@@ -258,7 +254,7 @@ fn str_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .ctx
             .new_str(format!("{}{}", get_value(&s), get_value(&s2))))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", s.borrow(), s2.borrow())))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", s, s2)))
     }
 }
 
@@ -387,11 +383,7 @@ fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
         Ok(vm.ctx.new_str(result))
     } else {
-        Err(vm.new_type_error(format!(
-            "Cannot multiply {} and {}",
-            s.borrow(),
-            s2.borrow()
-        )))
+        Err(vm.new_type_error(format!("Cannot multiply {} and {}", s, s2)))
     }
 }
 
@@ -526,7 +518,7 @@ fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             && value
                 .chars()
                 .filter(|x| !x.is_ascii_whitespace())
-                .all(|c| c.is_uppercase()),
+                .all(char::is_uppercase),
     ))
 }
 
@@ -538,7 +530,7 @@ fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             && value
                 .chars()
                 .filter(|x| !x.is_ascii_whitespace())
-                .all(|c| c.is_lowercase()),
+                .all(char::is_lowercase),
     ))
 }
 
@@ -903,7 +895,7 @@ fn str_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     Ok(vm
         .ctx
-        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_alphanumeric())))
+        .new_bool(!value.is_empty() && value.chars().all(char::is_alphanumeric)))
 }
 
 fn str_isascii(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -967,7 +959,7 @@ fn str_isnumeric(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     Ok(vm
         .ctx
-        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_numeric())))
+        .new_bool(!value.is_empty() && value.chars().all(char::is_numeric)))
 }
 
 fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -975,7 +967,7 @@ fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     Ok(vm
         .ctx
-        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_alphanumeric())))
+        .new_bool(!value.is_empty() && value.chars().all(char::is_alphanumeric)))
 }
 
 fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -1115,7 +1107,7 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
             }
         }
     } else {
-        match (*b.borrow()).payload {
+        match b.payload {
             PyObjectPayload::Slice { .. } => {
                 let string = value.to_string().get_slice_items(vm, &b)?;
                 Ok(vm.new_str(string))
@@ -1130,8 +1122,8 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
 
 // help get optional string indices
 fn get_slice(
-    start: Option<&std::rc::Rc<std::cell::RefCell<PyObject>>>,
-    end: Option<&std::rc::Rc<std::cell::RefCell<PyObject>>>,
+    start: Option<&PyObjectRef>,
+    end: Option<&PyObjectRef>,
     len: usize,
 ) -> Result<(usize, usize), String> {
     let start_idx = match start {

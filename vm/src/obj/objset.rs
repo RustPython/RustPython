@@ -2,6 +2,11 @@
  * Builtin set type with a sequence of unique items.
  */
 
+use std::cell::{Cell, RefCell};
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+
 use super::objbool;
 use super::objint;
 use super::objiter;
@@ -11,13 +16,10 @@ use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
-    if let PyObjectPayload::Set { elements } = &obj.borrow().payload {
-        elements.clone()
+    if let PyObjectPayload::Set { elements } = &obj.payload {
+        elements.borrow().clone()
     } else {
         panic!("Cannot extract set elements from non-set");
     }
@@ -62,10 +64,10 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(s, Some(vm.ctx.set_type())), (item, None)]
     );
-    let mut mut_obj = s.borrow_mut();
-
-    match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => insert_into_set(vm, elements, item),
+    match s.payload {
+        PyObjectPayload::Set { ref elements } => {
+            insert_into_set(vm, &mut elements.borrow_mut(), item)
+        }
         _ => Err(vm.new_type_error("set.add is called with no item".to_string())),
     }
 }
@@ -77,10 +79,8 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(s, Some(vm.ctx.set_type())), (item, None)]
     );
-    let mut mut_obj = s.borrow_mut();
-
-    match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => {
+    match s.payload {
+        PyObjectPayload::Set { ref elements } => {
             fn remove(
                 vm: &mut VirtualMachine,
                 elements: &mut HashMap<u64, PyObjectRef>,
@@ -89,13 +89,13 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             ) -> PyResult {
                 match elements.remove(&key) {
                     None => {
-                        let item_str = format!("{:?}", value.borrow());
+                        let item_str = format!("{:?}", value);
                         Err(vm.new_key_error(item_str))
                     }
                     Some(_) => Ok(vm.get_none()),
                 }
             }
-            perform_action_with_hash(vm, elements, item, &remove)
+            perform_action_with_hash(vm, &mut elements.borrow_mut(), item, &remove)
         }
         _ => Err(vm.new_type_error("set.remove is called with no item".to_string())),
     }
@@ -108,10 +108,8 @@ fn set_discard(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(s, Some(vm.ctx.set_type())), (item, None)]
     );
-    let mut mut_obj = s.borrow_mut();
-
-    match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => {
+    match s.payload {
+        PyObjectPayload::Set { ref elements } => {
             fn discard(
                 vm: &mut VirtualMachine,
                 elements: &mut HashMap<u64, PyObjectRef>,
@@ -121,7 +119,7 @@ fn set_discard(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 elements.remove(&key);
                 Ok(vm.get_none())
             }
-            perform_action_with_hash(vm, elements, item, &discard)
+            perform_action_with_hash(vm, &mut elements.borrow_mut(), item, &discard)
         }
         _ => Err(vm.new_type_error("set.discard is called with no item".to_string())),
     }
@@ -130,10 +128,9 @@ fn set_discard(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn set_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.clear called");
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
-    let mut mut_obj = s.borrow_mut();
-    match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => {
-            elements.clear();
+    match s.payload {
+        PyObjectPayload::Set { ref elements } => {
+            elements.borrow_mut().clear();
             Ok(vm.get_none())
         }
         _ => Err(vm.new_type_error("".to_string())),
@@ -150,7 +147,7 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     if !objtype::issubclass(cls, &vm.ctx.set_type()) {
-        return Err(vm.new_type_error(format!("{} is not a subtype of set", cls.borrow())));
+        return Err(vm.new_type_error(format!("{} is not a subtype of set", cls)));
     }
 
     let elements: HashMap<u64, PyObjectRef> = match iterable {
@@ -166,7 +163,9 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements },
+        PyObjectPayload::Set {
+            elements: RefCell::new(elements),
+        },
         cls.clone(),
     ))
 }
@@ -183,7 +182,9 @@ fn set_copy(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let elements = get_elements(s);
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements },
+        PyObjectPayload::Set {
+            elements: RefCell::new(elements),
+        },
         vm.ctx.set_type(),
     ))
 }
@@ -335,7 +336,9 @@ fn set_union(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     elements.extend(get_elements(other).clone());
 
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements },
+        PyObjectPayload::Set {
+            elements: RefCell::new(elements),
+        },
         vm.ctx.set_type(),
     ))
 }
@@ -375,7 +378,9 @@ fn set_symmetric_difference(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResu
     }
 
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements },
+        PyObjectPayload::Set {
+            elements: RefCell::new(elements),
+        },
         vm.ctx.set_type(),
     ))
 }
@@ -413,7 +418,9 @@ fn set_combine_inner(
     }
 
     Ok(PyObject::new(
-        PyObjectPayload::Set { elements },
+        PyObjectPayload::Set {
+            elements: RefCell::new(elements),
+        },
         vm.ctx.set_type(),
     ))
 }
@@ -421,13 +428,14 @@ fn set_combine_inner(
 fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
 
-    let mut mut_obj = s.borrow_mut();
-
-    match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => match elements.clone().keys().next() {
-            Some(key) => Ok(elements.remove(key).unwrap()),
-            None => Err(vm.new_key_error("pop from an empty set".to_string())),
-        },
+    match s.payload {
+        PyObjectPayload::Set { ref elements } => {
+            let mut elements = elements.borrow_mut();
+            match elements.clone().keys().next() {
+                Some(key) => Ok(elements.remove(key).unwrap()),
+                None => Err(vm.new_key_error("pop from an empty set".to_string())),
+            }
+        }
         _ => Err(vm.new_type_error("".to_string())),
     }
 }
@@ -444,13 +452,11 @@ fn set_ior(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
     );
 
-    let mut mut_obj = zelf.borrow_mut();
-
-    match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => {
+    match zelf.payload {
+        PyObjectPayload::Set { ref elements } => {
             let iterator = objiter::get_iter(vm, iterable)?;
             while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                insert_into_set(vm, elements, &v)?;
+                insert_into_set(vm, &mut elements.borrow_mut(), &v)?;
             }
         }
         _ => return Err(vm.new_type_error("set.update is called with no other".to_string())),
@@ -487,10 +493,9 @@ fn set_combine_update_inner(
         required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
     );
 
-    let mut mut_obj = zelf.borrow_mut();
-
-    match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => {
+    match zelf.payload {
+        PyObjectPayload::Set { ref elements } => {
+            let mut elements = elements.borrow_mut();
             for element in elements.clone().iter() {
                 let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
                 let should_remove = match op {
@@ -519,19 +524,17 @@ fn set_ixor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
     );
 
-    let mut mut_obj = zelf.borrow_mut();
-
-    match mut_obj.payload {
-        PyObjectPayload::Set { ref mut elements } => {
-            let elements_original = elements.clone();
+    match zelf.payload {
+        PyObjectPayload::Set { ref elements } => {
+            let elements_original = elements.borrow().clone();
             let iterator = objiter::get_iter(vm, iterable)?;
             while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                insert_into_set(vm, elements, &v)?;
+                insert_into_set(vm, &mut elements.borrow_mut(), &v)?;
             }
             for element in elements_original.iter() {
                 let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
                 if objbool::get_value(&value) {
-                    elements.remove(&element.0.clone());
+                    elements.borrow_mut().remove(&element.0.clone());
                 }
             }
         }
@@ -544,11 +547,11 @@ fn set_ixor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.set_type()))]);
 
-    let items = get_elements(zelf).values().map(|x| x.clone()).collect();
+    let items = get_elements(zelf).values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
     let iter_obj = PyObject::new(
         PyObjectPayload::Iterator {
-            position: 0,
+            position: Cell::new(0),
             iterated_obj: set_list,
         },
         vm.ctx.iter_type(),

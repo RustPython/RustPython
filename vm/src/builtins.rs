@@ -14,10 +14,11 @@ use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objtype;
 
+use crate::frame::{Scope, ScopeRef};
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, Scope, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
+use std::rc::Rc;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
@@ -257,7 +258,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.run_code_obj(code_obj, scope)
 }
 
-fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
+fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> ScopeRef {
     // handle optional global and locals
     let locals = if let Some(locals) = locals {
         locals.clone()
@@ -267,16 +268,10 @@ fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObject
 
     // TODO: handle optional globals
     // Construct new scope:
-    let scope_inner = Scope {
+    Rc::new(Scope {
         locals,
         parent: None,
-    };
-
-    PyObject {
-        payload: PyObjectPayload::Scope { scope: scope_inner },
-        typ: None,
-    }
-    .into_ref()
+    })
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -346,21 +341,25 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_input
 
 fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None), (typ, None)]);
+    arg_check!(
+        vm,
+        args,
+        required = [(obj, None), (typ, Some(vm.get_type()))]
+    );
 
-    let isinstance = objtype::isinstance(obj, typ);
-    Ok(vm.context().new_bool(isinstance))
+    let isinstance = objtype::real_isinstance(vm, obj, typ)?;
+    Ok(vm.new_bool(isinstance))
 }
 
 fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() != 2 {
-        panic!("issubclass expects exactly two parameters");
-    }
+    arg_check!(
+        vm,
+        args,
+        required = [(subclass, Some(vm.get_type())), (cls, Some(vm.get_type()))]
+    );
 
-    let cls1 = &args.args[0];
-    let cls2 = &args.args[1];
-
-    Ok(vm.context().new_bool(objtype::issubclass(cls1, cls2)))
+    let issubclass = objtype::real_issubclass(vm, subclass, cls)?;
+    Ok(vm.context().new_bool(issubclass))
 }
 
 fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -686,7 +685,16 @@ fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // builtin_slice
-// builtin_sorted
+
+fn builtin_sorted(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(iterable, None)]);
+    let items = vm.extract_elements(iterable)?;
+    let lst = vm.ctx.new_list(items);
+
+    args.shift();
+    vm.call_method_pyargs(&lst, "sort", args)?;
+    Ok(lst)
+}
 
 fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
@@ -760,6 +768,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "round" => ctx.new_rustfunc(builtin_round),
         "set" => ctx.set_type(),
         "setattr" => ctx.new_rustfunc(builtin_setattr),
+        "sorted" => ctx.new_rustfunc(builtin_sorted),
         "slice" => ctx.slice_type(),
         "staticmethod" => ctx.staticmethod_type(),
         "str" => ctx.str_type(),
@@ -805,7 +814,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let mut metaclass = args.get_kwarg("metaclass", vm.get_type());
 
     for base in bases.clone() {
-        if objtype::issubclass(&base.typ(), &metaclass) {
+        if objtype::real_issubclass(vm, &base.typ(), &metaclass)? {
             metaclass = base.typ();
         } else if !objtype::issubclass(&metaclass, &base.typ()) {
             return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
@@ -825,13 +834,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         },
     )?;
 
-    vm.invoke(
-        function,
-        PyFuncArgs {
-            args: vec![namespace.clone()],
-            kwargs: vec![],
-        },
-    )?;
+    vm.invoke_with_locals(function, namespace.clone())?;
 
     vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
 }

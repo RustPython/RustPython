@@ -1,3 +1,4 @@
+use super::objbool;
 use super::objdict;
 use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
@@ -8,18 +9,23 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 /*
  * The magical type type
  */
 
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type: PyObjectRef) {
-    (*type_type.borrow_mut()).payload = PyObjectPayload::Class {
-        name: String::from("type"),
-        dict: RefCell::new(PyAttributes::new()),
-        mro: vec![object_type],
-    };
-    (*type_type.borrow_mut()).typ = Some(type_type.clone());
+    // this is not ideal
+    let ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
+    unsafe {
+        (*ptr).payload = PyObjectPayload::Class {
+            name: String::from("type"),
+            dict: RefCell::new(PyAttributes::new()),
+            mro: vec![object_type],
+        };
+        (*ptr).typ = Some(type_type);
+    }
 }
 
 pub fn init(context: &PyContext) {
@@ -52,6 +58,16 @@ pub fn init(context: &PyContext) {
         "__getattribute__",
         context.new_rustfunc(type_getattribute),
     );
+    context.set_attr(
+        &type_type,
+        "__instancecheck__",
+        context.new_rustfunc(type_instance_check),
+    );
+    context.set_attr(
+        &type_type,
+        "__subclasscheck__",
+        context.new_rustfunc(type_subclass_check),
+    );
     context.set_attr(&type_type, "__doc__", context.new_str(type_doc.to_string()));
 }
 
@@ -71,7 +87,7 @@ fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
-    match cls.borrow().payload {
+    match cls.payload {
         PyObjectPayload::Class { ref mro, .. } => {
             let mut mro = mro.clone();
             mro.insert(0, cls.clone());
@@ -85,18 +101,72 @@ pub fn base_classes(obj: &PyObjectRef) -> Vec<PyObjectRef> {
     _mro(obj.typ()).unwrap()
 }
 
+/// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
+/// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let mro = _mro(obj.typ()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
 
-pub fn issubclass(typ: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    let mro = _mro(typ.clone()).unwrap();
+/// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via the
+/// __instancecheck__ magic method.
+pub fn real_isinstance(
+    vm: &mut VirtualMachine,
+    obj: &PyObjectRef,
+    cls: &PyObjectRef,
+) -> PyResult<bool> {
+    // cpython first does an exact check on the type, although documentation doesn't state that
+    // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
+    if Rc::ptr_eq(&obj.typ(), cls) {
+        Ok(true)
+    } else {
+        let ret = vm.call_method(cls, "__instancecheck__", vec![obj.clone()])?;
+        objbool::boolval(vm, ret)
+    }
+}
+
+fn type_instance_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(typ, Some(vm.ctx.type_type())), (obj, None)]
+    );
+    Ok(vm.new_bool(isinstance(obj, typ)))
+}
+
+/// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
+/// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
+/// method.
+pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
+    let mro = _mro(subclass.clone()).unwrap();
     mro.into_iter().any(|c| c.is(&cls))
 }
 
+/// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually via
+/// the __subclasscheck__ magic method.
+pub fn real_issubclass(
+    vm: &mut VirtualMachine,
+    subclass: &PyObjectRef,
+    cls: &PyObjectRef,
+) -> PyResult<bool> {
+    let ret = vm.call_method(cls, "__subclasscheck__", vec![subclass.clone()])?;
+    objbool::boolval(vm, ret)
+}
+
+fn type_subclass_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (cls, Some(vm.ctx.type_type())),
+            (subclass, Some(vm.ctx.type_type()))
+        ]
+    );
+    Ok(vm.new_bool(issubclass(subclass, cls)))
+}
+
 pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let PyObjectPayload::Class { name, .. } = &typ.borrow().payload {
+    if let PyObjectPayload::Class { name, .. } = &typ.payload {
         name.clone()
     } else {
         panic!("Cannot get type_name of non-type type {:?}", typ);
@@ -211,7 +281,7 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
         let attribute_error = vm.context().exceptions.attribute_error.clone();
         Err(vm.new_exception(
             attribute_error,
-            format!("{} has no attribute '{}'", cls.borrow(), name),
+            format!("{} has no attribute '{}'", cls, name),
         ))
     }
 }
@@ -224,7 +294,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     let mut base_classes = objtype::base_classes(obj);
     base_classes.reverse();
     for bc in base_classes {
-        if let PyObjectPayload::Class { dict, .. } = &bc.borrow().payload {
+        if let PyObjectPayload::Class { dict, .. } = &bc.payload {
             for (name, value) in dict.borrow().iter() {
                 attributes.insert(name.to_string(), value.clone());
             }
@@ -232,7 +302,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     }
 
     // Get instance attributes:
-    if let PyObjectPayload::Instance { dict } = &obj.borrow().payload {
+    if let PyObjectPayload::Instance { dict } = &obj.payload {
         for (name, value) in dict.borrow().iter() {
             attributes.insert(name.to_string(), value.clone());
         }
@@ -273,7 +343,7 @@ fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
     debug!("Linearising MRO: {:?}", bases);
     let mut result = vec![];
     loop {
-        if (&bases).iter().all(|x| x.is_empty()) {
+        if (&bases).iter().all(Vec::is_empty) {
             break;
         }
         match take_next_base(bases) {

@@ -1,10 +1,11 @@
 use crate::browser_module::setup_browser_module;
 use crate::convert;
 use crate::wasm_builtins;
-use js_sys::{SyntaxError, TypeError};
+use js_sys::{Object, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
-    pyobject::{PyFuncArgs, PyObjectRef, PyRef, PyResult},
+    frame::ScopeRef,
+    pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult},
     VirtualMachine,
 };
 use std::cell::RefCell;
@@ -18,7 +19,7 @@ impl<T> HeldRcInner for T {}
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
-    pub scope: PyObjectRef,
+    pub scope: ScopeRef,
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
     held_rcs: Vec<Rc<dyn HeldRcInner>>,
@@ -45,8 +46,8 @@ impl StoredVirtualMachine {
 // gets compiled down to a normal-ish static varible, like Atomic* types:
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
-    static STORED_VMS: PyRef<HashMap<String, PyRef<StoredVirtualMachine>>> = Rc::default();
-    static ACTIVE_VMS: PyRef<HashMap<String, *mut VirtualMachine>> = Rc::default();
+    static STORED_VMS: Rc<RefCell<HashMap<String, Rc<RefCell<StoredVirtualMachine>>>>> = Rc::default();
+    static ACTIVE_VMS: Rc<RefCell<HashMap<String, *mut VirtualMachine>>> = Rc::default();
 }
 
 #[wasm_bindgen(js_name = vmStore)]
@@ -258,7 +259,7 @@ impl WASMVirtualMachine {
                       ..
                   }| {
                 let value = convert::js_to_py(vm, value);
-                vm.ctx.set_attr(scope, &name, value);
+                scope.locals.set_item(&vm.ctx, &name, value);
             },
         )
     }
@@ -298,11 +299,38 @@ impl WASMVirtualMachine {
                         )
                         .into());
                     };
-                vm.ctx
-                    .set_attr(scope, "print", vm.ctx.new_rustfunc_from_box(print_fn));
+                scope
+                    .locals
+                    .set_item(&vm.ctx, "print", vm.ctx.new_rustfunc_from_box(print_fn));
                 Ok(())
             },
         )?
+    }
+
+    #[wasm_bindgen(js_name = injectModule)]
+    pub fn inject_module(&self, name: String, module: Object) -> Result<(), JsValue> {
+        self.with(|StoredVirtualMachine { ref mut vm, .. }| {
+            let mut module_items: HashMap<String, PyObjectRef> = HashMap::new();
+            for entry in convert::object_entries(&module) {
+                let (key, value) = entry?;
+                let key = Object::from(key).to_string();
+                module_items.insert(key.into(), convert::js_to_py(vm, value));
+            }
+
+            let mod_name = name.clone();
+
+            let stdlib_init_fn = move |ctx: &PyContext| {
+                let py_mod = ctx.new_module(&name, ctx.new_scope(None));
+                for (key, value) in module_items.clone() {
+                    ctx.set_attr(&py_mod, &key, value);
+                }
+                py_mod
+            };
+
+            vm.stdlib_inits.insert(mod_name, Box::new(stdlib_init_fn));
+
+            Ok(())
+        })?
     }
 
     fn run(&self, mut source: String, mode: compile::Mode) -> Result<JsValue, JsValue> {

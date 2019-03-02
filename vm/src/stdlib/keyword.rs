@@ -18,17 +18,15 @@ fn keyword_iskeyword(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module("keyword", ctx.new_scope(None));
-
-    ctx.set_attr(&py_mod, "iskeyword", ctx.new_rustfunc(keyword_iskeyword));
-
     let keyword_kwlist = ctx.new_list(
         lexer::get_keywords()
             .keys()
             .map(|k| ctx.new_str(k.to_string()))
             .collect(),
     );
-    ctx.set_attr(&py_mod, "kwlist", keyword_kwlist);
 
-    py_mod
+    py_module!(ctx, "keyword", {
+        "iskeyword" => ctx.new_rustfunc(keyword_iskeyword),
+        "kwlist" => keyword_kwlist
+    })
 }

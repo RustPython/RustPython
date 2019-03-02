@@ -67,7 +67,7 @@ fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn function_code(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].borrow().payload {
+    match args.args[0].payload {
         PyObjectPayload::Function { ref code, .. } => Ok(code.clone()),
         _ => Err(vm.new_type_error("no code".to_string())),
     }

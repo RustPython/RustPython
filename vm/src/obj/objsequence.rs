@@ -1,12 +1,13 @@
+use std::cell::RefCell;
+use std::marker::Sized;
+use std::ops::{Deref, DerefMut, Range};
+
 use super::objbool;
 use super::objint;
 use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::cell::{Ref, RefMut};
-use std::marker::Sized;
-use std::ops::{Deref, DerefMut, Range};
 
 pub trait PySliceableSequence {
     fn do_slice(&self, range: Range<usize>) -> Self;
@@ -64,7 +65,7 @@ pub trait PySliceableSequence {
         Self: Sized,
     {
         // TODO: we could potentially avoid this copy and use slice
-        match &(slice.borrow()).payload {
+        match &slice.payload {
             PyObjectPayload::Slice { start, stop, step } => {
                 let step = step.clone().unwrap_or_else(BigInt::one);
                 if step.is_zero() {
@@ -140,7 +141,7 @@ pub fn get_item(
     elements: &[PyObjectRef],
     subscript: PyObjectRef,
 ) -> PyResult {
-    match &(subscript.borrow()).payload {
+    match &subscript.payload {
         PyObjectPayload::Integer { value } => match value.to_i32() {
             Some(value) => {
                 if let Some(pos_index) = elements.to_vec().get_pos(value) {
@@ -156,9 +157,9 @@ pub fn get_item(
         },
 
         PyObjectPayload::Slice { .. } => Ok(PyObject::new(
-            match &(sequence.borrow()).payload {
+            match &sequence.payload {
                 PyObjectPayload::Sequence { .. } => PyObjectPayload::Sequence {
-                    elements: elements.to_vec().get_slice_items(vm, &subscript)?,
+                    elements: RefCell::new(elements.to_vec().get_slice_items(vm, &subscript)?),
                 },
                 ref payload => panic!("sequence get_item called for non-sequence: {:?}", payload),
             },
@@ -301,24 +302,28 @@ pub fn seq_mul(elements: &[PyObjectRef], product: &PyObjectRef) -> Vec<PyObjectR
     new_elements
 }
 
+pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRef>> {
+    if let PyObjectPayload::Sequence { ref elements } = obj.payload {
+        elements
+    } else {
+        panic!("Cannot extract elements from non-sequence");
+    }
+}
+
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    Ref::map(obj.borrow(), |x| {
-        if let PyObjectPayload::Sequence { ref elements } = x.payload {
-            elements
-        } else {
-            panic!("Cannot extract elements from non-sequence");
-        }
-    })
+    if let PyObjectPayload::Sequence { ref elements } = obj.payload {
+        elements.borrow()
+    } else {
+        panic!("Cannot extract elements from non-sequence");
+    }
 }
 
 pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<PyObjectRef>> + 'a {
-    RefMut::map(obj.borrow_mut(), |x| {
-        if let PyObjectPayload::Sequence { ref mut elements } = x.payload {
-            elements
-        } else {
-            panic!("Cannot extract list elements from non-sequence");
-            // TODO: raise proper error?
-            // Err(vm.new_type_error("list.append is called with no list".to_string()))
-        }
-    })
+    if let PyObjectPayload::Sequence { ref elements } = obj.payload {
+        elements.borrow_mut()
+    } else {
+        panic!("Cannot extract list elements from non-sequence");
+        // TODO: raise proper error?
+        // Err(vm.new_type_error("list.append is called with no list".to_string()))
+    }
 }

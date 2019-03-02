@@ -45,7 +45,7 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
-    if let PyObjectPayload::Complex { value } = &obj.borrow().payload {
+    if let PyObjectPayload::Complex { value } = &obj.payload {
         *value
     } else {
         panic!("Inner error getting complex");
@@ -84,13 +84,13 @@ fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn complex_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    let Complex64 { re, im: _ } = get_value(zelf);
+    let Complex64 { re, .. } = get_value(zelf);
     Ok(vm.ctx.new_float(re))
 }
 
 fn complex_imag(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    let Complex64 { re: _, im } = get_value(zelf);
+    let Complex64 { im, .. } = get_value(zelf);
     Ok(vm.ctx.new_float(im))
 }
 
@@ -117,7 +117,7 @@ fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             v1.im,
         )))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", i, i2)))
     }
 }
 
@@ -136,7 +136,7 @@ fn complex_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             v1.im,
         )))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", i, i2)))
     }
 }
 

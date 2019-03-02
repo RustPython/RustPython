@@ -65,7 +65,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 map.serialize_entry(&key, &self.clone_with_object(&e.1))?;
             }
             map.end()
-        } else if let PyObjectPayload::None = self.pyobject.borrow().payload {
+        } else if let PyObjectPayload::None = self.pyobject.payload {
             serializer.serialize_none()
         } else {
             Err(serde::ser::Error::custom(format!(
@@ -167,11 +167,11 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         // than wrapping the given object up and then unwrapping it to determine whether or
         // not it is a string
         while let Some((key_obj, value)) = access.next_entry_seed(self.clone(), self.clone())? {
-            let key = match key_obj.borrow().payload {
+            let key = match key_obj.payload {
                 PyObjectPayload::String { ref value } => value.clone(),
                 _ => unimplemented!("map keys must be strings"),
             };
-            self.vm.ctx.set_item(&dict, &key, value);
+            dict.set_item(&self.vm.ctx, &key, value);
         }
         Ok(dict)
     }
@@ -225,11 +225,6 @@ fn json_loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let json_mod = ctx.new_module("json", ctx.new_scope(None));
-
-    ctx.set_attr(&json_mod, "dumps", ctx.new_rustfunc(json_dumps));
-    ctx.set_attr(&json_mod, "loads", ctx.new_rustfunc(json_loads));
-
     // TODO: Make this a proper type with a constructor
     let json_decode_error = create_type(
         "JSONDecodeError",
@@ -237,7 +232,10 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
         &ctx.exceptions.exception_type,
         &ctx.dict_type,
     );
-    ctx.set_attr(&json_mod, "JSONDecodeError", json_decode_error);
 
-    json_mod
+    py_module!(ctx, "json", {
+        "dumps" => ctx.new_rustfunc(json_dumps),
+        "loads" => ctx.new_rustfunc(json_loads),
+        "JSONDecodeError" => json_decode_error
+    })
 }
