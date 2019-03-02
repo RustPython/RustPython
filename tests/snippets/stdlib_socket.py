@@ -44,18 +44,32 @@ sock1.bind(("127.0.0.1", 0))
 sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 sock2.sendto(MESSAGE_A, sock1.getsockname())
-(recv_a, addr) = sock1.recvfrom(len(MESSAGE_A))
+(recv_a, addr1) = sock1.recvfrom(len(MESSAGE_A))
 assert recv_a == MESSAGE_A
 
-sock2.bind(("127.0.0.1", 0))
-sock1.connect(("127.0.0.1", sock2.getsockname()[1]))
-sock2.connect(("127.0.0.1", sock1.getsockname()[1]))
+sock2.sendto(MESSAGE_B, sock1.getsockname())
+(recv_b, addr2) = sock1.recvfrom(len(MESSAGE_B))
+assert recv_b == MESSAGE_B
+assert addr1[0] == addr2[0]
+assert addr1[1] == addr2[1]
+
+sock2.close()
+
+sock3 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock3.bind(("127.0.0.1", 0))
+sock3.sendto(MESSAGE_A, sock1.getsockname())
+(recv_a, addr) = sock1.recvfrom(len(MESSAGE_A))
+assert recv_a == MESSAGE_A
+assert addr == sock3.getsockname()
+
+sock1.connect(("127.0.0.1", sock3.getsockname()[1]))
+sock3.connect(("127.0.0.1", sock1.getsockname()[1]))
 
 sock1.send(MESSAGE_A)
-sock2.send(MESSAGE_B)
-recv_a = sock2.recv(len(MESSAGE_A))
+sock3.send(MESSAGE_B)
+recv_a = sock3.recv(len(MESSAGE_A))
 recv_b = sock1.recv(len(MESSAGE_B))
 assert recv_a == MESSAGE_A
 assert recv_b == MESSAGE_B
 sock1.close()
-sock2.close()
+sock3.close()

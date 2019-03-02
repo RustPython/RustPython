@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::ops::DerefMut;
 
 use crate::obj::objbytes;
@@ -75,6 +75,13 @@ impl Connection {
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         match self {
             Connection::UdpSocket(con) => con.recv_from(buf),
+            _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
+        }
+    }
+
+    fn send_to<A: ToSocketAddrs>(&self, buf: &[u8], addr: A) -> io::Result<usize> {
+        match self {
+            Connection::UdpSocket(con) => con.send_to(buf, addr),
             _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
         }
     }
@@ -360,17 +367,29 @@ fn socket_sendto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let address_string = get_address_string(vm, address)?;
 
-    let socket = get_socket(zelf);
+    let mut socket = get_socket(zelf);
 
     match socket.socket_kind {
         SocketKind::Dgram => {
-            // We can't do sendto without bind in std::net::UdpSocket
-            if let Ok(dgram) = UdpSocket::bind("0.0.0.0:0") {
-                if let Ok(_) = dgram.send_to(&objbytes::get_value(&bytes), address_string) {
-                    return Ok(vm.get_none());
+            match socket.con {
+                Some(ref mut v) => {
+                    if let Ok(_) = v.send_to(&objbytes::get_value(&bytes), address_string) {
+                        Ok(vm.get_none())
+                    } else {
+                        Err(vm.new_type_error("socket failed".to_string()))
+                    }
+                }
+                None => {
+                    // Doing implicit bind
+                    if let Ok(dgram) = UdpSocket::bind("0.0.0.0:0") {
+                        if let Ok(_) = dgram.send_to(&objbytes::get_value(&bytes), address_string) {
+                            socket.con = Some(Connection::UdpSocket(dgram));
+                            return Ok(vm.get_none());
+                        }
+                    }
+                    Err(vm.new_type_error("socket failed".to_string()))
                 }
             }
-            Err(vm.new_type_error("socket failed".to_string()))
         }
         _ => Err(vm.new_not_implemented_error("".to_string())),
     }
