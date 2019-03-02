@@ -82,7 +82,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_frame(&mut self, frame: PyObjectRef) -> Result<ExecutionResult, PyObjectRef> {
+    pub fn run_frame(&mut self, frame: PyObjectRef) -> PyResult<ExecutionResult> {
         self.frames.push(frame.clone());
         let frame = objframe::get_value(&frame);
         let result = frame.run(self);
@@ -371,7 +371,7 @@ impl VirtualMachine {
         locals: &PyObjectRef,
         args: PyFuncArgs,
         defaults: &PyObjectRef,
-    ) -> Result<(), PyObjectRef> {
+    ) -> PyResult<()> {
         let nargs = args.args.len();
         let nexpected_args = code_object.arg_names.len();
 
@@ -513,10 +513,7 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn extract_elements(
-        &mut self,
-        value: &PyObjectRef,
-    ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+    pub fn extract_elements(&mut self, value: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
         // Extract elements from item, if possible:
         let elements = if objtype::isinstance(value, &self.ctx.tuple_type())
             || objtype::isinstance(value, &self.ctx.list_type())

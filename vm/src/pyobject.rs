@@ -547,7 +547,7 @@ impl PyContext {
         PyObject::new(
             PyObjectPayload::Module {
                 name: name.to_string(),
-                scope: scope,
+                scope,
             },
             self.module_type.clone(),
         )
