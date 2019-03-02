@@ -95,7 +95,7 @@ fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         })
         .and_then(JsFuture::from);
 
-    Ok(PyPromise::new(promise_type, future_to_promise(future)))
+    Ok(PyPromise::new_obj(promise_type, future_to_promise(future)))
 }
 
 fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -159,7 +159,7 @@ pub struct PyPromise {
 }
 
 impl PyPromise {
-    pub fn new(promise_type: PyObjectRef, value: Promise) -> PyObjectRef {
+    pub fn new_obj(promise_type: PyObjectRef, value: Promise) -> PyObjectRef {
         PyObject::new(
             PyObjectPayload::AnyRustValue {
                 value: Box::new(PyPromise { value }),
@@ -230,7 +230,7 @@ fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let ret_promise = future_to_promise(ret_future);
 
-    Ok(PyPromise::new(promise_type, ret_promise))
+    Ok(PyPromise::new_obj(promise_type, ret_promise))
 }
 
 fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -265,7 +265,7 @@ fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let ret_promise = future_to_promise(ret_future);
 
-    Ok(PyPromise::new(promise_type, ret_promise))
+    Ok(PyPromise::new_obj(promise_type, ret_promise))
 }
 
 fn browser_alert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

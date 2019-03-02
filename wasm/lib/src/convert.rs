@@ -118,7 +118,7 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
         if let Some(promise) = js_val.dyn_ref::<Promise>() {
             // the browser module might not be injected
             if let Ok(promise_type) = browser_module::import_promise_type(vm) {
-                return browser_module::PyPromise::new(promise_type, promise.clone());
+                return browser_module::PyPromise::new_obj(promise_type, promise.clone());
             }
         }
         if Array::is_array(&js_val) {
