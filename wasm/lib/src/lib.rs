@@ -34,7 +34,7 @@ fn panic_hook(info: &panic::PanicInfo) {
         Ok(stack) => stack,
         Err(_) => return,
     };
-    let _ = Reflect::set(&window, &"__RUSTPYTHON_ERROR_STACK".into(), &stack.into());
+    let _ = Reflect::set(&window, &"__RUSTPYTHON_ERROR_STACK".into(), &stack);
 }
 
 #[wasm_bindgen(start)]

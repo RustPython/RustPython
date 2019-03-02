@@ -24,7 +24,7 @@ fn frame_idx(vm: &mut VirtualMachine, offset: Option<&PyObjectRef>) -> Result<us
             return Ok(offset);
         }
     }
-    return Ok(0);
+    Ok(0)
 }
 
 fn getframe(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

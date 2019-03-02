@@ -558,7 +558,7 @@ fn str_isupper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             && value
                 .chars()
                 .filter(|x| !x.is_ascii_whitespace())
-                .all(|c| c.is_uppercase()),
+                .all(char::is_uppercase),
     ))
 }
 
@@ -570,7 +570,7 @@ fn str_islower(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             && value
                 .chars()
                 .filter(|x| !x.is_ascii_whitespace())
-                .all(|c| c.is_lowercase()),
+                .all(char::is_lowercase),
     ))
 }
 
@@ -908,7 +908,7 @@ fn str_isalnum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     Ok(vm
         .ctx
-        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_alphanumeric())))
+        .new_bool(!value.is_empty() && value.chars().all(char::is_alphanumeric)))
 }
 
 fn str_isascii(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -972,7 +972,7 @@ fn str_isnumeric(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     Ok(vm
         .ctx
-        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_numeric())))
+        .new_bool(!value.is_empty() && value.chars().all(char::is_numeric)))
 }
 
 fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -980,7 +980,7 @@ fn str_isalpha(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = get_value(&s);
     Ok(vm
         .ctx
-        .new_bool(!value.is_empty() && value.chars().all(|c| c.is_alphanumeric())))
+        .new_bool(!value.is_empty() && value.chars().all(char::is_alphanumeric)))
 }
 
 fn str_isdigit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

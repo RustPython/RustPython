@@ -8,11 +8,13 @@ extern crate rustpython_parser;
 
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
+use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
 use crate::frame::ExecutionResult;
+use crate::frame::{Scope, ScopeRef};
 use crate::obj::objbool;
 use crate::obj::objcode;
 use crate::obj::objframe;
@@ -68,7 +70,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_code_obj(&mut self, code: PyObjectRef, scope: PyObjectRef) -> PyResult {
+    pub fn run_code_obj(&mut self, code: PyObjectRef, scope: ScopeRef) -> PyResult {
         let frame = self.ctx.new_frame(code, scope);
         self.run_frame_full(frame)
     }
@@ -80,7 +82,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_frame(&mut self, frame: PyObjectRef) -> Result<ExecutionResult, PyObjectRef> {
+    pub fn run_frame(&mut self, frame: PyObjectRef) -> PyResult<ExecutionResult> {
         self.frames.push(frame.clone());
         let frame = objframe::get_value(&frame);
         let result = frame.run(self);
@@ -107,7 +109,17 @@ impl VirtualMachine {
         self.ctx.new_dict()
     }
 
+    pub fn new_empty_exception(&mut self, exc_type: PyObjectRef) -> PyResult {
+        info!("New exception created: no msg");
+        let args = PyFuncArgs {
+            args: vec![],
+            kwargs: vec![],
+        };
+        self.invoke(exc_type, args)
+    }
+
     pub fn new_exception(&mut self, exc_type: PyObjectRef, msg: String) -> PyObjectRef {
+        // TODO: exc_type may be user-defined exception, so we should return PyResult
         // TODO: maybe there is a clearer way to create an instance:
         info!("New exception created: {}", msg);
         let pymsg = self.new_str(msg);
@@ -177,11 +189,6 @@ impl VirtualMachine {
         self.new_exception(overflow_error, msg)
     }
 
-    pub fn new_scope(&mut self, parent_scope: Option<PyObjectRef>) -> PyObjectRef {
-        // let parent_scope = self.current_frame_mut().locals.clone();
-        self.ctx.new_scope(parent_scope)
-    }
-
     pub fn get_none(&self) -> PyObjectRef {
         self.ctx.none()
     }
@@ -211,10 +218,10 @@ impl VirtualMachine {
         &self.ctx
     }
 
-    pub fn get_builtin_scope(&mut self) -> PyObjectRef {
+    pub fn get_builtin_scope(&mut self) -> ScopeRef {
         let a2 = &*self.builtins;
         match a2.payload {
-            PyObjectPayload::Module { ref dict, .. } => dict.clone(),
+            PyObjectPayload::Module { ref scope, .. } => scope.clone(),
             _ => {
                 panic!("OMG");
             }
@@ -319,13 +326,13 @@ impl VirtualMachine {
     fn invoke_python_function(
         &mut self,
         code: &PyObjectRef,
-        scope: &PyObjectRef,
+        scope: &ScopeRef,
         defaults: &PyObjectRef,
         args: PyFuncArgs,
     ) -> PyResult {
         let code_object = objcode::get_value(code);
         let scope = self.ctx.new_scope(Some(scope.clone()));
-        self.fill_scope_from_args(&code_object, &scope, args, defaults)?;
+        self.fill_locals_from_args(&code_object, &scope.locals, args, defaults)?;
 
         // Construct frame:
         let frame = self.ctx.new_frame(code.clone(), scope);
@@ -338,13 +345,33 @@ impl VirtualMachine {
         }
     }
 
-    fn fill_scope_from_args(
+    pub fn invoke_with_locals(&mut self, function: PyObjectRef, locals: PyObjectRef) -> PyResult {
+        if let PyObjectPayload::Function {
+            code,
+            scope,
+            defaults: _defaults,
+        } = &function.payload
+        {
+            let scope = Rc::new(Scope {
+                locals,
+                parent: Some(scope.clone()),
+            });
+            let frame = self.ctx.new_frame(code.clone(), scope);
+            return self.run_frame_full(frame);
+        }
+        panic!(
+            "invoke_with_locals: expected python function, got: {:?}",
+            function
+        );
+    }
+
+    fn fill_locals_from_args(
         &mut self,
         code_object: &bytecode::CodeObject,
-        scope: &PyObjectRef,
+        locals: &PyObjectRef,
         args: PyFuncArgs,
         defaults: &PyObjectRef,
-    ) -> Result<(), PyObjectRef> {
+    ) -> PyResult<()> {
         let nargs = args.args.len();
         let nexpected_args = code_object.arg_names.len();
 
@@ -364,7 +391,7 @@ impl VirtualMachine {
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
             let arg = &args.args[i];
-            self.ctx.set_attr(scope, arg_name, arg.clone());
+            locals.set_item(&self.ctx, arg_name, arg.clone());
         }
 
         // Pack other positional arguments in to *args:
@@ -378,7 +405,7 @@ impl VirtualMachine {
 
             // If we have a name (not '*' only) then store it:
             if let Some(vararg_name) = vararg {
-                self.ctx.set_attr(scope, vararg_name, vararg_value);
+                locals.set_item(&self.ctx, vararg_name, vararg_value);
             }
         } else {
             // Check the number of positional arguments
@@ -396,7 +423,7 @@ impl VirtualMachine {
 
             // Store when we have a name:
             if let Some(kwargs_name) = kwargs {
-                self.ctx.set_attr(scope, &kwargs_name, d.clone());
+                locals.set_item(&self.ctx, &kwargs_name, d.clone());
             }
 
             Some(d)
@@ -409,13 +436,13 @@ impl VirtualMachine {
             // Check if we have a parameter with this name:
             if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
             {
-                if scope.contains_key(&name) {
+                if locals.contains_key(&name) {
                     return Err(
                         self.new_type_error(format!("Got multiple values for argument '{}'", name))
                     );
                 }
 
-                self.ctx.set_attr(scope, &name, value);
+                locals.set_item(&self.ctx, &name, value);
             } else if let Some(d) = &kwargs {
                 d.set_item(&self.ctx, &name, value);
             } else {
@@ -440,7 +467,7 @@ impl VirtualMachine {
             let mut missing = vec![];
             for i in 0..required_args {
                 let variable_name = &code_object.arg_names[i];
-                if !scope.contains_key(variable_name) {
+                if !locals.contains_key(variable_name) {
                     missing.push(variable_name)
                 }
             }
@@ -456,9 +483,12 @@ impl VirtualMachine {
             // the default if we don't already have a value
             for (default_index, i) in (required_args..nexpected_args).enumerate() {
                 let arg_name = &code_object.arg_names[i];
-                if !scope.contains_key(arg_name) {
-                    self.ctx
-                        .set_attr(scope, arg_name, available_defaults[default_index].clone());
+                if !locals.contains_key(arg_name) {
+                    locals.set_item(
+                        &self.ctx,
+                        arg_name,
+                        available_defaults[default_index].clone(),
+                    );
                 }
             }
         };
@@ -466,7 +496,7 @@ impl VirtualMachine {
         // Check if kw only arguments are all present:
         let kwdefs: HashMap<String, String> = HashMap::new();
         for arg_name in &code_object.kwonlyarg_names {
-            if !scope.contains_key(arg_name) {
+            if !locals.contains_key(arg_name) {
                 if kwdefs.contains_key(arg_name) {
                     // If not yet specified, take the default value
                     unimplemented!();
@@ -483,10 +513,7 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn extract_elements(
-        &mut self,
-        value: &PyObjectRef,
-    ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+    pub fn extract_elements(&mut self, value: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
         // Extract elements from item, if possible:
         let elements = if objtype::isinstance(value, &self.ctx.tuple_type())
             || objtype::isinstance(value, &self.ctx.list_type())
@@ -791,6 +818,12 @@ impl VirtualMachine {
         self.call_or_reflection(a, b, "__ge__", "__le__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, ">="))
         })
+    }
+}
+
+impl Default for VirtualMachine {
+    fn default() -> Self {
+        VirtualMachine::new()
     }
 }
 

@@ -29,7 +29,7 @@ pub fn init(context: &PyContext) {
 
 pub fn new_generator(vm: &mut VirtualMachine, frame: PyObjectRef) -> PyResult {
     Ok(PyObject::new(
-        PyObjectPayload::Generator { frame: frame },
+        PyObjectPayload::Generator { frame },
         vm.ctx.generator_type.clone(),
     ))
 }

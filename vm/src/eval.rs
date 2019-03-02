@@ -3,15 +3,11 @@ extern crate rustpython_parser;
 use std::error::Error;
 
 use crate::compile;
-use crate::pyobject::{PyObjectRef, PyResult};
+use crate::frame::ScopeRef;
+use crate::pyobject::PyResult;
 use crate::vm::VirtualMachine;
 
-pub fn eval(
-    vm: &mut VirtualMachine,
-    source: &str,
-    scope: PyObjectRef,
-    source_path: &str,
-) -> PyResult {
+pub fn eval(vm: &mut VirtualMachine, source: &str, scope: ScopeRef, source_path: &str) -> PyResult {
     match compile::compile(
         source,
         &compile::Mode::Eval,

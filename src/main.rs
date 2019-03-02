@@ -12,10 +12,11 @@ use rustpython_parser::error::ParseError;
 use rustpython_vm::{
     compile,
     error::CompileError,
+    frame::ScopeRef,
     import,
     obj::objstr,
     print_exception,
-    pyobject::{AttributeProtocol, PyObjectRef, PyResult},
+    pyobject::{AttributeProtocol, PyResult},
     util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};
@@ -120,11 +121,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
     }
 }
 
-fn shell_exec(
-    vm: &mut VirtualMachine,
-    source: &str,
-    scope: PyObjectRef,
-) -> Result<(), CompileError> {
+fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: ScopeRef) -> Result<(), CompileError> {
     match compile::compile(
         source,
         &compile::Mode::Single,

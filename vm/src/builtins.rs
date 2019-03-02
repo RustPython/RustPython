@@ -3,7 +3,6 @@
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
 
 // use std::ops::Deref;
-use std::cell::RefCell;
 use std::char;
 use std::io::{self, Write};
 
@@ -15,10 +14,11 @@ use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objtype;
 
+use crate::frame::{Scope, ScopeRef};
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, Scope, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
+use std::rc::Rc;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
@@ -258,7 +258,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.run_code_obj(code_obj, scope)
 }
 
-fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObjectRef {
+fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> ScopeRef {
     // handle optional global and locals
     let locals = if let Some(locals) = locals {
         locals.clone()
@@ -268,18 +268,10 @@ fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> PyObject
 
     // TODO: handle optional globals
     // Construct new scope:
-    let scope_inner = Scope {
+    Rc::new(Scope {
         locals,
         parent: None,
-    };
-
-    PyObject {
-        payload: PyObjectPayload::Scope {
-            scope: RefCell::new(scope_inner),
-        },
-        typ: None,
-    }
-    .into_ref()
+    })
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -842,13 +834,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
         },
     )?;
 
-    vm.invoke(
-        function,
-        PyFuncArgs {
-            args: vec![namespace.clone()],
-            kwargs: vec![],
-        },
-    )?;
+    vm.invoke_with_locals(function, namespace.clone())?;
 
     vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
 }

@@ -84,13 +84,13 @@ fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn complex_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    let Complex64 { re, im: _ } = get_value(zelf);
+    let Complex64 { re, .. } = get_value(zelf);
     Ok(vm.ctx.new_float(re))
 }
 
 fn complex_imag(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    let Complex64 { re: _, im } = get_value(zelf);
+    let Complex64 { im, .. } = get_value(zelf);
     Ok(vm.ctx.new_float(im))
 }
 

@@ -343,7 +343,7 @@ fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
     debug!("Linearising MRO: {:?}", bases);
     let mut result = vec![];
     loop {
-        if (&bases).iter().all(|x| x.is_empty()) {
+        if (&bases).iter().all(Vec::is_empty) {
             break;
         }
         match take_next_base(bases) {

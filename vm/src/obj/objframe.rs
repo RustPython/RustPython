@@ -30,13 +30,7 @@ fn frame_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
     let frame = get_value(frame);
-    let py_scope = frame.locals.clone();
-
-    if let PyObjectPayload::Scope { scope } = &py_scope.payload {
-        Ok(scope.borrow().locals.clone())
-    } else {
-        panic!("The scope isn't a scope!");
-    }
+    Ok(frame.scope.locals.clone())
 }
 
 fn frame_fcode(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

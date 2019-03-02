@@ -5,6 +5,9 @@
 //! - Import mechanics
 //! - Base objects
 
+// for methods like vm.to_str(), not the typical use of 'to' as a method prefix
+#![allow(clippy::wrong_self_convention)]
+
 #[macro_use]
 extern crate bitflags;
 #[macro_use]
@@ -37,7 +40,7 @@ pub mod error;
 pub mod eval;
 mod exceptions;
 pub mod format;
-mod frame;
+pub mod frame;
 pub mod function;
 pub mod import;
 pub mod obj;

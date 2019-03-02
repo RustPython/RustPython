@@ -36,7 +36,7 @@ impl Dict {
         vm: &mut VirtualMachine,
         key: &PyObjectRef,
         value: PyObjectRef,
-    ) -> Result<(), PyObjectRef> {
+    ) -> PyResult<()> {
         match self.lookup(vm, key)? {
             LookupResult::Existing(index) => {
                 // Update existing key
@@ -70,7 +70,7 @@ impl Dict {
         &self,
         vm: &mut VirtualMachine,
         key: &PyObjectRef,
-    ) -> Result<bool, PyObjectRef> {
+    ) -> PyResult<bool> {
         if let LookupResult::Existing(_index) = self.lookup(vm, key)? {
             Ok(true)
         } else {
@@ -97,7 +97,7 @@ impl Dict {
         &mut self,
         vm: &mut VirtualMachine,
         key: &PyObjectRef,
-    ) -> Result<(), PyObjectRef> {
+    ) -> PyResult<()> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             self.entries[index] = None;
             self.size -= 1;
@@ -130,7 +130,7 @@ impl Dict {
         &self,
         vm: &mut VirtualMachine,
         key: &PyObjectRef,
-    ) -> Result<LookupResult, PyObjectRef> {
+    ) -> PyResult<LookupResult> {
         let hash_value = calc_hash(vm, key)?;
         let perturb = hash_value;
         let mut hash_index: usize = hash_value;
@@ -181,7 +181,7 @@ enum LookupResult {
     Existing(usize), // Existing record, index into entries
 }
 
-fn calc_hash(vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<usize, PyObjectRef> {
+fn calc_hash(vm: &mut VirtualMachine, key: &PyObjectRef) -> PyResult<usize> {
     let hash = vm.call_method(key, "__hash__", vec![])?;
     Ok(objint::get_value(&hash).to_usize().unwrap())
 }

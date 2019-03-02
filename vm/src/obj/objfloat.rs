@@ -417,7 +417,7 @@ fn float_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn float_is_integer(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.float_type()))]);
     let v = get_value(i);
-    let result = v == v.round();
+    let result = (v - v.round()).abs() < std::f64::EPSILON;
     Ok(vm.ctx.new_bool(result))
 }
 

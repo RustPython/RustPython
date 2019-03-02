@@ -32,7 +32,7 @@ pub fn call_next(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
 pub fn get_next_object(
     vm: &mut VirtualMachine,
     iter_obj: &PyObjectRef,
-) -> Result<Option<PyObjectRef>, PyObjectRef> {
+) -> PyResult<Option<PyObjectRef>> {
     let next_obj: PyResult = call_next(vm, iter_obj);
 
     match next_obj {
@@ -49,10 +49,7 @@ pub fn get_next_object(
 }
 
 /* Retrieve all elements from an iterator */
-pub fn get_all(
-    vm: &mut VirtualMachine,
-    iter_obj: &PyObjectRef,
-) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+pub fn get_all(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
     let mut elements = vec![];
     loop {
         let element = get_next_object(vm, iter_obj)?;
