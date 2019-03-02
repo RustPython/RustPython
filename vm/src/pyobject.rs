@@ -576,13 +576,13 @@ impl PyContext {
         )
     }
 
-    pub fn new_rustfunc<F, T, R>(&self, factory: F) -> PyObjectRef
+    pub fn new_rustfunc<F, T, R>(&self, f: F) -> PyObjectRef
     where
-        F: PyNativeFuncFactory<T, R>,
+        F: IntoPyNativeFunc<T, R>,
     {
         PyObject::new(
             PyObjectPayload::RustFunction {
-                function: factory.create(),
+                function: f.into_func(),
             },
             self.builtin_function_or_method_type(),
         )
@@ -1234,35 +1234,35 @@ tuple_from_py_func_args!(A, B, C, D, E);
 
 pub type PyNativeFunc = Box<dyn Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
 
-pub trait PyNativeFuncFactory<T, R> {
-    fn create(self) -> PyNativeFunc;
+pub trait IntoPyNativeFunc<T, R> {
+    fn into_func(self) -> PyNativeFunc;
 }
 
-impl<F> PyNativeFuncFactory<PyFuncArgs, PyResult> for F
+impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult> for F
 where
     F: Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult + 'static,
 {
-    fn create(self) -> PyNativeFunc {
+    fn into_func(self) -> PyNativeFunc {
         Box::new(self)
     }
 }
 
-impl PyNativeFuncFactory<PyFuncArgs, PyResult> for PyNativeFunc {
-    fn create(self) -> PyNativeFunc {
+impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
+    fn into_func(self) -> PyNativeFunc {
         self
     }
 }
 
-macro_rules! py_native_func_factory_tuple {
+macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),+) => {
-        impl<F, $($T,)+ R> PyNativeFuncFactory<($($T,)+), R> for F
+        impl<F, $($T,)+ R> IntoPyNativeFunc<($($T,)+), R> for F
         where
             F: Fn($($T,)+ &mut VirtualMachine) -> R + 'static,
             $($T: FromArgs,)+
             ($($T,)+): FromArgs,
             R: IntoPyObject,
         {
-            fn create(self) -> PyNativeFunc {
+            fn into_func(self) -> PyNativeFunc {
                 Box::new(move |vm, args| {
                     let ($($n,)+) = args.bind::<($($T,)+)>(vm)?;
 
@@ -1273,11 +1273,11 @@ macro_rules! py_native_func_factory_tuple {
     };
 }
 
-py_native_func_factory_tuple!((a, A));
-py_native_func_factory_tuple!((a, A), (b, B));
-py_native_func_factory_tuple!((a, A), (b, B), (c, C));
-py_native_func_factory_tuple!((a, A), (b, B), (c, C), (d, D));
-py_native_func_factory_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
+into_py_native_func_tuple!((a, A));
+into_py_native_func_tuple!((a, A), (b, B));
+into_py_native_func_tuple!((a, A), (b, B), (c, C));
+into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
+into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 
 /// Rather than determining the type of a python object, this enum is more
 /// a holder for the rust payload of a python object. It is more a carrier
