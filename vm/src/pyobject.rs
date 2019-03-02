@@ -1212,25 +1212,27 @@ impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
 }
 
 macro_rules! into_py_native_func_tuple {
-    ($(($n:tt, $T:ident)),+) => {
-        impl<F, $($T,)+ R> IntoPyNativeFunc<($($T,)+), R> for F
+    ($(($n:tt, $T:ident)),*) => {
+        impl<F, S, $($T,)* R> IntoPyNativeFunc<(S, $($T,)*), R> for F
         where
-            F: Fn($($T,)+ &mut VirtualMachine) -> R + 'static,
-            $($T: FromArgs,)+
-            ($($T,)+): FromArgs,
+            F: Fn(S, &mut VirtualMachine, $($T),*) -> R + 'static,
+            S: FromArgs,
+            $($T: FromArgs,)*
+            (S, $($T,)*): FromArgs,
             R: IntoPyObject,
         {
             fn into_func(self) -> PyNativeFunc {
                 Box::new(move |vm, args| {
-                    let ($($n,)+) = args.bind::<($($T,)+)>(vm)?;
+                    let (zelf, $($n,)*) = args.bind::<(S, $($T,)*)>(vm)?;
 
-                    (self)($($n,)+ vm).into_pyobject(&vm.ctx)
+                    (self)(zelf, vm, $($n,)*).into_pyobject(&vm.ctx)
                 })
             }
         }
     };
 }
 
+into_py_native_func_tuple!();
 into_py_native_func_tuple!((a, A));
 into_py_native_func_tuple!((a, A), (b, B));
 into_py_native_func_tuple!((a, A), (b, B), (c, C));

@@ -27,10 +27,10 @@ pub struct PyString {
 impl PyString {
     pub fn endswith(
         zelf: PyRef<Self>,
+        _vm: &mut VirtualMachine,
         suffix: PyRef<Self>,
         start: OptArg<usize>,
         end: OptArg<usize>,
-        _vm: &mut VirtualMachine,
     ) -> bool {
         let start = start.unwrap_or(0);
         let end = end.unwrap_or(zelf.value.len());
@@ -39,10 +39,10 @@ impl PyString {
 
     pub fn startswith(
         zelf: PyRef<Self>,
+        _vm: &mut VirtualMachine,
         prefix: PyRef<Self>,
         start: OptArg<usize>,
         end: OptArg<usize>,
-        _vm: &mut VirtualMachine,
     ) -> bool {
         let start = start.unwrap_or(0);
         let end = end.unwrap_or(zelf.value.len());
@@ -63,8 +63,8 @@ impl PyString {
 
     fn join(
         zelf: PyRef<Self>,
-        iterable: PyIterable<PyRef<Self>>,
         vm: &mut VirtualMachine,
+        iterable: PyIterable<PyRef<Self>>,
     ) -> PyResult<PyString> {
         let mut joined = String::new();
 
