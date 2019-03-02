@@ -682,7 +682,7 @@ impl PyContext {
             bytecode::Constant::String { ref value } => self.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => self.new_code_object(code.clone()),
+            bytecode::Constant::Code { ref code } => self.new_code_object(*code.clone()),
             bytecode::Constant::Tuple { ref elements } => {
                 let elements = elements
                     .iter()

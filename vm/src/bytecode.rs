@@ -190,7 +190,7 @@ pub enum Constant {
     Boolean { value: bool },
     String { value: String },
     Bytes { value: Vec<u8> },
-    Code { code: CodeObject },
+    Code { code: Box<CodeObject> },
     Tuple { elements: Vec<Constant> },
     None,
 }

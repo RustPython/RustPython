@@ -603,7 +603,9 @@ impl Compiler {
 
         self.prepare_decorators(decorator_list)?;
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::Code { code },
+            value: bytecode::Constant::Code {
+                code: Box::new(code),
+            },
         });
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
@@ -653,7 +655,9 @@ impl Compiler {
 
         let code = self.pop_code_object();
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::Code { code },
+            value: bytecode::Constant::Code {
+                code: Box::new(code),
+            },
         });
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
@@ -1075,7 +1079,9 @@ impl Compiler {
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
                 self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::Code { code },
+                    value: bytecode::Constant::Code {
+                        code: Box::new(code),
+                    },
                 });
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::String { value: name },
@@ -1360,7 +1366,9 @@ impl Compiler {
 
         // List comprehension code:
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::Code { code },
+            value: bytecode::Constant::Code {
+                code: Box::new(code),
+            },
         });
 
         // List comprehension function name:

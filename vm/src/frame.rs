@@ -716,8 +716,7 @@ impl Frame {
         let obj = import_module(vm, current_path, module)?;
 
         for (k, v) in obj.get_key_value_pairs().iter() {
-            &self
-                .scope
+            self.scope
                 .locals
                 .set_item(&vm.ctx, &objstr::get_value(k), v.clone());
         }
