@@ -16,11 +16,24 @@ use crate::obj::objlist;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, ParentProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TypeProtocol,
+    DictProtocol, IdProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
+use std::rc::Rc;
+
+/*
+ * So a scope is a linked list of scopes.
+ * When a name is looked up, it is check in its scope.
+ */
+#[derive(Debug)]
+pub struct Scope {
+    pub locals: PyObjectRef, // Variables
+    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
+    pub parent: Option<Rc<Scope>>, // Parent scope
+}
+pub type ScopeRef = Rc<Scope>;
 
 #[derive(Clone, Debug)]
 struct Block {
@@ -50,7 +63,7 @@ pub struct Frame {
     // We need 1 stack per frame
     stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
     blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
-    pub locals: PyObjectRef,          // Variables
+    pub scope: ScopeRef,              // Variables
     pub lasti: RefCell<usize>,        // index of last instruction ran
 }
 
@@ -64,7 +77,7 @@ pub enum ExecutionResult {
 pub type FrameResult = Result<Option<ExecutionResult>, PyObjectRef>;
 
 impl Frame {
-    pub fn new(code: PyObjectRef, globals: PyObjectRef) -> Frame {
+    pub fn new(code: PyObjectRef, scope: ScopeRef) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         /*
@@ -73,7 +86,7 @@ impl Frame {
             None => HashMap::new(),
         };
         */
-        let locals = globals;
+        // let locals = globals;
         // locals.extend(callargs);
 
         Frame {
@@ -82,7 +95,7 @@ impl Frame {
             blocks: RefCell::new(vec![]),
             // save the callargs as locals
             // globals: locals.clone(),
-            locals,
+            scope,
             lasti: RefCell::new(0),
         }
     }
@@ -434,7 +447,7 @@ impl Frame {
                 };
                 // pop argc arguments
                 // argument: name, args, globals
-                let scope = self.locals.clone();
+                let scope = self.scope.clone();
                 let obj = vm.ctx.new_function(code_obj, scope, defaults);
                 self.push_value(obj);
                 Ok(None)
@@ -580,16 +593,6 @@ impl Frame {
                 self.push_value(rustfunc);
                 Ok(None)
             }
-            bytecode::Instruction::StoreLocals => {
-                let locals = self.pop_value();
-                match self.locals.payload {
-                    PyObjectPayload::Scope { ref scope } => {
-                        (*scope.borrow_mut()).locals = locals;
-                    }
-                    _ => panic!("We really expect our scope to be a scope!"),
-                }
-                Ok(None)
-            }
             bytecode::Instruction::UnpackSequence { size } => {
                 let value = self.pop_value();
                 let elements = vm.extract_elements(&value)?;
@@ -713,8 +716,10 @@ impl Frame {
         let obj = import_module(vm, current_path, module)?;
 
         for (k, v) in obj.get_key_value_pairs().iter() {
-            vm.ctx
-                .set_attr(&self.locals, &objstr::get_value(k), v.clone());
+            &self
+                .scope
+                .locals
+                .set_item(&vm.ctx, &objstr::get_value(k), v.clone());
         }
         Ok(None)
     }
@@ -836,37 +841,35 @@ impl Frame {
 
     fn store_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
-        vm.ctx.set_attr(&self.locals, name, obj);
+        self.scope.locals.set_item(&vm.ctx, name, obj);
         Ok(None)
     }
 
     fn delete_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
-        let locals = match self.locals.payload {
-            PyObjectPayload::Scope { ref scope } => scope.borrow().locals.clone(),
-            _ => panic!("We really expect our scope to be a scope!"),
-        };
-
-        // Assume here that locals is a dict
         let name = vm.ctx.new_str(name.to_string());
-        vm.call_method(&locals, "__delitem__", vec![name])?;
+        vm.call_method(&self.scope.locals, "__delitem__", vec![name])?;
         Ok(None)
     }
 
     fn load_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         // Lookup name in scope and put it onto the stack!
-        let mut scope = self.locals.clone();
+        let mut scope = self.scope.clone();
         loop {
-            if scope.contains_key(name) {
-                let obj = scope.get_item(name).unwrap();
+            if scope.locals.contains_key(name) {
+                let obj = scope.locals.get_item(name).unwrap();
                 self.push_value(obj);
-                break Ok(None);
-            } else if scope.has_parent() {
-                scope = scope.get_parent();
-            } else {
-                let name_error_type = vm.ctx.exceptions.name_error.clone();
-                let msg = format!("name '{}' is not defined", name);
-                let name_error = vm.new_exception(name_error_type, msg);
-                break Err(name_error);
+                return Ok(None);
+            }
+            match &scope.parent {
+                Some(parent_scope) => {
+                    scope = parent_scope.clone();
+                }
+                None => {
+                    let name_error_type = vm.ctx.exceptions.name_error.clone();
+                    let msg = format!("name '{}' is not defined", name);
+                    let name_error = vm.new_exception(name_error_type, msg);
+                    return Err(name_error);
+                }
             }
         }
     }
@@ -1117,21 +1120,18 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
-        let local_str = match self.locals.payload {
-            PyObjectPayload::Scope { ref scope } => match scope.borrow().locals.payload {
-                PyObjectPayload::Dict { ref elements } => {
-                    objdict::get_key_value_pairs_from_content(&elements.borrow())
-                        .iter()
-                        .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-                        .collect::<Vec<_>>()
-                        .join("")
-                }
-                ref unexpected => panic!(
-                    "locals unexpectedly not wrapping a dict! instead: {:?}",
-                    unexpected
-                ),
-            },
-            ref unexpected => panic!("locals unexpectedly not a scope! instead: {:?}", unexpected),
+        let local_str = match self.scope.locals.payload {
+            PyObjectPayload::Dict { ref elements } => {
+                objdict::get_key_value_pairs_from_content(&elements.borrow())
+                    .iter()
+                    .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
+                    .collect::<Vec<_>>()
+                    .join("")
+            }
+            ref unexpected => panic!(
+                "locals unexpectedly not wrapping a dict! instead: {:?}",
+                unexpected
+            ),
         };
         write!(
             f,

@@ -479,7 +479,7 @@ impl Compiler {
                 self.emit(Instruction::LoadBuildClass);
                 let line_number = self.get_source_line_number();
                 self.code_object_stack.push(CodeObject::new(
-                    vec![String::from("__locals__")],
+                    vec![],
                     None,
                     vec![],
                     None,
@@ -487,10 +487,6 @@ impl Compiler {
                     line_number,
                     name.clone(),
                 ));
-                self.emit(Instruction::LoadName {
-                    name: String::from("__locals__"),
-                });
-                self.emit(Instruction::StoreLocals);
                 self.compile_statements(body)?;
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::None,
