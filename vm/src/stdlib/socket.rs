@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::io;
 use std::io::Read;
 use std::io::Write;
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::ops::DerefMut;
 
 use crate::obj::objbytes;
@@ -53,7 +53,7 @@ impl SocketKind {
 enum Connection {
     TcpListener(TcpListener),
     TcpStream(TcpStream),
-    // UdpSocket(UdpSocket),
+    UdpSocket(UdpSocket),
 }
 
 impl Connection {
@@ -67,6 +67,7 @@ impl Connection {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         match self {
             Connection::TcpListener(con) => con.local_addr(),
+            Connection::UdpSocket(con) => con.local_addr(),
             _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
         }
     }
@@ -76,6 +77,7 @@ impl Read for Connection {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             Connection::TcpStream(con) => con.read(buf),
+            Connection::UdpSocket(con) => con.recv(buf),
             _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
         }
     }
@@ -85,6 +87,7 @@ impl Write for Connection {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
             Connection::TcpStream(con) => con.write(buf),
+            Connection::UdpSocket(con) => con.send(buf),
             _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
         }
     }
@@ -153,12 +156,27 @@ fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mut socket = get_socket(zelf);
 
-    if let Ok(stream) = TcpStream::connect(address_string) {
-        socket.con = Some(Connection::TcpStream(stream));
-        Ok(vm.get_none())
-    } else {
-        // TODO: Socket error
-        Err(vm.new_type_error("socket failed".to_string()))
+    match socket.socket_kind {
+        SocketKind::Stream => {
+            if let Ok(stream) = TcpStream::connect(address_string) {
+                socket.con = Some(Connection::TcpStream(stream));
+                Ok(vm.get_none())
+            } else {
+                // TODO: Socket error
+                Err(vm.new_type_error("socket failed".to_string()))
+            }
+        }
+        SocketKind::Dgram => {
+            if let Some(Connection::UdpSocket(con)) = &socket.con {
+                match con.connect(address_string) {
+                    Ok(_) => Ok(vm.get_none()),
+                    // TODO: Socket error
+                    Err(_) => Err(vm.new_type_error("socket failed".to_string())),
+                }
+            } else {
+                Err(vm.new_type_error("".to_string()))
+            }
+        }
     }
 }
 
@@ -173,12 +191,25 @@ fn socket_bind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mut socket = get_socket(zelf);
 
-    if let Ok(stream) = TcpListener::bind(address_string) {
-        socket.con = Some(Connection::TcpListener(stream));
-        Ok(vm.get_none())
-    } else {
-        // TODO: Socket error
-        Err(vm.new_type_error("socket failed".to_string()))
+    match socket.socket_kind {
+        SocketKind::Stream => {
+            if let Ok(stream) = TcpListener::bind(address_string) {
+                socket.con = Some(Connection::TcpListener(stream));
+                Ok(vm.get_none())
+            } else {
+                // TODO: Socket error
+                Err(vm.new_type_error("socket failed".to_string()))
+            }
+        }
+        SocketKind::Dgram => {
+            if let Ok(dgram) = UdpSocket::bind(address_string) {
+                socket.con = Some(Connection::UdpSocket(dgram));
+                Ok(vm.get_none())
+            } else {
+                // TODO: Socket error
+                Err(vm.new_type_error("socket failed".to_string()))
+            }
+        }
     }
 }
 
@@ -324,6 +355,8 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
         "SOCK_STREAM",
         ctx.new_int(SocketKind::Stream as i32),
     );
+
+    ctx.set_attr(&py_mod, "SOCK_DGRAM", ctx.new_int(SocketKind::Dgram as i32));
 
     let socket = {
         let socket = ctx.new_class("socket", ctx.object());
