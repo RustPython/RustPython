@@ -55,10 +55,7 @@ fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(repr))
 }
 
-fn member_code_obj(
-    vm: &mut VirtualMachine,
-    args: PyFuncArgs,
-) -> PyResult<bytecode::CodeObject> {
+fn member_code_obj(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult<bytecode::CodeObject> {
     arg_check!(
         vm,
         args,

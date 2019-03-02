@@ -83,11 +83,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // Casting function:
-pub fn to_int(
-    vm: &mut VirtualMachine,
-    obj: &PyObjectRef,
-    base: u32,
-) -> PyResult<IntType> {
+pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<IntType> {
     let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj)
     } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
