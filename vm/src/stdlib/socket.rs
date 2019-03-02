@@ -278,17 +278,8 @@ fn socket_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None)]);
 
     let mut socket = get_socket(zelf);
-
-    match socket.address_family {
-        AddressFamily::Inet => match socket.socket_kind {
-            SocketKind::Stream => {
-                socket.con = None;
-                Ok(vm.get_none())
-            }
-            _ => Err(vm.new_type_error("".to_string())),
-        },
-        _ => Err(vm.new_type_error("".to_string())),
-    }
+    socket.con = None;
+    Ok(vm.get_none())
 }
 
 fn socket_getsockname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
