@@ -121,7 +121,7 @@ impl<'a> FStringParser<'a> {
             }
         }
 
-        return Err(UnclosedLbrace);
+        Err(UnclosedLbrace)
     }
 
     fn parse(mut self) -> Result<StringGroup, FStringError> {
