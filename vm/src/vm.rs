@@ -90,6 +90,12 @@ impl VirtualMachine {
         result
     }
 
+    pub fn current_scope(&self) -> &ScopeRef {
+        let current_frame = &self.frames[self.frames.len() - 1];
+        let frame = objframe::get_value(current_frame);
+        &frame.scope
+    }
+
     /// Create a new python string object.
     pub fn new_str(&self, s: String) -> PyObjectRef {
         self.ctx.new_str(s)
@@ -218,7 +224,7 @@ impl VirtualMachine {
         &self.ctx
     }
 
-    pub fn get_builtin_scope(&mut self) -> ScopeRef {
+    pub fn get_builtin_scope(&self) -> ScopeRef {
         let a2 = &*self.builtins;
         match a2.payload {
             PyObjectPayload::Module { ref scope, .. } => scope.clone(),

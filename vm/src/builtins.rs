@@ -18,7 +18,6 @@ use crate::frame::{Scope, ScopeRef};
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
-use std::rc::Rc;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
@@ -192,7 +191,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(source, None)],
         optional = [
-            (_globals, Some(vm.ctx.dict_type())),
+            (globals, Some(vm.ctx.dict_type())),
             (locals, Some(vm.ctx.dict_type()))
         ]
     );
@@ -215,7 +214,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
 
-    let scope = make_scope(vm, locals);
+    let scope = make_scope(vm, globals, locals);
 
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
@@ -229,7 +228,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(source, None)],
         optional = [
-            (_globals, Some(vm.ctx.dict_type())),
+            (globals, Some(vm.ctx.dict_type())),
             (locals, Some(vm.ctx.dict_type()))
         ]
     );
@@ -252,26 +251,28 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };
 
-    let scope = make_scope(vm, locals);
+    let scope = make_scope(vm, globals, locals);
 
     // Run the code:
     vm.run_code_obj(code_obj, scope)
 }
 
-fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> ScopeRef {
-    // handle optional global and locals
-    let locals = if let Some(locals) = locals {
-        locals.clone()
-    } else {
-        vm.new_dict()
+fn make_scope(
+    vm: &mut VirtualMachine,
+    globals: Option<&PyObjectRef>,
+    locals: Option<&PyObjectRef>,
+) -> ScopeRef {
+    let current_scope = vm.current_scope();
+    let parent = match globals {
+        Some(dict) => Some(Scope::new(dict.clone(), Some(vm.get_builtin_scope()))),
+        None => current_scope.parent.clone(),
+    };
+    let locals = match locals {
+        Some(dict) => dict.clone(),
+        None => current_scope.locals.clone(),
     };
 
-    // TODO: handle optional globals
-    // Construct new scope:
-    Rc::new(Scope {
-        locals,
-        parent: None,
-    })
+    Scope::new(locals, parent)
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
