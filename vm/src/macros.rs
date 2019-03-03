@@ -36,6 +36,34 @@ macro_rules! type_check {
 }
 
 #[macro_export]
+macro_rules! check_but_allow_none {
+    ( $vm: ident, $arg: ident, $expected_type: expr ) => {
+        let $arg = match $arg {
+            Some(arg) => {
+                if arg.is(&$vm.get_none()) {
+                    None
+                } else {
+                    if $crate::obj::objtype::real_isinstance($vm, arg, &$expected_type)? {
+                        Some(arg)
+                    } else {
+                        let arg_typ = arg.typ();
+                        let actual_type = $vm.to_pystr(&arg_typ)?;
+                        let expected_type_name = $vm.to_pystr(&$expected_type)?;
+                        return Err($vm.new_type_error(format!(
+                            "{} must be a {}, not {}",
+                            stringify!($arg),
+                            expected_type_name,
+                            actual_type
+                        )));
+                    }
+                }
+            }
+            None => None,
+        };
+    };
+}
+
+#[macro_export]
 macro_rules! arg_check {
     ( $vm: ident, $args:ident ) => {
         // Zero-arg case
