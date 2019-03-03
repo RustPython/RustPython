@@ -66,11 +66,7 @@ impl Dict {
         }
     }
 
-    pub fn contains(
-        &self,
-        vm: &mut VirtualMachine,
-        key: &PyObjectRef,
-    ) -> PyResult<bool> {
+    pub fn contains(&self, vm: &mut VirtualMachine, key: &PyObjectRef) -> PyResult<bool> {
         if let LookupResult::Existing(_index) = self.lookup(vm, key)? {
             Ok(true)
         } else {
@@ -93,11 +89,7 @@ impl Dict {
     }
 
     /// Delete a key
-    pub fn delete(
-        &mut self,
-        vm: &mut VirtualMachine,
-        key: &PyObjectRef,
-    ) -> PyResult<()> {
+    pub fn delete(&mut self, vm: &mut VirtualMachine, key: &PyObjectRef) -> PyResult<()> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             self.entries[index] = None;
             self.size -= 1;
@@ -126,11 +118,7 @@ impl Dict {
     }
 
     /// Lookup the index for the given key.
-    fn lookup(
-        &self,
-        vm: &mut VirtualMachine,
-        key: &PyObjectRef,
-    ) -> PyResult<LookupResult> {
+    fn lookup(&self, vm: &mut VirtualMachine, key: &PyObjectRef) -> PyResult<LookupResult> {
         let hash_value = calc_hash(vm, key)?;
         let perturb = hash_value;
         let mut hash_index: usize = hash_value;
