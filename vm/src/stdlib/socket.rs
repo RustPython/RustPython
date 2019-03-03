@@ -288,12 +288,9 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         zelf.typ(),
     );
 
-    let elements = RefCell::new(vec![sock_obj, get_addr_tuple(vm, addr)?]);
+    let addr_tuple = get_addr_tuple(vm, addr)?;
 
-    Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements },
-        vm.ctx.tuple_type(),
-    ))
+    Ok(vm.ctx.new_tuple(vec![sock_obj, addr_tuple]))
 }
 
 fn socket_recv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -332,12 +329,9 @@ fn socket_recvfrom(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         _ => return Err(vm.new_type_error("".to_string())),
     };
 
-    let elements = RefCell::new(vec![vm.ctx.new_bytes(buffer), get_addr_tuple(vm, addr)?]);
+    let addr_tuple = get_addr_tuple(vm, addr)?;
 
-    Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements },
-        vm.ctx.tuple_type(),
-    ))
+    Ok(vm.ctx.new_tuple(vec![vm.ctx.new_bytes(buffer), addr_tuple]))
 }
 
 fn socket_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -421,12 +415,8 @@ fn socket_getsockname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn get_addr_tuple(vm: &mut VirtualMachine, addr: SocketAddr) -> PyResult {
     let port = vm.ctx.new_int(addr.port());
     let ip = vm.ctx.new_str(addr.ip().to_string());
-    let elements = RefCell::new(vec![ip, port]);
 
-    Ok(PyObject::new(
-        PyObjectPayload::Sequence { elements },
-        vm.ctx.tuple_type(),
-    ))
+    Ok(vm.ctx.new_tuple(vec![ip, port]))
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
