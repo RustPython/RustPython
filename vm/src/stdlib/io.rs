@@ -389,7 +389,7 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
         "__init__" => ctx.new_rustfunc(string_io_init),
         "getvalue" => ctx.new_rustfunc(string_io_getvalue)
     });
-    
+
     //BytesIO: in-memory bytes
     let bytes_io = py_class!(ctx, "BytesIO", buffered_io_base.clone(), {
         "__init__" => ctx.new_rustfunc(bytes_io_init),

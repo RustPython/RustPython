@@ -50,9 +50,8 @@ fn re_search(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let match_type = py_class!(ctx, "Match", ctx.object(), {
-    });
-    
+    let match_type = py_class!(ctx, "Match", ctx.object(), {});
+
     py_module!(ctx, "re", {
         "Match" => match_type,
         "match" => ctx.new_rustfunc(re_match),
