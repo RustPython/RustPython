@@ -190,11 +190,10 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [(source, None)],
-        optional = [
-            (globals, Some(vm.ctx.dict_type())),
-            (locals, Some(vm.ctx.dict_type()))
-        ]
+        optional = [(globals, None), (locals, Some(vm.ctx.dict_type()))]
     );
+
+    check_but_allow_none!(vm, globals, vm.ctx.dict_type());
 
     // Determine code object:
     let code_obj = if objtype::isinstance(source, &vm.ctx.code_type()) {
@@ -227,11 +226,10 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [(source, None)],
-        optional = [
-            (globals, Some(vm.ctx.dict_type())),
-            (locals, Some(vm.ctx.dict_type()))
-        ]
+        optional = [(globals, None), (locals, Some(vm.ctx.dict_type()))]
     );
+
+    check_but_allow_none!(vm, globals, vm.ctx.dict_type());
 
     // Determine code object:
     let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
