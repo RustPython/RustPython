@@ -2,6 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::iter;
+use std::ops::RangeInclusive;
 use std::rc::{Rc, Weak};
 
 use crate::bytecode;
@@ -937,6 +938,8 @@ impl PyFuncArgs {
         }
     }
 
+    /// Serializes these arguments into an iterator starting with the positional
+    /// arguments followed by keyword arguments.
     fn into_iter(self) -> impl Iterator<Item = PyArg> {
         self.args.into_iter().map(PyArg::Positional).chain(
             self.kwargs
@@ -945,30 +948,82 @@ impl PyFuncArgs {
         )
     }
 
+    /// Binds these arguments to their respective values.
+    ///
+    /// If there is an insufficient number of arguments, there are leftover
+    /// arguments after performing the binding, or if an argument is not of
+    /// the expected type, a TypeError is raised.
+    ///
+    /// If the given `FromArgs` includes any conversions, exceptions raised
+    /// during the conversion will halt the binding and return the error.
     fn bind<T: FromArgs>(self, vm: &mut VirtualMachine) -> PyResult<T> {
+        let given_args = self.args.len();
         let mut args = self.into_iter().peekable();
-        let bound = T::from_args(vm, &mut args)?;
+        let bound = match T::from_args(vm, &mut args) {
+            Ok(args) => args,
+            Err(ArgumentError::TooFewArgs) => {
+                return Err(vm.new_type_error(format!(
+                    "Expected at least {} arguments ({} given)",
+                    T::arity().start(),
+                    given_args,
+                )));
+            }
+            Err(ArgumentError::Exception(ex)) => {
+                return Err(ex);
+            }
+        };
 
-        if args.next().is_none() {
-            Ok(bound)
-        } else {
-            Err(vm.new_type_error("too many args".to_string())) // TODO: improve error message
+        match args.next() {
+            None => Ok(bound),
+            Some(PyArg::Positional(_)) => Err(vm.new_type_error(format!(
+                "Expected at most {} arguments ({} given)",
+                T::arity().end(),
+                given_args,
+            ))),
+            Some(PyArg::Keyword(name, _)) => {
+                Err(vm.new_type_error(format!("Unexpected keyword argument {}", name)))
+            }
         }
     }
 }
 
+/// Implemented by any type that can be accepted as a parameter to a built-in
+/// function.
+///
 pub trait FromArgs: Sized {
-    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    /// The range of positional arguments permitted by the function signature.
+    ///
+    /// Returns an empty range if not applicable.
+    fn arity() -> RangeInclusive<usize> {
+        0..=0
+    }
+
+    /// Extracts this item from the next argument(s).
+    fn from_args<I>(
+        vm: &mut VirtualMachine,
+        args: &mut iter::Peekable<I>,
+    ) -> Result<Self, ArgumentError>
     where
         I: Iterator<Item = PyArg>;
 }
 
-pub struct PyIterable<T> {
+/// An iterable Python object.
+///
+/// `PyIterable` implements `FromArgs` so that a built-in function can accept
+/// an object that is required to conform to the Python iterator protocol.
+///
+/// PyIterable can optionally perform type checking and conversions on iterated
+/// objects using a generic type parameter that implements `TryFromObject`.
+pub struct PyIterable<T = PyObjectRef> {
     method: PyObjectRef,
     _item: std::marker::PhantomData<T>,
 }
 
 impl<T> PyIterable<T> {
+    /// Returns an iterator over this sequence of objects.
+    ///
+    /// This operation may fail if an exception is raised while invoking the
+    /// `__iter__` method of the iterable object.
     pub fn iter<'a>(&self, vm: &'a mut VirtualMachine) -> PyResult<PyIterator<'a, T>> {
         let iter_obj = vm.invoke(
             self.method.clone(),
@@ -1037,13 +1092,24 @@ impl TryFromObject for PyObjectRef {
     }
 }
 
-pub struct KwArgs<T>(HashMap<String, T>);
+/// A map of keyword arguments to their values.
+///
+/// A built-in function with a `KwArgs` parameter is analagous to a Python
+/// function with `*kwargs`. All remaining keyword arguments are extracted
+/// (and hence the function will permit an arbitrary number of them).
+///
+/// `KwArgs` optionally accepts a generic type parameter to allow type checks
+/// or conversions of each argument.
+pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
 
 impl<T> FromArgs for KwArgs<T>
 where
     T: TryFromObject,
 {
-    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    fn from_args<I>(
+        vm: &mut VirtualMachine,
+        args: &mut iter::Peekable<I>,
+    ) -> Result<Self, ArgumentError>
     where
         I: Iterator<Item = PyArg>,
     {
@@ -1055,13 +1121,24 @@ where
     }
 }
 
+/// A list of positional argument values.
+///
+/// A built-in function with a `Args` parameter is analagous to a Python
+/// function with `*args`. All remaining positional arguments are extracted
+/// (and hence the function will permit an arbitrary number of them).
+///
+/// `Args` optionally accepts a generic type parameter to allow type checks
+/// or conversions of each argument.
 pub struct Args<T>(Vec<T>);
 
 impl<T> FromArgs for Args<T>
 where
     T: TryFromObject,
 {
-    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    fn from_args<I>(
+        vm: &mut VirtualMachine,
+        args: &mut iter::Peekable<I>,
+    ) -> Result<Self, ArgumentError>
     where
         I: Iterator<Item = PyArg>,
     {
@@ -1077,14 +1154,21 @@ impl<T> FromArgs for T
 where
     T: TryFromObject,
 {
-    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    fn arity() -> RangeInclusive<usize> {
+        1..=1
+    }
+
+    fn from_args<I>(
+        vm: &mut VirtualMachine,
+        args: &mut iter::Peekable<I>,
+    ) -> Result<Self, ArgumentError>
     where
         I: Iterator<Item = PyArg>,
     {
         if let Some(PyArg::Positional(value)) = args.next() {
             Ok(T::try_from_object(vm, value)?)
         } else {
-            Err(vm.new_type_error("not enough args".to_string())) // TODO: improve error message
+            Err(ArgumentError::TooFewArgs)
         }
     }
 }
@@ -1103,7 +1187,14 @@ impl<T> FromArgs for OptArg<T>
 where
     T: TryFromObject,
 {
-    fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+    fn arity() -> RangeInclusive<usize> {
+        0..=1
+    }
+
+    fn from_args<I>(
+        vm: &mut VirtualMachine,
+        args: &mut iter::Peekable<I>,
+    ) -> Result<Self, ArgumentError>
     where
         I: Iterator<Item = PyArg>,
     {
@@ -1125,10 +1216,31 @@ pub enum PyArg {
     Keyword(String, PyObjectRef),
 }
 
+pub enum ArgumentError {
+    TooFewArgs,
+    Exception(PyObjectRef),
+}
+
+impl From<PyObjectRef> for ArgumentError {
+    fn from(ex: PyObjectRef) -> Self {
+        ArgumentError::Exception(ex)
+    }
+}
+
+/// Implemented by any type that can be created from a Python object.
+///
+/// Any type that implements `TryFromObject` is automatically `FromArgs`, and
+/// so can be accepted as a argument to a built-in function.
 pub trait TryFromObject: Sized {
+    /// Attempt to convert a Python object to a value of this type.
     fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
+/// Implemented by any type that can be returned from a built-in Python function.
+///
+/// `IntoPyObject` has a blanket implementation for any built-in object payload,
+/// and should be implemented by many primitive Rust types, allowing a built-in
+/// function to simply return a `bool` or a `usize` for example.
 pub trait IntoPyObject {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult;
 }
@@ -1148,12 +1260,22 @@ where
     }
 }
 
+// This allows a built-in function to not return a value, mapping to
+// Python's behavior of returning `None` in this situation.
 impl IntoPyObject for () {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult {
         Ok(ctx.none())
     }
 }
 
+// TODO: Allow a built-in function to return an `Option`, i.e.:
+//
+//     impl<T: IntoPyObject> IntoPyObject for Option<T>
+//
+// Option::None should map to a Python `None`.
+
+// Allows a built-in function to return any built-in object payload without
+// explicitly implementing `IntoPyObject`.
 impl<T> IntoPyObject for T
 where
     T: PyObjectPayload2 + Sized,
@@ -1168,13 +1290,33 @@ where
     }
 }
 
+// A tuple of types that each implement `FromArgs` represents a sequence of
+// arguments that can be bound and passed to a built-in function.
+//
+// Technically, a tuple can contain tuples, which can contain tuples, and so on,
+// so this actually represents a tree of values to be bound from arguments, but
+// in practice this is only used for the top-level parameters.
 macro_rules! tuple_from_py_func_args {
     ($($T:ident),+) => {
         impl<$($T),+> FromArgs for ($($T,)+)
         where
             $($T: FromArgs),+
         {
-            fn from_args<I>(vm: &mut VirtualMachine, args: &mut iter::Peekable<I>) -> PyResult<Self>
+            fn arity() -> RangeInclusive<usize> {
+                let mut min = 0;
+                let mut max = 0;
+                $(
+                    let (start, end) = $T::arity().into_inner();
+                    min += start;
+                    max += end;
+                )+
+                min..=max
+            }
+
+            fn from_args<I>(
+                vm: &mut VirtualMachine,
+                args: &mut iter::Peekable<I>
+            ) -> Result<Self, ArgumentError>
             where
                 I: Iterator<Item = PyArg>
             {
@@ -1184,14 +1326,32 @@ macro_rules! tuple_from_py_func_args {
     };
 }
 
+// Implement `FromArgs` for up to 5-tuples, allowing built-in functions to bind
+// up to 5 top-level parameters (note that `Args`, `KwArgs`, nested tuples, etc.
+// count as 1, so this should actually be more than enough).
 tuple_from_py_func_args!(A);
 tuple_from_py_func_args!(A, B);
 tuple_from_py_func_args!(A, B, C);
 tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 
+/// A built-in Python function.
 pub type PyNativeFunc = Box<dyn Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
 
+/// Implemented by types that are or can generate built-in functions.
+///
+/// For example, any function that:
+///
+/// - Accepts a sequence of types that implement `FromArgs`, followed by a
+///   `&mut VirtualMachine`
+/// - Returns some type that implements `IntoPyObject`
+///
+/// will generate a `PyNativeFunc` that performs the appropriate type and arity
+/// checking, any requested conversions, and then if successful call the function
+/// with the bound values.
+///
+/// A bare `PyNativeFunc` also implements this trait, allowing the above to be
+/// done manually, for rare situations that don't fit into this model.
 pub trait IntoPyNativeFunc<T, R> {
     fn into_func(self) -> PyNativeFunc;
 }
@@ -1211,6 +1371,10 @@ impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
     }
 }
 
+// This is the "magic" that allows rust functions of varying signatures to
+// generate native python functions.
+//
+// Note that this could be done without a macro - it is simply to avoid repetition.
 macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),+) => {
         impl<F, $($T,)+ R> IntoPyNativeFunc<($($T,)+), R> for F

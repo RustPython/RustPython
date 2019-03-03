@@ -2,15 +2,46 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use crate::obj::objtype;
-use crate::pyobject::{PyObjectPayload2, PyObjectRef, PyResult, TryFromObject};
+use crate::pyobject::{
+    IntoPyObject, PyContext, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 // TODO: Move PyFuncArgs, FromArgs, etc. here
 
+// TODO: `PyRef` probably actually belongs in the pyobject module.
+
+/// A reference to the payload of a built-in object.
+///
+/// Note that a `PyRef<T>` can only deref to a shared / immutable reference.
+/// It is the payload type's responsibility to handle (possibly concurrent)
+/// mutability with locks or concurrent data structures if required.
+///
+/// A `PyRef<T>` can be directly returned from a built-in function to handle
+/// situations (such as when implementing in-place methods such as `__iadd__`)
+/// where a reference to the same object must be returned.
 pub struct PyRef<T> {
     // invariant: this obj must always have payload of type T
     obj: PyObjectRef,
     _payload: PhantomData<T>,
+}
+
+impl<T> PyRef<T>
+where
+    T: PyObjectPayload2,
+{
+    pub fn new(ctx: &PyContext, payload: T) -> Self {
+        PyRef {
+            obj: PyObject::new(
+                PyObjectPayload::AnyRustValue {
+                    value: Box::new(payload),
+                },
+                T::required_type(ctx),
+            ),
+            _payload: PhantomData,
+        }
+    }
 }
 
 impl<T> Deref for PyRef<T>
@@ -35,7 +66,18 @@ where
                 _payload: PhantomData,
             })
         } else {
-            Err(vm.new_type_error("wrong type".to_string())) // TODO: better message
+            let expected_type = vm.to_pystr(&T::required_type(&vm.ctx))?;
+            let actual_type = vm.to_pystr(&obj.typ())?;
+            Err(vm.new_type_error(format!(
+                "Expected type {}, not {}",
+                expected_type, actual_type,
+            )))
         }
+    }
+}
+
+impl<T> IntoPyObject for PyRef<T> {
+    fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
+        Ok(self.obj)
     }
 }
