@@ -346,101 +346,67 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"io".to_string(), ctx.new_scope(None));
-
-    ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(io_open));
-
     //IOBase the abstract base class of the IO Module
     let io_base = ctx.new_class("IOBase", ctx.object());
-    ctx.set_attr(&py_mod, "IOBase", io_base.clone());
 
     // IOBase Subclasses
     let raw_io_base = ctx.new_class("RawIOBase", ctx.object());
-    ctx.set_attr(&py_mod, "RawIOBase", raw_io_base.clone());
 
-    let buffered_io_base = {
-        let buffered_io_base = ctx.new_class("BufferedIOBase", io_base.clone());
-        ctx.set_attr(
-            &buffered_io_base,
-            "__init__",
-            ctx.new_rustfunc(buffered_io_base_init),
-        );
-        buffered_io_base
-    };
-    ctx.set_attr(&py_mod, "BufferedIOBase", buffered_io_base.clone());
+    let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {
+        "__init__" => ctx.new_rustfunc(buffered_io_base_init)
+    });
 
     //TextIO Base has no public constructor
-    let text_io_base = {
-        let text_io_base = ctx.new_class("TextIOBase", io_base.clone());
-        ctx.set_attr(&text_io_base, "read", ctx.new_rustfunc(text_io_base_read));
-        text_io_base
-    };
-    ctx.set_attr(&py_mod, "TextIOBase", text_io_base.clone());
+    let text_io_base = py_class!(ctx, "TextIOBase", io_base.clone(), {
+        "read" => ctx.new_rustfunc(text_io_base_read)
+    });
 
     // RawBaseIO Subclasses
-    let file_io = {
-        let file_io = ctx.new_class("FileIO", raw_io_base.clone());
-        ctx.set_attr(&file_io, "__init__", ctx.new_rustfunc(file_io_init));
-        ctx.set_attr(&file_io, "name", ctx.str_type());
-        ctx.set_attr(&file_io, "read", ctx.new_rustfunc(file_io_read));
-        ctx.set_attr(&file_io, "readinto", ctx.new_rustfunc(file_io_readinto));
-        ctx.set_attr(&file_io, "write", ctx.new_rustfunc(file_io_write));
-        file_io
-    };
-    ctx.set_attr(&py_mod, "FileIO", file_io.clone());
+    let file_io = py_class!(ctx, "FileIO", raw_io_base.clone(), {
+        "__init__" => ctx.new_rustfunc(file_io_init),
+        "name" => ctx.str_type(),
+        "read" => ctx.new_rustfunc(file_io_read),
+        "readinto" => ctx.new_rustfunc(file_io_readinto),
+        "write" => ctx.new_rustfunc(file_io_write)
+    });
 
     // BufferedIOBase Subclasses
-    let buffered_reader = {
-        let buffered_reader = ctx.new_class("BufferedReader", buffered_io_base.clone());
-        ctx.set_attr(
-            &buffered_reader,
-            "read",
-            ctx.new_rustfunc(buffered_reader_read),
-        );
-        buffered_reader
-    };
-    ctx.set_attr(&py_mod, "BufferedReader", buffered_reader.clone());
+    let buffered_reader = py_class!(ctx, "BufferedReader", buffered_io_base.clone(), {
+        "read" => ctx.new_rustfunc(buffered_reader_read)
+    });
 
-    let buffered_writer = {
-        let buffered_writer = ctx.new_class("BufferedWriter", buffered_io_base.clone());
-        ctx.set_attr(
-            &buffered_writer,
-            "write",
-            ctx.new_rustfunc(buffered_writer_write),
-        );
-        buffered_writer
-    };
-    ctx.set_attr(&py_mod, "BufferedWriter", buffered_writer.clone());
+    let buffered_writer = py_class!(ctx, "BufferedWriter", buffered_io_base.clone(), {
+        "write" => ctx.new_rustfunc(buffered_writer_write)
+    });
 
     //TextIOBase Subclass
-    let text_io_wrapper = {
-        let text_io_wrapper = ctx.new_class("TextIOWrapper", text_io_base.clone());
-        ctx.set_attr(
-            &text_io_wrapper,
-            "__init__",
-            ctx.new_rustfunc(text_io_wrapper_init),
-        );
-        text_io_wrapper
-    };
-    ctx.set_attr(&py_mod, "TextIOWrapper", text_io_wrapper.clone());
+    let text_io_wrapper = py_class!(ctx, "TextIOWrapper", text_io_base.clone(), {
+        "__init__" => ctx.new_rustfunc(text_io_wrapper_init)
+    });
 
     //StringIO: in-memory text
-    let string_io = {
-        let string_io = ctx.new_class("StringIO", text_io_base.clone());
-        ctx.set_attr(&string_io, "__init__", ctx.new_rustfunc(string_io_init));
-        ctx.set_attr(&string_io, "getvalue", ctx.new_rustfunc(string_io_getvalue));
-        string_io
-    };
-    ctx.set_attr(&py_mod, "StringIO", string_io);
-
+    let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
+        "__init__" => ctx.new_rustfunc(string_io_init),
+        "getvalue" => ctx.new_rustfunc(string_io_getvalue)
+    });
+    
     //BytesIO: in-memory bytes
-    let bytes_io = {
-        let bytes_io = ctx.new_class("BytesIO", buffered_io_base.clone());
-        ctx.set_attr(&bytes_io, "__init__", ctx.new_rustfunc(bytes_io_init));
-        ctx.set_attr(&bytes_io, "getvalue", ctx.new_rustfunc(bytes_io_getvalue));
-        bytes_io
-    };
-    ctx.set_attr(&py_mod, "BytesIO", bytes_io);
+    let bytes_io = py_class!(ctx, "BytesIO", buffered_io_base.clone(), {
+        "__init__" => ctx.new_rustfunc(bytes_io_init),
+        "getvalue" => ctx.new_rustfunc(bytes_io_getvalue)
+    });
 
-    py_mod
+    py_module!(ctx, "io", {
+        "open" => ctx.new_rustfunc(io_open),
+        "IOBase" => io_base.clone(),
+        "RawIOBase" => raw_io_base.clone(),
+        "BufferedIOBase" => buffered_io_base.clone(),
+        "TextIOBase" => text_io_base.clone(),
+        "FileIO" => file_io.clone(),
+        "BufferedReader" => buffered_reader.clone(),
+        "BufferedWriter" => buffered_writer.clone(),
+        "TextIOWrapper" => text_io_wrapper.clone(),
+        "StringIO" => string_io,
+        "BytesIO" => bytes_io,
+    })
 }

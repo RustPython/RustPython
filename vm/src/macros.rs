@@ -124,3 +124,16 @@ macro_rules! py_module {
         }
     }
 }
+
+#[macro_export]
+macro_rules! py_class {
+    ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        {
+            let py_class = $ctx.new_class($class_name, $class_base);
+            $(
+                $ctx.set_attr(&py_class, $name, $value);
+            )*
+            py_class
+        }
+    }
+}
