@@ -193,7 +193,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(globals, None), (locals, Some(vm.ctx.dict_type()))]
     );
 
-    check_but_allow_none!(vm, globals, vm.ctx.dict_type());
+    let scope = make_scope(vm, globals, locals)?;
 
     // Determine code object:
     let code_obj = if objtype::isinstance(source, &vm.ctx.code_type()) {
@@ -213,8 +213,6 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
 
-    let scope = make_scope(vm, globals, locals);
-
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
 }
@@ -229,7 +227,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(globals, None), (locals, Some(vm.ctx.dict_type()))]
     );
 
-    check_but_allow_none!(vm, globals, vm.ctx.dict_type());
+    let scope = make_scope(vm, globals, locals)?;
 
     // Determine code object:
     let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
@@ -249,8 +247,6 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };
 
-    let scope = make_scope(vm, globals, locals);
-
     // Run the code:
     vm.run_code_obj(code_obj, scope)
 }
@@ -259,7 +255,29 @@ fn make_scope(
     vm: &mut VirtualMachine,
     globals: Option<&PyObjectRef>,
     locals: Option<&PyObjectRef>,
-) -> ScopeRef {
+) -> PyResult<ScopeRef> {
+    let dict_type = vm.ctx.dict_type();
+    let globals = match globals {
+        Some(arg) => {
+            if arg.is(&vm.get_none()) {
+                None
+            } else {
+                if vm.isinstance(arg, &dict_type)? {
+                    Some(arg)
+                } else {
+                    let arg_typ = arg.typ();
+                    let actual_type = vm.to_pystr(&arg_typ)?;
+                    let expected_type_name = vm.to_pystr(&dict_type)?;
+                    return Err(vm.new_type_error(format!(
+                        "globals must be a {}, not {}",
+                        expected_type_name, actual_type
+                    )));
+                }
+            }
+        }
+        None => None,
+    };
+
     let current_scope = vm.current_scope();
     let parent = match globals {
         Some(dict) => Some(Scope::new(dict.clone(), Some(vm.get_builtin_scope()))),
@@ -270,7 +288,7 @@ fn make_scope(
         None => current_scope.locals.clone(),
     };
 
-    Scope::new(locals, parent)
+    Ok(Scope::new(locals, parent))
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
