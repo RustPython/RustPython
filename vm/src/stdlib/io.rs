@@ -15,13 +15,13 @@ use num_traits::ToPrimitive;
 
 //custom imports
 use super::os;
+use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 
 use crate::pyobject::{
-    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef,
-    PyResult, TypeProtocol,
+    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
 
 use crate::import;
@@ -86,8 +86,8 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .map_err(|_| vm.new_value_error("IO Error".to_string()))?;
 
         //Copy bytes from the buffer vector into the results vector
-        if let PyObjectPayload::Bytes { ref value } = buffer.payload {
-            result.extend(value.borrow().iter().cloned());
+        if let Some(bytes) = buffer.payload::<PyByteArray>() {
+            result.extend_from_slice(&bytes.value.borrow());
         };
 
         let len = vm.get_method(buffer.clone(), &"__len__".to_string());
@@ -169,10 +169,10 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let handle = os::rust_file(raw_fd);
 
     let mut f = handle.take(length);
-    if let PyObjectPayload::Bytes { ref value } = obj.payload {
+    if let Some(bytes) = obj.payload::<PyByteArray>() {
         //TODO: Implement for MemoryView
 
-        let mut value_mut = value.borrow_mut();
+        let mut value_mut = bytes.value.borrow_mut();
         value_mut.clear();
         match f.read_to_end(&mut value_mut) {
             Ok(_) => {}
@@ -200,9 +200,9 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     //to support windows - i.e. raw file_handles
     let mut handle = os::rust_file(raw_fd);
 
-    match obj.payload {
-        PyObjectPayload::Bytes { ref value } => {
-            let value_mut = value.borrow();
+    match obj.payload::<PyByteArray>() {
+        Some(bytes) => {
+            let value_mut = bytes.value.borrow();
             match handle.write(&value_mut[..]) {
                 Ok(len) => {
                     //reset raw fd on the FileIO object
@@ -215,7 +215,7 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string())),
             }
         }
-        _ => Err(vm.new_value_error("Expected Bytes Object".to_string())),
+        None => Err(vm.new_value_error("Expected Bytes Object".to_string())),
     }
 }
 

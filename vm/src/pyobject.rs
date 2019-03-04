@@ -483,8 +483,8 @@ impl PyContext {
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Bytes {
-                value: RefCell::new(data),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(objbytes::PyBytes::new(data)),
             },
             self.bytes_type(),
         )
@@ -492,8 +492,8 @@ impl PyContext {
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Bytes {
-                value: RefCell::new(data),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(objbytearray::PyByteArray::new(data)),
             },
             self.bytearray_type(),
         )
@@ -1253,9 +1253,6 @@ pub enum PyObjectPayload {
     Complex {
         value: Complex64,
     },
-    Bytes {
-        value: RefCell<Vec<u8>>,
-    },
     Sequence {
         elements: RefCell<Vec<PyObjectRef>>,
     },
@@ -1340,7 +1337,6 @@ impl fmt::Debug for PyObjectPayload {
         match self {
             PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
             PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
-            PyObjectPayload::Bytes { ref value } => write!(f, "bytes/bytearray {:?}", value),
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
             PyObjectPayload::Dict { .. } => write!(f, "dict"),

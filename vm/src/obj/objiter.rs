@@ -8,6 +8,8 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use super::objbool;
+use super::objbytearray::PyByteArray;
+use super::objbytes::PyBytes;
 use super::objrange::PyRange;
 use super::objtype;
 
@@ -137,6 +139,22 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             } else {
                 Err(new_stop_iteration(vm))
             }
+        } else if let Some(bytes) = iterated_obj_ref.payload::<PyBytes>() {
+            if position.get() < bytes.len() {
+                let obj_ref = vm.ctx.new_int(bytes[position.get()]);
+                position.set(position.get() + 1);
+                Ok(obj_ref)
+            } else {
+                Err(new_stop_iteration(vm))
+            }
+        } else if let Some(bytes) = iterated_obj_ref.payload::<PyByteArray>() {
+            if position.get() < bytes.value.borrow().len() {
+                let obj_ref = vm.ctx.new_int(bytes.value.borrow()[position.get()]);
+                position.set(position.get() + 1);
+                Ok(obj_ref)
+            } else {
+                Err(new_stop_iteration(vm))
+            }
         } else {
             match iterated_obj_ref.payload {
                 PyObjectPayload::Sequence { ref elements } => {
@@ -148,16 +166,6 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                         Err(new_stop_iteration(vm))
                     }
                 }
-                PyObjectPayload::Bytes { ref value } => {
-                    if position.get() < value.borrow().len() {
-                        let obj_ref = vm.ctx.new_int(value.borrow()[position.get()]);
-                        position.set(position.get() + 1);
-                        Ok(obj_ref)
-                    } else {
-                        Err(new_stop_iteration(vm))
-                    }
-                }
-
                 _ => {
                     panic!("NOT IMPL");
                 }
