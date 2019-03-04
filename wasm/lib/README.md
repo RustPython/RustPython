@@ -7,7 +7,7 @@ A Python-3 (CPython >= 3.5.0) Interpreter written in Rust.
 [![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
 [![Gitter](https://badges.gitter.im/RustPython/Lobby.svg)](https://gitter.im/rustpython/Lobby)
 
-# WARNING: this project is still in an pre-alpha state!
+# WARNING: this project is still in a pre-alpha state!
 
 **Using this in a production project is inadvisable. Please only do so if you understand the risks.**
 
