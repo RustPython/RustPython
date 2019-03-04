@@ -242,6 +242,26 @@ impl VirtualMachine {
         self.call_method(obj, "__repr__", vec![])
     }
 
+    /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
+    /// the __instancecheck__ magic method.
+    pub fn isinstance(&mut self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+        // cpython first does an exact check on the type, although documentation doesn't state that
+        // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
+        if Rc::ptr_eq(&obj.typ(), cls) {
+            Ok(true)
+        } else {
+            let ret = self.call_method(cls, "__instancecheck__", vec![obj.clone()])?;
+            objbool::boolval(self, ret)
+        }
+    }
+
+    /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
+    /// via the __subclasscheck__ magic method.
+    pub fn issubclass(&mut self, subclass: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+        let ret = self.call_method(cls, "__subclasscheck__", vec![subclass.clone()])?;
+        objbool::boolval(self, ret)
+    }
+
     pub fn call_get_descriptor(&mut self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
         let attr_class = attr.typ();
         if let Some(descriptor) = attr_class.get_attr("__get__") {

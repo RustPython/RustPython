@@ -19,7 +19,7 @@ macro_rules! type_check {
         if let Some(expected_type) = $arg_type {
             let arg = &$args.args[$arg_count];
 
-            if !$crate::obj::objtype::real_isinstance($vm, arg, &expected_type)? {
+            if !$crate::obj::objtype::isinstance(arg, &expected_type) {
                 let arg_typ = arg.typ();
                 let expected_type_name = $vm.to_pystr(&expected_type)?;
                 let actual_type = $vm.to_pystr(&arg_typ)?;
