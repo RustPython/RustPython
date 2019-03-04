@@ -420,34 +420,24 @@ fn get_addr_tuple(vm: &mut VirtualMachine, addr: SocketAddr) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"socket".to_string(), ctx.new_scope(None));
+    let socket = py_class!(ctx, "socket", ctx.object(), {
+         "__new__" => ctx.new_rustfunc(socket_new),
+         "connect" => ctx.new_rustfunc(socket_connect),
+         "recv" => ctx.new_rustfunc(socket_recv),
+         "send" => ctx.new_rustfunc(socket_send),
+         "bind" => ctx.new_rustfunc(socket_bind),
+         "accept" => ctx.new_rustfunc(socket_accept),
+         "listen" => ctx.new_rustfunc(socket_listen),
+         "close" => ctx.new_rustfunc(socket_close),
+         "getsockname" => ctx.new_rustfunc(socket_getsockname),
+         "sendto" => ctx.new_rustfunc(socket_sendto),
+         "recvfrom" => ctx.new_rustfunc(socket_recvfrom),
+    });
 
-    ctx.set_attr(&py_mod, "AF_INET", ctx.new_int(AddressFamily::Inet as i32));
-
-    ctx.set_attr(
-        &py_mod,
-        "SOCK_STREAM",
-        ctx.new_int(SocketKind::Stream as i32),
-    );
-
-    ctx.set_attr(&py_mod, "SOCK_DGRAM", ctx.new_int(SocketKind::Dgram as i32));
-
-    let socket = {
-        let socket = ctx.new_class("socket", ctx.object());
-        ctx.set_attr(&socket, "__new__", ctx.new_rustfunc(socket_new));
-        ctx.set_attr(&socket, "connect", ctx.new_rustfunc(socket_connect));
-        ctx.set_attr(&socket, "recv", ctx.new_rustfunc(socket_recv));
-        ctx.set_attr(&socket, "send", ctx.new_rustfunc(socket_send));
-        ctx.set_attr(&socket, "bind", ctx.new_rustfunc(socket_bind));
-        ctx.set_attr(&socket, "accept", ctx.new_rustfunc(socket_accept));
-        ctx.set_attr(&socket, "listen", ctx.new_rustfunc(socket_listen));
-        ctx.set_attr(&socket, "close", ctx.new_rustfunc(socket_close));
-        ctx.set_attr(&socket, "getsockname", ctx.new_rustfunc(socket_getsockname));
-        ctx.set_attr(&socket, "sendto", ctx.new_rustfunc(socket_sendto));
-        ctx.set_attr(&socket, "recvfrom", ctx.new_rustfunc(socket_recvfrom));
-        socket
-    };
-    ctx.set_attr(&py_mod, "socket", socket.clone());
-
-    py_mod
+    py_module!(ctx, "socket", {
+        "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
+        "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
+         "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
+         "socket" => socket.clone(),
+    })
 }
