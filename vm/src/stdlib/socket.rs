@@ -420,18 +420,6 @@ fn get_addr_tuple(vm: &mut VirtualMachine, addr: SocketAddr) -> PyResult {
 }
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module(&"socket".to_string(), ctx.new_scope(None));
-
-    ctx.set_attr(&py_mod, "AF_INET", ctx.new_int(AddressFamily::Inet as i32));
-
-    ctx.set_attr(
-        &py_mod,
-        "SOCK_STREAM",
-        ctx.new_int(SocketKind::Stream as i32),
-    );
-
-    ctx.set_attr(&py_mod, "SOCK_DGRAM", ctx.new_int(SocketKind::Dgram as i32));
-
     let socket = py_class!(ctx, "socket", ctx.object(), {
          "__new__" => ctx.new_rustfunc(socket_new),
          "connect" => ctx.new_rustfunc(socket_connect),
@@ -445,7 +433,11 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
          "sendto" => ctx.new_rustfunc(socket_sendto),
          "recvfrom" => ctx.new_rustfunc(socket_recvfrom),
     });
-    ctx.set_attr(&py_mod, "socket", socket.clone());
 
-    py_mod
+    py_module!(ctx, "socket", {
+        "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
+        "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
+         "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
+         "socket" => socket.clone(),
+    })
 }
