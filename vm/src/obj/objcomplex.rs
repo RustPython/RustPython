@@ -2,11 +2,29 @@ use super::objfloat;
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct PyComplex {
+    value: Complex64,
+}
+
+impl PyObjectPayload2 for PyComplex {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.complex_type()
+    }
+}
+
+impl From<Complex64> for PyComplex {
+    fn from(value: Complex64) -> Self {
+        PyComplex { value }
+    }
+}
 
 pub fn init(context: &PyContext) {
     let complex_type = &context.complex_type;
@@ -45,11 +63,7 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
-    if let PyObjectPayload::Complex { value } = &obj.payload {
-        *value
-    } else {
-        panic!("Inner error getting complex");
-    }
+    obj.payload::<PyComplex>().unwrap().value
 }
 
 fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -77,7 +91,9 @@ fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let value = Complex64::new(real, imag);
 
     Ok(PyObject::new(
-        PyObjectPayload::Complex { value },
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyComplex { value }),
+        },
         cls.clone(),
     ))
 }
