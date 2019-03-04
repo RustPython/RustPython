@@ -18,7 +18,6 @@ use crate::frame::{Scope, ScopeRef};
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
-use std::rc::Rc;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
@@ -191,11 +190,10 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [(source, None)],
-        optional = [
-            (_globals, Some(vm.ctx.dict_type())),
-            (locals, Some(vm.ctx.dict_type()))
-        ]
+        optional = [(globals, None), (locals, Some(vm.ctx.dict_type()))]
     );
+
+    let scope = make_scope(vm, globals, locals)?;
 
     // Determine code object:
     let code_obj = if objtype::isinstance(source, &vm.ctx.code_type()) {
@@ -215,8 +213,6 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
 
-    let scope = make_scope(vm, locals);
-
     // Run the source:
     vm.run_code_obj(code_obj.clone(), scope)
 }
@@ -228,11 +224,10 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [(source, None)],
-        optional = [
-            (_globals, Some(vm.ctx.dict_type())),
-            (locals, Some(vm.ctx.dict_type()))
-        ]
+        optional = [(globals, None), (locals, Some(vm.ctx.dict_type()))]
     );
+
+    let scope = make_scope(vm, globals, locals)?;
 
     // Determine code object:
     let code_obj = if objtype::isinstance(source, &vm.ctx.str_type()) {
@@ -252,26 +247,48 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };
 
-    let scope = make_scope(vm, locals);
-
     // Run the code:
     vm.run_code_obj(code_obj, scope)
 }
 
-fn make_scope(vm: &mut VirtualMachine, locals: Option<&PyObjectRef>) -> ScopeRef {
-    // handle optional global and locals
-    let locals = if let Some(locals) = locals {
-        locals.clone()
-    } else {
-        vm.new_dict()
+fn make_scope(
+    vm: &mut VirtualMachine,
+    globals: Option<&PyObjectRef>,
+    locals: Option<&PyObjectRef>,
+) -> PyResult<ScopeRef> {
+    let dict_type = vm.ctx.dict_type();
+    let globals = match globals {
+        Some(arg) => {
+            if arg.is(&vm.get_none()) {
+                None
+            } else {
+                if vm.isinstance(arg, &dict_type)? {
+                    Some(arg)
+                } else {
+                    let arg_typ = arg.typ();
+                    let actual_type = vm.to_pystr(&arg_typ)?;
+                    let expected_type_name = vm.to_pystr(&dict_type)?;
+                    return Err(vm.new_type_error(format!(
+                        "globals must be a {}, not {}",
+                        expected_type_name, actual_type
+                    )));
+                }
+            }
+        }
+        None => None,
     };
 
-    // TODO: handle optional globals
-    // Construct new scope:
-    Rc::new(Scope {
-        locals,
-        parent: None,
-    })
+    let current_scope = vm.current_scope();
+    let parent = match globals {
+        Some(dict) => Some(Scope::new(dict.clone(), Some(vm.get_builtin_scope()))),
+        None => current_scope.parent.clone(),
+    };
+    let locals = match locals {
+        Some(dict) => dict.clone(),
+        None => current_scope.locals.clone(),
+    };
+
+    Ok(Scope::new(locals, parent))
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

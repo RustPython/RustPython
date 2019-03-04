@@ -35,6 +35,12 @@ pub struct Scope {
 }
 pub type ScopeRef = Rc<Scope>;
 
+impl Scope {
+    pub fn new(locals: PyObjectRef, parent: Option<ScopeRef>) -> ScopeRef {
+        Rc::new(Scope { locals, parent })
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Block {
     /// The type of block.
