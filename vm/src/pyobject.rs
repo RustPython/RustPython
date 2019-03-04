@@ -922,7 +922,7 @@ impl PyFuncArgs {
     ) -> Result<Option<PyObjectRef>, PyObjectRef> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if objtype::real_isinstance(vm, &kwarg, &ty)? {
+                if objtype::isinstance(&kwarg, &ty) {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = vm.to_pystr(&ty)?;
@@ -1003,13 +1003,7 @@ where
             Ok(value) => Some(T::try_from_object(self.vm, value)),
             Err(err) => {
                 let stop_ex = self.vm.ctx.exceptions.stop_iteration.clone();
-                let stop = match objtype::real_isinstance(self.vm, &err, &stop_ex) {
-                    Ok(stop) => stop,
-                    Err(e) => {
-                        return Some(Err(e));
-                    }
-                };
-                if stop {
+                if objtype::isinstance(&err, &stop_ex) {
                     None
                 } else {
                     Some(Err(err))

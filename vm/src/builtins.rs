@@ -347,7 +347,7 @@ fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(obj, None), (typ, Some(vm.get_type()))]
     );
 
-    let isinstance = objtype::real_isinstance(vm, obj, typ)?;
+    let isinstance = vm.isinstance(obj, typ)?;
     Ok(vm.new_bool(isinstance))
 }
 
@@ -358,7 +358,7 @@ fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(subclass, Some(vm.get_type())), (cls, Some(vm.get_type()))]
     );
 
-    let issubclass = objtype::real_issubclass(vm, subclass, cls)?;
+    let issubclass = vm.issubclass(subclass, cls)?;
     Ok(vm.context().new_bool(issubclass))
 }
 
@@ -814,7 +814,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let mut metaclass = args.get_kwarg("metaclass", vm.get_type());
 
     for base in bases.clone() {
-        if objtype::real_issubclass(vm, &base.typ(), &metaclass)? {
+        if objtype::issubclass(&base.typ(), &metaclass) {
             metaclass = base.typ();
         } else if !objtype::issubclass(&metaclass, &base.typ()) {
             return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
