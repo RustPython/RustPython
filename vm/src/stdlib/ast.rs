@@ -540,7 +540,7 @@ fn parameters_to_ast(ctx: &PyContext, args: &ast::Parameters) -> PyObjectRef {
         ctx.new_list(
             args.args
                 .iter()
-                .map(|a| ctx.new_str(a.to_string()))
+                .map(|a| ctx.new_str(a.arg.to_string()))
                 .collect(),
         ),
     );

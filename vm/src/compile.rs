@@ -442,10 +442,14 @@ impl Compiler {
 
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
-            args.args.clone(),
-            args.vararg.clone(),
-            args.kwonlyargs.clone(),
-            args.kwarg.clone(),
+            args.args.iter().map(|a| a.arg.clone()).collect(),
+            args.vararg
+                .as_ref()
+                .map(|x| x.as_ref().map(|a| a.arg.clone())),
+            args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
+            args.kwarg
+                .as_ref()
+                .map(|x| x.as_ref().map(|a| a.arg.clone())),
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
