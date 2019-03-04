@@ -208,16 +208,8 @@ impl VirtualMachine {
     }
 
     pub fn get_locals(&self) -> PyObjectRef {
-        // let scope = &self.frames.last().unwrap().locals;
-        // scope.clone()
-        // TODO: fix this!
-        self.get_none()
-        /*
-        match (*scope).payload {
-            PyObjectPayload::Scope { scope } => { scope.locals.clone() },
-            _ => { panic!("Should be scope") },
-        } // .clone()
-        */
+        let scope = self.current_scope();
+        scope.locals.clone()
     }
 
     pub fn context(&self) -> &PyContext {
