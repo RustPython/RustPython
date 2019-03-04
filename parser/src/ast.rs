@@ -122,6 +122,7 @@ pub enum Statement {
         // docstring: String,
         body: Vec<LocatedStatement>,
         decorator_list: Vec<Expression>,
+        returns: Option<Expression>,
     },
 }
 

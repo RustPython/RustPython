@@ -446,7 +446,7 @@ WithItem: ast::WithItem = {
 };
 
 FuncDef: ast::LocatedStatement = {
-    <d:Decorator*> <loc:@L> "def" <i:Identifier> <a:Parameters> ":" <s:Suite> => {
+    <d:Decorator*> <loc:@L> "def" <i:Identifier> <a:Parameters> <r:("->" Test)?> ":" <s:Suite> => {
         ast::LocatedStatement {
             location: loc,
             node: ast::Statement::FunctionDef {
@@ -454,6 +454,7 @@ FuncDef: ast::LocatedStatement = {
                 args: a,
                 body: s,
                 decorator_list: d,
+                returns: r.map(|x| x.1),
             }
         }
     },
@@ -1094,6 +1095,7 @@ extern {
         "<=" => lexer::Tok::LessEqual,
         ">" => lexer::Tok::Greater,
         ">=" => lexer::Tok::GreaterEqual,
+        "->" => lexer::Tok::Rarrow,
         "and" => lexer::Tok::And,
         "as" => lexer::Tok::As,
         "assert" => lexer::Tok::Assert,

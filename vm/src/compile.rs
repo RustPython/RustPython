@@ -300,7 +300,8 @@ impl Compiler {
                 args,
                 body,
                 decorator_list,
-            } => self.compile_function_def(name, args, body, decorator_list)?,
+                returns,
+            } => self.compile_function_def(name, args, body, decorator_list, returns)?,
             ast::Statement::ClassDef {
                 name,
                 body,
@@ -588,6 +589,7 @@ impl Compiler {
         args: &ast::Parameters,
         body: &[ast::LocatedStatement],
         decorator_list: &[ast::Expression],
+        _returns: &Option<ast::Expression>, // TODO: use type hint somehow..
     ) -> Result<(), CompileError> {
         // Create bytecode for this function:
         // remember to restore self.in_loop to the original after the function is compiled
