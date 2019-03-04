@@ -1,15 +1,40 @@
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::ops::DerefMut;
 
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
+
+#[derive(Debug)]
+pub struct PyBytes {
+    value: Vec<u8>,
+}
+
+impl PyBytes {
+    pub fn new(data: Vec<u8>) -> Self {
+        PyBytes { value: data }
+    }
+}
+
+impl Deref for PyBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.value
+    }
+}
+
+impl PyObjectPayload2 for PyBytes {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.bytes_type()
+    }
+}
 
 // Binary data support
 
@@ -71,8 +96,8 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Bytes {
-            value: RefCell::new(value),
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyBytes::new(value)),
         },
         cls.clone(),
     ))
@@ -170,19 +195,7 @@ fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
-    if let PyObjectPayload::Bytes { ref value } = obj.payload {
-        value.borrow()
-    } else {
-        panic!("Inner error getting bytearray {:?}", obj);
-    }
-}
-
-pub fn get_mut_value<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<u8>> + 'a {
-    if let PyObjectPayload::Bytes { ref value } = obj.payload {
-        value.borrow_mut()
-    } else {
-        panic!("Inner error getting bytearray {:?}", obj);
-    }
+    &obj.payload::<PyBytes>().unwrap().value
 }
 
 fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
