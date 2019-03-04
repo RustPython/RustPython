@@ -5,6 +5,11 @@ use std::iter;
 use std::ops::RangeInclusive;
 use std::rc::{Rc, Weak};
 
+use num_bigint::BigInt;
+use num_bigint::ToBigInt;
+use num_complex::Complex64;
+use num_traits::{One, Zero};
+
 use crate::bytecode;
 use crate::exceptions;
 use crate::frame::{Frame, Scope, ScopeRef};
@@ -12,11 +17,11 @@ use crate::obj::objbool;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objcode;
-use crate::obj::objcomplex;
+use crate::obj::objcomplex::{self, PyComplex};
 use crate::obj::objdict;
 use crate::obj::objenumerate;
 use crate::obj::objfilter;
-use crate::obj::objfloat;
+use crate::obj::objfloat::{self, PyFloat};
 use crate::obj::objframe;
 use crate::obj::objfunction;
 use crate::obj::objgenerator;
@@ -37,10 +42,6 @@ use crate::obj::objtuple;
 use crate::obj::objtype;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
-use num_bigint::BigInt;
-use num_bigint::ToBigInt;
-use num_complex::Complex64;
-use num_traits::{One, Zero};
 
 /* Python objects and references.
 
@@ -463,14 +464,19 @@ impl PyContext {
     pub fn new_float(&self, value: f64) -> PyObjectRef {
         PyObject::new(
             PyObjectPayload::AnyRustValue {
-                value: Box::new(objfloat::PyFloat::from(value)),
+                value: Box::new(PyFloat::from(value)),
             },
             self.float_type(),
         )
     }
 
-    pub fn new_complex(&self, i: Complex64) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Complex { value: i }, self.complex_type())
+    pub fn new_complex(&self, value: Complex64) -> PyObjectRef {
+        PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyComplex::from(value)),
+            },
+            self.complex_type(),
+        )
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
@@ -1408,9 +1414,6 @@ pub enum PyObjectPayload {
     Integer {
         value: BigInt,
     },
-    Complex {
-        value: Complex64,
-    },
     Sequence {
         elements: RefCell<Vec<PyObjectRef>>,
     },
@@ -1494,7 +1497,6 @@ impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
-            PyObjectPayload::Complex { ref value } => write!(f, "complex {}", value),
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
             PyObjectPayload::Dict { .. } => write!(f, "dict"),
