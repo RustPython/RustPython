@@ -130,6 +130,7 @@ pub struct PyContext {
     pub map_type: PyObjectRef,
     pub memoryview_type: PyObjectRef,
     pub none: PyObjectRef,
+    pub ellipsis: PyObjectRef,
     pub not_implemented: PyObjectRef,
     pub tuple_type: PyObjectRef,
     pub set_type: PyObjectRef,
@@ -223,6 +224,12 @@ impl PyContext {
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
+        // TODO: implement proper ellipsis class?
+        let ellipsis = PyObject::new(
+            PyObjectPayload::None,
+            create_type("EllipsisType", &type_type, &object_type, &dict_type),
+        );
+
         let not_implemented = PyObject::new(
             PyObjectPayload::NotImplemented,
             create_type("NotImplementedType", &type_type, &object_type, &dict_type),
@@ -263,6 +270,7 @@ impl PyContext {
             zip_type,
             dict_type,
             none,
+            ellipsis,
             not_implemented,
             str_type,
             range_type,
@@ -441,6 +449,11 @@ impl PyContext {
     pub fn none(&self) -> PyObjectRef {
         self.none.clone()
     }
+
+    pub fn ellipsis(&self) -> PyObjectRef {
+        self.ellipsis.clone()
+    }
+
     pub fn not_implemented(&self) -> PyObjectRef {
         self.not_implemented.clone()
     }
@@ -699,6 +712,7 @@ impl PyContext {
                 self.new_tuple(elements)
             }
             bytecode::Constant::None => self.none(),
+            bytecode::Constant::Ellipsis => self.ellipsis(),
         }
     }
 }

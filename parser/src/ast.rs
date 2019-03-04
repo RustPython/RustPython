@@ -217,6 +217,7 @@ pub enum Expression {
     True,
     False,
     None,
+    Ellipsis,
 }
 
 impl Expression {
@@ -259,6 +260,7 @@ impl Expression {
             Lambda { .. } => "lambda",
             IfExpression { .. } => "conditional expression",
             True | False | None => "keyword",
+            Ellipsis => "ellipsis"
         }
     }
 }
