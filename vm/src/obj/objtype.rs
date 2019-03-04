@@ -2,8 +2,8 @@ use super::objdict;
 use super::objstr;
 use super::objtype; // Required for arg_check! to use isinstance
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
+    PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -275,6 +275,13 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     if let PyObjectPayload::Instance { dict } = &obj.payload {
         for (name, value) in dict.borrow().iter() {
             attributes.insert(name.to_string(), value.clone());
+        }
+    }
+
+    // Get module attributes:
+    if let PyObjectPayload::Module { ref scope, .. } = &obj.payload {
+        for (name, value) in scope.locals.get_key_value_pairs().iter() {
+            attributes.insert(objstr::get_value(name).to_string(), value.clone());
         }
     }
     attributes
