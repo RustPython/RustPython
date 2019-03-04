@@ -3,6 +3,7 @@
  */
 
 use super::objbool;
+use super::objstr;
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
@@ -156,6 +157,18 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                     Ok(obj_ref)
                 } else {
                     Err(new_stop_iteration(vm))
+                }
+            }
+
+            PyObjectPayload::AnyRustValue { ref value } => {
+                match value.downcast_ref::<objstr::PyString>() {
+                    Some(ref v) => {
+                        let i = vm.ctx.new_int(position.get());
+                        let obj = objstr::subscript(vm, &v.value, i);
+                        position.set(position.get() + 1);
+                        obj.map_err(|_| new_stop_iteration(vm))
+                    }
+                    None => unimplemented!(),
                 }
             }
 

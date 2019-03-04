@@ -4,11 +4,12 @@ use super::objtype;
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::function::PyRef;
 use crate::pyobject::{
-    OptArg, PyContext, PyFuncArgs, PyIterable, PyObjectPayload, PyObjectPayload2, PyObjectRef,
-    PyResult, TypeProtocol,
+    OptArg, PyContext, PyFuncArgs, PyIterable, PyObject, PyObjectPayload, PyObjectPayload2,
+    PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
+use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
@@ -78,6 +79,17 @@ impl PyString {
 
         Ok(PyString { value: joined })
     }
+
+    fn iter(zelf: PyRef<Self>, vm: &mut VirtualMachine) -> PyResult {
+        let iter_obj = PyObject::new(
+            PyObjectPayload::Iterator {
+                position: Cell::new(0),
+                iterated_obj: vm.ctx.new_str(zelf.value.clone()),
+            },
+            vm.ctx.iter_type(),
+        );
+        Ok(iter_obj)
+    }
 }
 
 impl PyObjectPayload2 for PyString {
@@ -98,9 +110,10 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "__getitem__", context.new_rustfunc(str_getitem));
     context.set_attr(&str_type, "__gt__", context.new_rustfunc(str_gt));
     context.set_attr(&str_type, "__ge__", context.new_rustfunc(str_ge));
+    context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
+    context.set_attr(&str_type, "__iter__", context.new_rustfunc(PyString::iter));
     context.set_attr(&str_type, "__lt__", context.new_rustfunc(str_lt));
     context.set_attr(&str_type, "__le__", context.new_rustfunc(str_le));
-    context.set_attr(&str_type, "__hash__", context.new_rustfunc(str_hash));
     context.set_attr(&str_type, "__len__", context.new_rustfunc(str_len));
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
     context.set_attr(&str_type, "__new__", context.new_rustfunc(str_new));
