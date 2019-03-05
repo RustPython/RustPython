@@ -260,7 +260,7 @@ impl Expression {
             Lambda { .. } => "lambda",
             IfExpression { .. } => "conditional expression",
             True | False | None => "keyword",
-            Ellipsis => "ellipsis"
+            Ellipsis => "ellipsis",
         }
     }
 }

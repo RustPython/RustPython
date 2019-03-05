@@ -19,6 +19,7 @@ use crate::obj::objbytes;
 use crate::obj::objcode;
 use crate::obj::objcomplex::{self, PyComplex};
 use crate::obj::objdict;
+use crate::obj::objellipsis;
 use crate::obj::objenumerate;
 use crate::obj::objfilter;
 use crate::obj::objfloat::{self, PyFloat};
@@ -115,6 +116,7 @@ pub struct PyContext {
     pub classmethod_type: PyObjectRef,
     pub code_type: PyObjectRef,
     pub dict_type: PyObjectRef,
+    pub ellipsis_type: PyObjectRef,
     pub enumerate_type: PyObjectRef,
     pub filter_type: PyObjectRef,
     pub float_type: PyObjectRef,
@@ -208,6 +210,7 @@ impl PyContext {
         let bytearray_type = create_type("bytearray", &type_type, &object_type, &dict_type);
         let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
         let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
+        let ellipsis_type = create_type("EllipsisType", &type_type, &object_type, &dict_type);
         let enumerate_type = create_type("enumerate", &type_type, &object_type, &dict_type);
         let filter_type = create_type("filter", &type_type, &object_type, &dict_type);
         let map_type = create_type("map", &type_type, &object_type, &dict_type);
@@ -224,11 +227,7 @@ impl PyContext {
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
-        // TODO: implement proper ellipsis class?
-        let ellipsis = PyObject::new(
-            PyObjectPayload::None,
-            create_type("EllipsisType", &type_type, &object_type, &dict_type),
-        );
+        let ellipsis = PyObject::new(PyObjectPayload::None, ellipsis_type.clone());
 
         let not_implemented = PyObject::new(
             PyObjectPayload::NotImplemented,
@@ -264,6 +263,7 @@ impl PyContext {
             false_value,
             tuple_type,
             iter_type,
+            ellipsis_type,
             enumerate_type,
             filter_type,
             map_type,
@@ -308,6 +308,7 @@ impl PyContext {
         objsuper::init(&context);
         objtuple::init(&context);
         objiter::init(&context);
+        objellipsis::init(&context);
         objenumerate::init(&context);
         objfilter::init(&context);
         objmap::init(&context);
