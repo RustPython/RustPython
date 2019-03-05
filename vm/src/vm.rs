@@ -473,10 +473,12 @@ impl VirtualMachine {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let available_defaults = match defaults.payload {
-                PyObjectPayload::Sequence { ref elements } => elements.borrow().clone(),
-                PyObjectPayload::None => vec![],
-                _ => panic!("function defaults not tuple or None"),
+            let available_defaults = if defaults.is(&self.get_none()) {
+                vec![]
+            } else if let PyObjectPayload::Sequence { ref elements } = defaults.payload {
+                elements.borrow().clone()
+            } else {
+                panic!("function defaults not tuple or None");
             };
 
             // Given the number of defaults available, check all the arguments for which we
