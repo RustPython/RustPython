@@ -21,9 +21,9 @@ pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, _dict_typ
     unsafe {
         (*ptr).payload = PyObjectPayload::Class {
             name: String::from("object"),
-            dict: RefCell::new(HashMap::new()),
             mro: vec![],
         };
+        (*ptr).dict = Some(RefCell::new(HashMap::new()));
         (*ptr).typ = Some(type_type.clone());
     }
 }
@@ -105,13 +105,13 @@ fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    match zelf.payload {
-        PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
+    match zelf.dict {
+        Some(ref dict) => {
             let attr_name = objstr::get_value(attr);
             dict.borrow_mut().remove(&attr_name);
             Ok(vm.get_none())
         }
-        _ => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
+        None => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
     }
 }
 
@@ -178,15 +178,14 @@ fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].payload {
-        PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
-            let new_dict = vm.new_dict();
-            for (attr, value) in dict.borrow().iter() {
-                new_dict.set_item(&vm.ctx, &attr, value.clone());
-            }
-            Ok(new_dict)
+    if let Some(ref dict) = args.args[0].dict {
+        let new_dict = vm.new_dict();
+        for (attr, value) in dict.borrow().iter() {
+            new_dict.set_item(&vm.ctx, &attr, value.clone());
         }
-        _ => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
+        Ok(new_dict)
+    } else {
+        Err(vm.new_type_error("TypeError: no dictionary.".to_string()))
     }
 }
 

@@ -330,9 +330,6 @@ impl VirtualMachine {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectPayload::Instance { .. } => {
-                self.call_method_pyargs(&func_ref, "__call__", args)
-            }
             ref payload => {
                 // TODO: is it safe to just invoke __call__ otherwise?
                 trace!("invoke __call__ for: {:?}", payload);

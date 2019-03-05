@@ -311,9 +311,9 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
     unsafe {
         (*ptr).payload = PyObjectPayload::Class {
             name: String::from("dict"),
-            dict: RefCell::new(HashMap::new()),
             mro: vec![object_type],
         };
+        (*ptr).dict = Some(RefCell::new(HashMap::new()));
         (*ptr).typ = Some(type_type.clone());
     }
 }
