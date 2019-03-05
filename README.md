@@ -97,7 +97,7 @@ $ pipenv install
 $ pipenv run pytest -v
 ```
 
-There also are some unit tests, you can run those will cargo:
+There also are some unit tests, you can run those with cargo:
 
 ```shell
 $ cargo test --all

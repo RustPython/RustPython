@@ -2,13 +2,16 @@
  * Various types to support iteration.
  */
 
-use super::objbool;
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-// use super::objstr;
-use super::objtype; // Required for arg_check! to use isinstance
+
+use super::objbool;
+use super::objbytearray::PyByteArray;
+use super::objbytes::PyBytes;
+use super::objrange::PyRange;
+use super::objtype;
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -129,38 +132,43 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         iterated_obj: ref iterated_obj_ref,
     } = iter.payload
     {
-        match iterated_obj_ref.payload {
-            PyObjectPayload::Sequence { ref elements } => {
-                if position.get() < elements.borrow().len() {
-                    let obj_ref = elements.borrow()[position.get()].clone();
-                    position.set(position.get() + 1);
-                    Ok(obj_ref)
-                } else {
-                    Err(new_stop_iteration(vm))
-                }
+        if let Some(range) = iterated_obj_ref.payload::<PyRange>() {
+            if let Some(int) = range.get(position.get()) {
+                position.set(position.get() + 1);
+                Ok(vm.ctx.new_int(int))
+            } else {
+                Err(new_stop_iteration(vm))
             }
-
-            PyObjectPayload::Range { ref range } => {
-                if let Some(int) = range.get(position.get()) {
-                    position.set(position.get() + 1);
-                    Ok(vm.ctx.new_int(int))
-                } else {
-                    Err(new_stop_iteration(vm))
-                }
+        } else if let Some(bytes) = iterated_obj_ref.payload::<PyBytes>() {
+            if position.get() < bytes.len() {
+                let obj_ref = vm.ctx.new_int(bytes[position.get()]);
+                position.set(position.get() + 1);
+                Ok(obj_ref)
+            } else {
+                Err(new_stop_iteration(vm))
             }
-
-            PyObjectPayload::Bytes { ref value } => {
-                if position.get() < value.borrow().len() {
-                    let obj_ref = vm.ctx.new_int(value.borrow()[position.get()]);
-                    position.set(position.get() + 1);
-                    Ok(obj_ref)
-                } else {
-                    Err(new_stop_iteration(vm))
-                }
+        } else if let Some(bytes) = iterated_obj_ref.payload::<PyByteArray>() {
+            if position.get() < bytes.value.borrow().len() {
+                let obj_ref = vm.ctx.new_int(bytes.value.borrow()[position.get()]);
+                position.set(position.get() + 1);
+                Ok(obj_ref)
+            } else {
+                Err(new_stop_iteration(vm))
             }
-
-            _ => {
-                panic!("NOT IMPL");
+        } else {
+            match iterated_obj_ref.payload {
+                PyObjectPayload::Sequence { ref elements } => {
+                    if position.get() < elements.borrow().len() {
+                        let obj_ref = elements.borrow()[position.get()].clone();
+                        position.set(position.get() + 1);
+                        Ok(obj_ref)
+                    } else {
+                        Err(new_stop_iteration(vm))
+                    }
+                }
+                _ => {
+                    panic!("NOT IMPL");
+                }
             }
         }
     } else {

@@ -3,11 +3,29 @@ use super::objint;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct PyFloat {
+    value: f64,
+}
+
+impl PyObjectPayload2 for PyFloat {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.float_type()
+    }
+}
+
+impl From<f64> for PyFloat {
+    fn from(value: f64) -> Self {
+        PyFloat { value }
+    }
+}
 
 fn float_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(float, Some(vm.ctx.float_type()))]);
@@ -50,16 +68,18 @@ fn float_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let type_name = objtype::get_type_name(&arg.typ());
         return Err(vm.new_type_error(format!("can't convert {} to float", type_name)));
     };
-    Ok(PyObject::new(PyObjectPayload::Float { value }, cls.clone()))
+
+    Ok(PyObject::new(
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyFloat { value }),
+        },
+        cls.clone(),
+    ))
 }
 
 // Retrieve inner float value:
 pub fn get_value(obj: &PyObjectRef) -> f64 {
-    if let PyObjectPayload::Float { value } = &obj.payload {
-        *value
-    } else {
-        panic!("Inner error getting float: {}", obj);
-    }
+    obj.payload::<PyFloat>().unwrap().value
 }
 
 pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {

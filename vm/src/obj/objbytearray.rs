@@ -1,16 +1,46 @@
 //! Implementation of the python bytearray object.
 
 use std::cell::RefCell;
+use std::ops::{Deref, DerefMut};
 
-use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
+};
 
 use super::objint;
 
-use super::objbytes::get_mut_value;
-use super::objbytes::get_value;
 use super::objtype;
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
+
+#[derive(Debug)]
+pub struct PyByteArray {
+    // TODO: shouldn't be public
+    pub value: RefCell<Vec<u8>>,
+}
+
+impl PyByteArray {
+    pub fn new(data: Vec<u8>) -> Self {
+        PyByteArray {
+            value: RefCell::new(data),
+        }
+    }
+}
+
+impl PyObjectPayload2 for PyByteArray {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.bytearray_type()
+    }
+}
+
+pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
+    obj.payload::<PyByteArray>().unwrap().value.borrow()
+}
+
+pub fn get_mut_value<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<u8>> + 'a {
+    obj.payload::<PyByteArray>().unwrap().value.borrow_mut()
+}
 
 // Binary data support
 
@@ -143,8 +173,8 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
     Ok(PyObject::new(
-        PyObjectPayload::Bytes {
-            value: RefCell::new(value),
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyByteArray::new(value)),
         },
         cls.clone(),
     ))
@@ -290,13 +320,8 @@ fn bytearray_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn bytearray_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    match zelf.payload {
-        PyObjectPayload::Bytes { ref value } => {
-            value.borrow_mut().clear();
-            Ok(vm.get_none())
-        }
-        _ => panic!("Bytearray has incorrect payload."),
-    }
+    get_mut_value(zelf).clear();
+    Ok(vm.get_none())
 }
 
 fn bytearray_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

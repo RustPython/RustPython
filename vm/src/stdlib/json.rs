@@ -5,7 +5,11 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
-use crate::obj::{objbool, objdict, objfloat, objint, objsequence, objstr, objtype};
+use crate::obj::{
+    objbool, objdict, objfloat, objint, objsequence,
+    objstr::{self, PyString},
+    objtype,
+};
 use crate::pyobject::{
     create_type, DictProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
     TypeProtocol,
@@ -167,8 +171,8 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         // than wrapping the given object up and then unwrapping it to determine whether or
         // not it is a string
         while let Some((key_obj, value)) = access.next_entry_seed(self.clone(), self.clone())? {
-            let key = match key_obj.payload {
-                PyObjectPayload::String { ref value } => value.clone(),
+            let key: String = match key_obj.payload::<PyString>() {
+                Some(PyString { ref value }) => value.clone(),
                 _ => unimplemented!("map keys must be strings"),
             };
             dict.set_item(&self.vm.ctx, &key, value);
