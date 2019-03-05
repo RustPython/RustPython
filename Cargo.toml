@@ -1,6 +1,6 @@
 [package]
 name = "rustpython"
-version = "0.0.1"
+version = "0.0.1-pre-alpha.1"
 authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
 edition = "2018"
 

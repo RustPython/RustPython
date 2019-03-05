@@ -730,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython"
-version = "0.0.1"
+version = "0.0.1-pre-alpha.1"
 dependencies = [
  "clap 2.31.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "env_logger 0.5.10 (registry+https://github.com/rust-lang/crates.io-index)",
