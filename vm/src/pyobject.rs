@@ -154,11 +154,8 @@ pub struct PyContext {
 }
 
 fn _nothing() -> PyObjectRef {
-    PyObject {
-        payload: PyObjectPayload::NoPayload,
-        typ: None,
-    }
-    .into_ref()
+    let obj: PyObject = Default::default();
+    obj.into_ref()
 }
 
 pub fn create_type(
@@ -727,10 +724,11 @@ impl Default for PyContext {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
+#[derive(Default)]
 pub struct PyObject {
     pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
-    // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
+    pub dict: Option<HashMap<String, PyObjectRef>>, // __dict__ member
 }
 
 pub trait IdProtocol {
@@ -1507,6 +1505,12 @@ pub enum PyObjectPayload {
     },
 }
 
+impl Default for PyObjectPayload {
+    fn default() -> Self {
+        PyObjectPayload::NoPayload
+    }
+}
+
 impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -1541,14 +1545,11 @@ impl fmt::Debug for PyObjectPayload {
 }
 
 impl PyObject {
-    pub fn new(
-        payload: PyObjectPayload,
-        /* dict: PyObjectRef,*/ typ: PyObjectRef,
-    ) -> PyObjectRef {
+    pub fn new(payload: PyObjectPayload, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             payload,
             typ: Some(typ),
-            // dict: HashMap::new(),  // dict,
+            dict: None,
         }
         .into_ref()
     }
