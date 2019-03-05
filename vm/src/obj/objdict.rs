@@ -268,6 +268,27 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(iter_obj)
 }
 
+fn dict_values(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
+
+    let values = get_elements(dict)
+        .values()
+        .map(|(_k, v)| v)
+        .cloned()
+        .collect();
+    let values_list = vm.ctx.new_list(values);
+
+    let iter_obj = PyObject::new(
+        PyObjectPayload::Iterator {
+            position: Cell::new(0),
+            iterated_obj: values_list,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
+
 fn dict_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -345,4 +366,5 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(dict_setitem),
     );
     context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
+    context.set_attr(&dict_type, "values", context.new_rustfunc(dict_values));
 }

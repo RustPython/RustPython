@@ -17,3 +17,9 @@ assert dict_eq(b, {'a': a, 'd': 9})
 
 a.clear()
 assert len(a) == 0
+
+a = {'a': 5, 'b': 6}
+res = set()
+for num in a.values():
+	res.add(num)
+assert res == set([5,6])
