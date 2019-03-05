@@ -11,6 +11,7 @@ use crate::import::{import, import_module};
 use crate::obj::objbool;
 use crate::obj::objcode;
 use crate::obj::objdict;
+use crate::obj::objdict::PyDict;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objstr;
@@ -1125,18 +1126,13 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
-        let local_str = match self.scope.locals.payload {
-            PyObjectPayload::Dict { ref elements } => {
-                objdict::get_key_value_pairs_from_content(&elements.borrow())
-                    .iter()
-                    .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-                    .collect::<Vec<_>>()
-                    .join("")
-            }
-            ref unexpected => panic!(
-                "locals unexpectedly not wrapping a dict! instead: {:?}",
-                unexpected
-            ),
+        let local_str = match self.scope.locals.payload::<PyDict>() {
+            Some(dict) => objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
+                .iter()
+                .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
+                .collect::<Vec<_>>()
+                .join(""),
+            None => panic!("locals unexpectedly not wrapping a dict!",),
         };
         write!(
             f,
