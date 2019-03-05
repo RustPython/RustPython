@@ -791,8 +791,22 @@ Power: ast::Expression = {
 AtomExpr: ast::Expression = {
     <e:Atom> => e,
     <f:AtomExpr>  "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
-    <e:AtomExpr>  "[" <s:Subscript> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
+    <e:AtomExpr>  "[" <s:SubscriptList> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
     <e:AtomExpr> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
+};
+
+SubscriptList: ast::Expression = {
+    <s1:Subscript> <s2:("," Subscript)*> ","? => {
+        if s2.is_empty() {
+            s1
+        } else {
+            let mut dims = vec![s1];
+            for x in s2 {
+                dims.push(x.1)
+            }
+            ast::Expression::Tuple { elements: dims }
+        }
+    }
 };
 
 Subscript: ast::Expression = {
