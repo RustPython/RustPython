@@ -82,6 +82,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             args,
             body,
             decorator_list,
+            returns,
         } => {
             let node = create_node(ctx, "FunctionDef");
 
@@ -96,6 +97,13 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
 
             let py_decorator_list = expressions_to_ast(ctx, decorator_list);
             ctx.set_attr(&node, "decorator_list", py_decorator_list);
+
+            let py_returns = if let Some(hint) = returns {
+                expression_to_ast(ctx, hint)
+            } else {
+                ctx.none()
+            };
+            ctx.set_attr(&node, "returns", py_returns);
             node
         }
         ast::Statement::Continue => create_node(ctx, "Continue"),
@@ -538,13 +546,24 @@ fn parameters_to_ast(ctx: &PyContext, args: &ast::Parameters) -> PyObjectRef {
     ctx.set_attr(
         &node,
         "args",
-        ctx.new_list(
-            args.args
-                .iter()
-                .map(|a| ctx.new_str(a.to_string()))
-                .collect(),
-        ),
+        ctx.new_list(args.args.iter().map(|a| parameter_to_ast(ctx, a)).collect()),
     );
+
+    node
+}
+
+fn parameter_to_ast(ctx: &PyContext, parameter: &ast::Parameter) -> PyObjectRef {
+    let node = create_node(ctx, "arg");
+
+    let py_arg = ctx.new_str(parameter.arg.to_string());
+    ctx.set_attr(&node, "arg", py_arg);
+
+    let py_annotation = if let Some(annotation) = &parameter.annotation {
+        expression_to_ast(ctx, annotation)
+    } else {
+        ctx.none()
+    };
+    ctx.set_attr(&node, "annotation", py_annotation);
 
     node
 }
