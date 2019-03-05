@@ -18,9 +18,9 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type:
     unsafe {
         (*ptr).payload = PyObjectPayload::Class {
             name: String::from("type"),
-            dict: RefCell::new(PyAttributes::new()),
             mro: vec![object_type],
         };
+        (*ptr).dict = Some(RefCell::new(PyAttributes::new()));
         (*ptr).typ = Some(type_type);
     }
 }
@@ -253,7 +253,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     let mut base_classes = _mro(obj.clone()).expect("Type get_attributes on non-type");
     base_classes.reverse();
     for bc in base_classes {
-        if let PyObjectPayload::Class { dict, .. } = &bc.payload {
+        if let Some(ref dict) = &bc.dict {
             for (name, value) in dict.borrow().iter() {
                 attributes.insert(name.to_string(), value.clone());
             }
@@ -318,14 +318,15 @@ pub fn new(
 ) -> PyResult {
     let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
     let mro = linearise_mro(mros).unwrap();
-    Ok(PyObject::new(
-        PyObjectPayload::Class {
+    Ok(PyObject {
+        payload: PyObjectPayload::Class {
             name: String::from(name),
-            dict: RefCell::new(dict),
             mro,
         },
-        typ,
-    ))
+        dict: Some(RefCell::new(dict)),
+        typ: Some(typ),
+    }
+    .into_ref())
 }
 
 fn type_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

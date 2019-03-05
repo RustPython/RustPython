@@ -672,12 +672,14 @@ impl PyContext {
         } else {
             PyAttributes::new()
         };
-        PyObject::new(
-            PyObjectPayload::Instance {
-                dict: RefCell::new(dict),
+        PyObject {
+            payload: PyObjectPayload::AnyRustValue {
+                value: Box::new(()),
             },
-            class,
-        )
+            typ: Some(class),
+            dict: Some(RefCell::new(dict)),
+        }
+        .into_ref()
     }
 
     // Item set/get:
@@ -698,14 +700,12 @@ impl PyContext {
     }
 
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
-        match obj.payload {
-            PyObjectPayload::Module { ref scope, .. } => {
-                scope.locals.set_item(self, attr_name, value)
-            }
-            PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
-                dict.borrow_mut().insert(attr_name.to_string(), value);
-            }
-            ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
+        if let PyObjectPayload::Module { ref scope, .. } = obj.payload {
+            scope.locals.set_item(self, attr_name, value)
+        } else if let Some(ref dict) = obj.dict {
+            dict.borrow_mut().insert(attr_name.to_string(), value);
+        } else {
+            unimplemented!("set_attr unimplemented for: {:?}", obj);
         };
     }
 
@@ -744,7 +744,7 @@ impl Default for PyContext {
 pub struct PyObject {
     pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
-    pub dict: Option<HashMap<String, PyObjectRef>>, // __dict__ member
+    pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
 }
 
 pub trait IdProtocol {
@@ -791,16 +791,18 @@ pub trait AttributeProtocol {
 }
 
 fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-    match class.payload {
-        PyObjectPayload::Class { ref dict, .. } => dict.borrow().get(attr_name).cloned(),
-        _ => panic!("Only classes should be in MRO!"),
+    if let Some(ref dict) = class.dict {
+        dict.borrow().get(attr_name).cloned()
+    } else {
+        panic!("Only classes should be in MRO!");
     }
 }
 
 fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
-    match class.payload {
-        PyObjectPayload::Class { ref dict, .. } => dict.borrow().contains_key(attr_name),
-        _ => panic!("Only classes should be in MRO!"),
+    if let Some(ref dict) = class.dict {
+        dict.borrow().contains_key(attr_name)
+    } else {
+        panic!("Only classes should be in MRO!");
     }
 }
 
@@ -819,8 +821,13 @@ impl AttributeProtocol for PyObjectRef {
                 }
                 None
             }
-            PyObjectPayload::Instance { ref dict } => dict.borrow().get(attr_name).cloned(),
-            _ => None,
+            _ => {
+                if let Some(ref dict) = self.dict {
+                    dict.borrow().get(attr_name).cloned()
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -830,8 +837,13 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectPayload::Class { ref mro, .. } => {
                 class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
             }
-            PyObjectPayload::Instance { ref dict } => dict.borrow().contains_key(attr_name),
-            _ => false,
+            _ => {
+                if let Some(ref dict) = self.dict {
+                    dict.borrow().contains_key(attr_name)
+                } else {
+                    false
+                }
+            }
         }
     }
 }
@@ -1517,14 +1529,10 @@ pub enum PyObjectPayload {
     },
     Class {
         name: String,
-        dict: RefCell<PyAttributes>,
         mro: Vec<PyObjectRef>,
     },
     WeakRef {
         referent: PyObjectWeakRef,
-    },
-    Instance {
-        dict: RefCell<PyAttributes>,
     },
     RustFunction {
         function: PyNativeFunc,
@@ -1563,7 +1571,6 @@ impl fmt::Debug for PyObjectPayload {
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
             PyObjectPayload::Module { .. } => write!(f, "module"),
             PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
-            PyObjectPayload::Instance { .. } => write!(f, "instance"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { .. } => write!(f, "some rust value"),
