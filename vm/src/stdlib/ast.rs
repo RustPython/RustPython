@@ -395,6 +395,7 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
 
             node
         }
+        ast::Expression::Ellipsis => create_node(ctx, "Ellipsis"),
         ast::Expression::List { elements } => {
             let node = create_node(ctx, "List");
 

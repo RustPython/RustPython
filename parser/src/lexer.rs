@@ -993,8 +993,15 @@ where
                 Some('.') => {
                     let tok_start = self.get_pos();
                     self.next_char();
-                    let tok_end = self.get_pos();
-                    return Some(Ok((tok_start, Tok::Dot, tok_end)));
+                    if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
+                        self.next_char();
+                        self.next_char();
+                        let tok_end = self.get_pos();
+                        return Some(Ok((tok_start, Tok::Ellipsis, tok_end)));
+                    } else {
+                        let tok_end = self.get_pos();
+                        return Some(Ok((tok_start, Tok::Dot, tok_end)));
+                    }
                 }
                 Some('\n') => {
                     let tok_start = self.get_pos();

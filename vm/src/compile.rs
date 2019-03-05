@@ -1056,6 +1056,11 @@ impl Compiler {
                     value: bytecode::Constant::None,
                 });
             }
+            ast::Expression::Ellipsis => {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Ellipsis,
+                });
+            }
             ast::Expression::String { value } => {
                 self.compile_string(value)?;
             }

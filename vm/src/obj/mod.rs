@@ -6,6 +6,7 @@ pub mod objbytes;
 pub mod objcode;
 pub mod objcomplex;
 pub mod objdict;
+pub mod objellipsis;
 pub mod objenumerate;
 pub mod objfilter;
 pub mod objfloat;

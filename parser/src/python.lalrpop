@@ -839,6 +839,7 @@ Atom: ast::Expression = {
     "True" => ast::Expression::True,
     "False" => ast::Expression::False,
     "None" => ast::Expression::None,
+    "..." => ast::Expression::Ellipsis,
 };
 
 TestListComp: Vec<ast::Expression> = {
@@ -1048,6 +1049,7 @@ extern {
         "~" => lexer::Tok::Tilde,
         ":" => lexer::Tok::Colon,
         "." => lexer::Tok::Dot,
+        "..." => lexer::Tok::Ellipsis,
         "," => lexer::Tok::Comma,
         "*" => lexer::Tok::Star,
         "**" => lexer::Tok::DoubleStar,
