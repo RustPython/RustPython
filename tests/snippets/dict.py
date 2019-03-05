@@ -20,6 +20,12 @@ assert len(a) == 0
 
 a = {'a': 5, 'b': 6}
 res = set()
-for num in a.values():
-	res.add(num)
+for value in a.values():
+	res.add(value)
 assert res == set([5,6])
+
+count = 0
+for (key, value) in a.items():
+	assert a[key] == value
+	count += 1
+assert count == len(a)

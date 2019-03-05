@@ -273,8 +273,7 @@ fn dict_values(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let values = get_elements(dict)
         .values()
-        .map(|(_k, v)| v)
-        .cloned()
+        .map(|(_k, v)| v.clone())
         .collect();
     let values_list = vm.ctx.new_list(values);
 
@@ -282,6 +281,26 @@ fn dict_values(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Iterator {
             position: Cell::new(0),
             iterated_obj: values_list,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
+
+fn dict_items(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
+
+    let items = get_elements(dict)
+        .values()
+        .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone(), v.clone()]))
+        .collect();
+    let items_list = vm.ctx.new_list(items);
+
+    let iter_obj = PyObject::new(
+        PyObjectPayload::Iterator {
+            position: Cell::new(0),
+            iterated_obj: items_list,
         },
         vm.ctx.iter_type(),
     );
@@ -367,4 +386,5 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
     context.set_attr(&dict_type, "values", context.new_rustfunc(dict_values));
+    context.set_attr(&dict_type, "items", context.new_rustfunc(dict_items));
 }
