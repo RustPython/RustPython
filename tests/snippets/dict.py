@@ -29,3 +29,8 @@ for (key, value) in a.items():
 	assert a[key] == value
 	count += 1
 assert count == len(a)
+
+res = set()
+for key in a.keys():
+	res.add(key)
+assert res == set(['a','b'])

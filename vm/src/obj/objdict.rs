@@ -252,8 +252,8 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
 
     let keys = get_elements(dict)
-        .keys()
-        .map(|k| vm.ctx.new_str(k.to_string()))
+        .values()
+        .map(|(k, _v)| k.clone())
         .collect();
     let key_list = vm.ctx.new_list(keys);
 
@@ -387,4 +387,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
     context.set_attr(&dict_type, "values", context.new_rustfunc(dict_values));
     context.set_attr(&dict_type, "items", context.new_rustfunc(dict_items));
+    context.set_attr(&dict_type, "keys", context.new_rustfunc(dict_iter));
 }
