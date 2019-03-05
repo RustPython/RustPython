@@ -13,7 +13,7 @@ impl IntoPyObject for bool {
     }
 }
 
-pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
+pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
     if let Some(s) = obj.payload::<PyString>() {
         return Ok(!s.value.is_empty());
     }
@@ -24,7 +24,6 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
         PyObjectPayload::Integer { ref value } => !value.is_zero(),
         PyObjectPayload::Sequence { ref elements } => !elements.borrow().is_empty(),
         PyObjectPayload::Dict { ref elements } => !elements.borrow().is_empty(),
-        PyObjectPayload::None { .. } => false,
         _ => {
             if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
                 let bool_res = vm.invoke(f, PyFuncArgs::default())?;
