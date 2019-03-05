@@ -1,8 +1,8 @@
 //! Implementation of the python bytearray object.
 
 use std::cell::RefCell;
-use std::ops::{Deref, DerefMut};
 use std::fmt::Write;
+use std::ops::{Deref, DerefMut};
 
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
