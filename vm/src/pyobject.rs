@@ -34,7 +34,7 @@ use crate::obj::objnone;
 use crate::obj::objobject;
 use crate::obj::objproperty;
 use crate::obj::objrange;
-use crate::obj::objset;
+use crate::obj::objset::{self, PySet};
 use crate::obj::objslice;
 use crate::obj::objstr;
 use crate::obj::objsuper;
@@ -536,8 +536,8 @@ impl PyContext {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
         PyObject::new(
-            PyObjectPayload::Set {
-                elements: RefCell::new(HashMap::new()),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PySet::default()),
             },
             self.set_type(),
         )
@@ -1476,9 +1476,6 @@ pub enum PyObjectPayload {
         dict: RefCell<PyAttributes>,
         mro: Vec<PyObjectRef>,
     },
-    Set {
-        elements: RefCell<HashMap<u64, PyObjectRef>>,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
     },
@@ -1500,7 +1497,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
             PyObjectPayload::Dict { .. } => write!(f, "dict"),
-            PyObjectPayload::Set { .. } => write!(f, "set"),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
