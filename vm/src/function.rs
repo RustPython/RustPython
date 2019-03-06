@@ -1,3 +1,4 @@
+use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -79,5 +80,11 @@ where
 impl<T> IntoPyObject for PyRef<T> {
     fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
         Ok(self.obj)
+    }
+}
+
+impl<T> fmt::Display for PyRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.obj.fmt(f)
     }
 }
