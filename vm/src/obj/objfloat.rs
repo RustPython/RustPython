@@ -2,12 +2,14 @@ use super::objbytes;
 use super::objint;
 use super::objstr;
 use super::objtype;
+use crate::function::PyRef;
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
+use num_rational::Ratio;
 use num_traits::ToPrimitive;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -24,6 +26,25 @@ impl PyObjectPayload2 for PyFloat {
 impl From<f64> for PyFloat {
     fn from(value: f64) -> Self {
         PyFloat { value }
+    }
+}
+
+impl PyFloat {
+    fn as_integer_ratio(zelf: PyRef<Self>, vm: &mut VirtualMachine) -> PyResult {
+        let value = zelf.value;
+        if value.is_infinite() {
+            return Err(
+                vm.new_overflow_error("cannot convert Infinity to integer ratio".to_string())
+            );
+        }
+        if value.is_nan() {
+            return Err(vm.new_value_error("cannot convert NaN to integer ratio".to_string()));
+        }
+
+        let ratio = Ratio::from_float(value).unwrap();
+        let numer = vm.ctx.new_int(ratio.numer().clone());
+        let denom = vm.ctx.new_int(ratio.denom().clone());
+        Ok(vm.ctx.new_tuple(vec![numer, denom]))
     }
 }
 
@@ -493,5 +514,10 @@ pub fn init(context: &PyContext) {
         &float_type,
         "is_integer",
         context.new_rustfunc(float_is_integer),
+    );
+    context.set_attr(
+        &float_type,
+        "as_integer_ratio",
+        context.new_rustfunc(PyFloat::as_integer_ratio),
     );
 }
