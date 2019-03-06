@@ -24,79 +24,81 @@ pub struct PyString {
     pub value: String,
 }
 
-impl PyString {
-    fn add(zelf: PyRef<Self>, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<String> {
+pub type PyStringRef = PyRef<PyString>;
+
+impl PyStringRef {
+    fn add(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<String> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(format!("{}{}", zelf.value, get_value(&rhs)))
+            Ok(format!("{}{}", self.value, get_value(&rhs)))
         } else {
-            Err(vm.new_type_error(format!("Cannot add {} and {}", zelf, rhs)))
+            Err(vm.new_type_error(format!("Cannot add {} and {}", self, rhs)))
         }
     }
 
-    fn eq(zelf: PyRef<Self>, rhs: PyObjectRef, vm: &mut VirtualMachine) -> bool {
+    fn eq(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> bool {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            zelf.value == get_value(&rhs)
+            self.value == get_value(&rhs)
         } else {
             false
         }
     }
 
-    fn contains(zelf: PyRef<Self>, needle: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        zelf.value.contains(&needle.value)
+    fn contains(self, needle: PyStringRef, _vm: &mut VirtualMachine) -> bool {
+        self.value.contains(&needle.value)
     }
 
-    fn getitem(zelf: PyRef<Self>, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
-        subscript(vm, &zelf.value, needle)
+    fn getitem(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+        subscript(vm, &self.value, needle)
     }
 
-    fn gt(zelf: PyRef<Self>, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn gt(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(zelf.value > get_value(&rhs))
+            Ok(self.value > get_value(&rhs))
         } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {}", zelf, rhs)))
+            Err(vm.new_type_error(format!("Cannot compare {} and {}", self, rhs)))
         }
     }
 
-    fn ge(zelf: PyRef<Self>, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn ge(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(zelf.value >= get_value(&rhs))
+            Ok(self.value >= get_value(&rhs))
         } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {}", zelf, rhs)))
+            Err(vm.new_type_error(format!("Cannot compare {} and {}", self, rhs)))
         }
     }
 
-    fn lt(zelf: PyRef<Self>, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn lt(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(zelf.value < get_value(&rhs))
+            Ok(self.value < get_value(&rhs))
         } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {}", zelf, rhs)))
+            Err(vm.new_type_error(format!("Cannot compare {} and {}", self, rhs)))
         }
     }
 
-    fn le(zelf: PyRef<Self>, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn le(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
-            Ok(zelf.value <= get_value(&rhs))
+            Ok(self.value <= get_value(&rhs))
         } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {}", zelf, rhs)))
+            Err(vm.new_type_error(format!("Cannot compare {} and {}", self, rhs)))
         }
     }
 
-    fn hash(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> usize {
+    fn hash(self, _vm: &mut VirtualMachine) -> usize {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        zelf.value.hash(&mut hasher);
+        self.value.hash(&mut hasher);
         hasher.finish() as usize
     }
 
-    fn len(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> usize {
-        zelf.value.chars().count()
+    fn len(self, _vm: &mut VirtualMachine) -> usize {
+        self.value.chars().count()
     }
 
-    fn str(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> PyRef<Self> {
-        zelf
+    fn str(self, _vm: &mut VirtualMachine) -> PyStringRef {
+        self
     }
 
-    fn repr(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        let value = &zelf.value;
+    fn repr(self, _vm: &mut VirtualMachine) -> String {
+        let value = &self.value;
         let quote_char = if count_char(value, '\'') > count_char(value, '"') {
             '"'
         } else {
@@ -125,99 +127,99 @@ impl PyString {
         formatted
     }
 
-    fn lower(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        zelf.value.to_lowercase()
+    fn lower(self, _vm: &mut VirtualMachine) -> String {
+        self.value.to_lowercase()
     }
 
     // casefold is much more aggressive than lower
-    fn casefold(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        caseless::default_case_fold_str(&zelf.value)
+    fn casefold(self, _vm: &mut VirtualMachine) -> String {
+        caseless::default_case_fold_str(&self.value)
     }
 
-    fn upper(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        zelf.value.to_uppercase()
+    fn upper(self, _vm: &mut VirtualMachine) -> String {
+        self.value.to_uppercase()
     }
 
-    fn capitalize(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        let (first_part, lower_str) = zelf.value.split_at(1);
+    fn capitalize(self, _vm: &mut VirtualMachine) -> String {
+        let (first_part, lower_str) = self.value.split_at(1);
         format!("{}{}", first_part.to_uppercase(), lower_str)
     }
 
-    fn strip(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        zelf.value.trim().to_string()
+    fn strip(self, _vm: &mut VirtualMachine) -> String {
+        self.value.trim().to_string()
     }
 
-    fn lstrip(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        zelf.value.trim_start().to_string()
+    fn lstrip(self, _vm: &mut VirtualMachine) -> String {
+        self.value.trim_start().to_string()
     }
 
-    fn rstrip(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        zelf.value.trim_end().to_string()
+    fn rstrip(self, _vm: &mut VirtualMachine) -> String {
+        self.value.trim_end().to_string()
     }
 
     fn endswith(
-        zelf: PyRef<Self>,
-        suffix: PyRef<Self>,
+        self,
+        suffix: PyStringRef,
         start: OptArg<usize>,
         end: OptArg<usize>,
         _vm: &mut VirtualMachine,
     ) -> bool {
         let start = start.unwrap_or(0);
-        let end = end.unwrap_or(zelf.value.len());
-        zelf.value[start..end].ends_with(&suffix.value)
+        let end = end.unwrap_or(self.value.len());
+        self.value[start..end].ends_with(&suffix.value)
     }
 
     fn startswith(
-        zelf: PyRef<Self>,
-        prefix: PyRef<Self>,
+        self,
+        prefix: PyStringRef,
         start: OptArg<usize>,
         end: OptArg<usize>,
         _vm: &mut VirtualMachine,
     ) -> bool {
         let start = start.unwrap_or(0);
-        let end = end.unwrap_or(zelf.value.len());
-        zelf.value[start..end].starts_with(&prefix.value)
+        let end = end.unwrap_or(self.value.len());
+        self.value[start..end].starts_with(&prefix.value)
     }
 
-    fn isalnum(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        !zelf.value.is_empty() && zelf.value.chars().all(char::is_alphanumeric)
+    fn isalnum(self, _vm: &mut VirtualMachine) -> bool {
+        !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
     }
 
-    fn isnumeric(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        !zelf.value.is_empty() && zelf.value.chars().all(char::is_numeric)
+    fn isnumeric(self, _vm: &mut VirtualMachine) -> bool {
+        !self.value.is_empty() && self.value.chars().all(char::is_numeric)
     }
 
-    fn isdigit(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
+    fn isdigit(self, _vm: &mut VirtualMachine) -> bool {
         // python's isdigit also checks if exponents are digits, these are the unicodes for exponents
         let valid_unicodes: [u16; 10] = [
             0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
         ];
 
-        if zelf.value.is_empty() {
+        if self.value.is_empty() {
             false
         } else {
-            zelf.value
+            self.value
                 .chars()
                 .filter(|c| !c.is_digit(10))
                 .all(|c| valid_unicodes.contains(&(c as u16)))
         }
     }
 
-    fn isdecimal(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        if zelf.value.is_empty() {
+    fn isdecimal(self, _vm: &mut VirtualMachine) -> bool {
+        if self.value.is_empty() {
             false
         } else {
-            zelf.value.chars().all(|c| c.is_ascii_digit())
+            self.value.chars().all(|c| c.is_ascii_digit())
         }
     }
 
-    fn title(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        make_title(&zelf.value)
+    fn title(self, _vm: &mut VirtualMachine) -> String {
+        make_title(&self.value)
     }
 
-    fn swapcase(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> String {
-        let mut swapped_str = String::with_capacity(zelf.value.len());
-        for c in zelf.value.chars() {
+    fn swapcase(self, _vm: &mut VirtualMachine) -> String {
+        let mut swapped_str = String::with_capacity(self.value.len());
+        for c in self.value.chars() {
             // to_uppercase returns an iterator, to_ascii_uppercase returns the char
             if c.is_lowercase() {
                 swapped_str.push(c.to_ascii_uppercase());
@@ -230,41 +232,41 @@ impl PyString {
         swapped_str
     }
 
-    fn isalpha(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        !zelf.value.is_empty() && zelf.value.chars().all(char::is_alphanumeric)
+    fn isalpha(self, _vm: &mut VirtualMachine) -> bool {
+        !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
     }
 
     // cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
     // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
-    fn isspace(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        !zelf.value.is_empty() && zelf.value.chars().all(|c| c.is_ascii_whitespace())
+    fn isspace(self, _vm: &mut VirtualMachine) -> bool {
+        !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
     }
 
-    fn isupper(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        !zelf.value.is_empty()
-            && zelf
+    fn isupper(self, _vm: &mut VirtualMachine) -> bool {
+        !self.value.is_empty()
+            && self
                 .value
                 .chars()
                 .filter(|x| !x.is_ascii_whitespace())
                 .all(char::is_uppercase)
     }
 
-    fn islower(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        !zelf.value.is_empty()
-            && zelf
+    fn islower(self, _vm: &mut VirtualMachine) -> bool {
+        !self.value.is_empty()
+            && self
                 .value
                 .chars()
                 .filter(|x| !x.is_ascii_whitespace())
                 .all(char::is_lowercase)
     }
 
-    fn isascii(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        !zelf.value.is_empty() && zelf.value.chars().all(|c| c.is_ascii())
+    fn isascii(self, _vm: &mut VirtualMachine) -> bool {
+        !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii())
     }
 
     // doesn't implement keep new line delimiter just yet
-    fn splitlines(zelf: PyRef<Self>, vm: &mut VirtualMachine) -> PyObjectRef {
-        let elements = zelf
+    fn splitlines(self, vm: &mut VirtualMachine) -> PyObjectRef {
+        let elements = self
             .value
             .split('\n')
             .map(|e| vm.ctx.new_str(e.to_string()))
@@ -272,17 +274,13 @@ impl PyString {
         vm.ctx.new_list(elements)
     }
 
-    fn join(
-        zelf: PyRef<Self>,
-        iterable: PyIterable<PyRef<Self>>,
-        vm: &mut VirtualMachine,
-    ) -> PyResult<String> {
+    fn join(self, iterable: PyIterable<PyStringRef>, vm: &mut VirtualMachine) -> PyResult<String> {
         let mut joined = String::new();
 
         for (idx, elem) in iterable.iter(vm)?.enumerate() {
             let elem = elem?;
             if idx != 0 {
-                joined.push_str(&zelf.value);
+                joined.push_str(&self.value);
             }
             joined.push_str(&elem.value)
         }
@@ -290,8 +288,8 @@ impl PyString {
         Ok(joined)
     }
 
-    fn partition(zelf: PyRef<Self>, sub: PyRef<Self>, vm: &mut VirtualMachine) -> PyObjectRef {
-        let value = &zelf.value;
+    fn partition(self, sub: PyStringRef, vm: &mut VirtualMachine) -> PyObjectRef {
+        let value = &self.value;
         let sub = &sub.value;
         let mut new_tup = Vec::new();
         if value.contains(sub) {
@@ -308,8 +306,8 @@ impl PyString {
         vm.ctx.new_tuple(new_tup)
     }
 
-    fn rpartition(zelf: PyRef<Self>, sub: PyRef<Self>, vm: &mut VirtualMachine) -> PyObjectRef {
-        let value = &zelf.value;
+    fn rpartition(self, sub: PyStringRef, vm: &mut VirtualMachine) -> PyObjectRef {
+        let value = &self.value;
         let sub = &sub.value;
         let mut new_tup = Vec::new();
         if value.contains(sub) {
@@ -327,8 +325,8 @@ impl PyString {
         vm.ctx.new_tuple(new_tup)
     }
 
-    fn isidentifier(zelf: PyRef<Self>, _vm: &mut VirtualMachine) -> bool {
-        let value = &zelf.value;
+    fn isidentifier(self, _vm: &mut VirtualMachine) -> bool {
+        let value = &self.value;
         // a string is not an identifier if it has whitespace or starts with a number
         if !value.chars().any(|c| c.is_ascii_whitespace())
             && !value.chars().nth(0).unwrap().is_digit(10)
@@ -360,60 +358,60 @@ impl IntoPyObject for String {
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     let str_type = &context.str_type;
-    context.set_attr(&str_type, "__add__", context.new_rustfunc(PyString::add));
-    context.set_attr(&str_type, "__eq__", context.new_rustfunc(PyString::eq));
-    context.set_attr(&str_type, "__contains__", context.new_rustfunc(PyString::contains));
-    context.set_attr(&str_type, "__getitem__", context.new_rustfunc(PyString::getitem));
-    context.set_attr(&str_type, "__gt__", context.new_rustfunc(PyString::gt));
-    context.set_attr(&str_type, "__ge__", context.new_rustfunc(PyString::ge));
-    context.set_attr(&str_type, "__lt__", context.new_rustfunc(PyString::lt));
-    context.set_attr(&str_type, "__le__", context.new_rustfunc(PyString::le));
-    context.set_attr(&str_type, "__hash__", context.new_rustfunc(PyString::hash));
-    context.set_attr(&str_type, "__len__", context.new_rustfunc(PyString::len));
+    context.set_attr(&str_type, "__add__", context.new_rustfunc(PyStringRef::add));
+    context.set_attr(&str_type, "__eq__", context.new_rustfunc(PyStringRef::eq));
+    context.set_attr(&str_type, "__contains__", context.new_rustfunc(PyStringRef::contains));
+    context.set_attr(&str_type, "__getitem__", context.new_rustfunc(PyStringRef::getitem));
+    context.set_attr(&str_type, "__gt__", context.new_rustfunc(PyStringRef::gt));
+    context.set_attr(&str_type, "__ge__", context.new_rustfunc(PyStringRef::ge));
+    context.set_attr(&str_type, "__lt__", context.new_rustfunc(PyStringRef::lt));
+    context.set_attr(&str_type, "__le__", context.new_rustfunc(PyStringRef::le));
+    context.set_attr(&str_type, "__hash__", context.new_rustfunc(PyStringRef::hash));
+    context.set_attr(&str_type, "__len__", context.new_rustfunc(PyStringRef::len));
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
     context.set_attr(&str_type, "__new__", context.new_rustfunc(str_new));
-    context.set_attr(&str_type, "__str__", context.new_rustfunc(PyString::str));
-    context.set_attr(&str_type, "__repr__", context.new_rustfunc(PyString::repr));
+    context.set_attr(&str_type, "__str__", context.new_rustfunc(PyStringRef::str));
+    context.set_attr(&str_type, "__repr__", context.new_rustfunc(PyStringRef::repr));
     context.set_attr(&str_type, "format", context.new_rustfunc(str_format));
-    context.set_attr(&str_type, "lower", context.new_rustfunc(PyString::lower));
-    context.set_attr(&str_type, "casefold", context.new_rustfunc(PyString::casefold));
-    context.set_attr(&str_type, "upper", context.new_rustfunc(PyString::upper));
-    context.set_attr(&str_type, "capitalize", context.new_rustfunc(PyString::capitalize));
+    context.set_attr(&str_type, "lower", context.new_rustfunc(PyStringRef::lower));
+    context.set_attr(&str_type, "casefold", context.new_rustfunc(PyStringRef::casefold));
+    context.set_attr(&str_type, "upper", context.new_rustfunc(PyStringRef::upper));
+    context.set_attr(&str_type, "capitalize", context.new_rustfunc(PyStringRef::capitalize));
     context.set_attr(&str_type, "split", context.new_rustfunc(str_split));
     context.set_attr(&str_type, "rsplit", context.new_rustfunc(str_rsplit));
-    context.set_attr(&str_type, "strip", context.new_rustfunc(PyString::strip));
-    context.set_attr(&str_type, "lstrip", context.new_rustfunc(PyString::lstrip));
-    context.set_attr(&str_type, "rstrip", context.new_rustfunc(PyString::rstrip));
-    context.set_attr(&str_type, "endswith", context.new_rustfunc(PyString::endswith));
-    context.set_attr(&str_type, "startswith", context.new_rustfunc(PyString::startswith));
-    context.set_attr(&str_type, "isalnum", context.new_rustfunc(PyString::isalnum));
-    context.set_attr(&str_type, "isnumeric", context.new_rustfunc(PyString::isnumeric));
-    context.set_attr(&str_type, "isdigit", context.new_rustfunc(PyString::isdigit));
-    context.set_attr(&str_type, "isdecimal", context.new_rustfunc(PyString::isdecimal));
-    context.set_attr(&str_type, "title", context.new_rustfunc(PyString::title));
-    context.set_attr(&str_type, "swapcase", context.new_rustfunc(PyString::swapcase));
-    context.set_attr(&str_type, "isalpha", context.new_rustfunc(PyString::isalpha));
+    context.set_attr(&str_type, "strip", context.new_rustfunc(PyStringRef::strip));
+    context.set_attr(&str_type, "lstrip", context.new_rustfunc(PyStringRef::lstrip));
+    context.set_attr(&str_type, "rstrip", context.new_rustfunc(PyStringRef::rstrip));
+    context.set_attr(&str_type, "endswith", context.new_rustfunc(PyStringRef::endswith));
+    context.set_attr(&str_type, "startswith", context.new_rustfunc(PyStringRef::startswith));
+    context.set_attr(&str_type, "isalnum", context.new_rustfunc(PyStringRef::isalnum));
+    context.set_attr(&str_type, "isnumeric", context.new_rustfunc(PyStringRef::isnumeric));
+    context.set_attr(&str_type, "isdigit", context.new_rustfunc(PyStringRef::isdigit));
+    context.set_attr(&str_type, "isdecimal", context.new_rustfunc(PyStringRef::isdecimal));
+    context.set_attr(&str_type, "title", context.new_rustfunc(PyStringRef::title));
+    context.set_attr(&str_type, "swapcase", context.new_rustfunc(PyStringRef::swapcase));
+    context.set_attr(&str_type, "isalpha", context.new_rustfunc(PyStringRef::isalpha));
     context.set_attr(&str_type, "replace", context.new_rustfunc(str_replace));
     context.set_attr(&str_type, "center", context.new_rustfunc(str_center));
-    context.set_attr(&str_type, "isspace", context.new_rustfunc(PyString::isspace));
-    context.set_attr(&str_type, "isupper", context.new_rustfunc(PyString::isupper));
-    context.set_attr(&str_type, "islower", context.new_rustfunc(PyString::islower));
-    context.set_attr(&str_type, "isascii", context.new_rustfunc(PyString::isascii));
-    context.set_attr(&str_type, "splitlines", context.new_rustfunc(PyString::splitlines));
-    context.set_attr(&str_type, "join", context.new_rustfunc(PyString::join));
+    context.set_attr(&str_type, "isspace", context.new_rustfunc(PyStringRef::isspace));
+    context.set_attr(&str_type, "isupper", context.new_rustfunc(PyStringRef::isupper));
+    context.set_attr(&str_type, "islower", context.new_rustfunc(PyStringRef::islower));
+    context.set_attr(&str_type, "isascii", context.new_rustfunc(PyStringRef::isascii));
+    context.set_attr(&str_type, "splitlines", context.new_rustfunc(PyStringRef::splitlines));
+    context.set_attr(&str_type, "join", context.new_rustfunc(PyStringRef::join));
     context.set_attr(&str_type, "find", context.new_rustfunc(str_find));
     context.set_attr(&str_type, "rfind", context.new_rustfunc(str_rfind));
     context.set_attr(&str_type, "index", context.new_rustfunc(str_index));
     context.set_attr(&str_type, "rindex", context.new_rustfunc(str_rindex));
-    context.set_attr(&str_type, "partition", context.new_rustfunc(PyString::partition));
-    context.set_attr(&str_type, "rpartition", context.new_rustfunc(PyString::rpartition));
+    context.set_attr(&str_type, "partition", context.new_rustfunc(PyStringRef::partition));
+    context.set_attr(&str_type, "rpartition", context.new_rustfunc(PyStringRef::rpartition));
     context.set_attr(&str_type, "istitle", context.new_rustfunc(str_istitle));
     context.set_attr(&str_type, "count", context.new_rustfunc(str_count));
     context.set_attr(&str_type, "zfill", context.new_rustfunc(str_zfill));
     context.set_attr(&str_type, "ljust", context.new_rustfunc(str_ljust));
     context.set_attr(&str_type, "rjust", context.new_rustfunc(str_rjust));
     context.set_attr(&str_type, "expandtabs", context.new_rustfunc(str_expandtabs));
-    context.set_attr(&str_type, "isidentifier", context.new_rustfunc(PyString::isidentifier));
+    context.set_attr(&str_type, "isidentifier", context.new_rustfunc(PyStringRef::isidentifier));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
