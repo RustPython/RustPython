@@ -31,6 +31,7 @@ use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objmap;
 use crate::obj::objmemory;
+use crate::obj::objmodule;
 use crate::obj::objnone;
 use crate::obj::objobject;
 use crate::obj::objproperty;
@@ -317,6 +318,7 @@ impl PyContext {
         objcode::init(&context);
         objframe::init(&context);
         objnone::init(&context);
+        objmodule::init(&context);
         exceptions::init(&context);
         context
     }
@@ -355,6 +357,10 @@ impl PyContext {
 
     pub fn list_type(&self) -> PyObjectRef {
         self.list_type.clone()
+    }
+
+    pub fn module_type(&self) -> PyObjectRef {
+        self.module_type.clone()
     }
 
     pub fn set_type(&self) -> PyObjectRef {
