@@ -272,7 +272,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     }
 
     // Get instance attributes:
-    if let PyObjectPayload::Instance { dict } = &obj.payload {
+    if let PyObjectPayload::Instance { dict, .. } = &obj.payload {
         for (name, value) in dict.borrow().iter() {
             attributes.insert(name.to_string(), value.clone());
         }

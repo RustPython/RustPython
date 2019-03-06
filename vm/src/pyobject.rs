@@ -661,6 +661,7 @@ impl PyContext {
         PyObject::new(
             PyObjectPayload::Instance {
                 dict: RefCell::new(dict),
+                parent_payload: None,
             },
             class,
         )
@@ -688,7 +689,8 @@ impl PyContext {
             PyObjectPayload::Module { ref scope, .. } => {
                 scope.locals.set_item(self, attr_name, value)
             }
-            PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
+            PyObjectPayload::Instance { ref dict, .. }
+            | PyObjectPayload::Class { ref dict, .. } => {
                 dict.borrow_mut().insert(attr_name.to_string(), value);
             }
             ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
@@ -804,7 +806,7 @@ impl AttributeProtocol for PyObjectRef {
                 }
                 None
             }
-            PyObjectPayload::Instance { ref dict } => dict.borrow().get(attr_name).cloned(),
+            PyObjectPayload::Instance { ref dict, .. } => dict.borrow().get(attr_name).cloned(),
             _ => None,
         }
     }
@@ -815,7 +817,7 @@ impl AttributeProtocol for PyObjectRef {
             PyObjectPayload::Class { ref mro, .. } => {
                 class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
             }
-            PyObjectPayload::Instance { ref dict } => dict.borrow().contains_key(attr_name),
+            PyObjectPayload::Instance { ref dict, .. } => dict.borrow().contains_key(attr_name),
             _ => false,
         }
     }
@@ -1496,6 +1498,7 @@ pub enum PyObjectPayload {
     },
     Instance {
         dict: RefCell<PyAttributes>,
+        parent_payload: Option<Box<PyObjectPayload>>,
     },
     RustFunction {
         function: PyNativeFunc,
