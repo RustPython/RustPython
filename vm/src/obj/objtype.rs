@@ -95,10 +95,6 @@ fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
     }
 }
 
-pub fn base_classes(obj: &PyObjectRef) -> Vec<PyObjectRef> {
-    _mro(obj.typ()).unwrap()
-}
-
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
