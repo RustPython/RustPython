@@ -386,13 +386,7 @@ fn do_sort(
     for x in values.iter() {
         keys.push(match &key_func {
             None => x.clone(),
-            Some(ref func) => vm.invoke(
-                (*func).clone(),
-                PyFuncArgs {
-                    args: vec![x.clone()],
-                    kwargs: vec![],
-                },
-            )?,
+            Some(ref func) => vm.invoke((*func).clone(), vec![x.clone()])?,
         });
     }
 

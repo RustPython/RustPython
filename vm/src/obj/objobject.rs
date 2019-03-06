@@ -220,13 +220,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let attr_class = attr.typ();
         if attr_class.has_attr("__set__") {
             if let Some(descriptor) = attr_class.get_attr("__get__") {
-                return vm.invoke(
-                    descriptor,
-                    PyFuncArgs {
-                        args: vec![attr, obj.clone(), cls],
-                        kwargs: vec![],
-                    },
-                );
+                return vm.invoke(descriptor, vec![attr, obj.clone(), cls]);
             }
         }
     }
@@ -236,13 +230,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if let Some(attr) = cls.get_attr(&name) {
         vm.call_get_descriptor(attr, obj.clone())
     } else if let Some(getter) = cls.get_attr("__getattr__") {
-        vm.invoke(
-            getter,
-            PyFuncArgs {
-                args: vec![cls, name_str.clone()],
-                kwargs: vec![],
-            },
-        )
+        vm.invoke(getter, vec![cls, name_str.clone()])
     } else {
         let attribute_error = vm.context().exceptions.attribute_error.clone();
         Err(vm.new_exception(

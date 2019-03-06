@@ -107,13 +107,7 @@ pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else if let Ok(method) = vm.get_method(obj.clone(), "__float__") {
-        let res = vm.invoke(
-            method,
-            PyFuncArgs {
-                args: vec![],
-                kwargs: vec![],
-            },
-        )?;
+        let res = vm.invoke(method, vec![])?;
         Ok(get_value(&res))
     } else {
         Err(vm.new_type_error(format!("Cannot cast {} to float", obj)))

@@ -38,13 +38,7 @@ fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .collect::<Result<Vec<_>, _>>()?;
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        vm.invoke(
-            mapper.clone(),
-            PyFuncArgs {
-                args: next_objs,
-                kwargs: vec![],
-            },
-        )
+        vm.invoke(mapper.clone(), next_objs)
     } else {
         panic!("map doesn't have correct payload");
     }
