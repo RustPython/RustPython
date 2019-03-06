@@ -1,8 +1,8 @@
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
+    PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -127,6 +127,18 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
 }
 
+pub fn object_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+
+    let attributes = get_attributes(&obj);
+    Ok(vm.ctx.new_list(
+        attributes
+            .keys()
+            .map(|k| vm.ctx.new_str(k.to_string()))
+            .collect(),
+    ))
+}
+
 fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -161,6 +173,7 @@ pub fn init(context: &PyContext) {
         "__dict__",
         context.new_member_descriptor(object_dict),
     );
+    context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));
     context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
     context.set_attr(&object, "__str__", context.new_rustfunc(object_str));
     context.set_attr(&object, "__repr__", context.new_rustfunc(object_repr));
@@ -237,4 +250,18 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             format!("{} has no attribute '{}'", obj, name),
         ))
     }
+}
+
+pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
+    // Get class attributes:
+    let mut attributes = objtype::get_attributes(&obj.typ());
+
+    // Get instance attributes:
+    if let PyObjectPayload::Instance { dict } = &obj.payload {
+        for (name, value) in dict.borrow().iter() {
+            attributes.insert(name.to_string(), value.clone());
+        }
+    }
+
+    attributes
 }

@@ -1,9 +1,8 @@
 use super::objdict;
 use super::objstr;
-use super::objtype; // Required for arg_check! to use isinstance
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
-    PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
+    PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -67,6 +66,7 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(type_subclass_check),
     );
     context.set_attr(&type_type, "__doc__", context.new_str(type_doc.to_string()));
+    context.set_attr(&type_type, "__dir__", context.new_rustfunc(type_dir));
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -256,12 +256,23 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
     }
 }
 
+pub fn type_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+
+    let attributes = get_attributes(&obj);
+    Ok(vm.ctx.new_list(
+        attributes
+            .keys()
+            .map(|k| vm.ctx.new_str(k.to_string()))
+            .collect(),
+    ))
+}
+
 pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     // Gather all members here:
     let mut attributes = PyAttributes::new();
 
-    // Get class attributes:
-    let mut base_classes = objtype::base_classes(obj);
+    let mut base_classes = _mro(obj.clone()).expect("Type get_attributes on non-type");
     base_classes.reverse();
     for bc in base_classes {
         if let PyObjectPayload::Class { dict, .. } = &bc.payload {
@@ -271,19 +282,6 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
         }
     }
 
-    // Get instance attributes:
-    if let PyObjectPayload::Instance { dict } = &obj.payload {
-        for (name, value) in dict.borrow().iter() {
-            attributes.insert(name.to_string(), value.clone());
-        }
-    }
-
-    // Get module attributes:
-    if let PyObjectPayload::Module { ref scope, .. } = &obj.payload {
-        for (name, value) in scope.locals.get_key_value_pairs().iter() {
-            attributes.insert(objstr::get_value(name).to_string(), value.clone());
-        }
-    }
     attributes
 }
 
