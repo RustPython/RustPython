@@ -1,3 +1,4 @@
+use super::objdict::PyDict;
 use super::objfloat::PyFloat;
 use super::objstr::PyString;
 use super::objtype;
@@ -20,10 +21,12 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObje
     if let Some(value) = obj.payload::<PyFloat>() {
         return Ok(*value != PyFloat::from(0.0));
     }
+    if let Some(dict) = obj.payload::<PyDict>() {
+        return Ok(!dict.entries.borrow().is_empty());
+    }
     let result = match obj.payload {
         PyObjectPayload::Integer { ref value } => !value.is_zero(),
         PyObjectPayload::Sequence { ref elements } => !elements.borrow().is_empty(),
-        PyObjectPayload::Dict { ref elements } => !elements.borrow().is_empty(),
         PyObjectPayload::None { .. } => false,
         _ => {
             if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {

@@ -18,7 +18,7 @@ use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objcode;
 use crate::obj::objcomplex::{self, PyComplex};
-use crate::obj::objdict;
+use crate::obj::objdict::{self, PyDict};
 use crate::obj::objellipsis;
 use crate::obj::objenumerate;
 use crate::obj::objfilter;
@@ -35,7 +35,7 @@ use crate::obj::objnone;
 use crate::obj::objobject;
 use crate::obj::objproperty;
 use crate::obj::objrange;
-use crate::obj::objset;
+use crate::obj::objset::{self, PySet};
 use crate::obj::objslice;
 use crate::obj::objstr;
 use crate::obj::objsuper;
@@ -550,8 +550,8 @@ impl PyContext {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
         PyObject::new(
-            PyObjectPayload::Set {
-                elements: RefCell::new(HashMap::new()),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PySet::default()),
             },
             self.set_type(),
         )
@@ -559,8 +559,8 @@ impl PyContext {
 
     pub fn new_dict(&self) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Dict {
-                elements: RefCell::new(HashMap::new()),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyDict::default()),
             },
             self.dict_type(),
         )
@@ -668,12 +668,11 @@ impl PyContext {
 
     // Item set/get:
     pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
-        match obj.payload {
-            PyObjectPayload::Dict { ref elements } => {
-                let key = self.new_str(key.to_string());
-                objdict::set_item_in_content(&mut elements.borrow_mut(), &key, &v);
-            }
-            ref k => panic!("TODO {:?}", k),
+        if let Some(dict) = obj.payload::<PyDict>() {
+            let key = self.new_str(key.to_string());
+            objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
+        } else {
+            unimplemented!()
         };
     }
 
@@ -831,44 +830,48 @@ pub trait DictProtocol {
 
 impl DictProtocol for PyObjectRef {
     fn contains_key(&self, k: &str) -> bool {
-        match self.payload {
-            PyObjectPayload::Dict { ref elements } => {
-                objdict::content_contains_key_str(&elements.borrow(), k)
-            }
-            ref payload => unimplemented!("TODO {:?}", payload),
+        if let Some(dict) = self.payload::<PyDict>() {
+            objdict::content_contains_key_str(&dict.entries.borrow(), k)
+        } else {
+            unimplemented!()
         }
     }
 
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
-        match self.payload {
-            PyObjectPayload::Dict { ref elements } => {
-                objdict::content_get_key_str(&elements.borrow(), k)
+        if let Some(dict) = self.payload::<PyDict>() {
+            objdict::content_get_key_str(&dict.entries.borrow(), k)
+        } else {
+            match self.payload {
+                PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(k),
+                ref k => panic!("TODO {:?}", k),
             }
-            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(k),
-            ref k => panic!("TODO {:?}", k),
         }
     }
 
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        match self.payload {
-            PyObjectPayload::Dict { .. } => objdict::get_key_value_pairs(self),
-            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_key_value_pairs(),
-            _ => panic!("TODO"),
+        if let Some(_) = self.payload::<PyDict>() {
+            objdict::get_key_value_pairs(self)
+        } else {
+            match self.payload {
+                PyObjectPayload::Module { ref scope, .. } => scope.locals.get_key_value_pairs(),
+                _ => panic!("TODO"),
+            }
         }
     }
 
     // Item set/get:
     fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
-        match &self.payload {
-            PyObjectPayload::Dict { elements } => {
-                let key = ctx.new_str(key.to_string());
-                objdict::set_item_in_content(&mut elements.borrow_mut(), &key, &v);
-            }
-            PyObjectPayload::Module { scope, .. } => {
-                scope.locals.set_item(ctx, key, v);
-            }
-            ref k => panic!("TODO {:?}", k),
-        };
+        if let Some(dict) = self.payload::<PyDict>() {
+            let key = ctx.new_str(key.to_string());
+            objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
+        } else {
+            match &self.payload {
+                PyObjectPayload::Module { scope, .. } => {
+                    scope.locals.set_item(ctx, key, v);
+                }
+                ref k => panic!("TODO {:?}", k),
+            };
+        }
     }
 }
 
@@ -1432,9 +1435,6 @@ pub enum PyObjectPayload {
     Sequence {
         elements: RefCell<Vec<PyObjectRef>>,
     },
-    Dict {
-        elements: RefCell<objdict::DictContentType>,
-    },
     Iterator {
         position: Cell<usize>,
         iterated_obj: PyObjectRef,
@@ -1491,9 +1491,6 @@ pub enum PyObjectPayload {
         dict: RefCell<PyAttributes>,
         mro: Vec<PyObjectRef>,
     },
-    Set {
-        elements: RefCell<HashMap<u64, PyObjectRef>>,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
     },
@@ -1514,8 +1511,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
-            PyObjectPayload::Dict { .. } => write!(f, "dict"),
-            PyObjectPayload::Set { .. } => write!(f, "set"),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
