@@ -904,6 +904,16 @@ pub struct PyFuncArgs {
     pub kwargs: Vec<(String, PyObjectRef)>,
 }
 
+/// Conversion from vector of python objects to function arguments.
+impl From<Vec<PyObjectRef>> for PyFuncArgs {
+    fn from(args: Vec<PyObjectRef>) -> Self {
+        PyFuncArgs {
+            args: args,
+            kwargs: vec![],
+        }
+    }
+}
+
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
         let mut kwargs = vec![];
