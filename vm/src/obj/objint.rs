@@ -3,13 +3,14 @@ use super::objstr;
 use super::objtype;
 use crate::format::FormatSpec;
 use crate::pyobject::{
-    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TryFromObject, TypeProtocol,
+    FromPyObjectRef, IdProtocol, IntoPyObject, PyAttributes, PyContext, PyFuncArgs, PyObject,
+    PyObjectPayload, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
+use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 
 // This proxy allows for easy switching between types.
@@ -77,7 +78,14 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => Zero::zero(),
     };
     Ok(PyObject::new(
-        PyObjectPayload::Integer { value: val },
+        if cls.is(&vm.ctx.int_type()) {
+            PyObjectPayload::Integer { value: val }
+        } else {
+            PyObjectPayload::Instance {
+                dict: RefCell::new(PyAttributes::new()),
+                parent_payload: Some(Box::new(PyObjectPayload::Integer { value: val })),
+            }
+        },
         cls.clone(),
     ))
 }
@@ -112,10 +120,22 @@ pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> IntType {
-    if let PyObjectPayload::Integer { value } = &obj.payload {
-        value.clone()
-    } else {
-        panic!("Inner error getting int {:?}", obj);
+    match &obj.payload {
+        PyObjectPayload::Integer { ref value } => value.clone(),
+        PyObjectPayload::Instance {
+            ref parent_payload, ..
+        } => {
+            if let Some(parent_payload) = parent_payload {
+                if let PyObjectPayload::Integer { ref value } = **parent_payload {
+                    value.clone()
+                } else {
+                    panic!("Inner error getting parent int {:?}", obj);
+                }
+            } else {
+                panic!("Inner error getting parent int {:?}", obj);
+            }
+        }
+        _ => panic!("Inner error getting int {:?}", obj),
     }
 }
 
