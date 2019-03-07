@@ -674,7 +674,7 @@ impl PyContext {
         };
         PyObject {
             payload: PyObjectPayload::AnyRustValue {
-                value: Box::new(()),
+                value: Box::new(objobject::PyInstance),
             },
             typ: Some(class),
             dict: Some(RefCell::new(dict)),
