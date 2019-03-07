@@ -625,13 +625,13 @@ impl PyContext {
         )
     }
 
-    pub fn new_property<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
-        &self,
-        function: F,
-    ) -> PyObjectRef {
-        let fget = self.new_rustfunc(function);
+    pub fn new_property<F, T, R>(&self, f: F) -> PyObjectRef
+    where
+        F: IntoPyNativeFunc<T, R>,
+    {
+        let fget = self.new_rustfunc(f);
         let py_obj = self.new_instance(self.property_type(), None);
-        self.set_attr(&py_obj, "fget", fget.clone());
+        self.set_attr(&py_obj, "fget", fget);
         py_obj
     }
 
