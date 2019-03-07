@@ -99,7 +99,6 @@ fn data_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     match args.shift().get_attr("fget") {
         Some(function) => vm.invoke(function, args),
         None => {
-            println!("A");
             let attribute_error = vm.context().exceptions.attribute_error.clone();
             Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
         }
@@ -110,7 +109,6 @@ fn data_set(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     match args.shift().get_attr("fset") {
         Some(function) => vm.invoke(function, args),
         None => {
-            println!("B");
             let attribute_error = vm.context().exceptions.attribute_error.clone();
             Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
         }
