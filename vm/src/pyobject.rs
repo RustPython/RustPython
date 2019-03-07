@@ -156,7 +156,9 @@ pub struct PyContext {
 
 fn _nothing() -> PyObjectRef {
     PyObject {
-        payload: PyObjectPayload::None,
+        payload: PyObjectPayload::AnyRustValue {
+            value: Box::new(()),
+        },
         typ: None,
     }
     .into_ref()
@@ -224,14 +226,23 @@ impl PyContext {
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
-            PyObjectPayload::None,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(()),
+            },
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
-        let ellipsis = PyObject::new(PyObjectPayload::None, ellipsis_type.clone());
+        let ellipsis = PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(()),
+            },
+            ellipsis_type.clone(),
+        );
 
         let not_implemented = PyObject::new(
-            PyObjectPayload::NotImplemented,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(()),
+            },
             create_type("NotImplementedType", &type_type, &object_type, &dict_type),
         );
 
@@ -1214,17 +1225,26 @@ where
     }
 }
 
-pub struct OptArg<T>(Option<T>);
+/// An argument that may or may not be provided by the caller.
+///
+/// This style of argument is not possible in pure Python.
+pub enum OptionalArg<T> {
+    Present(T),
+    Missing,
+}
 
-impl<T> std::ops::Deref for OptArg<T> {
-    type Target = Option<T>;
+use self::OptionalArg::*;
 
-    fn deref(&self) -> &Option<T> {
-        &self.0
+impl<T> OptionalArg<T> {
+    pub fn into_option(self) -> Option<T> {
+        match self {
+            Present(value) => Some(value),
+            Missing => None,
+        }
     }
 }
 
-impl<T> FromArgs for OptArg<T>
+impl<T> FromArgs for OptionalArg<T>
 where
     T: TryFromObject,
 {
@@ -1239,16 +1259,16 @@ where
     where
         I: Iterator<Item = PyArg>,
     {
-        Ok(OptArg(if let Some(PyArg::Positional(_)) = args.peek() {
+        Ok(if let Some(PyArg::Positional(_)) = args.peek() {
             let value = if let Some(PyArg::Positional(value)) = args.next() {
                 value
             } else {
                 unreachable!()
             };
-            Some(T::try_from_object(vm, value)?)
+            Present(T::try_from_object(vm, value)?)
         } else {
-            None
-        }))
+            Missing
+        })
     }
 }
 
@@ -1499,8 +1519,6 @@ pub enum PyObjectPayload {
         name: String,
         scope: ScopeRef,
     },
-    None,
-    NotImplemented,
     Class {
         name: String,
         dict: RefCell<PyAttributes>,
@@ -1540,8 +1558,6 @@ impl fmt::Debug for PyObjectPayload {
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
             PyObjectPayload::Module { .. } => write!(f, "module"),
-            PyObjectPayload::None => write!(f, "None"),
-            PyObjectPayload::NotImplemented => write!(f, "NotImplemented"),
             PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
             PyObjectPayload::Instance { .. } => write!(f, "instance"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),

@@ -580,18 +580,15 @@ impl Frame {
             }
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
-                match expr.payload {
-                    PyObjectPayload::None => (),
-                    _ => {
-                        let repr = vm.to_repr(&expr)?;
-                        builtins::builtin_print(
-                            vm,
-                            PyFuncArgs {
-                                args: vec![repr],
-                                kwargs: vec![],
-                            },
-                        )?;
-                    }
+                if !expr.is(&vm.get_none()) {
+                    let repr = vm.to_repr(&expr)?;
+                    builtins::builtin_print(
+                        vm,
+                        PyFuncArgs {
+                            args: vec![repr],
+                            kwargs: vec![],
+                        },
+                    )?;
                 }
                 Ok(None)
             }
