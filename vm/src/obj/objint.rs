@@ -5,6 +5,7 @@ use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
+use crate::function::PyRef;
 use crate::pyobject::{
     FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
     PyObjectPayload2, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
@@ -21,6 +22,8 @@ pub struct PyInt {
     pub value: BigInt,
 }
 
+pub type PyIntRef = PyRef<PyInt>;
+
 impl PyInt {
     pub fn new<T: ToBigInt>(i: T) -> Self {
         PyInt {
@@ -35,31 +38,48 @@ impl PyObjectPayload2 for PyInt {
     }
 }
 
-impl IntoPyObject for usize {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.new_int(self))
-    }
+macro_rules! impl_into_pyobject_int {
+    ($($t:ty)*) => {$(
+        impl IntoPyObject for $t {
+            fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+                Ok(ctx.new_int(self))
+            }
+        }
+    )*};
 }
 
-impl TryFromObject for usize {
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // FIXME: don't use get_value
-        match get_value(&obj).to_usize() {
-            Some(value) => Ok(value),
-            None => Err(vm.new_overflow_error("Int value cannot fit into Rust usize".to_string())),
+impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64) ;
+
+macro_rules! impl_try_from_object_int {
+    ($(($t:ty, $to_prim:ident),)*) => {$(
+        impl TryFromObject for $t {
+            fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                match PyRef::<PyInt>::try_from_object(vm, obj)?.value.$to_prim() {
+                    Some(value) => Ok(value),
+                    None => Err(
+                        vm.new_overflow_error(concat!(
+                            "Int value cannot fit into Rust ",
+                            stringify!($t)
+                        ).to_string())
+                    ),
+                }
+            }
         }
-    }
+    )*};
 }
 
-impl TryFromObject for isize {
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // FIXME: don't use get_value
-        match get_value(&obj).to_isize() {
-            Some(value) => Ok(value),
-            None => Err(vm.new_overflow_error("Int value cannot fit into Rust isize".to_string())),
-        }
-    }
-}
+impl_try_from_object_int!(
+    (isize, to_isize),
+    (i8, to_i8),
+    (i16, to_i16),
+    (i32, to_i32),
+    (i64, to_i64),
+    (usize, to_usize),
+    (u8, to_u8),
+    (u16, to_u16),
+    (u32, to_u32),
+    (u64, to_u64),
+);
 
 fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
