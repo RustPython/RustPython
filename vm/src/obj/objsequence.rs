@@ -3,7 +3,7 @@ use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
 use super::objbool;
-use super::objint;
+use super::objint::{self, PyInt};
 use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
@@ -141,8 +141,8 @@ pub fn get_item(
     elements: &[PyObjectRef],
     subscript: PyObjectRef,
 ) -> PyResult {
-    match &subscript.payload {
-        PyObjectPayload::Integer { value } => match value.to_i32() {
+    if let Some(i) = subscript.payload::<PyInt>() {
+        return match i.value.to_i32() {
             Some(value) => {
                 if let Some(pos_index) = elements.to_vec().get_pos(value) {
                     let obj = elements[pos_index].clone();
@@ -154,8 +154,9 @@ pub fn get_item(
             None => {
                 Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
             }
-        },
-
+        };
+    }
+    match &subscript.payload {
         PyObjectPayload::Slice { .. } => Ok(PyObject::new(
             match &sequence.payload {
                 PyObjectPayload::Sequence { .. } => PyObjectPayload::Sequence {

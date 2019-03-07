@@ -26,7 +26,7 @@ use crate::obj::objfloat::{self, PyFloat};
 use crate::obj::objframe;
 use crate::obj::objfunction;
 use crate::obj::objgenerator;
-use crate::obj::objint;
+use crate::obj::objint::{self, PyInt};
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objmap;
@@ -247,12 +247,14 @@ impl PyContext {
         );
 
         let true_value = PyObject::new(
-            PyObjectPayload::Integer { value: One::one() },
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyInt::new(BigInt::one())),
+            },
             bool_type.clone(),
         );
         let false_value = PyObject::new(
-            PyObjectPayload::Integer {
-                value: Zero::zero(),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyInt::new(BigInt::zero())),
             },
             bool_type.clone(),
         );
@@ -485,8 +487,8 @@ impl PyContext {
 
     pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Integer {
-                value: i.to_bigint().unwrap(),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyInt::new(i)),
             },
             self.int_type(),
         )
@@ -1465,9 +1467,6 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum PyObjectPayload {
-    Integer {
-        value: BigInt,
-    },
     Sequence {
         elements: RefCell<Vec<PyObjectRef>>,
     },
@@ -1542,7 +1541,6 @@ pub enum PyObjectPayload {
 impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PyObjectPayload::Integer { ref value } => write!(f, "int {}", value),
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
