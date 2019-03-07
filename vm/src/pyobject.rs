@@ -1223,17 +1223,26 @@ where
     }
 }
 
-pub struct OptArg<T>(Option<T>);
+/// An argument that may or may not be provided by the caller.
+///
+/// This style of argument is not possible in pure Python.
+pub enum OptionalArg<T> {
+    Present(T),
+    Missing,
+}
 
-impl<T> std::ops::Deref for OptArg<T> {
-    type Target = Option<T>;
+use self::OptionalArg::*;
 
-    fn deref(&self) -> &Option<T> {
-        &self.0
+impl<T> OptionalArg<T> {
+    pub fn into_option(self) -> Option<T> {
+        match self {
+            Present(value) => Some(value),
+            Missing => None,
+        }
     }
 }
 
-impl<T> FromArgs for OptArg<T>
+impl<T> FromArgs for OptionalArg<T>
 where
     T: TryFromObject,
 {
@@ -1248,16 +1257,16 @@ where
     where
         I: Iterator<Item = PyArg>,
     {
-        Ok(OptArg(if let Some(PyArg::Positional(_)) = args.peek() {
+        Ok(if let Some(PyArg::Positional(_)) = args.peek() {
             let value = if let Some(PyArg::Positional(value)) = args.next() {
                 value
             } else {
                 unreachable!()
             };
-            Some(T::try_from_object(vm, value)?)
+            Present(T::try_from_object(vm, value)?)
         } else {
-            None
-        }))
+            Missing
+        })
     }
 }
 
