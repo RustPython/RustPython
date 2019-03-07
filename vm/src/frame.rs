@@ -1,9 +1,11 @@
-extern crate rustpython_parser;
-
-use self::rustpython_parser::ast;
 use std::cell::RefCell;
 use std::fmt;
 use std::path::PathBuf;
+use std::rc::Rc;
+
+use num_bigint::BigInt;
+
+use rustpython_parser::ast;
 
 use crate::builtins;
 use crate::bytecode;
@@ -12,6 +14,7 @@ use crate::obj::objbool;
 use crate::obj::objcode;
 use crate::obj::objdict;
 use crate::obj::objdict::PyDict;
+use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objstr;
@@ -21,8 +24,6 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use num_bigint::BigInt;
-use std::rc::Rc;
 
 /*
  * So a scope is a linked list of scopes.
@@ -286,10 +287,14 @@ impl Frame {
 
                 let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
-                    .map(|x| match x.payload {
-                        PyObjectPayload::Integer { ref value } => Some(value.clone()),
-                        PyObjectPayload::None => None,
-                        _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
+                    .map(|x| {
+                        if x.is(&vm.ctx.none()) {
+                            None
+                        } else if let Some(i) = x.payload::<PyInt>() {
+                            Some(i.value.clone())
+                        } else {
+                            panic!("Expect Int or None as BUILD_SLICE arguments")
+                        }
                     })
                     .collect();
 
