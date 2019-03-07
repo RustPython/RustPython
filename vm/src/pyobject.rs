@@ -156,7 +156,9 @@ pub struct PyContext {
 
 fn _nothing() -> PyObjectRef {
     PyObject {
-        payload: PyObjectPayload::None,
+        payload: PyObjectPayload::AnyRustValue {
+            value: Box::new(()),
+        },
         typ: None,
     }
     .into_ref()
@@ -224,14 +226,23 @@ impl PyContext {
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
-            PyObjectPayload::None,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(()),
+            },
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
-        let ellipsis = PyObject::new(PyObjectPayload::None, ellipsis_type.clone());
+        let ellipsis = PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(()),
+            },
+            ellipsis_type.clone(),
+        );
 
         let not_implemented = PyObject::new(
-            PyObjectPayload::NotImplemented,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(()),
+            },
             create_type("NotImplementedType", &type_type, &object_type, &dict_type),
         );
 
@@ -1500,8 +1511,6 @@ pub enum PyObjectPayload {
         name: String,
         scope: ScopeRef,
     },
-    None,
-    NotImplemented,
     Class {
         name: String,
         dict: RefCell<PyAttributes>,
@@ -1542,8 +1551,6 @@ impl fmt::Debug for PyObjectPayload {
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
             PyObjectPayload::Module { .. } => write!(f, "module"),
-            PyObjectPayload::None => write!(f, "None"),
-            PyObjectPayload::NotImplemented => write!(f, "NotImplemented"),
             PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
             PyObjectPayload::Instance { .. } => write!(f, "instance"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),

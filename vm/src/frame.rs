@@ -286,10 +286,14 @@ impl Frame {
 
                 let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
-                    .map(|x| match x.payload {
-                        PyObjectPayload::Integer { ref value } => Some(value.clone()),
-                        PyObjectPayload::None => None,
-                        _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
+                    .map(|x| {
+                        if x.is(&vm.get_none()) {
+                            None
+                        } else if let PyObjectPayload::Integer { ref value } = x.payload {
+                            Some(value.clone())
+                        } else {
+                            panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x);
+                        }
                     })
                     .collect();
 
@@ -575,18 +579,15 @@ impl Frame {
             }
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
-                match expr.payload {
-                    PyObjectPayload::None => (),
-                    _ => {
-                        let repr = vm.to_repr(&expr)?;
-                        builtins::builtin_print(
-                            vm,
-                            PyFuncArgs {
-                                args: vec![repr],
-                                kwargs: vec![],
-                            },
-                        )?;
-                    }
+                if !expr.is(&vm.get_none()) {
+                    let repr = vm.to_repr(&expr)?;
+                    builtins::builtin_print(
+                        vm,
+                        PyFuncArgs {
+                            args: vec![repr],
+                            kwargs: vec![],
+                        },
+                    )?;
                 }
                 Ok(None)
             }

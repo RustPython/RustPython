@@ -11,7 +11,7 @@ use crate::obj::{
     objtype,
 };
 use crate::pyobject::{
-    create_type, DictProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult,
+    create_type, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use crate::VirtualMachine;
@@ -69,7 +69,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
                 map.serialize_entry(&key, &self.clone_with_object(&e.1))?;
             }
             map.end()
-        } else if let PyObjectPayload::None = self.pyobject.payload {
+        } else if self.pyobject.is(&self.vm.get_none()) {
             serializer.serialize_none()
         } else {
             Err(serde::ser::Error::custom(format!(
