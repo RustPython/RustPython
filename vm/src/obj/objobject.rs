@@ -195,17 +195,15 @@ fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.none())
 }
 
-fn object_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(_obj, None), (owner, Some(vm.ctx.type_type()))]
-    );
-    Ok(owner.clone())
+fn object_class(_obj: PyObjectRef, owner: PyObjectRef, _vm: &mut VirtualMachine) -> PyObjectRef {
+    owner
 }
 
-fn object_class_setter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(instance, None), (_value, None)]);
+fn object_class_setter(
+    instance: PyObjectRef,
+    _value: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult {
     let type_repr = vm.to_pystr(&instance.typ())?;
     Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
 }

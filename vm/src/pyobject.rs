@@ -667,8 +667,10 @@ impl PyContext {
     }
 
     pub fn new_data_descriptor<
-        G: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult,
-        S: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult,
+        G: IntoPyNativeFunc<(I, PyObjectRef), T>,
+        S: IntoPyNativeFunc<(I, T), PyResult>,
+        T,
+        I,
     >(
         &self,
         getter: G,
