@@ -41,7 +41,7 @@ use crate::obj::objslice;
 use crate::obj::objstr;
 use crate::obj::objsuper;
 use crate::obj::objtuple;
-use crate::obj::objtype;
+use crate::obj::objtype::{self, PyClass};
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
 
@@ -81,18 +81,19 @@ pub type PyAttributes = HashMap<String, PyObjectRef>;
 impl fmt::Display for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
+        if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
+            let type_name = objtype::get_type_name(&self.typ());
+            // We don't have access to a vm, so just assume that if its parent's name
+            // is type, it's a type
+            if type_name == "type" {
+                return write!(f, "type object '{}'", name);
+            } else {
+                return write!(f, "'{}' object", type_name);
+            }
+        }
+
         match &self.payload {
             PyObjectPayload::Module { name, .. } => write!(f, "module '{}'", name),
-            PyObjectPayload::Class { name, .. } => {
-                let type_name = objtype::get_type_name(&self.typ());
-                // We don't have access to a vm, so just assume that if its parent's name
-                // is type, it's a type
-                if type_name == "type" {
-                    write!(f, "type object '{}'", name)
-                } else {
-                    write!(f, "'{}' object", type_name)
-                }
-            }
             _ => write!(f, "'{}' object", objtype::get_type_name(&self.typ())),
         }
     }
@@ -808,19 +809,20 @@ fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
 
 impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        match self.payload {
-            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(attr_name),
-            PyObjectPayload::Class { ref mro, .. } => {
-                if let Some(item) = class_get_item(self, attr_name) {
+        if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
+            if let Some(item) = class_get_item(self, attr_name) {
+                return Some(item);
+            }
+            for class in mro {
+                if let Some(item) = class_get_item(class, attr_name) {
                     return Some(item);
                 }
-                for class in mro {
-                    if let Some(item) = class_get_item(class, attr_name) {
-                        return Some(item);
-                    }
-                }
-                None
             }
+            return None;
+        }
+
+        match self.payload {
+            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(attr_name),
             _ => {
                 if let Some(ref dict) = self.dict {
                     dict.borrow().get(attr_name).cloned()
@@ -832,11 +834,13 @@ impl AttributeProtocol for PyObjectRef {
     }
 
     fn has_attr(&self, attr_name: &str) -> bool {
+        if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
+            return class_has_item(self, attr_name)
+                || mro.iter().any(|d| class_has_item(d, attr_name));
+        }
+
         match self.payload {
             PyObjectPayload::Module { ref scope, .. } => scope.locals.contains_key(attr_name),
-            PyObjectPayload::Class { ref mro, .. } => {
-                class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
-            }
             _ => {
                 if let Some(ref dict) = self.dict {
                     dict.borrow().contains_key(attr_name)
@@ -1527,10 +1531,6 @@ pub enum PyObjectPayload {
         name: String,
         scope: ScopeRef,
     },
-    Class {
-        name: String,
-        mro: Vec<PyObjectRef>,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
     },
@@ -1570,7 +1570,6 @@ impl fmt::Debug for PyObjectPayload {
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
             PyObjectPayload::Module { .. } => write!(f, "module"),
-            PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { .. } => write!(f, "some rust value"),

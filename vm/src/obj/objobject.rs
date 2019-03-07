@@ -24,9 +24,11 @@ pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, _dict_typ
     // this is not ideal
     let ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject;
     unsafe {
-        (*ptr).payload = PyObjectPayload::Class {
-            name: String::from("object"),
-            mro: vec![],
+        (*ptr).payload = PyObjectPayload::AnyRustValue {
+            value: Box::new(objtype::PyClass {
+                name: String::from("object"),
+                mro: vec![],
+            }),
         };
         (*ptr).dict = Some(RefCell::new(HashMap::new()));
         (*ptr).typ = Some(type_type.clone());

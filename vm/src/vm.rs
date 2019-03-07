@@ -298,7 +298,6 @@ impl VirtualMachine {
                 ref scope,
                 ref defaults,
             } => self.invoke_python_function(code, scope, defaults, args),
-            PyObjectPayload::Class { .. } => self.call_method(&func_ref, "__call__", args),
             PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,
