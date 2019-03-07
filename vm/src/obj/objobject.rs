@@ -161,6 +161,11 @@ pub fn init(context: &PyContext) {
 
     context.set_attr(&object, "__new__", context.new_rustfunc(new_instance));
     context.set_attr(&object, "__init__", context.new_rustfunc(object_init));
+    context.set_attr(
+        &object,
+        "__class__",
+        context.new_data_descriptor(object_class, object_class_setter),
+    );
     context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
     context.set_attr(&object, "__ne__", context.new_rustfunc(object_ne));
     context.set_attr(&object, "__lt__", context.new_rustfunc(object_lt));
@@ -188,6 +193,21 @@ pub fn init(context: &PyContext) {
 
 fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.none())
+}
+
+fn object_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_obj, None), (owner, Some(vm.ctx.type_type()))]
+    );
+    Ok(owner.clone())
+}
+
+fn object_class_setter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(instance, None), (_value, None)]);
+    let type_repr = vm.to_pystr(&instance.typ())?;
+    Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
 }
 
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

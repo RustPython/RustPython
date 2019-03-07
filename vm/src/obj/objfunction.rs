@@ -27,6 +27,18 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(member_get),
     );
 
+    let data_descriptor_type = &context.data_descriptor_type;
+    context.set_attr(
+        &data_descriptor_type,
+        "__get__",
+        context.new_rustfunc(data_get),
+    );
+    context.set_attr(
+        &data_descriptor_type,
+        "__set__",
+        context.new_rustfunc(data_set),
+    );
+
     let classmethod_type = &context.classmethod_type;
     context.set_attr(
         &classmethod_type,
@@ -77,6 +89,28 @@ fn member_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     match args.shift().get_attr("function") {
         Some(function) => vm.invoke(function, args),
         None => {
+            let attribute_error = vm.context().exceptions.attribute_error.clone();
+            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
+        }
+    }
+}
+
+fn data_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    match args.shift().get_attr("fget") {
+        Some(function) => vm.invoke(function, args),
+        None => {
+            println!("A");
+            let attribute_error = vm.context().exceptions.attribute_error.clone();
+            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
+        }
+    }
+}
+
+fn data_set(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+    match args.shift().get_attr("fset") {
+        Some(function) => vm.invoke(function, args),
+        None => {
+            println!("B");
             let attribute_error = vm.context().exceptions.attribute_error.clone();
             Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
         }
