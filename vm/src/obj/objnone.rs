@@ -42,16 +42,9 @@ fn none_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let none_type = &context.none.typ();
-    context.set_attr(&none_type, "__new__", context.new_rustfunc(none_new));
-    context.set_attr(
-        &none_type,
-        "__repr__",
-        context.new_rustfunc(PyNoneRef::repr),
-    );
-    context.set_attr(
-        &none_type,
-        "__bool__",
-        context.new_rustfunc(PyNoneRef::bool),
-    );
+    extend_class!(context, &context.none.typ(), {
+        "__new__" => context.new_rustfunc(none_new),
+        "__repr__" => context.new_rustfunc(PyNoneRef::repr),
+        "__bool__" => context.new_rustfunc(PyNoneRef::bool),
+    });
 }
