@@ -4,8 +4,8 @@ use super::objtype;
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::function::PyRef;
 use crate::pyobject::{
-    IntoPyObject, OptArg, PyContext, PyFuncArgs, PyIterable, PyObjectPayload, PyObjectPayload2,
-    PyObjectRef, PyResult, TypeProtocol,
+    IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectPayload,
+    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
@@ -160,24 +160,24 @@ impl PyStringRef {
     fn endswith(
         self,
         suffix: PyStringRef,
-        start: OptArg<usize>,
-        end: OptArg<usize>,
+        start: OptionalArg<usize>,
+        end: OptionalArg<usize>,
         _vm: &mut VirtualMachine,
     ) -> bool {
-        let start = start.unwrap_or(0);
-        let end = end.unwrap_or(self.value.len());
+        let start = start.into_option().unwrap_or(0);
+        let end = end.into_option().unwrap_or(self.value.len());
         self.value[start..end].ends_with(&suffix.value)
     }
 
     fn startswith(
         self,
         prefix: PyStringRef,
-        start: OptArg<usize>,
-        end: OptArg<usize>,
+        start: OptionalArg<usize>,
+        end: OptionalArg<usize>,
         _vm: &mut VirtualMachine,
     ) -> bool {
-        let start = start.unwrap_or(0);
-        let end = end.unwrap_or(self.value.len());
+        let start = start.into_option().unwrap_or(0);
+        let end = end.into_option().unwrap_or(self.value.len());
         self.value[start..end].starts_with(&prefix.value)
     }
 
