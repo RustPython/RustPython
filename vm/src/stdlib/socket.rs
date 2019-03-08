@@ -172,21 +172,18 @@ fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut socket = get_socket(zelf);
 
     match socket.socket_kind {
-        SocketKind::Stream => {
-            if let Ok(stream) = TcpStream::connect(address_string) {
+        SocketKind::Stream => match TcpStream::connect(address_string) {
+            Ok(stream) => {
                 socket.con = Some(Connection::TcpStream(stream));
                 Ok(vm.get_none())
-            } else {
-                // TODO: Socket error
-                Err(vm.new_type_error("socket failed".to_string()))
             }
-        }
+            Err(s) => Err(vm.new_os_error(s.to_string())),
+        },
         SocketKind::Dgram => {
             if let Some(Connection::UdpSocket(con)) = &socket.con {
                 match con.connect(address_string) {
                     Ok(_) => Ok(vm.get_none()),
-                    // TODO: Socket error
-                    Err(_) => Err(vm.new_type_error("socket failed".to_string())),
+                    Err(s) => Err(vm.new_os_error(s.to_string())),
                 }
             } else {
                 Err(vm.new_type_error("".to_string()))
@@ -207,24 +204,20 @@ fn socket_bind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut socket = get_socket(zelf);
 
     match socket.socket_kind {
-        SocketKind::Stream => {
-            if let Ok(stream) = TcpListener::bind(address_string) {
+        SocketKind::Stream => match TcpListener::bind(address_string) {
+            Ok(stream) => {
                 socket.con = Some(Connection::TcpListener(stream));
                 Ok(vm.get_none())
-            } else {
-                // TODO: Socket error
-                Err(vm.new_type_error("socket failed".to_string()))
             }
-        }
-        SocketKind::Dgram => {
-            if let Ok(dgram) = UdpSocket::bind(address_string) {
+            Err(s) => Err(vm.new_os_error(s.to_string())),
+        },
+        SocketKind::Dgram => match UdpSocket::bind(address_string) {
+            Ok(dgram) => {
                 socket.con = Some(Connection::UdpSocket(dgram));
                 Ok(vm.get_none())
-            } else {
-                // TODO: Socket error
-                Err(vm.new_type_error("socket failed".to_string()))
             }
-        }
+            Err(s) => Err(vm.new_os_error(s.to_string())),
+        },
     }
 }
 

@@ -29,8 +29,16 @@ s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 with assertRaises(TypeError):
 	s.connect(("127.0.0.1", 8888, 8888))
 
+with assertRaises(OSError):
+	# Lets hope nobody is listening on port 1
+	s.connect(("127.0.0.1", 1))
+
 with assertRaises(TypeError):
 	s.bind(("127.0.0.1", 8888, 8888))
+
+with assertRaises(OSError):
+	# Lets hope nobody run this test on machine with ip 1.2.3.4
+	s.bind(("1.2.3.4", 8888))
 
 with assertRaises(TypeError):
 	s.bind((888, 8888))
@@ -73,6 +81,10 @@ assert recv_a == MESSAGE_A
 assert recv_b == MESSAGE_B
 sock1.close()
 sock3.close()
+
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+with assertRaises(OSError):
+	s.bind(("1.2.3.4", 888))
 
 ### Errors
 with assertRaises(OSError):
