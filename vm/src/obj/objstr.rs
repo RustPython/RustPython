@@ -93,6 +93,20 @@ impl PyStringRef {
         self.value.chars().count()
     }
 
+    fn mul(self, val: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<String> {
+        if objtype::isinstance(&val, &vm.ctx.int_type()) {
+            let value = &self.value;
+            let multiplier = objint::get_value(&val).to_i32().unwrap();
+            let mut result = String::new();
+            for _x in 0..multiplier {
+                result.push_str(value.as_str());
+            }
+            Ok(result)
+        } else {
+            Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)))
+        }
+    }
+
     fn str(self, _vm: &mut VirtualMachine) -> PyStringRef {
         self
     }
@@ -145,6 +159,48 @@ impl PyStringRef {
         format!("{}{}", first_part.to_uppercase(), lower_str)
     }
 
+    fn split(
+        self,
+        pattern: OptionalArg<Self>,
+        num: OptionalArg<usize>,
+        vm: &mut VirtualMachine,
+    ) -> PyObjectRef {
+        let value = &self.value;
+        let pattern = match pattern {
+            OptionalArg::Present(ref s) => &s.value,
+            OptionalArg::Missing => " ",
+        };
+        let num_splits = num
+            .into_option()
+            .unwrap_or_else(|| value.split(pattern).count());
+        let elements = value
+            .splitn(num_splits + 1, pattern)
+            .map(|o| vm.ctx.new_str(o.to_string()))
+            .collect();
+        vm.ctx.new_list(elements)
+    }
+
+    fn rsplit(
+        self,
+        pattern: OptionalArg<Self>,
+        num: OptionalArg<usize>,
+        vm: &mut VirtualMachine,
+    ) -> PyObjectRef {
+        let value = &self.value;
+        let pattern = match pattern {
+            OptionalArg::Present(ref s) => &s.value,
+            OptionalArg::Missing => " ",
+        };
+        let num_splits = num
+            .into_option()
+            .unwrap_or_else(|| value.split(pattern).count());
+        let elements = value
+            .rsplitn(num_splits + 1, pattern)
+            .map(|o| vm.ctx.new_str(o.to_string()))
+            .collect();
+        vm.ctx.new_list(elements)
+    }
+
     fn strip(self, _vm: &mut VirtualMachine) -> String {
         self.value.trim().to_string()
     }
@@ -160,25 +216,29 @@ impl PyStringRef {
     fn endswith(
         self,
         suffix: PyStringRef,
-        start: OptionalArg<usize>,
-        end: OptionalArg<usize>,
+        start: OptionalArg<isize>,
+        end: OptionalArg<isize>,
         _vm: &mut VirtualMachine,
     ) -> bool {
-        let start = start.into_option().unwrap_or(0);
-        let end = end.into_option().unwrap_or(self.value.len());
-        self.value[start..end].ends_with(&suffix.value)
+        if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
+            self.value[start..end].ends_with(&suffix.value)
+        } else {
+            false
+        }
     }
 
     fn startswith(
         self,
         prefix: PyStringRef,
-        start: OptionalArg<usize>,
-        end: OptionalArg<usize>,
+        start: OptionalArg<isize>,
+        end: OptionalArg<isize>,
         _vm: &mut VirtualMachine,
     ) -> bool {
-        let start = start.into_option().unwrap_or(0);
-        let end = end.into_option().unwrap_or(self.value.len());
-        self.value[start..end].starts_with(&prefix.value)
+        if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
+            self.value[start..end].starts_with(&prefix.value)
+        } else {
+            false
+        }
     }
 
     fn isalnum(self, _vm: &mut VirtualMachine) -> bool {
@@ -236,6 +296,19 @@ impl PyStringRef {
         !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
     }
 
+    fn replace(
+        self,
+        old: Self,
+        new: Self,
+        num: OptionalArg<usize>,
+        _vm: &mut VirtualMachine,
+    ) -> String {
+        match num.into_option() {
+            Some(num) => self.value.replacen(&old.value, &new.value, num),
+            None => self.value.replace(&old.value, &new.value),
+        }
+    }
+
     // cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
     // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
     fn isspace(self, _vm: &mut VirtualMachine) -> bool {
@@ -288,6 +361,78 @@ impl PyStringRef {
         Ok(joined)
     }
 
+    fn find(
+        self,
+        sub: Self,
+        start: OptionalArg<isize>,
+        end: OptionalArg<isize>,
+        _vm: &mut VirtualMachine,
+    ) -> isize {
+        let value = &self.value;
+        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
+            match value[start..end].find(&sub.value) {
+                Some(num) => (start + num) as isize,
+                None => -1 as isize,
+            }
+        } else {
+            -1 as isize
+        }
+    }
+
+    fn rfind(
+        self,
+        sub: Self,
+        start: OptionalArg<isize>,
+        end: OptionalArg<isize>,
+        _vm: &mut VirtualMachine,
+    ) -> isize {
+        let value = &self.value;
+        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
+            match value[start..end].rfind(&sub.value) {
+                Some(num) => (start + num) as isize,
+                None => -1 as isize,
+            }
+        } else {
+            -1 as isize
+        }
+    }
+
+    fn index(
+        self,
+        sub: Self,
+        start: OptionalArg<isize>,
+        end: OptionalArg<isize>,
+        vm: &mut VirtualMachine,
+    ) -> PyResult<usize> {
+        let value = &self.value;
+        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
+            match value[start..end].find(&sub.value) {
+                Some(num) => Ok(start + num),
+                None => Err(vm.new_value_error("substring not found".to_string())),
+            }
+        } else {
+            Err(vm.new_value_error("substring not found".to_string()))
+        }
+    }
+
+    fn rindex(
+        self,
+        sub: Self,
+        start: OptionalArg<isize>,
+        end: OptionalArg<isize>,
+        vm: &mut VirtualMachine,
+    ) -> PyResult<usize> {
+        let value = &self.value;
+        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
+            match value[start..end].rfind(&sub.value) {
+                Some(num) => Ok(start + num),
+                None => Err(vm.new_value_error("substring not found".to_string())),
+            }
+        } else {
+            Err(vm.new_value_error("substring not found".to_string()))
+        }
+    }
+
     fn partition(self, sub: PyStringRef, vm: &mut VirtualMachine) -> PyObjectRef {
         let value = &self.value;
         let sub = &sub.value;
@@ -323,6 +468,115 @@ impl PyStringRef {
             new_tup.push(vm.ctx.new_str("".to_string()));
         }
         vm.ctx.new_tuple(new_tup)
+    }
+
+    fn istitle(self, _vm: &mut VirtualMachine) -> bool {
+        if self.value.is_empty() {
+            false
+        } else {
+            self.value.split(' ').all(|word| word == make_title(word))
+        }
+    }
+
+    fn count(
+        self,
+        sub: Self,
+        start: OptionalArg<isize>,
+        end: OptionalArg<isize>,
+        _vm: &mut VirtualMachine,
+    ) -> usize {
+        let value = &self.value;
+        if let Some((start, end)) = adjust_indices(start, end, value.len()) {
+            self.value[start..end].matches(&sub.value).count()
+        } else {
+            0
+        }
+    }
+
+    fn zfill(self, len: usize, _vm: &mut VirtualMachine) -> String {
+        let value = &self.value;
+        if len <= value.len() {
+            value.to_string()
+        } else {
+            format!("{}{}", "0".repeat(len - value.len()), value)
+        }
+    }
+
+    fn get_fill_char<'a>(rep: &'a OptionalArg<Self>, vm: &mut VirtualMachine) -> PyResult<&'a str> {
+        let rep_str = match rep {
+            OptionalArg::Present(ref st) => &st.value,
+            OptionalArg::Missing => " ",
+        };
+        if rep_str.len() == 1 {
+            Ok(rep_str)
+        } else {
+            Err(vm.new_type_error(
+                "The fill character must be exactly one character long".to_string(),
+            ))
+        }
+    }
+
+    fn ljust(
+        self,
+        len: usize,
+        rep: OptionalArg<Self>,
+        vm: &mut VirtualMachine,
+    ) -> PyResult<String> {
+        let value = &self.value;
+        let rep_char = PyStringRef::get_fill_char(&rep, vm)?;
+        Ok(format!("{}{}", value, rep_char.repeat(len)))
+    }
+
+    fn rjust(
+        self,
+        len: usize,
+        rep: OptionalArg<Self>,
+        vm: &mut VirtualMachine,
+    ) -> PyResult<String> {
+        let value = &self.value;
+        let rep_char = PyStringRef::get_fill_char(&rep, vm)?;
+        Ok(format!("{}{}", rep_char.repeat(len), value))
+    }
+
+    fn center(
+        self,
+        len: usize,
+        rep: OptionalArg<Self>,
+        vm: &mut VirtualMachine,
+    ) -> PyResult<String> {
+        let value = &self.value;
+        let rep_char = PyStringRef::get_fill_char(&rep, vm)?;
+        let left_buff: usize = (len - value.len()) / 2;
+        let right_buff = len - value.len() - left_buff;
+        Ok(format!(
+            "{}{}{}",
+            rep_char.repeat(left_buff),
+            value,
+            rep_char.repeat(right_buff)
+        ))
+    }
+
+    fn expandtabs(self, tab_stop: OptionalArg<usize>, _vm: &mut VirtualMachine) -> String {
+        let tab_stop = tab_stop.into_option().unwrap_or(8 as usize);
+        let mut expanded_str = String::new();
+        let mut tab_size = tab_stop;
+        let mut col_count = 0 as usize;
+        for ch in self.value.chars() {
+            // 0x0009 is tab
+            if ch == 0x0009 as char {
+                let num_spaces = tab_size - col_count;
+                col_count += num_spaces;
+                let expand = " ".repeat(num_spaces);
+                expanded_str.push_str(&expand);
+            } else {
+                expanded_str.push(ch);
+                col_count += 1;
+            }
+            if col_count >= tab_size {
+                tab_size += tab_stop;
+            }
+        }
+        expanded_str
     }
 
     fn isidentifier(self, _vm: &mut VirtualMachine) -> bool {
@@ -368,7 +622,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "__le__", context.new_rustfunc(PyStringRef::le));
     context.set_attr(&str_type, "__hash__", context.new_rustfunc(PyStringRef::hash));
     context.set_attr(&str_type, "__len__", context.new_rustfunc(PyStringRef::len));
-    context.set_attr(&str_type, "__mul__", context.new_rustfunc(str_mul));
+    context.set_attr(&str_type, "__mul__", context.new_rustfunc(PyStringRef::mul));
     context.set_attr(&str_type, "__new__", context.new_rustfunc(str_new));
     context.set_attr(&str_type, "__str__", context.new_rustfunc(PyStringRef::str));
     context.set_attr(&str_type, "__repr__", context.new_rustfunc(PyStringRef::repr));
@@ -377,8 +631,8 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "casefold", context.new_rustfunc(PyStringRef::casefold));
     context.set_attr(&str_type, "upper", context.new_rustfunc(PyStringRef::upper));
     context.set_attr(&str_type, "capitalize", context.new_rustfunc(PyStringRef::capitalize));
-    context.set_attr(&str_type, "split", context.new_rustfunc(str_split));
-    context.set_attr(&str_type, "rsplit", context.new_rustfunc(str_rsplit));
+    context.set_attr(&str_type, "split", context.new_rustfunc(PyStringRef::split));
+    context.set_attr(&str_type, "rsplit", context.new_rustfunc(PyStringRef::rsplit));
     context.set_attr(&str_type, "strip", context.new_rustfunc(PyStringRef::strip));
     context.set_attr(&str_type, "lstrip", context.new_rustfunc(PyStringRef::lstrip));
     context.set_attr(&str_type, "rstrip", context.new_rustfunc(PyStringRef::rstrip));
@@ -391,26 +645,26 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "title", context.new_rustfunc(PyStringRef::title));
     context.set_attr(&str_type, "swapcase", context.new_rustfunc(PyStringRef::swapcase));
     context.set_attr(&str_type, "isalpha", context.new_rustfunc(PyStringRef::isalpha));
-    context.set_attr(&str_type, "replace", context.new_rustfunc(str_replace));
-    context.set_attr(&str_type, "center", context.new_rustfunc(str_center));
+    context.set_attr(&str_type, "replace", context.new_rustfunc(PyStringRef::replace));
     context.set_attr(&str_type, "isspace", context.new_rustfunc(PyStringRef::isspace));
     context.set_attr(&str_type, "isupper", context.new_rustfunc(PyStringRef::isupper));
     context.set_attr(&str_type, "islower", context.new_rustfunc(PyStringRef::islower));
     context.set_attr(&str_type, "isascii", context.new_rustfunc(PyStringRef::isascii));
     context.set_attr(&str_type, "splitlines", context.new_rustfunc(PyStringRef::splitlines));
     context.set_attr(&str_type, "join", context.new_rustfunc(PyStringRef::join));
-    context.set_attr(&str_type, "find", context.new_rustfunc(str_find));
-    context.set_attr(&str_type, "rfind", context.new_rustfunc(str_rfind));
-    context.set_attr(&str_type, "index", context.new_rustfunc(str_index));
-    context.set_attr(&str_type, "rindex", context.new_rustfunc(str_rindex));
+    context.set_attr(&str_type, "find", context.new_rustfunc(PyStringRef::find));
+    context.set_attr(&str_type, "rfind", context.new_rustfunc(PyStringRef::rfind));
+    context.set_attr(&str_type, "index", context.new_rustfunc(PyStringRef::index));
+    context.set_attr(&str_type, "rindex", context.new_rustfunc(PyStringRef::rindex));
     context.set_attr(&str_type, "partition", context.new_rustfunc(PyStringRef::partition));
     context.set_attr(&str_type, "rpartition", context.new_rustfunc(PyStringRef::rpartition));
-    context.set_attr(&str_type, "istitle", context.new_rustfunc(str_istitle));
-    context.set_attr(&str_type, "count", context.new_rustfunc(str_count));
-    context.set_attr(&str_type, "zfill", context.new_rustfunc(str_zfill));
-    context.set_attr(&str_type, "ljust", context.new_rustfunc(str_ljust));
-    context.set_attr(&str_type, "rjust", context.new_rustfunc(str_rjust));
-    context.set_attr(&str_type, "expandtabs", context.new_rustfunc(str_expandtabs));
+    context.set_attr(&str_type, "istitle", context.new_rustfunc(PyStringRef::istitle));
+    context.set_attr(&str_type, "count", context.new_rustfunc(PyStringRef::count));
+    context.set_attr(&str_type, "zfill", context.new_rustfunc(PyStringRef::zfill));
+    context.set_attr(&str_type, "ljust", context.new_rustfunc(PyStringRef::ljust));
+    context.set_attr(&str_type, "rjust", context.new_rustfunc(PyStringRef::rjust));
+    context.set_attr(&str_type, "center", context.new_rustfunc(PyStringRef::center));
+    context.set_attr(&str_type, "expandtabs", context.new_rustfunc(PyStringRef::expandtabs));
     context.set_attr(&str_type, "isidentifier", context.new_rustfunc(PyStringRef::isidentifier));
 }
 
@@ -521,353 +775,6 @@ fn perform_format(
     Ok(vm.ctx.new_str(final_string))
 }
 
-fn str_mul(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (s2, None)]
-    );
-    if objtype::isinstance(s2, &vm.ctx.int_type()) {
-        let value1 = get_value(&s);
-        let value2 = objint::get_value(s2).to_i32().unwrap();
-        let mut result = String::new();
-        for _x in 0..value2 {
-            result.push_str(value1.as_str());
-        }
-        Ok(vm.ctx.new_str(result))
-    } else {
-        Err(vm.new_type_error(format!("Cannot multiply {} and {}", s, s2)))
-    }
-}
-
-fn str_rsplit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type()))],
-        optional = [
-            (pat, Some(vm.ctx.str_type())),
-            (num, Some(vm.ctx.int_type()))
-        ]
-    );
-    let value = get_value(&s);
-    let pat = match pat {
-        Some(s) => get_value(&s),
-        None => " ".to_string(),
-    };
-    let num_splits = match num {
-        Some(n) => objint::get_value(&n).to_usize().unwrap(),
-        None => value.split(&pat).count(),
-    };
-    let elements = value
-        .rsplitn(num_splits + 1, &pat)
-        .map(|o| vm.ctx.new_str(o.to_string()))
-        .collect();
-    Ok(vm.ctx.new_list(elements))
-}
-
-fn str_split(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type()))],
-        optional = [
-            (pat, Some(vm.ctx.str_type())),
-            (num, Some(vm.ctx.int_type()))
-        ]
-    );
-    let value = get_value(&s);
-    let pat = match pat {
-        Some(s) => get_value(&s),
-        None => " ".to_string(),
-    };
-    let num_splits = match num {
-        Some(n) => objint::get_value(&n).to_usize().unwrap(),
-        None => value.split(&pat).count(),
-    };
-    let elements = value
-        .splitn(num_splits + 1, &pat)
-        .map(|o| vm.ctx.new_str(o.to_string()))
-        .collect();
-    Ok(vm.ctx.new_list(elements))
-}
-
-fn str_zfill(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))]
-    );
-    let value = get_value(&s);
-    let len = objint::get_value(&len).to_usize().unwrap();
-    let new_str = if len <= value.len() {
-        value
-    } else {
-        format!("{}{}", "0".repeat(len - value.len()), value)
-    };
-    Ok(vm.ctx.new_str(new_str))
-}
-
-fn str_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
-        optional = [
-            (start, Some(vm.ctx.int_type())),
-            (end, Some(vm.ctx.int_type()))
-        ]
-    );
-    let value = get_value(&s);
-    let sub = get_value(&sub);
-    let (start, end) = match get_slice(start, end, value.len()) {
-        Ok((start, end)) => (start, end),
-        Err(e) => return Err(vm.new_index_error(e)),
-    };
-    let num_occur: usize = value[start..end].matches(&sub).count();
-    Ok(vm.ctx.new_int(num_occur))
-}
-
-fn str_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
-        optional = [
-            (start, Some(vm.ctx.int_type())),
-            (end, Some(vm.ctx.int_type()))
-        ]
-    );
-    let value = get_value(&s);
-    let sub = get_value(&sub);
-    let (start, end) = match get_slice(start, end, value.len()) {
-        Ok((start, end)) => (start, end),
-        Err(e) => return Err(vm.new_index_error(e)),
-    };
-    let ind: usize = match value[start..=end].find(&sub) {
-        Some(num) => num,
-        None => {
-            return Err(vm.new_value_error("substring not found".to_string()));
-        }
-    };
-    Ok(vm.ctx.new_int(ind))
-}
-
-fn str_find(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
-        optional = [
-            (start, Some(vm.ctx.int_type())),
-            (end, Some(vm.ctx.int_type()))
-        ]
-    );
-    let value = get_value(&s);
-    let sub = get_value(&sub);
-    let (start, end) = match get_slice(start, end, value.len()) {
-        Ok((start, end)) => (start, end),
-        Err(e) => return Err(vm.new_index_error(e)),
-    };
-    let ind: i128 = match value[start..=end].find(&sub) {
-        Some(num) => num as i128,
-        None => -1 as i128,
-    };
-    Ok(vm.ctx.new_int(ind))
-}
-
-fn str_replace(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (s, Some(vm.ctx.str_type())),
-            (old, Some(vm.ctx.str_type())),
-            (rep, Some(vm.ctx.str_type()))
-        ],
-        optional = [(n, Some(vm.ctx.int_type()))]
-    );
-    let s = get_value(&s);
-    let old_str = get_value(&old);
-    let rep_str = get_value(&rep);
-    let num_rep: usize = match n {
-        Some(num) => objint::get_value(&num).to_usize().unwrap(),
-        None => 1,
-    };
-    let new_str = s.replacen(&old_str, &rep_str, num_rep);
-    Ok(vm.ctx.new_str(new_str))
-}
-
-fn str_expandtabs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type()))],
-        optional = [(size, Some(vm.ctx.int_type()))]
-    );
-    let value = get_value(&s);
-    let tab_stop = match size {
-        Some(num) => objint::get_value(&num).to_usize().unwrap(),
-        None => 8 as usize,
-    };
-    let mut expanded_str = String::new();
-    let mut tab_size = tab_stop;
-    let mut col_count = 0 as usize;
-    for ch in value.chars() {
-        // 0x0009 is tab
-        if ch == 0x0009 as char {
-            let num_spaces = tab_size - col_count;
-            col_count += num_spaces;
-            let expand = " ".repeat(num_spaces);
-            expanded_str.push_str(&expand);
-        } else {
-            expanded_str.push(ch);
-            col_count += 1;
-        }
-        if col_count >= tab_size {
-            tab_size += tab_stop;
-        }
-    }
-    Ok(vm.ctx.new_str(expanded_str))
-}
-
-fn str_rjust(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (num, Some(vm.ctx.int_type()))],
-        optional = [(rep, Some(vm.ctx.str_type()))]
-    );
-    let value = get_value(&s);
-    let num = objint::get_value(&num).to_usize().unwrap();
-    let rep = match rep {
-        Some(st) => {
-            let rep_str = get_value(&st);
-            if rep_str.len() == 1 {
-                rep_str
-            } else {
-                return Err(vm.new_type_error(
-                    "The fill character must be exactly one character long".to_string(),
-                ));
-            }
-        }
-        None => " ".to_string(),
-    };
-    let new_str = format!("{}{}", rep.repeat(num), value);
-    Ok(vm.ctx.new_str(new_str))
-}
-
-fn str_ljust(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (num, Some(vm.ctx.int_type()))],
-        optional = [(rep, Some(vm.ctx.str_type()))]
-    );
-    let value = get_value(&s);
-    let num = objint::get_value(&num).to_usize().unwrap();
-    let rep = match rep {
-        Some(st) => {
-            let rep_str = get_value(&st);
-            if rep_str.len() == 1 {
-                rep_str
-            } else {
-                return Err(vm.new_type_error(
-                    "The fill character must be exactly one character long".to_string(),
-                ));
-            }
-        }
-        None => " ".to_string(),
-    };
-    let new_str = format!("{}{}", value, rep.repeat(num));
-    Ok(vm.ctx.new_str(new_str))
-}
-
-fn str_istitle(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);
-    let value = get_value(&s);
-
-    let is_titled = if value.is_empty() {
-        false
-    } else {
-        value.split(' ').all(|word| word == make_title(word))
-    };
-
-    Ok(vm.ctx.new_bool(is_titled))
-}
-
-fn str_center(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (len, Some(vm.ctx.int_type()))],
-        optional = [(chars, Some(vm.ctx.str_type()))]
-    );
-    let value = get_value(&s);
-    let len = objint::get_value(&len).to_usize().unwrap();
-    let rep_char = match chars {
-        Some(c) => get_value(&c),
-        None => " ".to_string(),
-    };
-    let left_buff: usize = (len - value.len()) / 2;
-    let right_buff = len - value.len() - left_buff;
-    let new_str = format!(
-        "{}{}{}",
-        rep_char.repeat(left_buff),
-        value,
-        rep_char.repeat(right_buff)
-    );
-    Ok(vm.ctx.new_str(new_str))
-}
-
-fn str_rindex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
-        optional = [
-            (start, Some(vm.ctx.int_type())),
-            (end, Some(vm.ctx.int_type()))
-        ]
-    );
-    let value = get_value(&s);
-    let sub = get_value(&sub);
-    let (start, end) = match get_slice(start, end, value.len()) {
-        Ok((start, end)) => (start, end),
-        Err(e) => return Err(vm.new_index_error(e)),
-    };
-    let ind: i64 = match value[start..=end].rfind(&sub) {
-        Some(num) => num as i64,
-        None => {
-            return Err(vm.new_value_error("substring not found".to_string()));
-        }
-    };
-    Ok(vm.ctx.new_int(ind))
-}
-
-fn str_rfind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.str_type())), (sub, Some(vm.ctx.str_type()))],
-        optional = [
-            (start, Some(vm.ctx.int_type())),
-            (end, Some(vm.ctx.int_type()))
-        ]
-    );
-    let value = get_value(&s);
-    let sub = get_value(&sub);
-    let (start, end) = match get_slice(start, end, value.len()) {
-        Ok((start, end)) => (start, end),
-        Err(e) => return Err(vm.new_index_error(e)),
-    };
-    let ind = match value[start..=end].rfind(&sub) {
-        Some(num) => num as i128,
-        None => -1 as i128,
-    };
-    Ok(vm.ctx.new_int(ind))
-}
-
 // TODO: should with following format
 // class str(object='')
 // class str(object=b'', encoding='utf-8', errors='strict')
@@ -975,23 +882,31 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
 }
 
 // help get optional string indices
-fn get_slice(
-    start: Option<&PyObjectRef>,
-    end: Option<&PyObjectRef>,
+fn adjust_indices(
+    start: OptionalArg<isize>,
+    end: OptionalArg<isize>,
     len: usize,
-) -> Result<(usize, usize), String> {
-    let start_idx = match start {
-        Some(int) => objint::get_value(&int).to_usize().unwrap(),
-        None => 0 as usize,
-    };
-    let end_idx = match end {
-        Some(int) => objint::get_value(&int).to_usize().unwrap(),
-        None => len - 1,
-    };
-    if start_idx >= usize::min_value() && start_idx < end_idx && end_idx < len {
-        Ok((start_idx, end_idx))
+) -> Option<(usize, usize)> {
+    let mut start = start.into_option().unwrap_or(0);
+    let mut end = end.into_option().unwrap_or(len as isize);
+    if end > len as isize {
+        end = len as isize;
+    } else if end < 0 {
+        end += len as isize;
+        if end < 0 {
+            end = 0;
+        }
+    }
+    if start < 0 {
+        start += len as isize;
+        if start < 0 {
+            start = 0;
+        }
+    }
+    if start > end {
+        None
     } else {
-        Err("provided index is not valid".to_string())
+        Some((start as usize, end as usize))
     }
 }
 

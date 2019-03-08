@@ -62,6 +62,45 @@ assert c.islower()
 assert c.title() == 'Hallo'
 assert c.count('l') == 2
 
+assert 'aaa'.count('a') == 3
+assert 'aaa'.count('a', 1) == 2
+assert 'aaa'.count('a', 1, 2) == 1
+assert 'aaa'.count('a', 2, 2) == 0
+assert 'aaa'.count('a', 2, 1) == 0
+
+assert '___a__'.find('a') == 3
+assert '___a__'.find('a', -10) == 3
+assert '___a__'.find('a', -3) == 3
+assert '___a__'.find('a', -2) == -1
+assert '___a__'.find('a', -1) == -1
+assert '___a__'.find('a', 0) == 3
+assert '___a__'.find('a', 3) == 3
+assert '___a__'.find('a', 4) == -1
+assert '___a__'.find('a', 10) == -1
+assert '___a__'.rfind('a', 3) == 3
+assert '___a__'.index('a', 3) == 3
+
+assert '___a__'.find('a', 0, -10) == -1
+assert '___a__'.find('a', 0, -3) == -1
+assert '___a__'.find('a', 0, -2) == 3
+assert '___a__'.find('a', 0, -1) == 3
+assert '___a__'.find('a', 0, 0) == -1
+assert '___a__'.find('a', 0, 3) == -1
+assert '___a__'.find('a', 0, 4) == 3
+assert '___a__'.find('a', 0, 10) == 3
+
+assert '___a__'.find('a', 3, 3) == -1
+assert '___a__'.find('a', 3, 4) == 3
+assert '___a__'.find('a', 4, 3) == -1
+
+assert 'abcd'.startswith('b', 1)
+assert not 'abcd'.startswith('b', -4)
+assert 'abcd'.startswith('b', -3)
+
+assert not 'abcd'.startswith('b', 3, 3)
+assert 'abcd'.startswith('', 3, 3)
+assert not 'abcd'.startswith('', 4, 3)
+
 assert '   '.isspace()
 assert 'hello\nhallo\nHallo'.splitlines() == ['hello', 'hallo', 'Hallo']
 assert 'abc\t12345\txyz'.expandtabs() == 'abc     12345   xyz'

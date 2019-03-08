@@ -55,11 +55,6 @@ pub fn init(context: &PyContext) {
         "__mro__",
         context.new_member_descriptor(type_mro),
     );
-    context.set_attr(
-        &type_type,
-        "__class__",
-        context.new_member_descriptor(type_new),
-    );
     context.set_attr(&type_type, "__repr__", context.new_rustfunc(type_repr));
     context.set_attr(
         &type_type,

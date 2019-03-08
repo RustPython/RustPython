@@ -1,11 +1,35 @@
-use crate::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
+use crate::function::PyRef;
+use crate::pyobject::{
+    IntoPyObject, PyContext, PyFuncArgs, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
-pub fn init(context: &PyContext) {
-    let none_type = &context.none.typ();
-    context.set_attr(&none_type, "__new__", context.new_rustfunc(none_new));
-    context.set_attr(&none_type, "__repr__", context.new_rustfunc(none_repr));
-    context.set_attr(&none_type, "__bool__", context.new_rustfunc(none_bool));
+#[derive(Clone, Debug)]
+pub struct PyNone;
+pub type PyNoneRef = PyRef<PyNone>;
+
+impl PyObjectPayload2 for PyNone {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.none().typ()
+    }
+}
+
+// This allows a built-in function to not return a value, mapping to
+// Python's behavior of returning `None` in this situation.
+impl IntoPyObject for () {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        Ok(ctx.none())
+    }
+}
+
+impl PyNoneRef {
+    fn repr(self, _vm: &mut VirtualMachine) -> PyResult<String> {
+        Ok("None".to_string())
+    }
+
+    fn bool(self, _vm: &mut VirtualMachine) -> PyResult<bool> {
+        Ok(false)
+    }
 }
 
 fn none_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -17,12 +41,10 @@ fn none_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn none_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(_zelf, Some(vm.ctx.none().typ()))]);
-    Ok(vm.ctx.new_str("None".to_string()))
-}
-
-fn none_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(_zelf, Some(vm.ctx.none().typ()))]);
-    Ok(vm.ctx.new_bool(false))
+pub fn init(context: &PyContext) {
+    extend_class!(context, &context.none.typ(), {
+        "__new__" => context.new_rustfunc(none_new),
+        "__repr__" => context.new_rustfunc(PyNoneRef::repr),
+        "__bool__" => context.new_rustfunc(PyNoneRef::bool),
+    });
 }

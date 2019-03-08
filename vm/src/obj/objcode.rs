@@ -4,9 +4,32 @@
 
 use crate::bytecode;
 use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use std::fmt;
+
+pub struct PyCode {
+    code: bytecode::CodeObject,
+}
+
+impl PyCode {
+    pub fn new(code: bytecode::CodeObject) -> PyCode {
+        PyCode { code }
+    }
+}
+
+impl fmt::Debug for PyCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "code: {:?}", self.code)
+    }
+}
+
+impl PyObjectPayload2 for PyCode {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.code_type()
+    }
+}
 
 pub fn init(context: &PyContext) {
     let code_type = &context.code_type;
@@ -29,8 +52,8 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
-    if let PyObjectPayload::Code { code } = &obj.payload {
-        code.clone()
+    if let Some(code) = obj.payload::<PyCode>() {
+        code.code.clone()
     } else {
         panic!("Inner error getting code {:?}", obj)
     }

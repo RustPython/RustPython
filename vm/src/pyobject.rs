@@ -28,7 +28,7 @@ use crate::obj::objfunction;
 use crate::obj::objgenerator;
 use crate::obj::objint::{self, PyInt};
 use crate::obj::objiter;
-use crate::obj::objlist;
+use crate::obj::objlist::{self, PyList};
 use crate::obj::objmap;
 use crate::obj::objmemory;
 use crate::obj::objmodule;
@@ -40,7 +40,7 @@ use crate::obj::objset::{self, PySet};
 use crate::obj::objslice;
 use crate::obj::objstr;
 use crate::obj::objsuper;
-use crate::obj::objtuple;
+use crate::obj::objtuple::{self, PyTuple};
 use crate::obj::objtype::{self, PyClass};
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
@@ -151,6 +151,7 @@ pub struct PyContext {
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
+    pub data_descriptor_type: PyObjectRef,
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -197,6 +198,8 @@ impl PyContext {
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
             create_type("member_descriptor", &type_type, &object_type, &dict_type);
+        let data_descriptor_type =
+            create_type("data_descriptor", &type_type, &object_type, &dict_type);
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
         let set_type = create_type("set", &type_type, &object_type, &dict_type);
@@ -223,7 +226,7 @@ impl PyContext {
 
         let none = PyObject::new(
             PyObjectPayload::AnyRustValue {
-                value: Box::new(()),
+                value: Box::new(objnone::PyNone),
             },
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
@@ -294,6 +297,7 @@ impl PyContext {
             module_type,
             bound_method_type,
             member_descriptor_type,
+            data_descriptor_type,
             type_type,
             exceptions,
         };
@@ -458,6 +462,10 @@ impl PyContext {
     pub fn member_descriptor_type(&self) -> PyObjectRef {
         self.member_descriptor_type.clone()
     }
+    pub fn data_descriptor_type(&self) -> PyObjectRef {
+        self.data_descriptor_type.clone()
+    }
+
     pub fn type_type(&self) -> PyObjectRef {
         self.type_type.clone()
     }
@@ -545,8 +553,8 @@ impl PyContext {
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Sequence {
-                elements: RefCell::new(elements),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyTuple::from(elements)),
             },
             self.tuple_type(),
         )
@@ -554,8 +562,8 @@ impl PyContext {
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Sequence {
-                elements: RefCell::new(elements),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyList::from(elements)),
             },
             self.list_type(),
         )
@@ -621,18 +629,23 @@ impl PyContext {
         )
     }
 
-    pub fn new_property<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
-        &self,
-        function: F,
-    ) -> PyObjectRef {
-        let fget = self.new_rustfunc(function);
+    pub fn new_property<F, T, R>(&self, f: F) -> PyObjectRef
+    where
+        F: IntoPyNativeFunc<T, R>,
+    {
+        let fget = self.new_rustfunc(f);
         let py_obj = self.new_instance(self.property_type(), None);
-        self.set_attr(&py_obj, "fget", fget.clone());
+        self.set_attr(&py_obj, "fget", fget);
         py_obj
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Code { code }, self.code_type())
+        PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(objcode::PyCode::new(code)),
+            },
+            self.code_type(),
+        )
     }
 
     pub fn new_function(
@@ -665,6 +678,22 @@ impl PyContext {
         let mut dict = PyAttributes::new();
         dict.insert("function".to_string(), self.new_rustfunc(function));
         self.new_instance(self.member_descriptor_type(), Some(dict))
+    }
+
+    pub fn new_data_descriptor<
+        G: IntoPyNativeFunc<(I, PyObjectRef), T>,
+        S: IntoPyNativeFunc<(I, T), PyResult>,
+        T,
+        I,
+    >(
+        &self,
+        getter: G,
+        setter: S,
+    ) -> PyObjectRef {
+        let mut dict = PyAttributes::new();
+        dict.insert("fget".to_string(), self.new_rustfunc(getter));
+        dict.insert("fset".to_string(), self.new_rustfunc(setter));
+        self.new_instance(self.data_descriptor_type(), Some(dict))
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
@@ -1333,14 +1362,6 @@ where
     }
 }
 
-// This allows a built-in function to not return a value, mapping to
-// Python's behavior of returning `None` in this situation.
-impl IntoPyObject for () {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.none())
-    }
-}
-
 // TODO: Allow a built-in function to return an `Option`, i.e.:
 //
 //     impl<T: IntoPyObject> IntoPyObject for Option<T>
@@ -1479,9 +1500,6 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum PyObjectPayload {
-    Sequence {
-        elements: RefCell<Vec<PyObjectRef>>,
-    },
     Iterator {
         position: Cell<usize>,
         iterated_obj: PyObjectRef,
@@ -1508,9 +1526,6 @@ pub enum PyObjectPayload {
     },
     MemoryView {
         obj: PyObjectRef,
-    },
-    Code {
-        code: bytecode::CodeObject,
     },
     Frame {
         frame: Frame,
@@ -1554,7 +1569,6 @@ impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
-            PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
@@ -1562,7 +1576,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::MapIterator { .. } => write!(f, "map"),
             PyObjectPayload::ZipIterator { .. } => write!(f, "zip"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
-            PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
             PyObjectPayload::Function { .. } => write!(f, "function"),
             PyObjectPayload::Generator { .. } => write!(f, "generator"),
             PyObjectPayload::BoundMethod {
@@ -1572,7 +1585,7 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Module { .. } => write!(f, "module"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
-            PyObjectPayload::AnyRustValue { .. } => write!(f, "some rust value"),
+            PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }
     }
 }

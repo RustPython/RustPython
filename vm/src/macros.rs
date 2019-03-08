@@ -137,3 +137,13 @@ macro_rules! py_class {
         }
     }
 }
+
+#[macro_export]
+macro_rules! extend_class {
+    ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        let class = $class;
+        $(
+            $ctx.set_attr(&class, $name, $value);
+        )*
+    }
+}
