@@ -31,6 +31,7 @@ pub struct CodeObject {
 bitflags! {
     pub struct FunctionOpArg: u8 {
         const HAS_DEFAULTS = 0x01;
+        const HAS_ANNOTATIONS = 0x04;
     }
 }
 

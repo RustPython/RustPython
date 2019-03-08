@@ -20,8 +20,10 @@ use crate::obj::objcode;
 use crate::obj::objframe;
 use crate::obj::objgenerator;
 use crate::obj::objiter;
+use crate::obj::objlist::PyList;
 use crate::obj::objsequence;
 use crate::obj::objstr;
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload,
@@ -303,12 +305,10 @@ impl VirtualMachine {
                 ref scope,
                 ref defaults,
             } => self.invoke_python_function(code, scope, defaults, args),
-            PyObjectPayload::Class { .. } => self.call_method(&func_ref, "__call__", args),
             PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectPayload::Instance { .. } => self.call_method(&func_ref, "__call__", args),
             ref payload => {
                 // TODO: is it safe to just invoke __call__ otherwise?
                 trace!("invoke __call__ for: {:?}", payload);
@@ -451,8 +451,10 @@ impl VirtualMachine {
         if nargs < nexpected_args {
             let available_defaults = if defaults.is(&self.get_none()) {
                 vec![]
-            } else if let PyObjectPayload::Sequence { ref elements } = defaults.payload {
-                elements.borrow().clone()
+            } else if let Some(list) = defaults.payload::<PyList>() {
+                list.elements.borrow().clone()
+            } else if let Some(tuple) = defaults.payload::<PyTuple>() {
+                tuple.elements.borrow().clone()
             } else {
                 panic!("function defaults not tuple or None");
             };

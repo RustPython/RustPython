@@ -9,11 +9,31 @@ use super::objsequence::{
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;
+
+#[derive(Debug, Default)]
+pub struct PyList {
+    // TODO: shouldn't be public
+    pub elements: RefCell<Vec<PyObjectRef>>,
+}
+
+impl From<Vec<PyObjectRef>> for PyList {
+    fn from(elements: Vec<PyObjectRef>) -> Self {
+        PyList {
+            elements: RefCell::new(elements),
+        }
+    }
+}
+
+impl PyObjectPayload2 for PyList {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.list_type()
+    }
+}
 
 // set_item:
 fn set_item(
@@ -57,8 +77,8 @@ fn list_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Sequence {
-            elements: RefCell::new(elements),
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyList::from(elements)),
         },
         cls.clone(),
     ))

@@ -201,6 +201,10 @@ The code style used is the default rustfmt codestyle. Please format your code ac
 
 Chat with us on [gitter][gitter].
 
+# Code of conduct
+
+Our code of conduct [can be found here](code-of-conduct.md).
+
 # Credit
 
 The initial work was based on [windelbouwman/rspython](https://github.com/windelbouwman/rspython) and [shinglyu/RustPython](https://github.com/shinglyu/RustPython)

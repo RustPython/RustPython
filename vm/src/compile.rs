@@ -595,7 +595,7 @@ impl Compiler {
         args: &ast::Parameters,
         body: &[ast::LocatedStatement],
         decorator_list: &[ast::Expression],
-        _returns: &Option<ast::Expression>, // TODO: use type hint somehow..
+        returns: &Option<ast::Expression>, // TODO: use type hint somehow..
     ) -> Result<(), CompileError> {
         // Create bytecode for this function:
         // remember to restore self.in_loop to the original after the function is compiled
@@ -603,7 +603,7 @@ impl Compiler {
         let was_in_function_def = self.in_function_def;
         self.in_loop = false;
         self.in_function_def = true;
-        let flags = self.enter_function(name, args)?;
+        let mut flags = self.enter_function(name, args)?;
         self.compile_statements(body)?;
 
         // Emit None at end:
@@ -614,6 +614,43 @@ impl Compiler {
         let code = self.pop_code_object();
 
         self.prepare_decorators(decorator_list)?;
+
+        // Prepare type annotations:
+        let mut num_annotations = 0;
+
+        // Return annotation:
+        if let Some(annotation) = returns {
+            // key:
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: "return".to_string(),
+                },
+            });
+            // value:
+            self.compile_expression(annotation)?;
+            num_annotations += 1;
+        }
+
+        for arg in args.args.iter() {
+            if let Some(annotation) = &arg.annotation {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: arg.arg.to_string(),
+                    },
+                });
+                self.compile_expression(&annotation)?;
+                num_annotations += 1;
+            }
+        }
+
+        if num_annotations > 0 {
+            flags |= bytecode::FunctionOpArg::HAS_ANNOTATIONS;
+            self.emit(Instruction::BuildMap {
+                size: num_annotations,
+                unpack: false,
+            });
+        }
+
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
                 code: Box::new(code),
