@@ -644,7 +644,12 @@ impl PyContext {
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
-        PyObject::new(PyObjectPayload::Code { code }, self.code_type())
+        PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(objcode::PyCode::new(code)),
+            },
+            self.code_type(),
+        )
     }
 
     pub fn new_function(
@@ -1513,9 +1518,6 @@ pub enum PyObjectPayload {
     MemoryView {
         obj: PyObjectRef,
     },
-    Code {
-        code: bytecode::CodeObject,
-    },
     Frame {
         frame: Frame,
     },
@@ -1566,7 +1568,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::MapIterator { .. } => write!(f, "map"),
             PyObjectPayload::ZipIterator { .. } => write!(f, "zip"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
-            PyObjectPayload::Code { ref code } => write!(f, "code: {:?}", code),
             PyObjectPayload::Function { .. } => write!(f, "function"),
             PyObjectPayload::Generator { .. } => write!(f, "generator"),
             PyObjectPayload::BoundMethod {
