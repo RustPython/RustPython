@@ -617,7 +617,7 @@ impl Compiler {
             // key:
             self.emit(Instruction::LoadConst {
                 value: bytecode::Constant::String {
-                    value: "returns".to_string(),
+                    value: "return".to_string(),
                 },
             });
             // value:
