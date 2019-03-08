@@ -802,6 +802,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
+        "OSError" => ctx.exceptions.os_error.clone(),
     });
 
     #[cfg(not(target_arch = "wasm32"))]

@@ -73,3 +73,7 @@ assert recv_a == MESSAGE_A
 assert recv_b == MESSAGE_B
 sock1.close()
 sock3.close()
+
+### Errors
+with assertRaises(OSError):
+	socket.socket(100, socket.SOCK_STREAM)

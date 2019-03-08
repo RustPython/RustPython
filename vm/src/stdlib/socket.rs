@@ -24,12 +24,12 @@ enum AddressFamily {
 }
 
 impl AddressFamily {
-    fn from_i32(value: i32) -> AddressFamily {
+    fn from_i32(vm: &mut VirtualMachine, value: i32) -> Result<AddressFamily, PyObjectRef> {
         match value {
-            1 => AddressFamily::Unix,
-            2 => AddressFamily::Inet,
-            3 => AddressFamily::Inet6,
-            _ => panic!("Unknown value: {}", value),
+            1 => Ok(AddressFamily::Unix),
+            2 => Ok(AddressFamily::Inet),
+            3 => Ok(AddressFamily::Inet6),
+            _ => Err(vm.new_os_error(format!("Unknown address family value: {}", value))),
         }
     }
 }
@@ -146,7 +146,8 @@ fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let address_family = AddressFamily::from_i32(objint::get_value(family_int).to_i32().unwrap());
+    let address_family =
+        AddressFamily::from_i32(vm, objint::get_value(family_int).to_i32().unwrap())?;
     let kind = SocketKind::from_i32(objint::get_value(kind_int).to_i32().unwrap());
 
     let socket = RefCell::new(Socket::new(address_family, kind));
