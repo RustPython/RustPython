@@ -1,14 +1,14 @@
 use num_traits::Zero;
 
-use crate::pyobject::{
-    IntoPyObject, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::pyobject::{IntoPyObject, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objdict::PyDict;
 use super::objfloat::PyFloat;
 use super::objint::PyInt;
+use super::objlist::PyList;
 use super::objstr::PyString;
+use super::objtuple::PyTuple;
 use super::objtype;
 
 impl IntoPyObject for bool {
@@ -30,21 +30,22 @@ pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
     if let Some(i) = obj.payload::<PyInt>() {
         return Ok(!i.value.is_zero());
     }
-    let result = match obj.payload {
-        PyObjectPayload::Sequence { ref elements } => !elements.borrow().is_empty(),
-        _ => {
-            if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
-                let bool_res = vm.invoke(f, PyFuncArgs::default())?;
-                match bool_res.payload::<PyInt>() {
-                    Some(i) => !i.value.is_zero(),
-                    None => return Err(vm.new_type_error(String::from("TypeError"))),
-                }
-            } else {
-                true
-            }
+    if let Some(list) = obj.payload::<PyList>() {
+        return Ok(!list.elements.borrow().is_empty());
+    }
+    if let Some(tuple) = obj.payload::<PyTuple>() {
+        return Ok(!tuple.elements.borrow().is_empty());
+    }
+
+    Ok(if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
+        let bool_res = vm.invoke(f, PyFuncArgs::default())?;
+        match bool_res.payload::<PyInt>() {
+            Some(i) => !i.value.is_zero(),
+            None => return Err(vm.new_type_error(String::from("TypeError"))),
         }
-    };
-    Ok(result)
+    } else {
+        true
+    })
 }
 
 pub fn init(context: &PyContext) {

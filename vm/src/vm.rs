@@ -20,8 +20,10 @@ use crate::obj::objcode;
 use crate::obj::objframe;
 use crate::obj::objgenerator;
 use crate::obj::objiter;
+use crate::obj::objlist::PyList;
 use crate::obj::objsequence;
 use crate::obj::objstr;
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload,
@@ -446,8 +448,10 @@ impl VirtualMachine {
         if nargs < nexpected_args {
             let available_defaults = if defaults.is(&self.get_none()) {
                 vec![]
-            } else if let PyObjectPayload::Sequence { ref elements } = defaults.payload {
-                elements.borrow().clone()
+            } else if let Some(list) = defaults.payload::<PyList>() {
+                list.elements.borrow().clone()
+            } else if let Some(tuple) = defaults.payload::<PyTuple>() {
+                tuple.elements.borrow().clone()
             } else {
                 panic!("function defaults not tuple or None");
             };

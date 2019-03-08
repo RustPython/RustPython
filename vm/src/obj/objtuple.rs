@@ -1,6 +1,12 @@
 use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};
 
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
+
 use super::objbool;
 use super::objint;
 use super::objsequence::{
@@ -8,8 +14,27 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
-use crate::vm::{ReprGuard, VirtualMachine};
+
+#[derive(Debug, Default)]
+pub struct PyTuple {
+    // TODO: shouldn't be public
+    // TODO: tuples are immutable, remove this RefCell
+    pub elements: RefCell<Vec<PyObjectRef>>,
+}
+
+impl From<Vec<PyObjectRef>> for PyTuple {
+    fn from(elements: Vec<PyObjectRef>) -> Self {
+        PyTuple {
+            elements: RefCell::new(elements),
+        }
+    }
+}
+
+impl PyObjectPayload2 for PyTuple {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.tuple_type()
+    }
+}
 
 fn tuple_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -185,8 +210,8 @@ fn tuple_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::Sequence {
-            elements: RefCell::new(elements),
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyTuple::from(elements)),
         },
         cls.clone(),
     ))

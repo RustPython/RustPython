@@ -28,7 +28,7 @@ use crate::obj::objfunction;
 use crate::obj::objgenerator;
 use crate::obj::objint::{self, PyInt};
 use crate::obj::objiter;
-use crate::obj::objlist;
+use crate::obj::objlist::{self, PyList};
 use crate::obj::objmap;
 use crate::obj::objmemory;
 use crate::obj::objmodule;
@@ -40,7 +40,7 @@ use crate::obj::objset::{self, PySet};
 use crate::obj::objslice;
 use crate::obj::objstr;
 use crate::obj::objsuper;
-use crate::obj::objtuple;
+use crate::obj::objtuple::{self, PyTuple};
 use crate::obj::objtype;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
@@ -557,8 +557,8 @@ impl PyContext {
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Sequence {
-                elements: RefCell::new(elements),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyTuple::from(elements)),
             },
             self.tuple_type(),
         )
@@ -566,8 +566,8 @@ impl PyContext {
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Sequence {
-                elements: RefCell::new(elements),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyList::from(elements)),
             },
             self.list_type(),
         )
@@ -1488,9 +1488,6 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum PyObjectPayload {
-    Sequence {
-        elements: RefCell<Vec<PyObjectRef>>,
-    },
     Iterator {
         position: Cell<usize>,
         iterated_obj: PyObjectRef,
@@ -1560,7 +1557,6 @@ impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
-            PyObjectPayload::Sequence { .. } => write!(f, "list or tuple"),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
