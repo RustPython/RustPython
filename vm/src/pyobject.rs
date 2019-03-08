@@ -147,6 +147,7 @@ pub struct PyContext {
     pub function_type: PyObjectRef,
     pub builtin_function_or_method_type: PyObjectRef,
     pub property_type: PyObjectRef,
+    pub readonly_property_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
@@ -197,6 +198,7 @@ impl PyContext {
             &dict_type,
         );
         let property_type = create_type("property", &type_type, &object_type, &dict_type);
+        let readonly_property_type = create_type("readonly_property", &type_type, &object_type, &dict_type);
         let super_type = create_type("super", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
@@ -297,6 +299,7 @@ impl PyContext {
             builtin_function_or_method_type,
             super_type,
             property_type,
+            readonly_property_type,
             generator_type,
             module_type,
             bound_method_type,
@@ -446,6 +449,10 @@ impl PyContext {
 
     pub fn property_type(&self) -> PyObjectRef {
         self.property_type.clone()
+    }
+
+    pub fn readonly_property_type(&self) -> PyObjectRef {
+        self.readonly_property_type.clone()
     }
 
     pub fn classmethod_type(&self) -> PyObjectRef {
@@ -961,6 +968,16 @@ impl From<Vec<PyObjectRef>> for PyFuncArgs {
         }
     }
 }
+
+impl From<PyObjectRef> for PyFuncArgs {
+    fn from(arg: PyObjectRef) -> Self {
+        PyFuncArgs {
+            args: vec![arg],
+            kwargs: vec![],
+        }
+    }
+}
+
 
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {

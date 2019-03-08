@@ -2,11 +2,151 @@
 
 */
 
-use crate::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectRef, PyObjectPayload, PyObjectPayload2, PyResult, TypeProtocol};
+use crate::pyobject::IntoPyNativeFunc;
+use crate::obj::objnone::PyNone;
+use crate::VirtualMachine;
+use crate::function::PyRef;
+use std::marker::PhantomData;
+
+/// Read-only property, doesn't have __set__ or __delete__
+#[derive(Debug)]
+pub struct PyReadOnlyProperty {
+    getter: PyObjectRef
+}
+
+impl PyObjectPayload2 for PyReadOnlyProperty {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.readonly_property_type()
+    }
+}
+
+pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
+
+impl PyReadOnlyPropertyRef {
+    fn get(self, obj: PyObjectRef, _owner: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+        vm.invoke(self.getter.clone(), obj)
+    }
+}
+
+/// Fully fledged property
+#[derive(Debug)]
+pub struct PyProperty {
+    getter: Option<PyObjectRef>,
+    setter: Option<PyObjectRef>,
+    deleter: Option<PyObjectRef>
+}
+
+impl PyObjectPayload2 for PyProperty {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.property_type()
+    }
+}
+
+pub type PyPropertyRef = PyRef<PyProperty>;
+
+impl PyPropertyRef {
+    fn get(self, obj: PyObjectRef, _owner: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+        if let Some(getter) = self.getter.as_ref() {
+            vm.invoke(getter.clone(), obj)
+        } else {
+            Err(vm.new_attribute_error("unreadable attribute".to_string()))
+        }
+    }
+
+    fn set(self, obj: PyObjectRef, value: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+        if let Some(setter) = self.setter.as_ref() {
+            vm.invoke(setter.clone(), vec![obj, value])
+        } else {
+            Err(vm.new_attribute_error("can't set attribute".to_string()))
+        }
+    }
+
+    fn delete(self, obj: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+        if let Some(deleter) = self.deleter.as_ref() {
+            vm.invoke(deleter.clone(), obj)
+        } else {
+            Err(vm.new_attribute_error("can't delete attribute".to_string()))
+        }
+    }
+}
+
+pub struct PropertyBuilder<'a, I, T> {
+    vm: &'a mut VirtualMachine,
+    getter: Option<PyObjectRef>,
+    setter: Option<PyObjectRef>,
+    instance: PhantomData<I>,
+    _return: PhantomData<T>
+}
+
+
+impl<'a, I, T> PropertyBuilder<'a, I, T> {
+    pub(crate) fn new(vm: &'a mut VirtualMachine) -> Self {
+        Self {
+            vm,
+            getter: None,
+            setter: None,
+            instance: PhantomData,
+            _return: PhantomData
+        }
+    }
+
+    pub fn add_getter<F:IntoPyNativeFunc<I, T>>(self, func: F) -> Self {
+        let func = self.vm.ctx.new_rustfunc(func);
+        Self {
+            vm: self.vm,
+            getter: Some(func),
+            setter: self.setter,
+            instance: PhantomData,
+            _return: PhantomData
+        }
+    }
+
+    pub fn add_setter<F:IntoPyNativeFunc<(I, T), PyNone>>(self, func: F) -> Self {
+        let func = self.vm.ctx.new_rustfunc(func);
+        Self {
+            vm: self.vm,
+            getter: self.setter,
+            setter: Some(func),
+            instance: PhantomData,
+            _return: PhantomData
+        }
+    }
+
+    pub fn create(self) -> PyObjectRef {
+        if self.setter.is_some() {
+            let payload = PyProperty {
+                getter: self.getter.clone(),
+                setter: self.setter.clone(),
+                deleter: None
+            };
+
+            PyObject::new(
+                PyObjectPayload::AnyRustValue {
+                    value: Box::new(payload)
+                },
+                self.vm.ctx.property_type(),
+            )
+        } else {
+            let payload = PyReadOnlyProperty {
+                getter: self.getter.expect("One of add_getter/add_setter must be called when constructing a property")
+            };
+
+            PyObject::new(
+                PyObjectPayload::AnyRustValue {
+                    value: Box::new(payload)
+                },
+                self.vm.ctx.readonly_property_type(),
+            )
+        }
+    }
+}
+
 
 pub fn init(context: &PyContext) {
-    let property_type = &context.property_type;
+    extend_class!(context, &context.readonly_property_type, {
+        "__get__" => context.new_rustfunc(PyReadOnlyPropertyRef::get),
+    });
 
     let property_doc =
         "Property attribute.\n\n  \
@@ -36,50 +176,14 @@ pub fn init(context: &PyContext) {
          def x(self):\n        \
          del self._x";
 
-    context.set_attr(
-        &property_type,
-        "__get__",
-        context.new_rustfunc(property_get),
-    );
-    context.set_attr(
-        &property_type,
-        "__new__",
-        context.new_rustfunc(property_new),
-    );
-    context.set_attr(
-        &property_type,
-        "__doc__",
-        context.new_str(property_doc.to_string()),
-    );
-    // TODO: how to handle __set__ ?
-}
+    extend_class!(context, &context.property_type, {
+        "__new__" => context.new_rustfunc(property_new),
+        "__doc__" => context.new_str(property_doc.to_string()),
 
-// `property` methods.
-fn property_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("property.__get__ {:?}", args.args);
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, Some(vm.ctx.property_type())),
-            (inst, None),
-            (_owner, None)
-        ]
-    );
-
-    match vm.ctx.get_attr(&cls, "fget") {
-        Some(getter) => {
-            let py_method = vm.ctx.new_bound_method(getter, inst.clone());
-            vm.invoke(py_method, PyFuncArgs::default())
-        }
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(
-                attribute_error,
-                String::from("Attribute Error: property must have 'fget' attribute"),
-            ))
-        }
-    }
+        "__get__" => context.new_rustfunc(PyPropertyRef::get),
+        "__set__" => context.new_rustfunc(PyPropertyRef::set),
+        "__delete__" => context.new_rustfunc(PyPropertyRef::delete),
+    });
 }
 
 fn property_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
