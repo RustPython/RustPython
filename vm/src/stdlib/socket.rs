@@ -41,11 +41,11 @@ enum SocketKind {
 }
 
 impl SocketKind {
-    fn from_i32(value: i32) -> SocketKind {
+    fn from_i32(vm: &mut VirtualMachine, value: i32) -> Result<SocketKind, PyObjectRef> {
         match value {
-            1 => SocketKind::Stream,
-            2 => SocketKind::Dgram,
-            _ => panic!("Unknown value: {}", value),
+            1 => Ok(SocketKind::Stream),
+            2 => Ok(SocketKind::Dgram),
+            _ => Err(vm.new_os_error(format!("Unknown socket kind value: {}", value))),
         }
     }
 }
@@ -148,7 +148,7 @@ fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let address_family =
         AddressFamily::from_i32(vm, objint::get_value(family_int).to_i32().unwrap())?;
-    let kind = SocketKind::from_i32(objint::get_value(kind_int).to_i32().unwrap());
+    let kind = SocketKind::from_i32(vm, objint::get_value(kind_int).to_i32().unwrap())?;
 
     let socket = RefCell::new(Socket::new(address_family, kind));
 

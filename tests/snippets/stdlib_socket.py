@@ -77,3 +77,6 @@ sock3.close()
 ### Errors
 with assertRaises(OSError):
 	socket.socket(100, socket.SOCK_STREAM)
+
+with assertRaises(OSError):
+	socket.socket(socket.AF_INET, 1000)
