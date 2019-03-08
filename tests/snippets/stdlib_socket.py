@@ -43,6 +43,13 @@ with assertRaises(OSError):
 with assertRaises(TypeError):
 	s.bind((888, 8888))
 
+s.bind(("127.0.0.1", 0))
+with assertRaises(OSError):
+	s.recv(100)
+
+with assertRaises(OSError):
+	s.send(MESSAGE_A)
+
 s.close()
 
 # UDP
@@ -86,6 +93,11 @@ s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 with assertRaises(OSError):
 	s.bind(("1.2.3.4", 888))
 
+s.bind(("127.0.0.1", 0))
+with assertRaises(OSError):
+	s.sendto(MESSAGE_A, ("1.2.3.4", 888))
+
+s.close()
 ### Errors
 with assertRaises(OSError):
 	socket.socket(100, socket.SOCK_STREAM)
