@@ -195,6 +195,7 @@ fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.none())
 }
 
+// TODO Use PyClassRef for owner to enforce type
 fn object_class(_obj: PyObjectRef, owner: PyObjectRef, _vm: &mut VirtualMachine) -> PyObjectRef {
     owner
 }
