@@ -41,7 +41,7 @@ use crate::obj::objslice;
 use crate::obj::objstr;
 use crate::obj::objsuper;
 use crate::obj::objtuple::{self, PyTuple};
-use crate::obj::objtype;
+use crate::obj::objtype::{self, PyClass};
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
 
@@ -81,18 +81,19 @@ pub type PyAttributes = HashMap<String, PyObjectRef>;
 impl fmt::Display for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
+        if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
+            let type_name = objtype::get_type_name(&self.typ());
+            // We don't have access to a vm, so just assume that if its parent's name
+            // is type, it's a type
+            if type_name == "type" {
+                return write!(f, "type object '{}'", name);
+            } else {
+                return write!(f, "'{}' object", type_name);
+            }
+        }
+
         match &self.payload {
             PyObjectPayload::Module { name, .. } => write!(f, "module '{}'", name),
-            PyObjectPayload::Class { name, .. } => {
-                let type_name = objtype::get_type_name(&self.typ());
-                // We don't have access to a vm, so just assume that if its parent's name
-                // is type, it's a type
-                if type_name == "type" {
-                    write!(f, "type object '{}'", name)
-                } else {
-                    write!(f, "'{}' object", type_name)
-                }
-            }
             _ => write!(f, "'{}' object", objtype::get_type_name(&self.typ())),
         }
     }
@@ -156,13 +157,8 @@ pub struct PyContext {
 }
 
 fn _nothing() -> PyObjectRef {
-    PyObject {
-        payload: PyObjectPayload::AnyRustValue {
-            value: Box::new(()),
-        },
-        typ: None,
-    }
-    .into_ref()
+    let obj: PyObject = Default::default();
+    obj.into_ref()
 }
 
 pub fn create_type(
@@ -706,12 +702,14 @@ impl PyContext {
         } else {
             PyAttributes::new()
         };
-        PyObject::new(
-            PyObjectPayload::Instance {
-                dict: RefCell::new(dict),
+        PyObject {
+            payload: PyObjectPayload::AnyRustValue {
+                value: Box::new(objobject::PyInstance),
             },
-            class,
-        )
+            typ: Some(class),
+            dict: Some(RefCell::new(dict)),
+        }
+        .into_ref()
     }
 
     // Item set/get:
@@ -732,14 +730,12 @@ impl PyContext {
     }
 
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
-        match obj.payload {
-            PyObjectPayload::Module { ref scope, .. } => {
-                scope.locals.set_item(self, attr_name, value)
-            }
-            PyObjectPayload::Instance { ref dict } | PyObjectPayload::Class { ref dict, .. } => {
-                dict.borrow_mut().insert(attr_name.to_string(), value);
-            }
-            ref payload => unimplemented!("set_attr unimplemented for: {:?}", payload),
+        if let PyObjectPayload::Module { ref scope, .. } = obj.payload {
+            scope.locals.set_item(self, attr_name, value)
+        } else if let Some(ref dict) = obj.dict {
+            dict.borrow_mut().insert(attr_name.to_string(), value);
+        } else {
+            unimplemented!("set_attr unimplemented for: {:?}", obj);
         };
     }
 
@@ -774,10 +770,11 @@ impl Default for PyContext {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
+#[derive(Default)]
 pub struct PyObject {
     pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
-    // pub dict: HashMap<String, PyObjectRef>, // __dict__ member
+    pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
 }
 
 pub trait IdProtocol {
@@ -824,47 +821,62 @@ pub trait AttributeProtocol {
 }
 
 fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-    match class.payload {
-        PyObjectPayload::Class { ref dict, .. } => dict.borrow().get(attr_name).cloned(),
-        _ => panic!("Only classes should be in MRO!"),
+    if let Some(ref dict) = class.dict {
+        dict.borrow().get(attr_name).cloned()
+    } else {
+        panic!("Only classes should be in MRO!");
     }
 }
 
 fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
-    match class.payload {
-        PyObjectPayload::Class { ref dict, .. } => dict.borrow().contains_key(attr_name),
-        _ => panic!("Only classes should be in MRO!"),
+    if let Some(ref dict) = class.dict {
+        dict.borrow().contains_key(attr_name)
+    } else {
+        panic!("Only classes should be in MRO!");
     }
 }
 
 impl AttributeProtocol for PyObjectRef {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        match self.payload {
-            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(attr_name),
-            PyObjectPayload::Class { ref mro, .. } => {
-                if let Some(item) = class_get_item(self, attr_name) {
+        if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
+            if let Some(item) = class_get_item(self, attr_name) {
+                return Some(item);
+            }
+            for class in mro {
+                if let Some(item) = class_get_item(class, attr_name) {
                     return Some(item);
                 }
-                for class in mro {
-                    if let Some(item) = class_get_item(class, attr_name) {
-                        return Some(item);
-                    }
-                }
-                None
             }
-            PyObjectPayload::Instance { ref dict } => dict.borrow().get(attr_name).cloned(),
-            _ => None,
+            return None;
+        }
+
+        match self.payload {
+            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(attr_name),
+            _ => {
+                if let Some(ref dict) = self.dict {
+                    dict.borrow().get(attr_name).cloned()
+                } else {
+                    None
+                }
+            }
         }
     }
 
     fn has_attr(&self, attr_name: &str) -> bool {
+        if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
+            return class_has_item(self, attr_name)
+                || mro.iter().any(|d| class_has_item(d, attr_name));
+        }
+
         match self.payload {
             PyObjectPayload::Module { ref scope, .. } => scope.locals.contains_key(attr_name),
-            PyObjectPayload::Class { ref mro, .. } => {
-                class_has_item(self, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name))
+            _ => {
+                if let Some(ref dict) = self.dict {
+                    dict.borrow().contains_key(attr_name)
+                } else {
+                    false
+                }
             }
-            PyObjectPayload::Instance { ref dict } => dict.borrow().contains_key(attr_name),
-            _ => false,
         }
     }
 }
@@ -1534,16 +1546,8 @@ pub enum PyObjectPayload {
         name: String,
         scope: ScopeRef,
     },
-    Class {
-        name: String,
-        dict: RefCell<PyAttributes>,
-        mro: Vec<PyObjectRef>,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
-    },
-    Instance {
-        dict: RefCell<PyAttributes>,
     },
     RustFunction {
         function: PyNativeFunc,
@@ -1551,6 +1555,14 @@ pub enum PyObjectPayload {
     AnyRustValue {
         value: Box<dyn std::any::Any>,
     },
+}
+
+impl Default for PyObjectPayload {
+    fn default() -> Self {
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(()),
+        }
+    }
 }
 
 impl fmt::Debug for PyObjectPayload {
@@ -1571,8 +1583,6 @@ impl fmt::Debug for PyObjectPayload {
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
             PyObjectPayload::Module { .. } => write!(f, "module"),
-            PyObjectPayload::Class { ref name, .. } => write!(f, "class {:?}", name),
-            PyObjectPayload::Instance { .. } => write!(f, "instance"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
@@ -1581,14 +1591,11 @@ impl fmt::Debug for PyObjectPayload {
 }
 
 impl PyObject {
-    pub fn new(
-        payload: PyObjectPayload,
-        /* dict: PyObjectRef,*/ typ: PyObjectRef,
-    ) -> PyObjectRef {
+    pub fn new(payload: PyObjectPayload, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             payload,
             typ: Some(typ),
-            // dict: HashMap::new(),  // dict,
+            dict: None,
         }
         .into_ref()
     }

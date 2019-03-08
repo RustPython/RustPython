@@ -1,12 +1,26 @@
 use super::objdict;
 use super::objstr;
+use crate::function::PyRef;
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
+    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::HashMap;
+
+#[derive(Clone, Debug)]
+pub struct PyClass {
+    pub name: String,
+    pub mro: Vec<PyObjectRef>,
+}
+pub type PyClassRef = PyRef<PyClass>;
+
+impl PyObjectPayload2 for PyClass {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.type_type()
+    }
+}
 
 /*
  * The magical type type
@@ -16,11 +30,13 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type:
     // this is not ideal
     let ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
     unsafe {
-        (*ptr).payload = PyObjectPayload::Class {
-            name: String::from("type"),
-            dict: RefCell::new(PyAttributes::new()),
-            mro: vec![object_type],
+        (*ptr).payload = PyObjectPayload::AnyRustValue {
+            value: Box::new(PyClass {
+                name: String::from("type"),
+                mro: vec![object_type],
+            }),
         };
+        (*ptr).dict = Some(RefCell::new(PyAttributes::new()));
         (*ptr).typ = Some(type_type);
     }
 }
@@ -80,13 +96,12 @@ fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
-    match cls.payload {
-        PyObjectPayload::Class { ref mro, .. } => {
-            let mut mro = mro.clone();
-            mro.insert(0, cls.clone());
-            Some(mro)
-        }
-        _ => None,
+    if let Some(PyClass { ref mro, .. }) = cls.payload::<PyClass>() {
+        let mut mro = mro.clone();
+        mro.insert(0, cls.clone());
+        Some(mro)
+    } else {
+        None
     }
 }
 
@@ -127,7 +142,7 @@ fn type_subclass_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let PyObjectPayload::Class { name, .. } = &typ.payload {
+    if let Some(PyClass { name, .. }) = &typ.payload::<PyClass>() {
         name.clone()
     } else {
         panic!("Cannot get type_name of non-type type {:?}", typ);
@@ -248,7 +263,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     let mut base_classes = _mro(obj.clone()).expect("Type get_attributes on non-type");
     base_classes.reverse();
     for bc in base_classes {
-        if let PyObjectPayload::Class { dict, .. } = &bc.payload {
+        if let Some(ref dict) = &bc.dict {
             for (name, value) in dict.borrow().iter() {
                 attributes.insert(name.to_string(), value.clone());
             }
@@ -313,14 +328,17 @@ pub fn new(
 ) -> PyResult {
     let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
     let mro = linearise_mro(mros).unwrap();
-    Ok(PyObject::new(
-        PyObjectPayload::Class {
-            name: String::from(name),
-            dict: RefCell::new(dict),
-            mro,
+    Ok(PyObject {
+        payload: PyObjectPayload::AnyRustValue {
+            value: Box::new(PyClass {
+                name: String::from(name),
+                mro,
+            }),
         },
-        typ,
-    ))
+        dict: Some(RefCell::new(dict)),
+        typ: Some(typ),
+    }
+    .into_ref())
 }
 
 fn type_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
