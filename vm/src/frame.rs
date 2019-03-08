@@ -21,7 +21,7 @@ use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
     DictProtocol, IdProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -138,14 +138,7 @@ impl Frame {
                         vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
-                    objlist::list_append(
-                        vm,
-                        PyFuncArgs {
-                            args: vec![traceback, pos],
-                            kwargs: vec![],
-                        },
-                    )
-                    .unwrap();
+                    objlist::PyListRef::try_from_object(vm, traceback)?.append(pos, vm);
                     // exception.__trace
                     match self.unwind_exception(vm, exception) {
                         None => {}
@@ -312,13 +305,7 @@ impl Frame {
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                objlist::list_append(
-                    vm,
-                    PyFuncArgs {
-                        args: vec![list_obj.clone(), item],
-                        kwargs: vec![],
-                    },
-                )?;
+                objlist::PyListRef::try_from_object(vm, list_obj)?.append(item, vm);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
