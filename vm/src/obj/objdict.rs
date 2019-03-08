@@ -6,40 +6,31 @@ use super::objiter;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
-// This typedef abstracts the actual dict type used.
-// pub type DictContentType = HashMap<usize, Vec<(PyObjectRef, PyObjectRef)>>;
-// pub type DictContentType = HashMap<String, PyObjectRef>;
 pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
-// pub type DictContentType = HashMap<String, Vec<(PyObjectRef, PyObjectRef)>>;
 
-pub fn new(dict_type: PyObjectRef) -> PyObjectRef {
-    PyObject::new(
-        PyObjectPayload::Dict {
-            elements: RefCell::new(HashMap::new()),
-        },
-        dict_type.clone(),
-    )
+#[derive(Default, Debug)]
+pub struct PyDict {
+    // TODO: should be private
+    pub entries: RefCell<DictContentType>,
+}
+
+impl PyObjectPayload2 for PyDict {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.dict_type()
+    }
 }
 
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = DictContentType> + 'a {
-    if let PyObjectPayload::Dict { ref elements } = obj.payload {
-        elements.borrow()
-    } else {
-        panic!("Cannot extract dict elements");
-    }
+    obj.payload::<PyDict>().unwrap().entries.borrow()
 }
 
 fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictContentType> + 'a {
-    if let PyObjectPayload::Dict { ref elements } = obj.payload {
-        elements.borrow_mut()
-    } else {
-        panic!("Cannot extract dict elements");
-    }
+    obj.payload::<PyDict>().unwrap().entries.borrow_mut()
 }
 
 pub fn set_item(
@@ -252,8 +243,8 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
 
     let keys = get_elements(dict)
-        .keys()
-        .map(|k| vm.ctx.new_str(k.to_string()))
+        .values()
+        .map(|(k, _v)| k.clone())
         .collect();
     let key_list = vm.ctx.new_list(keys);
 
@@ -261,6 +252,46 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         PyObjectPayload::Iterator {
             position: Cell::new(0),
             iterated_obj: key_list,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
+
+fn dict_values(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
+
+    let values = get_elements(dict)
+        .values()
+        .map(|(_k, v)| v.clone())
+        .collect();
+    let values_list = vm.ctx.new_list(values);
+
+    let iter_obj = PyObject::new(
+        PyObjectPayload::Iterator {
+            position: Cell::new(0),
+            iterated_obj: values_list,
+        },
+        vm.ctx.iter_type(),
+    );
+
+    Ok(iter_obj)
+}
+
+fn dict_items(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
+
+    let items = get_elements(dict)
+        .values()
+        .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone(), v.clone()]))
+        .collect();
+    let items_list = vm.ctx.new_list(items);
+
+    let iter_obj = PyObject::new(
+        PyObjectPayload::Iterator {
+            position: Cell::new(0),
+            iterated_obj: items_list,
         },
         vm.ctx.iter_type(),
     );
@@ -345,4 +376,7 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(dict_setitem),
     );
     context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
+    context.set_attr(&dict_type, "values", context.new_rustfunc(dict_values));
+    context.set_attr(&dict_type, "items", context.new_rustfunc(dict_items));
+    context.set_attr(&dict_type, "keys", context.new_rustfunc(dict_iter));
 }

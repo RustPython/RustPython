@@ -117,10 +117,7 @@ impl VirtualMachine {
 
     pub fn new_empty_exception(&mut self, exc_type: PyObjectRef) -> PyResult {
         info!("New exception created: no msg");
-        let args = PyFuncArgs {
-            args: vec![],
-            kwargs: vec![],
-        };
+        let args = PyFuncArgs::default();
         self.invoke(exc_type, args)
     }
 
@@ -130,10 +127,6 @@ impl VirtualMachine {
         info!("New exception created: {}", msg);
         let pymsg = self.new_str(msg);
         let args: Vec<PyObjectRef> = vec![pymsg];
-        let args = PyFuncArgs {
-            args,
-            kwargs: vec![],
-        };
 
         // Call function:
         self.invoke(exc_type, args).unwrap()
@@ -264,40 +257,16 @@ impl VirtualMachine {
         let attr_class = attr.typ();
         if let Some(descriptor) = attr_class.get_attr("__get__") {
             let cls = obj.typ();
-            self.invoke(
-                descriptor,
-                PyFuncArgs {
-                    args: vec![attr, obj.clone(), cls],
-                    kwargs: vec![],
-                },
-            )
+            self.invoke(descriptor, vec![attr, obj.clone(), cls])
         } else {
             Ok(attr)
         }
     }
 
-    pub fn call_method(
-        &mut self,
-        obj: &PyObjectRef,
-        method_name: &str,
-        args: Vec<PyObjectRef>,
-    ) -> PyResult {
-        self.call_method_pyargs(
-            obj,
-            method_name,
-            PyFuncArgs {
-                args,
-                kwargs: vec![],
-            },
-        )
-    }
-
-    pub fn call_method_pyargs(
-        &mut self,
-        obj: &PyObjectRef,
-        method_name: &str,
-        args: PyFuncArgs,
-    ) -> PyResult {
+    pub fn call_method<T>(&mut self, obj: &PyObjectRef, method_name: &str, args: T) -> PyResult
+    where
+        T: Into<PyFuncArgs>,
+    {
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
         let cls = obj.typ();
         match cls.get_attr(method_name) {
@@ -316,7 +285,11 @@ impl VirtualMachine {
         }
     }
 
-    pub fn invoke(&mut self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
+    pub fn invoke<T>(&mut self, func_ref: PyObjectRef, args: T) -> PyResult
+    where
+        T: Into<PyFuncArgs>,
+    {
+        let args = args.into();
         trace!("Invoke: {:?} {:?}", func_ref, args);
         match func_ref.payload {
             PyObjectPayload::RustFunction { ref function } => function(self, args),
@@ -325,18 +298,16 @@ impl VirtualMachine {
                 ref scope,
                 ref defaults,
             } => self.invoke_python_function(code, scope, defaults, args),
-            PyObjectPayload::Class { .. } => self.call_method_pyargs(&func_ref, "__call__", args),
+            PyObjectPayload::Class { .. } => self.call_method(&func_ref, "__call__", args),
             PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,
             } => self.invoke(function.clone(), args.insert(object.clone())),
-            PyObjectPayload::Instance { .. } => {
-                self.call_method_pyargs(&func_ref, "__call__", args)
-            }
+            PyObjectPayload::Instance { .. } => self.call_method(&func_ref, "__call__", args),
             ref payload => {
                 // TODO: is it safe to just invoke __call__ otherwise?
                 trace!("invoke __call__ for: {:?}", payload);
-                self.call_method_pyargs(&func_ref, "__call__", args)
+                self.call_method(&func_ref, "__call__", args)
             }
         }
     }
@@ -473,10 +444,12 @@ impl VirtualMachine {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let available_defaults = match defaults.payload {
-                PyObjectPayload::Sequence { ref elements } => elements.borrow().clone(),
-                PyObjectPayload::None => vec![],
-                _ => panic!("function defaults not tuple or None"),
+            let available_defaults = if defaults.is(&self.get_none()) {
+                vec![]
+            } else if let PyObjectPayload::Sequence { ref elements } = defaults.payload {
+                elements.borrow().clone()
+            } else {
+                panic!("function defaults not tuple or None");
             };
 
             // Given the number of defaults available, check all the arguments for which we
@@ -579,13 +552,7 @@ impl VirtualMachine {
         F: Fn(&mut VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult,
     {
         if let Ok(method) = self.get_method(obj.clone(), method) {
-            let result = self.invoke(
-                method,
-                PyFuncArgs {
-                    args: vec![arg.clone()],
-                    kwargs: vec![],
-                },
-            )?;
+            let result = self.invoke(method, vec![arg.clone()])?;
             if !result.is(&self.ctx.not_implemented()) {
                 return Ok(result);
             }

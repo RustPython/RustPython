@@ -118,10 +118,7 @@ fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) ->
             .upgrade()
             .expect("that the vm is valid from inside of request_animation_frame");
         let func = func.clone();
-        let args = PyFuncArgs {
-            args: vec![vm.ctx.new_float(time)],
-            kwargs: vec![],
-        };
+        let args = vec![vm.ctx.new_float(time)];
         let _ = vm.invoke(func, args);
 
         let closure = f.borrow_mut().take();

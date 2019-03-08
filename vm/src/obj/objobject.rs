@@ -1,8 +1,8 @@
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
+    PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -127,6 +127,18 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
 }
 
+pub fn object_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+
+    let attributes = get_attributes(&obj);
+    Ok(vm.ctx.new_list(
+        attributes
+            .keys()
+            .map(|k| vm.ctx.new_str(k.to_string()))
+            .collect(),
+    ))
+}
+
 fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -161,6 +173,7 @@ pub fn init(context: &PyContext) {
         "__dict__",
         context.new_member_descriptor(object_dict),
     );
+    context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));
     context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
     context.set_attr(&object, "__str__", context.new_rustfunc(object_str));
     context.set_attr(&object, "__repr__", context.new_rustfunc(object_repr));
@@ -207,13 +220,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let attr_class = attr.typ();
         if attr_class.has_attr("__set__") {
             if let Some(descriptor) = attr_class.get_attr("__get__") {
-                return vm.invoke(
-                    descriptor,
-                    PyFuncArgs {
-                        args: vec![attr, obj.clone(), cls],
-                        kwargs: vec![],
-                    },
-                );
+                return vm.invoke(descriptor, vec![attr, obj.clone(), cls]);
             }
         }
     }
@@ -223,13 +230,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if let Some(attr) = cls.get_attr(&name) {
         vm.call_get_descriptor(attr, obj.clone())
     } else if let Some(getter) = cls.get_attr("__getattr__") {
-        vm.invoke(
-            getter,
-            PyFuncArgs {
-                args: vec![cls, name_str.clone()],
-                kwargs: vec![],
-            },
-        )
+        vm.invoke(getter, vec![cls, name_str.clone()])
     } else {
         let attribute_error = vm.context().exceptions.attribute_error.clone();
         Err(vm.new_exception(
@@ -237,4 +238,18 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             format!("{} has no attribute '{}'", obj, name),
         ))
     }
+}
+
+pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
+    // Get class attributes:
+    let mut attributes = objtype::get_attributes(&obj.typ());
+
+    // Get instance attributes:
+    if let PyObjectPayload::Instance { dict } = &obj.payload {
+        for (name, value) in dict.borrow().iter() {
+            attributes.insert(name.to_string(), value.clone());
+        }
+    }
+
+    attributes
 }

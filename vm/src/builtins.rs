@@ -40,18 +40,6 @@ fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     get_locals(vm)
 }
 
-fn dir_object(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyObjectRef {
-    // Gather all members here:
-    let attributes = objtype::get_attributes(obj);
-    let mut members: Vec<String> = attributes.into_iter().map(|(n, _o)| n).collect();
-
-    // Sort members:
-    members.sort();
-
-    let members_pystr = members.into_iter().map(|m| vm.ctx.new_str(m)).collect();
-    vm.ctx.new_list(members_pystr)
-}
-
 fn builtin_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None)]);
     match vm.get_method(x.clone(), "__abs__") {
@@ -171,14 +159,16 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(dir_locals(vm))
     } else {
         let obj = args.args.into_iter().next().unwrap();
-        Ok(dir_object(vm, &obj))
+        let seq = vm.call_method(&obj, "__dir__", vec![])?;
+        let sorted = builtin_sorted(vm, PyFuncArgs::new(vec![seq], vec![]))?;
+        Ok(sorted)
     }
 }
 
 fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None), (y, None)]);
     match vm.get_method(x.clone(), "__divmod__") {
-        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
+        Ok(attrib) => vm.invoke(attrib, vec![y.clone()]),
         Err(..) => Err(vm.new_type_error("unsupported operand type(s) for divmod".to_string())),
     }
 }
@@ -429,16 +419,14 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: this key function looks pretty duplicate. Maybe we can create
     // a local function?
     let mut x_key = if let Some(f) = &key_func {
-        let args = PyFuncArgs::new(vec![x.clone()], vec![]);
-        vm.invoke(f.clone(), args)?
+        vm.invoke(f.clone(), vec![x.clone()])?
     } else {
         x.clone()
     };
 
     for y in candidates_iter {
         let y_key = if let Some(f) = &key_func {
-            let args = PyFuncArgs::new(vec![y.clone()], vec![]);
-            vm.invoke(f.clone(), args)?
+            vm.invoke(f.clone(), vec![y.clone()])?
         } else {
             y.clone()
         };
@@ -479,16 +467,14 @@ fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: this key function looks pretty duplicate. Maybe we can create
     // a local function?
     let mut x_key = if let Some(f) = &key_func {
-        let args = PyFuncArgs::new(vec![x.clone()], vec![]);
-        vm.invoke(f.clone(), args)?
+        vm.invoke(f.clone(), vec![x.clone()])?
     } else {
         x.clone()
     };
 
     for y in candidates_iter {
         let y_key = if let Some(f) = &key_func {
-            let args = PyFuncArgs::new(vec![y.clone()], vec![]);
-            vm.invoke(f.clone(), args)?
+            vm.invoke(f.clone(), vec![y.clone()])?
         } else {
             y.clone()
         };
@@ -566,7 +552,7 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let pow_method_name = "__pow__";
     let result = match vm.get_method(x.clone(), pow_method_name) {
-        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![y.clone()], vec![])),
+        Ok(attrib) => vm.invoke(attrib, vec![y.clone()]),
         Err(..) => Err(vm.new_type_error("unsupported operand type(s) for pow".to_string())),
     };
     //Check if the 3rd argument is defined and perform modulus on the result
@@ -576,7 +562,7 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(mod_value) => {
             let mod_method_name = "__mod__";
             match vm.get_method(result.expect("result not defined").clone(), mod_method_name) {
-                Ok(value) => vm.invoke(value, PyFuncArgs::new(vec![mod_value.clone()], vec![])),
+                Ok(value) => vm.invoke(value, vec![mod_value.clone()]),
                 Err(..) => {
                     Err(vm.new_type_error("unsupported operand type(s) for mod".to_string()))
                 }
@@ -709,7 +695,7 @@ fn builtin_sorted(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let lst = vm.ctx.new_list(items);
 
     args.shift();
-    vm.call_method_pyargs(&lst, "sort", args)?;
+    vm.call_method(&lst, "sort", args)?;
     Ok(lst)
 }
 
@@ -843,13 +829,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     // Prepare uses full __getattribute__ resolution chain.
     let prepare_name = vm.new_str("__prepare__".to_string());
     let prepare = vm.get_attribute(metaclass.clone(), prepare_name)?;
-    let namespace = vm.invoke(
-        prepare,
-        PyFuncArgs {
-            args: vec![name_arg.clone(), bases.clone()],
-            kwargs: vec![],
-        },
-    )?;
+    let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
     vm.invoke_with_locals(function, namespace.clone())?;
 

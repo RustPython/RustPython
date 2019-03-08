@@ -18,6 +18,7 @@ pub mod objiter;
 pub mod objlist;
 pub mod objmap;
 pub mod objmemory;
+pub mod objmodule;
 pub mod objnone;
 pub mod objobject;
 pub mod objproperty;
