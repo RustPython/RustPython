@@ -150,6 +150,7 @@ pub struct PyContext {
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
     pub member_descriptor_type: PyObjectRef,
+    pub data_descriptor_type: PyObjectRef,
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -201,6 +202,8 @@ impl PyContext {
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let member_descriptor_type =
             create_type("member_descriptor", &type_type, &object_type, &dict_type);
+        let data_descriptor_type =
+            create_type("data_descriptor", &type_type, &object_type, &dict_type);
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
         let set_type = create_type("set", &type_type, &object_type, &dict_type);
@@ -298,6 +301,7 @@ impl PyContext {
             module_type,
             bound_method_type,
             member_descriptor_type,
+            data_descriptor_type,
             type_type,
             exceptions,
         };
@@ -462,6 +466,10 @@ impl PyContext {
     pub fn member_descriptor_type(&self) -> PyObjectRef {
         self.member_descriptor_type.clone()
     }
+    pub fn data_descriptor_type(&self) -> PyObjectRef {
+        self.data_descriptor_type.clone()
+    }
+
     pub fn type_type(&self) -> PyObjectRef {
         self.type_type.clone()
     }
@@ -669,6 +677,22 @@ impl PyContext {
         let mut dict = PyAttributes::new();
         dict.insert("function".to_string(), self.new_rustfunc(function));
         self.new_instance(self.member_descriptor_type(), Some(dict))
+    }
+
+    pub fn new_data_descriptor<
+        G: IntoPyNativeFunc<(I, PyObjectRef), T>,
+        S: IntoPyNativeFunc<(I, T), PyResult>,
+        T,
+        I,
+    >(
+        &self,
+        getter: G,
+        setter: S,
+    ) -> PyObjectRef {
+        let mut dict = PyAttributes::new();
+        dict.insert("fget".to_string(), self.new_rustfunc(getter));
+        dict.insert("fset".to_string(), self.new_rustfunc(setter));
+        self.new_instance(self.data_descriptor_type(), Some(dict))
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
