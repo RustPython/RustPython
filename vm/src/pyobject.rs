@@ -31,7 +31,7 @@ use crate::obj::objiter;
 use crate::obj::objlist::{self, PyList};
 use crate::obj::objmap;
 use crate::obj::objmemory;
-use crate::obj::objmodule;
+use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objnone;
 use crate::obj::objobject;
 use crate::obj::objproperty;
@@ -92,10 +92,10 @@ impl fmt::Display for PyObject {
             }
         }
 
-        match &self.payload {
-            PyObjectPayload::Module { name, .. } => write!(f, "module '{}'", name),
-            _ => write!(f, "'{}' object", objtype::get_type_name(&self.typ())),
+        if let Some(PyModule { ref name, .. }) = self.payload::<PyModule>() {
+            return write!(f, "module '{}'", name);
         }
+        write!(f, "'{}' object", objtype::get_type_name(&self.typ()))
     }
 }
 
@@ -600,9 +600,11 @@ impl PyContext {
 
     pub fn new_module(&self, name: &str, scope: ScopeRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Module {
-                name: name.to_string(),
-                scope,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyModule {
+                    name: name.to_string(),
+                    scope,
+                }),
             },
             self.module_type.clone(),
         )
@@ -730,7 +732,7 @@ impl PyContext {
     }
 
     pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
-        if let PyObjectPayload::Module { ref scope, .. } = obj.payload {
+        if let Some(PyModule { ref scope, .. }) = obj.payload::<PyModule>() {
             scope.locals.set_item(self, attr_name, value)
         } else if let Some(ref dict) = obj.dict {
             dict.borrow_mut().insert(attr_name.to_string(), value);
@@ -850,15 +852,14 @@ impl AttributeProtocol for PyObjectRef {
             return None;
         }
 
-        match self.payload {
-            PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(attr_name),
-            _ => {
-                if let Some(ref dict) = self.dict {
-                    dict.borrow().get(attr_name).cloned()
-                } else {
-                    None
-                }
-            }
+        if let Some(PyModule { ref scope, .. }) = self.payload::<PyModule>() {
+            return scope.locals.get_item(attr_name);
+        }
+
+        if let Some(ref dict) = self.dict {
+            dict.borrow().get(attr_name).cloned()
+        } else {
+            None
         }
     }
 
@@ -868,15 +869,14 @@ impl AttributeProtocol for PyObjectRef {
                 || mro.iter().any(|d| class_has_item(d, attr_name));
         }
 
-        match self.payload {
-            PyObjectPayload::Module { ref scope, .. } => scope.locals.contains_key(attr_name),
-            _ => {
-                if let Some(ref dict) = self.dict {
-                    dict.borrow().contains_key(attr_name)
-                } else {
-                    false
-                }
-            }
+        if let Some(PyModule { ref scope, .. }) = self.payload::<PyModule>() {
+            return scope.locals.contains_key(attr_name);
+        }
+
+        if let Some(ref dict) = self.dict {
+            dict.borrow().contains_key(attr_name)
+        } else {
+            false
         }
     }
 }
@@ -900,22 +900,20 @@ impl DictProtocol for PyObjectRef {
     fn get_item(&self, k: &str) -> Option<PyObjectRef> {
         if let Some(dict) = self.payload::<PyDict>() {
             objdict::content_get_key_str(&dict.entries.borrow(), k)
+        } else if let Some(PyModule { ref scope, .. }) = self.payload::<PyModule>() {
+            scope.locals.get_item(k)
         } else {
-            match self.payload {
-                PyObjectPayload::Module { ref scope, .. } => scope.locals.get_item(k),
-                ref k => panic!("TODO {:?}", k),
-            }
+            panic!("TODO {:?}", k)
         }
     }
 
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
         if let Some(_) = self.payload::<PyDict>() {
             objdict::get_key_value_pairs(self)
+        } else if let Some(PyModule { ref scope, .. }) = self.payload::<PyModule>() {
+            scope.locals.get_key_value_pairs()
         } else {
-            match self.payload {
-                PyObjectPayload::Module { ref scope, .. } => scope.locals.get_key_value_pairs(),
-                _ => panic!("TODO"),
-            }
+            panic!("TODO")
         }
     }
 
@@ -924,13 +922,10 @@ impl DictProtocol for PyObjectRef {
         if let Some(dict) = self.payload::<PyDict>() {
             let key = ctx.new_str(key.to_string());
             objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
+        } else if let Some(PyModule { ref scope, .. }) = self.payload::<PyModule>() {
+            scope.locals.set_item(ctx, key, v);
         } else {
-            match &self.payload {
-                PyObjectPayload::Module { scope, .. } => {
-                    scope.locals.set_item(ctx, key, v);
-                }
-                ref k => panic!("TODO {:?}", k),
-            };
+            panic!("TODO {:?}", self);
         }
     }
 }
@@ -1542,10 +1537,6 @@ pub enum PyObjectPayload {
         function: PyObjectRef,
         object: PyObjectRef,
     },
-    Module {
-        name: String,
-        scope: ScopeRef,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
     },
@@ -1582,7 +1573,6 @@ impl fmt::Debug for PyObjectPayload {
                 ref function,
                 ref object,
             } => write!(f, "bound-method: {:?} of {:?}", function, object),
-            PyObjectPayload::Module { .. } => write!(f, "module"),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
