@@ -227,7 +227,7 @@ impl PyContext {
 
         let none = PyObject::new(
             PyObjectPayload::AnyRustValue {
-                value: Box::new(()),
+                value: Box::new(objnone::PyNone),
             },
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
@@ -1318,14 +1318,6 @@ where
 {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult {
         self.and_then(|res| T::into_pyobject(res, ctx))
-    }
-}
-
-// This allows a built-in function to not return a value, mapping to
-// Python's behavior of returning `None` in this situation.
-impl IntoPyObject for () {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.none())
     }
 }
 
