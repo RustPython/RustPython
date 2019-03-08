@@ -11,6 +11,7 @@ use super::objbool;
 use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
 use super::objrange::PyRange;
+use super::objsequence;
 use super::objtype;
 
 /*
@@ -156,19 +157,13 @@ fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 Err(new_stop_iteration(vm))
             }
         } else {
-            match iterated_obj_ref.payload {
-                PyObjectPayload::Sequence { ref elements } => {
-                    if position.get() < elements.borrow().len() {
-                        let obj_ref = elements.borrow()[position.get()].clone();
-                        position.set(position.get() + 1);
-                        Ok(obj_ref)
-                    } else {
-                        Err(new_stop_iteration(vm))
-                    }
-                }
-                _ => {
-                    panic!("NOT IMPL");
-                }
+            let elements = objsequence::get_elements(iterated_obj_ref);
+            if position.get() < elements.len() {
+                let obj_ref = elements[position.get()].clone();
+                position.set(position.get() + 1);
+                Ok(obj_ref)
+            } else {
+                Err(new_stop_iteration(vm))
             }
         }
     } else {
