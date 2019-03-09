@@ -34,7 +34,7 @@ mod tests {
     fn test_print_42() {
         let source = String::from("print('Hello world')\n");
         let mut vm = VirtualMachine::new();
-        let vars = Scope::new(None, vm.ctx.new_dict());
+        let vars = vm.ctx.new_scope();
         let _result = eval(&mut vm, &source, vars, "<unittest>");
 
         // TODO: check result?

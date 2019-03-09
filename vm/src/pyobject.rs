@@ -593,6 +593,10 @@ impl PyContext {
         objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
     }
 
+    pub fn new_scope(&self) -> Scope {
+        Scope::new(None, self.new_dict())
+    }
+
     pub fn new_module(&self, name: &str, dict: PyObjectRef) -> PyObjectRef {
         PyObject::new(
             PyObjectPayload::AnyRustValue {

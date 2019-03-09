@@ -82,7 +82,7 @@ fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> Py
         vm.new_exception(syntax_error, err.to_string())
     })?;
     // trace!("Code object: {:?}", code_obj.borrow());
-    let vars = Scope::new(None, vm.ctx.new_dict()); // Keep track of local variables
+    let vars = vm.ctx.new_scope(); // Keep track of local variables
     vm.run_code_obj(code_obj, vars)
 }
 
@@ -164,7 +164,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
         "Welcome to the magnificent Rust Python {} interpreter",
         crate_version!()
     );
-    let vars = Scope::new(None, vm.ctx.new_dict());
+    let vars = vm.ctx.new_scope();
 
     // Read a single line:
     let mut input = String::new();
