@@ -1,6 +1,21 @@
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::VirtualMachine;
+
 use super::objiter;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
+
+#[derive(Debug)]
+pub struct PyZip {
+    iterators: Vec<PyObjectRef>,
+}
+
+impl PyObjectPayload2 for PyZip {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.zip_type()
+    }
+}
 
 fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);
@@ -11,7 +26,9 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .map(|iterable| objiter::get_iter(vm, iterable))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(PyObject::new(
-        PyObjectPayload::ZipIterator { iterators },
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyZip { iterators }),
+        },
         cls.clone(),
     ))
 }
@@ -19,7 +36,7 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zip, Some(vm.ctx.zip_type()))]);
 
-    if let PyObjectPayload::ZipIterator { ref iterators } = zip.payload {
+    if let Some(PyZip { ref iterators }) = zip.payload() {
         if iterators.is_empty() {
             Err(objiter::new_stop_iteration(vm))
         } else {

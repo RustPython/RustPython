@@ -1,9 +1,23 @@
-use super::objbool;
-use super::objiter;
 use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
+
+use super::objbool;
+use super::objiter;
+
+#[derive(Debug)]
+pub struct PyFilter {
+    predicate: PyObjectRef,
+    iterator: PyObjectRef,
+}
+
+impl PyObjectPayload2 for PyFilter {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.filter_type()
+    }
+}
 
 fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -13,9 +27,11 @@ fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let iterator = objiter::get_iter(vm, iterable)?;
     Ok(PyObject::new(
-        PyObjectPayload::FilterIterator {
-            predicate: function.clone(),
-            iterator,
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyFilter {
+                predicate: function.clone(),
+                iterator,
+            }),
         },
         cls.clone(),
     ))
@@ -24,10 +40,10 @@ fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(filter, Some(vm.ctx.filter_type()))]);
 
-    if let PyObjectPayload::FilterIterator {
+    if let Some(PyFilter {
         ref predicate,
         ref iterator,
-    } = filter.payload
+    }) = filter.payload()
     {
         loop {
             let next_obj = objiter::call_next(vm, iterator)?;
