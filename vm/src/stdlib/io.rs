@@ -347,10 +347,10 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     //IOBase the abstract base class of the IO Module
-    let io_base = ctx.new_class("IOBase", ctx.object());
+    let io_base = py_class!(ctx, "IOBase", ctx.object(), {});
 
     // IOBase Subclasses
-    let raw_io_base = ctx.new_class("RawIOBase", ctx.object());
+    let raw_io_base = py_class!(ctx, "RawIOBase", ctx.object(), {});
 
     let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {
         "__init__" => ctx.new_rustfunc(buffered_io_base_init)
