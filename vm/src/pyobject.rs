@@ -1485,17 +1485,8 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum PyObjectPayload {
-    Slice {
-        start: Option<BigInt>,
-        stop: Option<BigInt>,
-        step: Option<BigInt>,
-    },
-    WeakRef {
-        referent: PyObjectWeakRef,
-    },
-    AnyRustValue {
-        value: Box<dyn std::any::Any>,
-    },
+    WeakRef { referent: PyObjectWeakRef },
+    AnyRustValue { value: Box<dyn std::any::Any> },
 }
 
 impl Default for PyObjectPayload {
@@ -1524,7 +1515,6 @@ impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
-            PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }
     }

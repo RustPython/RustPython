@@ -1,22 +1,22 @@
-use super::objint;
-use super::objsequence::PySliceableSequence;
-use super::objtype;
-use crate::format::{FormatParseError, FormatPart, FormatString};
-use crate::function::PyRef;
-use crate::pyobject::{
-    IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
-use num_traits::ToPrimitive;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
-// rust's builtin to_lowercase isn't sufficient for casefold
-extern crate caseless;
-extern crate unicode_segmentation;
 
-use self::unicode_segmentation::UnicodeSegmentation;
+use num_traits::ToPrimitive;
+use unicode_segmentation::UnicodeSegmentation;
+
+use crate::format::{FormatParseError, FormatPart, FormatString};
+use crate::function::PyRef;
+use crate::pyobject::{
+    IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectPayload2, PyObjectRef,
+    PyResult, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
+
+use super::objint;
+use super::objsequence::PySliceableSequence;
+use super::objslice::PySlice;
+use super::objtype;
 
 #[derive(Clone, Debug)]
 pub struct PyString {
@@ -867,17 +867,14 @@ pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResu
                 Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
             }
         }
+    } else if b.payload::<PySlice>().is_some() {
+        let string = value.to_string().get_slice_items(vm, &b)?;
+        Ok(vm.new_str(string))
     } else {
-        match b.payload {
-            PyObjectPayload::Slice { .. } => {
-                let string = value.to_string().get_slice_items(vm, &b)?;
-                Ok(vm.new_str(string))
-            }
-            _ => panic!(
-                "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-                value, b
-            ),
-        }
+        panic!(
+            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+            value, b
+        )
     }
 }
 

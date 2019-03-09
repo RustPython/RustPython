@@ -12,6 +12,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use super::objint::{self, PyInt};
+use super::objslice::PySlice;
 use super::objtype;
 
 #[derive(Debug, Clone)]
@@ -298,52 +299,51 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         };
     }
 
-    match subscript.payload {
-        PyObjectPayload::Slice {
-            ref start,
-            ref stop,
-            ref step,
-        } => {
-            let new_start = if let Some(int) = start {
-                if let Some(i) = range.get(int) {
-                    i
-                } else {
-                    range.start.clone()
-                }
+    if let Some(PySlice {
+        ref start,
+        ref stop,
+        ref step,
+    }) = subscript.payload()
+    {
+        let new_start = if let Some(int) = start {
+            if let Some(i) = range.get(int) {
+                i
             } else {
                 range.start.clone()
-            };
+            }
+        } else {
+            range.start.clone()
+        };
 
-            let new_end = if let Some(int) = stop {
-                if let Some(i) = range.get(int) {
-                    i
-                } else {
-                    range.end
-                }
+        let new_end = if let Some(int) = stop {
+            if let Some(i) = range.get(int) {
+                i
             } else {
                 range.end
-            };
+            }
+        } else {
+            range.end
+        };
 
-            let new_step = if let Some(int) = step {
-                int * range.step
-            } else {
-                range.step
-            };
+        let new_step = if let Some(int) = step {
+            int * range.step
+        } else {
+            range.step
+        };
 
-            Ok(PyObject::new(
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(PyRange {
-                        start: new_start,
-                        end: new_end,
-                        step: new_step,
-                    }),
-                },
-                vm.ctx.range_type(),
-            ))
-        }
-
-        _ => Err(vm.new_type_error("range indices must be integer or slice".to_string())),
+        return Ok(PyObject::new(
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyRange {
+                    start: new_start,
+                    end: new_end,
+                    step: new_step,
+                }),
+            },
+            vm.ctx.range_type(),
+        ));
     }
+
+    Err(vm.new_type_error("range indices must be integer or slice".to_string()))
 }
 
 fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
