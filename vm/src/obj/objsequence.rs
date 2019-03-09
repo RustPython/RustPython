@@ -9,7 +9,7 @@ use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResu
 use crate::vm::VirtualMachine;
 
 use super::objbool;
-use super::objint::{self, PyInt};
+use super::objint::PyInt;
 use super::objlist::PyList;
 use super::objtuple::PyTuple;
 
@@ -304,9 +304,7 @@ pub fn seq_le(
     Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
-pub fn seq_mul(elements: &[PyObjectRef], product: &PyObjectRef) -> Vec<PyObjectRef> {
-    let counter = objint::get_value(&product).to_isize().unwrap();
-
+pub fn seq_mul(elements: &[PyObjectRef], counter: isize) -> Vec<PyObjectRef> {
     let current_len = elements.len();
     let new_len = counter.max(0) as usize * current_len;
     let mut new_elements = Vec::with_capacity(new_len);

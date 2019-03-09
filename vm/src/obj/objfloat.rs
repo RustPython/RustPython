@@ -152,7 +152,7 @@ impl PyFloatRef {
         }
     }
 
-    fn new_str(cls: PyObjectRef, arg: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn new_float(cls: PyObjectRef, arg: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         let value = if objtype::isinstance(&arg, &vm.ctx.float_type()) {
             get_value(&arg)
         } else if objtype::isinstance(&arg, &vm.ctx.int_type()) {
@@ -373,7 +373,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&float_type, "__radd__", context.new_rustfunc(PyFloatRef::add));
     context.set_attr(&float_type, "__divmod__", context.new_rustfunc(PyFloatRef::divmod));
     context.set_attr(&float_type, "__floordiv__", context.new_rustfunc(PyFloatRef::floordiv));
-    context.set_attr(&float_type, "__new__", context.new_rustfunc(PyFloatRef::new_str));
+    context.set_attr(&float_type, "__new__", context.new_rustfunc(PyFloatRef::new_float));
     context.set_attr(&float_type, "__mod__", context.new_rustfunc(PyFloatRef::mod_));
     context.set_attr(&float_type, "__neg__", context.new_rustfunc(PyFloatRef::neg));
     context.set_attr(&float_type, "__pow__", context.new_rustfunc(PyFloatRef::pow));
