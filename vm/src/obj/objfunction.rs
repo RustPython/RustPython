@@ -1,7 +1,33 @@
+use crate::frame::ScopeRef;
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+
+#[derive(Debug)]
+pub struct PyFunction {
+    // TODO: these shouldn't be public
+    pub code: PyObjectRef,
+    pub scope: ScopeRef,
+    pub defaults: PyObjectRef,
+}
+
+impl PyFunction {
+    pub fn new(code: PyObjectRef, scope: ScopeRef, defaults: PyObjectRef) -> Self {
+        PyFunction {
+            code,
+            scope,
+            defaults,
+        }
+    }
+}
+
+impl PyObjectPayload2 for PyFunction {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.function_type()
+    }
+}
 
 pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
@@ -79,9 +105,9 @@ fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn function_code(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].payload {
-        PyObjectPayload::Function { ref code, .. } => Ok(code.clone()),
-        _ => Err(vm.new_type_error("no code".to_string())),
+    match args.args[0].payload() {
+        Some(PyFunction { ref code, .. }) => Ok(code.clone()),
+        None => Err(vm.new_type_error("no code".to_string())),
     }
 }
 

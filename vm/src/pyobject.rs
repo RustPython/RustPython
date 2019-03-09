@@ -24,7 +24,7 @@ use crate::obj::objenumerate;
 use crate::obj::objfilter;
 use crate::obj::objfloat::{self, PyFloat};
 use crate::obj::objframe;
-use crate::obj::objfunction;
+use crate::obj::objfunction::{self, PyFunction};
 use crate::obj::objgenerator;
 use crate::obj::objint::{self, PyInt};
 use crate::obj::objiter;
@@ -657,10 +657,8 @@ impl PyContext {
         defaults: PyObjectRef,
     ) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Function {
-                code: code_obj,
-                scope,
-                defaults,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyFunction::new(code_obj, scope, defaults)),
             },
             self.function_type(),
         )
@@ -1510,11 +1508,6 @@ pub enum PyObjectPayload {
     Frame {
         frame: Frame,
     },
-    Function {
-        code: PyObjectRef,
-        scope: ScopeRef,
-        defaults: PyObjectRef,
-    },
     Generator {
         frame: PyObjectRef,
     },
@@ -1548,7 +1541,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
-            PyObjectPayload::Function { .. } => write!(f, "function"),
             PyObjectPayload::Generator { .. } => write!(f, "generator"),
             PyObjectPayload::BoundMethod {
                 ref function,

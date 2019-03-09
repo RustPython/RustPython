@@ -18,6 +18,7 @@ use crate::frame::{Scope, ScopeRef};
 use crate::obj::objbool;
 use crate::obj::objcode;
 use crate::obj::objframe;
+use crate::obj::objfunction::PyFunction;
 use crate::obj::objgenerator;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
@@ -289,13 +290,16 @@ impl VirtualMachine {
     {
         let args = args.into();
         trace!("Invoke: {:?} {:?}", func_ref, args);
+        if let Some(PyFunction {
+            ref code,
+            ref scope,
+            ref defaults,
+        }) = func_ref.payload()
+        {
+            return self.invoke_python_function(code, scope, defaults, args);
+        }
         match func_ref.payload {
             PyObjectPayload::RustFunction { ref function } => function(self, args),
-            PyObjectPayload::Function {
-                ref code,
-                ref scope,
-                ref defaults,
-            } => self.invoke_python_function(code, scope, defaults, args),
             PyObjectPayload::BoundMethod {
                 ref function,
                 ref object,
@@ -331,11 +335,11 @@ impl VirtualMachine {
     }
 
     pub fn invoke_with_locals(&mut self, function: PyObjectRef, locals: PyObjectRef) -> PyResult {
-        if let PyObjectPayload::Function {
+        if let Some(PyFunction {
             code,
             scope,
-            defaults: _defaults,
-        } = &function.payload
+            defaults: _,
+        }) = &function.payload()
         {
             let scope = Rc::new(Scope {
                 locals,
