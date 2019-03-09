@@ -14,6 +14,7 @@ use crate::bytecode;
 use crate::exceptions;
 use crate::frame::{Frame, Scope, ScopeRef};
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objcode;
@@ -615,8 +616,8 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R>,
     {
         PyObject::new(
-            PyObjectPayload::RustFunction {
-                function: f.into_func(),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyBuiltinFunction::new(f.into_func())),
             },
             self.builtin_function_or_method_type(),
         )
@@ -1516,9 +1517,6 @@ pub enum PyObjectPayload {
     WeakRef {
         referent: PyObjectWeakRef,
     },
-    RustFunction {
-        function: PyNativeFunc,
-    },
     AnyRustValue {
         value: Box<dyn std::any::Any>,
     },
@@ -1540,7 +1538,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Generator { .. } => write!(f, "generator"),
-            PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }

@@ -16,6 +16,7 @@ use crate::bytecode;
 use crate::frame::ExecutionResult;
 use crate::frame::{Scope, ScopeRef};
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
 use crate::obj::objframe;
 use crate::obj::objfunction::{PyFunction, PyMethod};
@@ -28,8 +29,8 @@ use crate::obj::objstr;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::stdlib;
 use crate::sysmodule;
@@ -305,14 +306,13 @@ impl VirtualMachine {
         {
             return self.invoke(function.clone(), args.insert(object.clone()));
         }
-        match func_ref.payload {
-            PyObjectPayload::RustFunction { ref function } => function(self, args),
-            ref payload => {
-                // TODO: is it safe to just invoke __call__ otherwise?
-                trace!("invoke __call__ for: {:?}", payload);
-                self.call_method(&func_ref, "__call__", args)
-            }
+        if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
+            return value(self, args);
         }
+
+        // TODO: is it safe to just invoke __call__ otherwise?
+        trace!("invoke __call__ for: {:?}", func_ref.payload);
+        self.call_method(&func_ref, "__call__", args)
     }
 
     fn invoke_python_function(

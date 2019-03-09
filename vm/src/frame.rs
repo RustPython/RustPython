@@ -11,6 +11,7 @@ use crate::builtins;
 use crate::bytecode;
 use crate::import::{import, import_module};
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
 use crate::obj::objdict;
 use crate::obj::objdict::PyDict;
@@ -592,8 +593,10 @@ impl Frame {
             }
             bytecode::Instruction::LoadBuildClass => {
                 let rustfunc = PyObject::new(
-                    PyObjectPayload::RustFunction {
-                        function: Box::new(builtins::builtin_build_class_),
+                    PyObjectPayload::AnyRustValue {
+                        value: Box::new(PyBuiltinFunction::new(Box::new(
+                            builtins::builtin_build_class_,
+                        ))),
                     },
                     vm.ctx.type_type(),
                 );
