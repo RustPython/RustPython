@@ -1490,9 +1490,6 @@ pub enum PyObjectPayload {
         stop: Option<BigInt>,
         step: Option<BigInt>,
     },
-    MemoryView {
-        obj: PyObjectRef,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
     },
@@ -1526,7 +1523,6 @@ impl PyObjectPayload2 for PyIteratorValue {
 impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
