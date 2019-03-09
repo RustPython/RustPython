@@ -221,8 +221,7 @@ fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 }
             }
         };
-        ret.map(|val| convert::py_to_js(vm, val))
-            .map_err(|err| convert::py_to_js(vm, err))
+        convert::pyresult_to_jsresult(vm, ret)
     });
 
     let ret_promise = future_to_promise(ret_future);
@@ -254,9 +253,8 @@ fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
             let err = convert::js_to_py(vm, err);
-            vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]))
-                .map(|val| convert::py_to_js(vm, val))
-                .map_err(|err| convert::py_to_js(vm, err))
+            let res = vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]));
+            convert::pyresult_to_jsresult(vm, res)
         }
     });
 

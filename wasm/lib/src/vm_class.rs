@@ -1,7 +1,7 @@
 use crate::browser_module::setup_browser_module;
 use crate::convert;
 use crate::wasm_builtins;
-use js_sys::{Object, SyntaxError, TypeError};
+use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
     frame::ScopeRef,
@@ -343,10 +343,44 @@ impl WASMVirtualMachine {
              }| {
                 source.push('\n');
                 let code =
-                    compile::compile(&source, &mode, "<wasm>".to_string(), vm.ctx.code_type())
-                        .map_err(|err| {
-                            SyntaxError::new(&format!("Error parsing Python code: {}", err))
-                        })?;
+                    compile::compile(&source, &mode, "<wasm>".to_string(), vm.ctx.code_type());
+                let code = code.map_err(|err| {
+                    let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
+                    if let rustpython_vm::error::CompileError::Parse(ref parse_error) = err {
+                        use rustpython_parser::error::ParseError;
+                        if let ParseError::EOF(Some(ref loc))
+                        | ParseError::ExtraToken((ref loc, ..))
+                        | ParseError::InvalidToken(ref loc)
+                        | ParseError::UnrecognizedToken((ref loc, ..), _) = parse_error
+                        {
+                            let _ = Reflect::set(
+                                &js_err,
+                                &"row".into(),
+                                &(loc.get_row() as u32).into(),
+                            );
+                            let _ = Reflect::set(
+                                &js_err,
+                                &"col".into(),
+                                &(loc.get_column() as u32).into(),
+                            );
+                        }
+                        if let ParseError::ExtraToken((_, _, ref loc))
+                        | ParseError::UnrecognizedToken((_, _, ref loc), _) = parse_error
+                        {
+                            let _ = Reflect::set(
+                                &js_err,
+                                &"endrow".into(),
+                                &(loc.get_row() as u32).into(),
+                            );
+                            let _ = Reflect::set(
+                                &js_err,
+                                &"endcol".into(),
+                                &(loc.get_column() as u32).into(),
+                            );
+                        }
+                    }
+                    js_err
+                })?;
                 let result = vm.run_code_obj(code, scope.clone());
                 convert::pyresult_to_jsresult(vm, result)
             },

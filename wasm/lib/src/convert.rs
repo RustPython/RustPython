@@ -1,14 +1,59 @@
 use crate::browser_module;
 use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, Uint8Array};
-use rustpython_vm::obj::{objbytes, objtype};
-use rustpython_vm::pyobject::{self, DictProtocol, PyFuncArgs, PyObjectRef, PyResult};
+use num_traits::cast::ToPrimitive;
+use rustpython_vm::obj::{objbytes, objint, objsequence, objtype};
+use rustpython_vm::pyobject::{
+    self, AttributeProtocol, DictProtocol, PyFuncArgs, PyObjectRef, PyResult,
+};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
-pub fn py_str_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> String {
-    vm.to_pystr(&py_err)
-        .unwrap_or_else(|_| "Error, and error getting error message".into())
+pub fn py_err_to_js_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> JsValue {
+    macro_rules! map_exceptions {
+        ($py_exc:ident, $msg:expr, { $($py_exc_ty:expr => $js_err_new:expr),*$(,)? }) => {
+            $(if objtype::isinstance($py_exc, $py_exc_ty) {
+                JsValue::from($js_err_new($msg))
+            } else)* {
+                JsValue::from(js_sys::Error::new($msg))
+            }
+        };
+    }
+    let msg = match py_err
+        .get_attr("msg")
+        .and_then(|msg| vm.to_pystr(&msg).ok())
+    {
+        Some(msg) => msg,
+        None => return js_sys::Error::new("error getting error").into(),
+    };
+    let js_err = map_exceptions!(py_err,& msg, {
+        // TypeError is sort of a catch-all for "this value isn't what I thought it was like"
+        &vm.ctx.exceptions.type_error => js_sys::TypeError::new,
+        &vm.ctx.exceptions.value_error => js_sys::TypeError::new,
+        &vm.ctx.exceptions.index_error => js_sys::TypeError::new,
+        &vm.ctx.exceptions.key_error => js_sys::TypeError::new,
+        &vm.ctx.exceptions.attribute_error => js_sys::TypeError::new,
+        &vm.ctx.exceptions.name_error => js_sys::ReferenceError::new,
+        &vm.ctx.exceptions.syntax_error => js_sys::SyntaxError::new,
+    });
+    if let Some(tb) = py_err.get_attr("__traceback__") {
+        if objtype::isinstance(&tb, &vm.ctx.list_type()) {
+            let elements = objsequence::get_elements(&tb).to_vec();
+            if let Some(top) = elements.get(0) {
+                if objtype::isinstance(&top, &vm.ctx.tuple_type()) {
+                    let element = objsequence::get_elements(&top);
+
+                    if let Some(lineno) = objint::to_int(vm, &element[1], 10)
+                        .ok()
+                        .and_then(|lineno| lineno.to_u32())
+                    {
+                        Reflect::set(&js_err, &"row".into(), &lineno.into());
+                    }
+                }
+            }
+        }
+    }
+    js_err
 }
 
 pub fn js_py_typeerror(vm: &mut VirtualMachine, js_err: JsValue) -> PyObjectRef {
@@ -113,7 +158,7 @@ pub fn object_entries(obj: &Object) -> impl Iterator<Item = Result<(JsValue, JsV
 pub fn pyresult_to_jsresult(vm: &mut VirtualMachine, result: PyResult) -> Result<JsValue, JsValue> {
     result
         .map(|value| py_to_js(vm, value))
-        .map_err(|err| py_str_err(vm, &err).into())
+        .map_err(|err| py_err_to_js_err(vm, &err).into())
 }
 
 pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
