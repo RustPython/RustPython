@@ -64,6 +64,13 @@ where
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
     }
+
+    pub fn as_object(&self) -> &PyObjectRef {
+        &self.obj
+    }
+    pub fn into_object(self) -> PyObjectRef {
+        self.obj
+    }
 }
 
 impl<T> Deref for PyRef<T>

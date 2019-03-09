@@ -221,8 +221,7 @@ fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 }
             }
         };
-        ret.map(|val| convert::py_to_js(vm, val))
-            .map_err(|err| convert::py_to_js(vm, err))
+        convert::pyresult_to_jsresult(vm, ret)
     });
 
     let ret_promise = future_to_promise(ret_future);
@@ -254,9 +253,8 @@ fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
             let err = convert::js_to_py(vm, err);
-            vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]))
-                .map(|val| convert::py_to_js(vm, val))
-                .map_err(|err| convert::py_to_js(vm, err))
+            let res = vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]));
+            convert::pyresult_to_jsresult(vm, res)
         }
     });
 
@@ -313,12 +311,10 @@ fn browser_prompt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 const BROWSER_NAME: &str = "browser";
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let promise = {
-        let promise = ctx.new_class("Promise", ctx.object());
-        ctx.set_attr(&promise, "then", ctx.new_rustfunc(promise_then));
-        ctx.set_attr(&promise, "catch", ctx.new_rustfunc(promise_catch));
-        promise
-    };
+    let promise = py_class!(ctx, "Promise", ctx.object(), {
+        "then" => ctx.new_rustfunc(promise_then),
+        "catch" => ctx.new_rustfunc(promise_catch)
+    });
 
     py_module!(ctx, BROWSER_NAME, {
         "fetch" => ctx.new_rustfunc(browser_fetch),

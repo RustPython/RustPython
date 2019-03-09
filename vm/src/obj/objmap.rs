@@ -1,6 +1,22 @@
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
+};
+use crate::vm::VirtualMachine;
+
 use super::objiter;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
+
+#[derive(Debug)]
+pub struct PyMap {
+    mapper: PyObjectRef,
+    iterators: Vec<PyObjectRef>,
+}
+
+impl PyObjectPayload2 for PyMap {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.map_type()
+    }
+}
 
 fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);
@@ -15,9 +31,11 @@ fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .map(|iterable| objiter::get_iter(vm, iterable))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PyObject::new(
-            PyObjectPayload::MapIterator {
-                mapper: function.clone(),
-                iterators,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyMap {
+                    mapper: function.clone(),
+                    iterators,
+                }),
             },
             cls.clone(),
         ))
@@ -27,10 +45,10 @@ fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(map, Some(vm.ctx.map_type()))]);
 
-    if let PyObjectPayload::MapIterator {
+    if let Some(PyMap {
         ref mapper,
         ref iterators,
-    } = map.payload
+    }) = map.payload()
     {
         let next_objs = iterators
             .iter()

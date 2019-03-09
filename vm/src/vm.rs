@@ -21,6 +21,7 @@ use crate::obj::objframe;
 use crate::obj::objgenerator;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
+use crate::obj::objmodule::PyModule;
 use crate::obj::objsequence;
 use crate::obj::objstr;
 use crate::obj::objtuple::PyTuple;
@@ -217,13 +218,8 @@ impl VirtualMachine {
     }
 
     pub fn get_builtin_scope(&self) -> ScopeRef {
-        let a2 = &*self.builtins;
-        match a2.payload {
-            PyObjectPayload::Module { ref scope, .. } => scope.clone(),
-            _ => {
-                panic!("OMG");
-            }
-        }
+        let PyModule { ref scope, .. } = self.builtins.payload::<PyModule>().unwrap();
+        scope.clone()
     }
 
     // Container of the virtual machine state:

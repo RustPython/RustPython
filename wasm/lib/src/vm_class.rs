@@ -1,7 +1,7 @@
 use crate::browser_module::setup_browser_module;
 use crate::convert;
 use crate::wasm_builtins;
-use js_sys::{Object, SyntaxError, TypeError};
+use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
     frame::ScopeRef,
@@ -13,9 +13,16 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
 
+pub trait HeldRcInner {}
+
+impl<T> HeldRcInner for T {}
+
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
     pub scope: ScopeRef,
+    /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
+    /// as long as the StoredVM is alive
+    held_rcs: Vec<Rc<dyn HeldRcInner>>,
 }
 
 impl StoredVirtualMachine {
@@ -27,7 +34,11 @@ impl StoredVirtualMachine {
             setup_browser_module(&mut vm);
         }
         vm.wasm_id = Some(id);
-        StoredVirtualMachine { vm, scope }
+        StoredVirtualMachine {
+            vm,
+            scope,
+            held_rcs: vec![],
+        }
     }
 }
 
@@ -211,6 +222,17 @@ impl WASMVirtualMachine {
         STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
     }
 
+    pub(crate) fn push_held_rc<T: HeldRcInner + 'static>(
+        &self,
+        rc: Rc<T>,
+    ) -> Result<Weak<T>, JsValue> {
+        self.with(|stored_vm| {
+            let weak = Rc::downgrade(&rc);
+            stored_vm.held_rcs.push(rc);
+            weak
+        })
+    }
+
     pub fn assert_valid(&self) -> Result<(), JsValue> {
         if self.valid() {
             Ok(())
@@ -234,6 +256,7 @@ impl WASMVirtualMachine {
             move |StoredVirtualMachine {
                       ref mut vm,
                       ref mut scope,
+                      ..
                   }| {
                 let value = convert::js_to_py(vm, value);
                 scope.locals.set_item(&vm.ctx, &name, value);
@@ -247,6 +270,7 @@ impl WASMVirtualMachine {
             move |StoredVirtualMachine {
                       ref mut vm,
                       ref mut scope,
+                      ..
                   }| {
                 let print_fn: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> =
                     if let Some(selector) = stdout.as_string() {
@@ -315,13 +339,48 @@ impl WASMVirtualMachine {
             |StoredVirtualMachine {
                  ref mut vm,
                  ref mut scope,
+                 ..
              }| {
                 source.push('\n');
                 let code =
-                    compile::compile(&source, &mode, "<wasm>".to_string(), vm.ctx.code_type())
-                        .map_err(|err| {
-                            SyntaxError::new(&format!("Error parsing Python code: {}", err))
-                        })?;
+                    compile::compile(&source, &mode, "<wasm>".to_string(), vm.ctx.code_type());
+                let code = code.map_err(|err| {
+                    let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
+                    if let rustpython_vm::error::CompileError::Parse(ref parse_error) = err {
+                        use rustpython_parser::error::ParseError;
+                        if let ParseError::EOF(Some(ref loc))
+                        | ParseError::ExtraToken((ref loc, ..))
+                        | ParseError::InvalidToken(ref loc)
+                        | ParseError::UnrecognizedToken((ref loc, ..), _) = parse_error
+                        {
+                            let _ = Reflect::set(
+                                &js_err,
+                                &"row".into(),
+                                &(loc.get_row() as u32).into(),
+                            );
+                            let _ = Reflect::set(
+                                &js_err,
+                                &"col".into(),
+                                &(loc.get_column() as u32).into(),
+                            );
+                        }
+                        if let ParseError::ExtraToken((_, _, ref loc))
+                        | ParseError::UnrecognizedToken((_, _, ref loc), _) = parse_error
+                        {
+                            let _ = Reflect::set(
+                                &js_err,
+                                &"endrow".into(),
+                                &(loc.get_row() as u32).into(),
+                            );
+                            let _ = Reflect::set(
+                                &js_err,
+                                &"endcol".into(),
+                                &(loc.get_column() as u32).into(),
+                            );
+                        }
+                    }
+                    js_err
+                })?;
                 let result = vm.run_code_obj(code, scope.clone());
                 convert::pyresult_to_jsresult(vm, result)
             },
