@@ -303,7 +303,9 @@ fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.get_attribute(obj.clone(), attr.clone())
 }
 
-// builtin_globals
+fn builtin_globals(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.current_scope().globals.clone())
+}
 
 fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -743,6 +745,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "filter" => ctx.filter_type(),
         "format" => ctx.new_rustfunc(builtin_format),
         "getattr" => ctx.new_rustfunc(builtin_getattr),
+        "globals" => ctx.new_rustfunc(builtin_globals),
         "hasattr" => ctx.new_rustfunc(builtin_hasattr),
         "hash" => ctx.new_rustfunc(builtin_hash),
         "hex" => ctx.new_rustfunc(builtin_hex),

@@ -35,3 +35,12 @@ except TypeError:
     pass
 else:
     raise TypeError("exec should fail unless globals is a dict or None")
+
+g = globals()
+g['x'] = 2
+exec('x += 2')
+assert x == 4
+assert g['x'] == x
+
+exec("del x")
+assert 'x' not in g
