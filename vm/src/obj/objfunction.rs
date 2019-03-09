@@ -29,6 +29,25 @@ impl PyObjectPayload2 for PyFunction {
     }
 }
 
+#[derive(Debug)]
+pub struct PyMethod {
+    // TODO: these shouldn't be public
+    pub object: PyObjectRef,
+    pub function: PyObjectRef,
+}
+
+impl PyMethod {
+    pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
+        PyMethod { object, function }
+    }
+}
+
+impl PyObjectPayload2 for PyMethod {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.bound_method_type()
+    }
+}
+
 pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
     context.set_attr(&function_type, "__get__", context.new_rustfunc(bind_method));

@@ -18,7 +18,7 @@ use crate::frame::{Scope, ScopeRef};
 use crate::obj::objbool;
 use crate::obj::objcode;
 use crate::obj::objframe;
-use crate::obj::objfunction::PyFunction;
+use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
@@ -298,12 +298,15 @@ impl VirtualMachine {
         {
             return self.invoke_python_function(code, scope, defaults, args);
         }
+        if let Some(PyMethod {
+            ref function,
+            ref object,
+        }) = func_ref.payload()
+        {
+            return self.invoke(function.clone(), args.insert(object.clone()));
+        }
         match func_ref.payload {
             PyObjectPayload::RustFunction { ref function } => function(self, args),
-            PyObjectPayload::BoundMethod {
-                ref function,
-                ref object,
-            } => self.invoke(function.clone(), args.insert(object.clone())),
             ref payload => {
                 // TODO: is it safe to just invoke __call__ otherwise?
                 trace!("invoke __call__ for: {:?}", payload);

@@ -24,7 +24,7 @@ use crate::obj::objenumerate;
 use crate::obj::objfilter;
 use crate::obj::objfloat::{self, PyFloat};
 use crate::obj::objframe;
-use crate::obj::objfunction::{self, PyFunction};
+use crate::obj::objfunction::{self, PyFunction, PyMethod};
 use crate::obj::objgenerator;
 use crate::obj::objint::{self, PyInt};
 use crate::obj::objiter;
@@ -666,7 +666,9 @@ impl PyContext {
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::BoundMethod { function, object },
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyMethod::new(object, function)),
+            },
             self.bound_method_type(),
         )
     }
@@ -1511,10 +1513,6 @@ pub enum PyObjectPayload {
     Generator {
         frame: PyObjectRef,
     },
-    BoundMethod {
-        function: PyObjectRef,
-        object: PyObjectRef,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
     },
@@ -1542,10 +1540,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Generator { .. } => write!(f, "generator"),
-            PyObjectPayload::BoundMethod {
-                ref function,
-                ref object,
-            } => write!(f, "bound-method: {:?} of {:?}", function, object),
             PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
             PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
