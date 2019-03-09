@@ -625,8 +625,8 @@ impl PyContext {
 
     pub fn new_frame(&self, code: PyObjectRef, scope: ScopeRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Frame {
-                frame: Frame::new(code, scope),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(Frame::new(code, scope)),
             },
             self.frame_type(),
         )
@@ -1508,9 +1508,6 @@ pub enum PyObjectPayload {
     MemoryView {
         obj: PyObjectRef,
     },
-    Frame {
-        frame: Frame,
-    },
     Generator {
         frame: PyObjectRef,
     },
@@ -1538,7 +1535,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Generator { .. } => write!(f, "generator"),
-            PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }
     }

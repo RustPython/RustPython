@@ -3,9 +3,7 @@
 */
 
 use crate::frame::Frame;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
@@ -39,9 +37,5 @@ fn frame_fcode(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> &Frame {
-    if let PyObjectPayload::Frame { frame } = &obj.payload {
-        frame
-    } else {
-        panic!("Inner error getting int {:?}", obj);
-    }
+    &obj.payload::<Frame>().unwrap()
 }
