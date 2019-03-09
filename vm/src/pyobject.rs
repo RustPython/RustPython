@@ -1512,10 +1512,6 @@ pub enum PyObjectPayload {
         predicate: PyObjectRef,
         iterator: PyObjectRef,
     },
-    MapIterator {
-        mapper: PyObjectRef,
-        iterators: Vec<PyObjectRef>,
-    },
     ZipIterator {
         iterators: Vec<PyObjectRef>,
     },
@@ -1573,7 +1569,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
             PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),
-            PyObjectPayload::MapIterator { .. } => write!(f, "map"),
             PyObjectPayload::ZipIterator { .. } => write!(f, "zip"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Function { .. } => write!(f, "function"),
