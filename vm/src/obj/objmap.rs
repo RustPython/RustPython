@@ -48,7 +48,7 @@ fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(PyMap {
         ref mapper,
         ref iterators,
-    }) = map.payload::<PyMap>()
+    }) = map.payload()
     {
         let next_objs = iterators
             .iter()
