@@ -74,9 +74,11 @@ snippets.addEventListener('change', updateSnippet);
 // option selected for the `select`, but the textarea won't be updated)
 updateSnippet();
 
+const prompt = ">>>>> ";
+
 const term = new Terminal();
 term.open(document.getElementById('terminal'));
-term.write(">>>> ");
+term.write(prompt);
 
 function remove_non_ascii(str) {
     if ((str===null) || (str===''))
@@ -106,7 +108,7 @@ term.on("data", (data) => {
         }
         print_to_console(err);
     }
-    term.write(">>>> ");
+    term.write(prompt);
     input = "";
   } else if (code < 32 || code == 127) { // Control
     return;
