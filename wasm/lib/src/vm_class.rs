@@ -13,9 +13,16 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::prelude::*;
 
+pub trait HeldRcInner {}
+
+impl<T> HeldRcInner for T {}
+
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
     pub scope: ScopeRef,
+    /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
+    /// as long as the StoredVM is alive
+    held_rcs: Vec<Rc<dyn HeldRcInner>>,
 }
 
 impl StoredVirtualMachine {
@@ -27,7 +34,11 @@ impl StoredVirtualMachine {
             setup_browser_module(&mut vm);
         }
         vm.wasm_id = Some(id);
-        StoredVirtualMachine { vm, scope }
+        StoredVirtualMachine {
+            vm,
+            scope,
+            held_rcs: vec![],
+        }
     }
 }
 
@@ -211,6 +222,17 @@ impl WASMVirtualMachine {
         STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
     }
 
+    pub(crate) fn push_held_rc<T: HeldRcInner + 'static>(
+        &self,
+        rc: Rc<T>,
+    ) -> Result<Weak<T>, JsValue> {
+        self.with(|stored_vm| {
+            let weak = Rc::downgrade(&rc);
+            stored_vm.held_rcs.push(rc);
+            weak
+        })
+    }
+
     pub fn assert_valid(&self) -> Result<(), JsValue> {
         if self.valid() {
             Ok(())
@@ -234,6 +256,7 @@ impl WASMVirtualMachine {
             move |StoredVirtualMachine {
                       ref mut vm,
                       ref mut scope,
+                      ..
                   }| {
                 let value = convert::js_to_py(vm, value);
                 scope.locals.set_item(&vm.ctx, &name, value);
@@ -247,6 +270,7 @@ impl WASMVirtualMachine {
             move |StoredVirtualMachine {
                       ref mut vm,
                       ref mut scope,
+                      ..
                   }| {
                 let print_fn: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> =
                     if let Some(selector) = stdout.as_string() {
@@ -315,6 +339,7 @@ impl WASMVirtualMachine {
             |StoredVirtualMachine {
                  ref mut vm,
                  ref mut scope,
+                 ..
              }| {
                 source.push('\n');
                 let code =
