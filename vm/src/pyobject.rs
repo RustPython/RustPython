@@ -1566,7 +1566,7 @@ impl PyObject {
         PyObject {
             payload,
             typ: Some(typ),
-            dict: None,
+            dict: Some(RefCell::new(PyAttributes::new())),
         }
         .into_ref()
     }

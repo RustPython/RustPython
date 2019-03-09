@@ -453,7 +453,7 @@ impl Frame {
                 let _qualified_name = self.pop_value();
                 let code_obj = self.pop_value();
 
-                let _annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
+                let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
                     self.pop_value()
                 } else {
                     vm.new_dict()
@@ -470,13 +470,8 @@ impl Frame {
                 let scope = self.scope.clone();
                 let obj = vm.ctx.new_function(code_obj, scope, defaults);
 
-                let annotation_repr = vm.to_pystr(&_annotations)?;
+                vm.ctx.set_attr(&obj, "__annotations__", annotations);
 
-                warn!(
-                    "Type annotation must be stored in attribute! {:?}",
-                    annotation_repr
-                );
-                // TODO: use annotations with set_attr here!
                 self.push_value(obj);
                 Ok(None)
             }
