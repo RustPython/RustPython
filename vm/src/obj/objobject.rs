@@ -1,6 +1,7 @@
 use super::objstr;
 use super::objtype;
 use crate::function::PyRef;
+use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
     PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
@@ -8,7 +9,6 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use crate::obj::objproperty::PropertyBuilder;
 
 #[derive(Clone, Debug)]
 pub struct PyInstance;
@@ -174,7 +174,8 @@ pub fn init(context: &PyContext) {
         "__class__",
         PropertyBuilder::new(context)
             .add_getter(object_class)
-            .add_setter(object_class_setter).create(),
+            .add_setter(object_class_setter)
+            .create(),
     );
     context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
     context.set_attr(&object, "__ne__", context.new_rustfunc(object_ne));
@@ -183,11 +184,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__gt__", context.new_rustfunc(object_gt));
     context.set_attr(&object, "__ge__", context.new_rustfunc(object_ge));
     context.set_attr(&object, "__delattr__", context.new_rustfunc(object_delattr));
-    context.set_attr(
-        &object,
-        "__dict__",
-        context.new_property(object_dict),
-    );
+    context.set_attr(&object, "__dict__", context.new_property(object_dict));
     context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));
     context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
     context.set_attr(&object, "__str__", context.new_rustfunc(object_str));

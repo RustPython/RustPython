@@ -50,11 +50,7 @@ pub fn init(context: &PyContext) {
 
     context.set_attr(&type_type, "__call__", context.new_rustfunc(type_call));
     context.set_attr(&type_type, "__new__", context.new_rustfunc(type_new));
-    context.set_attr(
-        &type_type,
-        "__mro__",
-        context.new_property(type_mro),
-    );
+    context.set_attr(&type_type, "__mro__", context.new_property(type_mro));
     context.set_attr(&type_type, "__repr__", context.new_rustfunc(type_repr));
     context.set_attr(
         &type_type,
@@ -81,13 +77,7 @@ pub fn init(context: &PyContext) {
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, Some(vm.ctx.type_type()))
-        ]
-    );
+    arg_check!(vm, args, required = [(cls, Some(vm.ctx.type_type()))]);
     match _mro(cls.clone()) {
         Some(mro) => Ok(vm.context().new_tuple(mro)),
         None => Err(vm.new_type_error("Only classes have an MRO.".to_string())),

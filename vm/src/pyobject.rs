@@ -192,7 +192,8 @@ impl PyContext {
             &dict_type,
         );
         let property_type = create_type("property", &type_type, &object_type, &dict_type);
-        let readonly_property_type = create_type("readonly_property", &type_type, &object_type, &dict_type);
+        let readonly_property_type =
+            create_type("readonly_property", &type_type, &object_type, &dict_type);
         let super_type = create_type("super", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
@@ -947,7 +948,6 @@ impl From<PyObjectRef> for PyFuncArgs {
         }
     }
 }
-
 
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {

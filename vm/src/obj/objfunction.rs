@@ -20,7 +20,6 @@ pub fn init(context: &PyContext) {
         context.new_rustfunc(bind_method),
     );
 
-
     let classmethod_type = &context.classmethod_type;
     context.set_attr(
         &classmethod_type,

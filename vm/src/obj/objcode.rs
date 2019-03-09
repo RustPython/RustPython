@@ -79,13 +79,7 @@ fn code_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn member_code_obj(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult<bytecode::CodeObject> {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(vm.ctx.code_type()))
-        ]
-    );
+    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.code_type()))]);
     Ok(get_value(zelf))
 }
 
