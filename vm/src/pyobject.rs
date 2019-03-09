@@ -1504,10 +1504,6 @@ pub enum PyObjectPayload {
         position: Cell<usize>,
         iterated_obj: PyObjectRef,
     },
-    EnumerateIterator {
-        counter: RefCell<BigInt>,
-        iterator: PyObjectRef,
-    },
     Slice {
         start: Option<BigInt>,
         stop: Option<BigInt>,
@@ -1560,7 +1556,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
-            PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Function { .. } => write!(f, "function"),
             PyObjectPayload::Generator { .. } => write!(f, "generator"),

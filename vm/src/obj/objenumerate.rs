@@ -3,10 +3,25 @@ use std::ops::AddAssign;
 
 use super::objint;
 use super::objiter;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::Zero;
+
+#[derive(Debug)]
+pub struct PyEnumerate {
+    counter: RefCell<BigInt>,
+    iterator: PyObjectRef,
+}
+
+impl PyObjectPayload2 for PyEnumerate {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.enumerate_type()
+    }
+}
 
 fn enumerate_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -22,9 +37,11 @@ fn enumerate_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     let iterator = objiter::get_iter(vm, iterable)?;
     Ok(PyObject::new(
-        PyObjectPayload::EnumerateIterator {
-            counter: RefCell::new(counter),
-            iterator,
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyEnumerate {
+                counter: RefCell::new(counter),
+                iterator,
+            }),
         },
         cls.clone(),
     ))
@@ -37,10 +54,10 @@ fn enumerate_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(enumerate, Some(vm.ctx.enumerate_type()))]
     );
 
-    if let PyObjectPayload::EnumerateIterator {
+    if let Some(PyEnumerate {
         ref counter,
         ref iterator,
-    } = enumerate.payload
+    }) = enumerate.payload()
     {
         let next_obj = objiter::call_next(vm, iterator)?;
         let result = vm
