@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use crate::function::PyRef;
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef,
-    PyResult,
+    IdProtocol, OptionalArg, PyContext, PyIteratorValue, PyObject, PyObjectPayload,
+    PyObjectPayload2, PyObjectRef, PyResult,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -127,9 +127,11 @@ impl PyTupleRef {
 
     fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Iterator {
-                position: Cell::new(0),
-                iterated_obj: self.into_object(),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyIteratorValue {
+                    position: Cell::new(0),
+                    iterated_obj: self.into_object(),
+                }),
             },
             vm.ctx.iter_type(),
         )

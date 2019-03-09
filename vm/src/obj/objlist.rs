@@ -10,8 +10,8 @@ use super::objstr;
 use super::objtype;
 use crate::function::PyRef;
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2,
-    PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload,
+    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;
@@ -112,9 +112,11 @@ impl PyListRef {
 
     fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Iterator {
-                position: Cell::new(0),
-                iterated_obj: self.into_object(),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyIteratorValue {
+                    position: Cell::new(0),
+                    iterated_obj: self.into_object(),
+                }),
             },
             vm.ctx.iter_type(),
         )
