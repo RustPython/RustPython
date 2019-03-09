@@ -311,12 +311,10 @@ fn browser_prompt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 const BROWSER_NAME: &str = "browser";
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let promise = {
-        let promise = ctx.new_class("Promise", ctx.object());
-        ctx.set_attr(&promise, "then", ctx.new_rustfunc(promise_then));
-        ctx.set_attr(&promise, "catch", ctx.new_rustfunc(promise_catch));
-        promise
-    };
+    let promise = py_class!(ctx, "Promise", ctx.object(), {
+        "then" => ctx.new_rustfunc(promise_then),
+        "catch" => ctx.new_rustfunc(promise_catch)
+    });
 
     py_module!(ctx, BROWSER_NAME, {
         "fetch" => ctx.new_rustfunc(browser_fetch),
