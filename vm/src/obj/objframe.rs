@@ -30,7 +30,7 @@ fn frame_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
     let frame = get_value(frame);
-    Ok(frame.scope.locals.clone())
+    Ok(frame.scope.get_locals().clone())
 }
 
 fn frame_fcode(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

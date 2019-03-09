@@ -12,7 +12,7 @@ use rustpython_parser::error::ParseError;
 use rustpython_vm::{
     compile,
     error::CompileError,
-    frame::ScopeRef,
+    frame::Scope,
     import,
     obj::objstr,
     print_exception,
@@ -82,8 +82,7 @@ fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> Py
         vm.new_exception(syntax_error, err.to_string())
     })?;
     // trace!("Code object: {:?}", code_obj.borrow());
-    let builtins = vm.get_builtin_scope();
-    let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
+    let vars = Scope::new(None, vm.ctx.new_dict()); // Keep track of local variables
     vm.run_code_obj(code_obj, vars)
 }
 
@@ -121,7 +120,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
     }
 }
 
-fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: ScopeRef) -> Result<(), CompileError> {
+fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
     match compile::compile(
         source,
         &compile::Mode::Single,
@@ -165,8 +164,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
         "Welcome to the magnificent Rust Python {} interpreter",
         crate_version!()
     );
-    let builtins = vm.get_builtin_scope();
-    let vars = vm.context().new_scope(Some(builtins)); // Keep track of local variables
+    let vars = Scope::new(None, vm.ctx.new_dict());
 
     // Read a single line:
     let mut input = String::new();

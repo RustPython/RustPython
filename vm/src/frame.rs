@@ -20,8 +20,8 @@ use crate::obj::objlist;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
+    PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -30,16 +30,97 @@ use crate::vm::VirtualMachine;
  * When a name is looked up, it is check in its scope.
  */
 #[derive(Debug)]
-pub struct Scope {
-    pub locals: PyObjectRef, // Variables
-    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
-    pub parent: Option<Rc<Scope>>, // Parent scope
+pub struct Locals {
+    dict: PyObjectRef,
+    parent: Option<Rc<Locals>>,
 }
-pub type ScopeRef = Rc<Scope>;
+
+#[derive(Debug, Clone)]
+pub struct Scope {
+    pub locals: Option<Rc<Locals>>, // Variables
+    pub globals: PyObjectRef,
+    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
+    //    pub parent: Option<Rc<Scope>>, // Parent scope
+}
 
 impl Scope {
-    pub fn new(locals: PyObjectRef, parent: Option<ScopeRef>) -> ScopeRef {
-        Rc::new(Scope { locals, parent })
+    pub fn new(locals: Option<PyObjectRef>, globals: PyObjectRef) -> Scope {
+        let locals = match locals {
+            Some(dict) => Some(Rc::new(Locals {
+                dict: dict,
+                parent: None,
+            })),
+            None => None,
+        };
+        Scope { locals, globals }
+    }
+
+    pub fn get_locals(&self) -> PyObjectRef {
+        match self.locals {
+            Some(ref locals) => locals.dict.clone(),
+            None => self.globals.clone(),
+        }
+    }
+
+    pub fn get_only_locals(&self) -> Option<PyObjectRef> {
+        match self.locals {
+            Some(ref locals) => Some(locals.dict.clone()),
+            None => None,
+        }
+    }
+
+    pub fn child_scope_with_locals(&self, locals: PyObjectRef) -> Scope {
+        Scope {
+            locals: Some(Rc::new(Locals {
+                dict: locals,
+                parent: self.locals.clone(),
+            })),
+            globals: self.globals.clone(),
+        }
+    }
+
+    pub fn child_scope(&self, ctx: &PyContext) -> Scope {
+        self.child_scope_with_locals(ctx.new_dict())
+    }
+}
+
+// TODO: Merge with existing Attribute protocol.
+pub trait AttributeProtocol2 {
+    fn get_attr(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn set_attr(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
+    fn del_attr(&self, vm: &VirtualMachine, name: &str);
+}
+
+impl AttributeProtocol2 for Scope {
+    fn get_attr(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+        // Lookup name in scope and put it onto the stack!
+        let mut locals = self.locals.clone();
+        loop {
+            match locals {
+                Some(new_locals) => {
+                    if let Some(value) = new_locals.dict.get_item(name) {
+                        return Some(value);
+                    } else {
+                        locals = new_locals.parent.clone()
+                    }
+                }
+                None => break,
+            }
+        }
+
+        if let Some(value) = self.globals.get_item(name) {
+            return Some(value);
+        }
+
+        vm.builtins.get_item(name)
+    }
+
+    fn set_attr(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
+        self.get_locals().set_item(&vm.ctx, key, value)
+    }
+
+    fn del_attr(&self, _vm: &VirtualMachine, key: &str) {
+        self.get_locals().del_item(key)
     }
 }
 
@@ -71,7 +152,7 @@ pub struct Frame {
     // We need 1 stack per frame
     stack: RefCell<Vec<PyObjectRef>>, // The main data frame of the stack machine
     blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
-    pub scope: ScopeRef,              // Variables
+    pub scope: Scope,                 // Variables
     pub lasti: RefCell<usize>,        // index of last instruction ran
 }
 
@@ -85,7 +166,7 @@ pub enum ExecutionResult {
 pub type FrameResult = Result<Option<ExecutionResult>, PyObjectRef>;
 
 impl Frame {
-    pub fn new(code: PyObjectRef, scope: ScopeRef) -> Frame {
+    pub fn new(code: PyObjectRef, scope: Scope) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         /*
@@ -741,9 +822,7 @@ impl Frame {
         let obj = import_module(vm, current_path, module)?;
 
         for (k, v) in obj.get_key_value_pairs().iter() {
-            self.scope
-                .locals
-                .set_item(&vm.ctx, &objstr::get_value(k), v.clone());
+            self.scope.set_attr(&vm, &objstr::get_value(k), v.clone());
         }
         Ok(None)
     }
@@ -865,35 +944,26 @@ impl Frame {
 
     fn store_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
-        self.scope.locals.set_item(&vm.ctx, name, obj);
+        self.scope.set_attr(&vm, name, obj);
         Ok(None)
     }
 
     fn delete_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
-        let name = vm.ctx.new_str(name.to_string());
-        vm.call_method(&self.scope.locals, "__delitem__", vec![name])?;
+        self.scope.del_attr(vm, name);
         Ok(None)
     }
 
     fn load_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
-        // Lookup name in scope and put it onto the stack!
-        let mut scope = self.scope.clone();
-        loop {
-            if scope.locals.contains_key(name) {
-                let obj = scope.locals.get_item(name).unwrap();
-                self.push_value(obj);
-                return Ok(None);
+        match self.scope.get_attr(&vm, name) {
+            Some(value) => {
+                self.push_value(value);
+                Ok(None)
             }
-            match &scope.parent {
-                Some(parent_scope) => {
-                    scope = parent_scope.clone();
-                }
-                None => {
-                    let name_error_type = vm.ctx.exceptions.name_error.clone();
-                    let msg = format!("name '{}' is not defined", name);
-                    let name_error = vm.new_exception(name_error_type, msg);
-                    return Err(name_error);
-                }
+            None => {
+                let name_error_type = vm.ctx.exceptions.name_error.clone();
+                let msg = format!("name '{}' is not defined", name);
+                let name_error = vm.new_exception(name_error_type, msg);
+                Err(name_error)
             }
         }
     }
@@ -1144,7 +1214,7 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
-        let local_str = match self.scope.locals.payload::<PyDict>() {
+        let local_str = match self.scope.get_locals().payload::<PyDict>() {
             Some(dict) => objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
                 .iter()
                 .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
