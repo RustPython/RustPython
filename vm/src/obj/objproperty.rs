@@ -4,10 +4,10 @@
 
 use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectRef, PyObjectPayload, PyObjectPayload2, PyResult, TypeProtocol};
 use crate::pyobject::IntoPyNativeFunc;
-use crate::obj::objnone::PyNone;
 use crate::VirtualMachine;
 use crate::function::PyRef;
 use std::marker::PhantomData;
+use crate::obj::objtype::PyClassRef;
 
 /// Read-only property, doesn't have __set__ or __delete__
 #[derive(Debug)]
@@ -24,7 +24,7 @@ impl PyObjectPayload2 for PyReadOnlyProperty {
 pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 
 impl PyReadOnlyPropertyRef {
-    fn get(self, obj: PyObjectRef, _owner: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
         vm.invoke(self.getter.clone(), obj)
     }
 }
@@ -46,7 +46,7 @@ impl PyObjectPayload2 for PyProperty {
 pub type PyPropertyRef = PyRef<PyProperty>;
 
 impl PyPropertyRef {
-    fn get(self, obj: PyObjectRef, _owner: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
             vm.invoke(getter.clone(), obj)
         } else {
@@ -71,44 +71,40 @@ impl PyPropertyRef {
     }
 }
 
-pub struct PropertyBuilder<'a, I, T> {
-    vm: &'a mut VirtualMachine,
+pub struct PropertyBuilder<'a, T> {
+    ctx: &'a PyContext,
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
-    instance: PhantomData<I>,
     _return: PhantomData<T>
 }
 
 
-impl<'a, I, T> PropertyBuilder<'a, I, T> {
-    pub(crate) fn new(vm: &'a mut VirtualMachine) -> Self {
+impl<'a, T> PropertyBuilder<'a, T> {
+    pub fn new(ctx: &'a PyContext) -> Self {
         Self {
-            vm,
+            ctx,
             getter: None,
             setter: None,
-            instance: PhantomData,
             _return: PhantomData
         }
     }
 
-    pub fn add_getter<F:IntoPyNativeFunc<I, T>>(self, func: F) -> Self {
-        let func = self.vm.ctx.new_rustfunc(func);
+    pub fn add_getter<I, F:IntoPyNativeFunc<I, T>>(self, func: F) -> Self {
+        let func = self.ctx.new_rustfunc(func);
         Self {
-            vm: self.vm,
+            ctx: self.ctx,
             getter: Some(func),
             setter: self.setter,
-            instance: PhantomData,
             _return: PhantomData
         }
     }
 
-    pub fn add_setter<F:IntoPyNativeFunc<(I, T), PyNone>>(self, func: F) -> Self {
-        let func = self.vm.ctx.new_rustfunc(func);
+    pub fn add_setter<I, F:IntoPyNativeFunc<(I, T), PyResult>>(self, func: F) -> Self {
+        let func = self.ctx.new_rustfunc(func);
         Self {
-            vm: self.vm,
-            getter: self.setter,
+            ctx: self.ctx,
+            getter: self.getter,
             setter: Some(func),
-            instance: PhantomData,
             _return: PhantomData
         }
     }
@@ -125,7 +121,7 @@ impl<'a, I, T> PropertyBuilder<'a, I, T> {
                 PyObjectPayload::AnyRustValue {
                     value: Box::new(payload)
                 },
-                self.vm.ctx.property_type(),
+                self.ctx.property_type(),
             )
         } else {
             let payload = PyReadOnlyProperty {
@@ -136,7 +132,7 @@ impl<'a, I, T> PropertyBuilder<'a, I, T> {
                 PyObjectPayload::AnyRustValue {
                     value: Box::new(payload)
                 },
-                self.vm.ctx.readonly_property_type(),
+                self.ctx.readonly_property_type(),
             )
         }
     }

@@ -53,7 +53,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(
         &type_type,
         "__mro__",
-        context.new_member_descriptor(type_mro),
+        context.new_property(type_mro),
     );
     context.set_attr(&type_type, "__repr__", context.new_rustfunc(type_repr));
     context.set_attr(
@@ -85,8 +85,7 @@ fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [
-            (cls, Some(vm.ctx.type_type())),
-            (_typ, Some(vm.ctx.type_type()))
+            (cls, Some(vm.ctx.type_type()))
         ]
     );
     match _mro(cls.clone()) {

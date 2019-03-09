@@ -47,7 +47,7 @@ pub fn init(context: &PyContext) {
         ("co_kwonlyargcount", code_co_kwonlyargcount),
         ("co_name", code_co_name),
     ] {
-        context.set_attr(code_type, name, context.new_member_descriptor(f))
+        context.set_attr(code_type, name, context.new_property(f))
     }
 }
 
@@ -83,8 +83,7 @@ fn member_code_obj(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult<byteco
         vm,
         args,
         required = [
-            (zelf, Some(vm.ctx.code_type())),
-            (_cls, Some(vm.ctx.type_type()))
+            (zelf, Some(vm.ctx.code_type()))
         ]
     );
     Ok(get_value(zelf))

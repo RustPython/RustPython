@@ -151,8 +151,6 @@ pub struct PyContext {
     pub readonly_property_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
-    pub member_descriptor_type: PyObjectRef,
-    pub data_descriptor_type: PyObjectRef,
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -198,10 +196,6 @@ impl PyContext {
         let super_type = create_type("super", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
-        let member_descriptor_type =
-            create_type("member_descriptor", &type_type, &object_type, &dict_type);
-        let data_descriptor_type =
-            create_type("data_descriptor", &type_type, &object_type, &dict_type);
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
         let set_type = create_type("set", &type_type, &object_type, &dict_type);
@@ -299,8 +293,6 @@ impl PyContext {
             generator_type,
             module_type,
             bound_method_type,
-            member_descriptor_type,
-            data_descriptor_type,
             type_type,
             exceptions,
         };
@@ -465,12 +457,6 @@ impl PyContext {
 
     pub fn bound_method_type(&self) -> PyObjectRef {
         self.bound_method_type.clone()
-    }
-    pub fn member_descriptor_type(&self) -> PyObjectRef {
-        self.member_descriptor_type.clone()
-    }
-    pub fn data_descriptor_type(&self) -> PyObjectRef {
-        self.data_descriptor_type.clone()
     }
 
     pub fn type_type(&self) -> PyObjectRef {
@@ -640,10 +626,7 @@ impl PyContext {
     where
         F: IntoPyNativeFunc<T, R>,
     {
-        let fget = self.new_rustfunc(f);
-        let py_obj = self.new_instance(self.property_type(), None);
-        self.set_attr(&py_obj, "fget", fget);
-        py_obj
+        PropertyBuilder::new(self).add_getter(f).create()
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
@@ -676,31 +659,6 @@ impl PyContext {
             PyObjectPayload::BoundMethod { function, object },
             self.bound_method_type(),
         )
-    }
-
-    pub fn new_member_descriptor<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
-        &self,
-        function: F,
-    ) -> PyObjectRef {
-        let mut dict = PyAttributes::new();
-        dict.insert("function".to_string(), self.new_rustfunc(function));
-        self.new_instance(self.member_descriptor_type(), Some(dict))
-    }
-
-    pub fn new_data_descriptor<
-        G: IntoPyNativeFunc<(I, PyObjectRef), T>,
-        S: IntoPyNativeFunc<(I, T), PyResult>,
-        T,
-        I,
-    >(
-        &self,
-        getter: G,
-        setter: S,
-    ) -> PyObjectRef {
-        let mut dict = PyAttributes::new();
-        dict.insert("fget".to_string(), self.new_rustfunc(getter));
-        dict.insert("fset".to_string(), self.new_rustfunc(setter));
-        self.new_instance(self.data_descriptor_type(), Some(dict))
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
@@ -1292,6 +1250,7 @@ pub enum OptionalArg<T> {
 }
 
 use self::OptionalArg::*;
+use crate::obj::objproperty::PropertyBuilder;
 
 impl<T> OptionalArg<T> {
     pub fn into_option(self) -> Option<T> {
