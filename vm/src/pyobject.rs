@@ -1508,10 +1508,6 @@ pub enum PyObjectPayload {
         counter: RefCell<BigInt>,
         iterator: PyObjectRef,
     },
-    FilterIterator {
-        predicate: PyObjectRef,
-        iterator: PyObjectRef,
-    },
     Slice {
         start: Option<BigInt>,
         stop: Option<BigInt>,
@@ -1565,7 +1561,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::EnumerateIterator { .. } => write!(f, "enumerate"),
-            PyObjectPayload::FilterIterator { .. } => write!(f, "filter"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::Function { .. } => write!(f, "function"),
             PyObjectPayload::Generator { .. } => write!(f, "generator"),
