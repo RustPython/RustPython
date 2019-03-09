@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::iter;
 use std::ops::RangeInclusive;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 use num_bigint::BigInt;
 use num_bigint::ToBigInt;
@@ -43,6 +43,7 @@ use crate::obj::objstr;
 use crate::obj::objsuper;
 use crate::obj::objtuple::{self, PyTuple};
 use crate::obj::objtype::{self, PyClass};
+use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
 
@@ -66,9 +67,6 @@ Basically reference counting, but then done by rust.
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
 pub type PyObjectRef = Rc<PyObject>;
-
-/// Same as PyObjectRef, except for being a weak reference.
-pub type PyObjectWeakRef = Weak<PyObject>;
 
 /// Use this type for function which return a python object or and exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -141,6 +139,7 @@ pub struct PyContext {
     pub readonly_property_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
+    pub weakref_type: PyObjectRef,
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -185,6 +184,7 @@ impl PyContext {
         let readonly_property_type =
             create_type("readonly_property", &type_type, &object_type, &dict_type);
         let super_type = create_type("super", &type_type, &object_type, &dict_type);
+        let weakref_type = create_type("ref", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
@@ -284,6 +284,7 @@ impl PyContext {
             generator_type,
             module_type,
             bound_method_type,
+            weakref_type,
             type_type,
             exceptions,
         };
@@ -316,6 +317,7 @@ impl PyContext {
         objbool::init(&context);
         objcode::init(&context);
         objframe::init(&context);
+        objweakref::init(&context);
         objnone::init(&context);
         objmodule::init(&context);
         exceptions::init(&context);
@@ -450,6 +452,10 @@ impl PyContext {
         self.bound_method_type.clone()
     }
 
+    pub fn weakref_type(&self) -> PyObjectRef {
+        self.weakref_type.clone()
+    }
+
     pub fn type_type(&self) -> PyObjectRef {
         self.type_type.clone()
     }
@@ -465,6 +471,7 @@ impl PyContext {
     pub fn not_implemented(&self) -> PyObjectRef {
         self.not_implemented.clone()
     }
+
     pub fn object(&self) -> PyObjectRef {
         self.object.clone()
     }
@@ -1481,7 +1488,6 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum PyObjectPayload {
-    WeakRef { referent: PyObjectWeakRef },
     AnyRustValue { value: Box<dyn std::any::Any> },
 }
 
@@ -1510,7 +1516,6 @@ impl PyObjectPayload2 for PyIteratorValue {
 impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }
     }
