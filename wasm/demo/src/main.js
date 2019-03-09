@@ -110,6 +110,9 @@ term.on("data", (data) => {
     }
     term.write(prompt);
     input = "";
+  } else if (code == 127) {
+    term.write("\b \b");
+    input = input.slice(0, -1);
   } else if (code < 32 || code == 127) { // Control
     return;
   } else { // Visible
