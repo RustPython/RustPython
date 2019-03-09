@@ -1508,9 +1508,6 @@ pub enum PyObjectPayload {
     MemoryView {
         obj: PyObjectRef,
     },
-    Generator {
-        frame: PyObjectRef,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
     },
@@ -1534,7 +1531,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
-            PyObjectPayload::Generator { .. } => write!(f, "generator"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }
     }
