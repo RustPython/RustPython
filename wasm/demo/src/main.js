@@ -2,6 +2,7 @@ import * as rp from '../../lib/pkg';
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/python/python';
 import 'codemirror/addon/comment/comment';
+import { Terminal } from 'xterm';
 
 // so people can play around with it
 window.rp = rp;
@@ -72,3 +73,45 @@ snippets.addEventListener('change', updateSnippet);
 // Run once for demo (updateSnippet b/c the browser might try to keep the same
 // option selected for the `select`, but the textarea won't be updated)
 updateSnippet();
+
+const term = new Terminal();
+term.open(document.getElementById('terminal'));
+term.write(">>>> ");
+
+function remove_non_ascii(str) {
+    if ((str===null) || (str===''))
+        return false;
+    else
+        str = str.toString();
+
+    return str.replace(/[^\x20-\x7E]/g, '');
+}
+
+function print_to_console(data) {
+    term.write(remove_non_ascii(data) + "\r\n");
+}
+
+var input = "";
+term.on("data", (data) => {
+  const code = data.charCodeAt(0);
+  if (code == 13) { // CR
+    term.write("\r\n");
+    try {
+        rp.pyEval(input, {
+            stdout: print_to_console
+        });
+    } catch (err) {
+        if (err instanceof WebAssembly.RuntimeError) {
+            err = window.__RUSTPYTHON_ERROR || err;
+        }
+        print_to_console(err);
+    }
+    term.write(">>>> ");
+    input = "";
+  } else if (code < 32 || code == 127) { // Control
+    return;
+  } else { // Visible
+    term.write(data);
+    input += data;
+  }
+});

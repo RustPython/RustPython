@@ -4,7 +4,8 @@
     "description": "Bindings to the RustPython library for WebAssembly",
     "main": "index.js",
     "dependencies": {
-        "codemirror": "^5.42.0"
+        "codemirror": "^5.42.0",
+        "xterm": "^3.8.0"
     },
     "devDependencies": {
         "@wasm-tool/wasm-pack-plugin": "0.2.0",
