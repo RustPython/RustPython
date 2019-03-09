@@ -30,51 +30,84 @@ use crate::vm::VirtualMachine;
  * When a name is looked up, it is check in its scope.
  */
 #[derive(Debug)]
-pub struct Locals {
-    dict: PyObjectRef,
-    parent: Option<Rc<Locals>>,
+struct RcListNode<T> {
+    elem: T,
+    next: Option<Rc<RcListNode<T>>>,
+}
+
+#[derive(Debug, Clone)]
+struct RcList<T> {
+    head: Option<Rc<RcListNode<T>>>,
+}
+
+struct Iter<'a, T: 'a> {
+    next: Option<&'a RcListNode<T>>,
+}
+
+impl<T> RcList<T> {
+    pub fn new() -> Self {
+        RcList { head: None }
+    }
+
+    pub fn insert(self, elem: T) -> Self {
+        RcList {
+            head: Some(Rc::new(RcListNode {
+                elem,
+                next: self.head,
+            })),
+        }
+    }
+
+    pub fn iter(&self) -> Iter<T> {
+        Iter {
+            next: self.head.as_ref().map(|node| &**node),
+        }
+    }
+}
+
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next.map(|node| {
+            self.next = node.next.as_ref().map(|node| &**node);
+            &node.elem
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Scope {
-    pub locals: Option<Rc<Locals>>, // Variables
+    locals: RcList<PyObjectRef>,
     pub globals: PyObjectRef,
-    // TODO: pub locals: RefCell<PyAttributes>,         // Variables
-    //    pub parent: Option<Rc<Scope>>, // Parent scope
 }
 
 impl Scope {
     pub fn new(locals: Option<PyObjectRef>, globals: PyObjectRef) -> Scope {
         let locals = match locals {
-            Some(dict) => Some(Rc::new(Locals {
-                dict: dict,
-                parent: None,
-            })),
-            None => None,
+            Some(dict) => RcList::new().insert(dict),
+            None => RcList::new(),
         };
         Scope { locals, globals }
     }
 
     pub fn get_locals(&self) -> PyObjectRef {
-        match self.locals {
-            Some(ref locals) => locals.dict.clone(),
+        match self.locals.iter().next() {
+            Some(dict) => dict.clone(),
             None => self.globals.clone(),
         }
     }
 
     pub fn get_only_locals(&self) -> Option<PyObjectRef> {
-        match self.locals {
-            Some(ref locals) => Some(locals.dict.clone()),
+        match self.locals.iter().next() {
+            Some(dict) => Some(dict.clone()),
             None => None,
         }
     }
 
     pub fn child_scope_with_locals(&self, locals: PyObjectRef) -> Scope {
         Scope {
-            locals: Some(Rc::new(Locals {
-                dict: locals,
-                parent: self.locals.clone(),
-            })),
+            locals: self.locals.clone().insert(locals),
             globals: self.globals.clone(),
         }
     }
@@ -93,18 +126,9 @@ pub trait AttributeProtocol2 {
 
 impl AttributeProtocol2 for Scope {
     fn get_attr(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
-        // Lookup name in scope and put it onto the stack!
-        let mut locals = self.locals.clone();
-        loop {
-            match locals {
-                Some(new_locals) => {
-                    if let Some(value) = new_locals.dict.get_item(name) {
-                        return Some(value);
-                    } else {
-                        locals = new_locals.parent.clone()
-                    }
-                }
-                None => break,
+        for dict in self.locals.iter() {
+            if let Some(value) = dict.get_item(name) {
+                return Some(value);
             }
         }
 
