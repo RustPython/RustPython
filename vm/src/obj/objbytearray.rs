@@ -1,6 +1,7 @@
 //! Implementation of the python bytearray object.
 
 use std::cell::RefCell;
+use std::fmt::Write;
 use std::ops::{Deref, DerefMut};
 
 use crate::pyobject::{
@@ -311,10 +312,19 @@ fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
 }
 */
 
+/// Return a lowercase hex representation of a bytearray
+fn bytearray_to_hex(bytearray: &[u8]) -> String {
+    bytearray.iter().fold(String::new(), |mut s, b| {
+        let _ = write!(s, "\\x{:02x}", b);
+        s
+    })
+}
+
 fn bytearray_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
     let value = get_value(obj);
-    let data = String::from_utf8(value.to_vec()).unwrap();
+    let data =
+        String::from_utf8(value.to_vec()).unwrap_or_else(|_| bytearray_to_hex(&value.to_vec()));
     Ok(vm.new_str(format!("bytearray(b'{}')", data)))
 }
 
@@ -345,4 +355,14 @@ fn bytearray_upper(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
     let value = get_value(obj).to_vec().to_ascii_uppercase();
     Ok(vm.ctx.new_bytearray(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bytearray_to_hex_formatting() {
+        assert_eq!(&bytearray_to_hex(&[11u8, 222u8]), "\\x0b\\xde");
+    }
 }

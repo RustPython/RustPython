@@ -122,6 +122,7 @@ pub enum Statement {
         // docstring: String,
         body: Vec<LocatedStatement>,
         decorator_list: Vec<Expression>,
+        returns: Option<Expression>,
     },
 }
 
@@ -217,6 +218,7 @@ pub enum Expression {
     True,
     False,
     None,
+    Ellipsis,
 }
 
 impl Expression {
@@ -259,6 +261,7 @@ impl Expression {
             Lambda { .. } => "lambda",
             IfExpression { .. } => "conditional expression",
             True | False | None => "keyword",
+            Ellipsis => "ellipsis",
         }
     }
 }
@@ -269,12 +272,18 @@ impl Expression {
  */
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameters {
-    pub args: Vec<String>,
-    pub kwonlyargs: Vec<String>,
-    pub vararg: Option<Option<String>>, // Optionally we handle optionally named '*args' or '*'
-    pub kwarg: Option<Option<String>>,
+    pub args: Vec<Parameter>,
+    pub kwonlyargs: Vec<Parameter>,
+    pub vararg: Option<Option<Parameter>>, // Optionally we handle optionally named '*args' or '*'
+    pub kwarg: Option<Option<Parameter>>,
     pub defaults: Vec<Expression>,
     pub kw_defaults: Vec<Option<Expression>>,
+}
+
+#[derive(Debug, PartialEq, Default)]
+pub struct Parameter {
+    pub arg: String,
+    pub annotation: Option<Box<Expression>>,
 }
 
 #[derive(Debug, PartialEq)]

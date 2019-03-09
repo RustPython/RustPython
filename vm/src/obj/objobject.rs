@@ -1,12 +1,17 @@
 use super::objstr;
 use super::objtype;
+use crate::function::PyRef;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
+    PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::HashMap;
+
+#[derive(Clone, Debug)]
+pub struct PyInstance;
+pub type PyInstanceRef = PyRef<PyInstance>;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
@@ -19,11 +24,13 @@ pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, _dict_typ
     // this is not ideal
     let ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject;
     unsafe {
-        (*ptr).payload = PyObjectPayload::Class {
-            name: String::from("object"),
-            dict: RefCell::new(HashMap::new()),
-            mro: vec![],
+        (*ptr).payload = PyObjectPayload::AnyRustValue {
+            value: Box::new(objtype::PyClass {
+                name: String::from("object"),
+                mro: vec![],
+            }),
         };
+        (*ptr).dict = Some(RefCell::new(HashMap::new()));
         (*ptr).typ = Some(type_type.clone());
     }
 }
@@ -105,13 +112,13 @@ fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    match zelf.payload {
-        PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
+    match zelf.dict {
+        Some(ref dict) => {
             let attr_name = objstr::get_value(attr);
             dict.borrow_mut().remove(&attr_name);
             Ok(vm.get_none())
         }
-        _ => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
+        None => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
     }
 }
 
@@ -125,6 +132,18 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let type_name = objtype::get_type_name(&obj.typ());
     let address = obj.get_id();
     Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
+}
+
+pub fn object_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(obj, None)]);
+
+    let attributes = get_attributes(&obj);
+    Ok(vm.ctx.new_list(
+        attributes
+            .keys()
+            .map(|k| vm.ctx.new_str(k.to_string()))
+            .collect(),
+    ))
 }
 
 fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -149,6 +168,11 @@ pub fn init(context: &PyContext) {
 
     context.set_attr(&object, "__new__", context.new_rustfunc(new_instance));
     context.set_attr(&object, "__init__", context.new_rustfunc(object_init));
+    context.set_attr(
+        &object,
+        "__class__",
+        context.new_data_descriptor(object_class, object_class_setter),
+    );
     context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
     context.set_attr(&object, "__ne__", context.new_rustfunc(object_ne));
     context.set_attr(&object, "__lt__", context.new_rustfunc(object_lt));
@@ -161,6 +185,7 @@ pub fn init(context: &PyContext) {
         "__dict__",
         context.new_member_descriptor(object_dict),
     );
+    context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));
     context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
     context.set_attr(&object, "__str__", context.new_rustfunc(object_str));
     context.set_attr(&object, "__repr__", context.new_rustfunc(object_repr));
@@ -177,16 +202,29 @@ fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.none())
 }
 
+// TODO Use PyClassRef for owner to enforce type
+fn object_class(_obj: PyObjectRef, owner: PyObjectRef, _vm: &mut VirtualMachine) -> PyObjectRef {
+    owner
+}
+
+fn object_class_setter(
+    instance: PyObjectRef,
+    _value: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult {
+    let type_repr = vm.to_pystr(&instance.typ())?;
+    Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
+}
+
 fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].payload {
-        PyObjectPayload::Class { ref dict, .. } | PyObjectPayload::Instance { ref dict, .. } => {
-            let new_dict = vm.new_dict();
-            for (attr, value) in dict.borrow().iter() {
-                new_dict.set_item(&vm.ctx, &attr, value.clone());
-            }
-            Ok(new_dict)
+    if let Some(ref dict) = args.args[0].dict {
+        let new_dict = vm.new_dict();
+        for (attr, value) in dict.borrow().iter() {
+            new_dict.set_item(&vm.ctx, &attr, value.clone());
         }
-        _ => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
+        Ok(new_dict)
+    } else {
+        Err(vm.new_type_error("TypeError: no dictionary.".to_string()))
     }
 }
 
@@ -207,13 +245,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let attr_class = attr.typ();
         if attr_class.has_attr("__set__") {
             if let Some(descriptor) = attr_class.get_attr("__get__") {
-                return vm.invoke(
-                    descriptor,
-                    PyFuncArgs {
-                        args: vec![attr, obj.clone(), cls],
-                        kwargs: vec![],
-                    },
-                );
+                return vm.invoke(descriptor, vec![attr, obj.clone(), cls]);
             }
         }
     }
@@ -223,13 +255,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if let Some(attr) = cls.get_attr(&name) {
         vm.call_get_descriptor(attr, obj.clone())
     } else if let Some(getter) = cls.get_attr("__getattr__") {
-        vm.invoke(
-            getter,
-            PyFuncArgs {
-                args: vec![cls, name_str.clone()],
-                kwargs: vec![],
-            },
-        )
+        vm.invoke(getter, vec![cls, name_str.clone()])
     } else {
         let attribute_error = vm.context().exceptions.attribute_error.clone();
         Err(vm.new_exception(
@@ -237,4 +263,18 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             format!("{} has no attribute '{}'", obj, name),
         ))
     }
+}
+
+pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
+    // Get class attributes:
+    let mut attributes = objtype::get_attributes(&obj.typ());
+
+    // Get instance attributes:
+    if let Some(dict) = &obj.dict {
+        for (name, value) in dict.borrow().iter() {
+            attributes.insert(name.to_string(), value.clone());
+        }
+    }
+
+    attributes
 }

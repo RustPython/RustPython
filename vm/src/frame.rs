@@ -1,9 +1,11 @@
-extern crate rustpython_parser;
-
-use self::rustpython_parser::ast;
 use std::cell::RefCell;
 use std::fmt;
 use std::path::PathBuf;
+use std::rc::Rc;
+
+use num_bigint::BigInt;
+
+use rustpython_parser::ast;
 
 use crate::builtins;
 use crate::bytecode;
@@ -11,6 +13,8 @@ use crate::import::{import, import_module};
 use crate::obj::objbool;
 use crate::obj::objcode;
 use crate::obj::objdict;
+use crate::obj::objdict::PyDict;
+use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objstr;
@@ -20,8 +24,6 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use num_bigint::BigInt;
-use std::rc::Rc;
 
 /*
  * So a scope is a linked list of scopes.
@@ -285,10 +287,14 @@ impl Frame {
 
                 let mut out: Vec<Option<BigInt>> = elements
                     .into_iter()
-                    .map(|x| match x.payload {
-                        PyObjectPayload::Integer { ref value } => Some(value.clone()),
-                        PyObjectPayload::None => None,
-                        _ => panic!("Expect Int or None as BUILD_SLICE arguments, got {:?}", x),
+                    .map(|x| {
+                        if x.is(&vm.ctx.none()) {
+                            None
+                        } else if let Some(i) = x.payload::<PyInt>() {
+                            Some(i.value.clone())
+                        } else {
+                            panic!("Expect Int or None as BUILD_SLICE arguments")
+                        }
                     })
                     .collect();
 
@@ -446,15 +452,31 @@ impl Frame {
             bytecode::Instruction::MakeFunction { flags } => {
                 let _qualified_name = self.pop_value();
                 let code_obj = self.pop_value();
+
+                let _annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
+                    self.pop_value()
+                } else {
+                    vm.new_dict()
+                };
+
                 let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
                     self.pop_value()
                 } else {
                     vm.get_none()
                 };
+
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.scope.clone();
                 let obj = vm.ctx.new_function(code_obj, scope, defaults);
+
+                let annotation_repr = vm.to_pystr(&_annotations)?;
+
+                warn!(
+                    "Type annotation must be stored in attribute! {:?}",
+                    annotation_repr
+                );
+                // TODO: use annotations with set_attr here!
                 self.push_value(obj);
                 Ok(None)
             }
@@ -574,18 +596,15 @@ impl Frame {
             }
             bytecode::Instruction::PrintExpr => {
                 let expr = self.pop_value();
-                match expr.payload {
-                    PyObjectPayload::None => (),
-                    _ => {
-                        let repr = vm.to_repr(&expr)?;
-                        builtins::builtin_print(
-                            vm,
-                            PyFuncArgs {
-                                args: vec![repr],
-                                kwargs: vec![],
-                            },
-                        )?;
-                    }
+                if !expr.is(&vm.get_none()) {
+                    let repr = vm.to_repr(&expr)?;
+                    builtins::builtin_print(
+                        vm,
+                        PyFuncArgs {
+                            args: vec![repr],
+                            kwargs: vec![],
+                        },
+                    )?;
                 }
                 Ok(None)
             }
@@ -1125,18 +1144,13 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<Vec<_>>()
             .join("");
-        let local_str = match self.scope.locals.payload {
-            PyObjectPayload::Dict { ref elements } => {
-                objdict::get_key_value_pairs_from_content(&elements.borrow())
-                    .iter()
-                    .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-                    .collect::<Vec<_>>()
-                    .join("")
-            }
-            ref unexpected => panic!(
-                "locals unexpectedly not wrapping a dict! instead: {:?}",
-                unexpected
-            ),
+        let local_str = match self.scope.locals.payload::<PyDict>() {
+            Some(dict) => objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
+                .iter()
+                .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
+                .collect::<Vec<_>>()
+                .join(""),
+            None => panic!("locals unexpectedly not wrapping a dict!",),
         };
         write!(
             f,

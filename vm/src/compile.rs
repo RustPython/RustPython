@@ -7,6 +7,7 @@
 
 use crate::bytecode::{self, CallType, CodeObject, Instruction};
 use crate::error::CompileError;
+use crate::obj::objcode;
 use crate::pyobject::{PyObject, PyObjectPayload, PyObjectRef};
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
@@ -48,7 +49,12 @@ pub fn compile(
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(PyObject::new(PyObjectPayload::Code { code }, code_type))
+    Ok(PyObject::new(
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(objcode::PyCode::new(code)),
+        },
+        code_type,
+    ))
 }
 
 pub enum Mode {
@@ -300,7 +306,8 @@ impl Compiler {
                 args,
                 body,
                 decorator_list,
-            } => self.compile_function_def(name, args, body, decorator_list)?,
+                returns,
+            } => self.compile_function_def(name, args, body, decorator_list, returns)?,
             ast::Statement::ClassDef {
                 name,
                 body,
@@ -442,10 +449,14 @@ impl Compiler {
 
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
-            args.args.clone(),
-            args.vararg.clone(),
-            args.kwonlyargs.clone(),
-            args.kwarg.clone(),
+            args.args.iter().map(|a| a.arg.clone()).collect(),
+            args.vararg
+                .as_ref()
+                .map(|x| x.as_ref().map(|a| a.arg.clone())),
+            args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
+            args.kwarg
+                .as_ref()
+                .map(|x| x.as_ref().map(|a| a.arg.clone())),
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
@@ -584,6 +595,7 @@ impl Compiler {
         args: &ast::Parameters,
         body: &[ast::LocatedStatement],
         decorator_list: &[ast::Expression],
+        returns: &Option<ast::Expression>, // TODO: use type hint somehow..
     ) -> Result<(), CompileError> {
         // Create bytecode for this function:
         // remember to restore self.in_loop to the original after the function is compiled
@@ -591,7 +603,7 @@ impl Compiler {
         let was_in_function_def = self.in_function_def;
         self.in_loop = false;
         self.in_function_def = true;
-        let flags = self.enter_function(name, args)?;
+        let mut flags = self.enter_function(name, args)?;
         self.compile_statements(body)?;
 
         // Emit None at end:
@@ -602,6 +614,43 @@ impl Compiler {
         let code = self.pop_code_object();
 
         self.prepare_decorators(decorator_list)?;
+
+        // Prepare type annotations:
+        let mut num_annotations = 0;
+
+        // Return annotation:
+        if let Some(annotation) = returns {
+            // key:
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: "return".to_string(),
+                },
+            });
+            // value:
+            self.compile_expression(annotation)?;
+            num_annotations += 1;
+        }
+
+        for arg in args.args.iter() {
+            if let Some(annotation) = &arg.annotation {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: arg.arg.to_string(),
+                    },
+                });
+                self.compile_expression(&annotation)?;
+                num_annotations += 1;
+            }
+        }
+
+        if num_annotations > 0 {
+            flags |= bytecode::FunctionOpArg::HAS_ANNOTATIONS;
+            self.emit(Instruction::BuildMap {
+                size: num_annotations,
+                unpack: false,
+            });
+        }
+
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
                 code: Box::new(code),
@@ -1054,6 +1103,11 @@ impl Compiler {
             ast::Expression::None => {
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::None,
+                });
+            }
+            ast::Expression::Ellipsis => {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::Ellipsis,
                 });
             }
             ast::Expression::String { value } => {

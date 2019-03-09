@@ -31,6 +31,7 @@ pub struct CodeObject {
 bitflags! {
     pub struct FunctionOpArg: u8 {
         const HAS_DEFAULTS = 0x01;
+        const HAS_ANNOTATIONS = 0x04;
     }
 }
 
@@ -193,6 +194,7 @@ pub enum Constant {
     Code { code: Box<CodeObject> },
     Tuple { elements: Vec<Constant> },
     None,
+    Ellipsis,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -385,6 +387,7 @@ impl fmt::Display for Constant {
                     .join(", ")
             ),
             Constant::None => write!(f, "None"),
+            Constant::Ellipsis => write!(f, "Ellipsis"),
         }
     }
 }

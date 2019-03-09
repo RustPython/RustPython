@@ -1,16 +1,18 @@
 use std::cell::Cell;
 use std::ops::Mul;
 
-use super::objint;
-use super::objtype;
+use num_bigint::{BigInt, Sign};
+use num_integer::Integer;
+use num_traits::{One, Signed, ToPrimitive, Zero};
+
 use crate::pyobject::{
     PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use num_bigint::{BigInt, Sign};
-use num_integer::Integer;
-use num_traits::{One, Signed, ToPrimitive, Zero};
+
+use super::objint::{self, PyInt};
+use super::objtype;
 
 #[derive(Debug, Clone)]
 pub struct PyRange {
@@ -284,14 +286,15 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let range = get_value(zelf);
 
+    if let Some(i) = subscript.payload::<PyInt>() {
+        return if let Some(int) = range.get(i.value.clone()) {
+            Ok(vm.ctx.new_int(int))
+        } else {
+            Err(vm.new_index_error("range object index out of range".to_string()))
+        };
+    }
+
     match subscript.payload {
-        PyObjectPayload::Integer { ref value } => {
-            if let Some(int) = range.get(value) {
-                Ok(vm.ctx.new_int(int))
-            } else {
-                Err(vm.new_index_error("range object index out of range".to_string()))
-            }
-        }
         PyObjectPayload::Slice {
             ref start,
             ref stop,

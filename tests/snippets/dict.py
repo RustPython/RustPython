@@ -17,3 +17,20 @@ assert dict_eq(b, {'a': a, 'd': 9})
 
 a.clear()
 assert len(a) == 0
+
+a = {'a': 5, 'b': 6}
+res = set()
+for value in a.values():
+	res.add(value)
+assert res == set([5,6])
+
+count = 0
+for (key, value) in a.items():
+	assert a[key] == value
+	count += 1
+assert count == len(a)
+
+res = set()
+for key in a.keys():
+	res.add(key)
+assert res == set(['a','b'])

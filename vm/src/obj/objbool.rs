@@ -1,11 +1,15 @@
-use super::objfloat::PyFloat;
-use super::objstr::PyString;
-use super::objtype;
-use crate::pyobject::{
-    IntoPyObject, PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 use num_traits::Zero;
+
+use crate::pyobject::{IntoPyObject, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
+
+use super::objdict::PyDict;
+use super::objfloat::PyFloat;
+use super::objint::PyInt;
+use super::objlist::PyList;
+use super::objstr::PyString;
+use super::objtuple::PyTuple;
+use super::objtype;
 
 impl IntoPyObject for bool {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult {
@@ -13,31 +17,35 @@ impl IntoPyObject for bool {
     }
 }
 
-pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> Result<bool, PyObjectRef> {
+pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
     if let Some(s) = obj.payload::<PyString>() {
         return Ok(!s.value.is_empty());
     }
     if let Some(value) = obj.payload::<PyFloat>() {
         return Ok(*value != PyFloat::from(0.0));
     }
-    let result = match obj.payload {
-        PyObjectPayload::Integer { ref value } => !value.is_zero(),
-        PyObjectPayload::Sequence { ref elements } => !elements.borrow().is_empty(),
-        PyObjectPayload::Dict { ref elements } => !elements.borrow().is_empty(),
-        PyObjectPayload::None { .. } => false,
-        _ => {
-            if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
-                let bool_res = vm.invoke(f, PyFuncArgs::default())?;
-                match bool_res.payload {
-                    PyObjectPayload::Integer { ref value } => !value.is_zero(),
-                    _ => return Err(vm.new_type_error(String::from("TypeError"))),
-                }
-            } else {
-                true
-            }
+    if let Some(dict) = obj.payload::<PyDict>() {
+        return Ok(!dict.entries.borrow().is_empty());
+    }
+    if let Some(i) = obj.payload::<PyInt>() {
+        return Ok(!i.value.is_zero());
+    }
+    if let Some(list) = obj.payload::<PyList>() {
+        return Ok(!list.elements.borrow().is_empty());
+    }
+    if let Some(tuple) = obj.payload::<PyTuple>() {
+        return Ok(!tuple.elements.borrow().is_empty());
+    }
+
+    Ok(if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
+        let bool_res = vm.invoke(f, PyFuncArgs::default())?;
+        match bool_res.payload::<PyInt>() {
+            Some(i) => !i.value.is_zero(),
+            None => return Err(vm.new_type_error(String::from("TypeError"))),
         }
-    };
-    Ok(result)
+    } else {
+        true
+    })
 }
 
 pub fn init(context: &PyContext) {
@@ -64,11 +72,7 @@ pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
-    if let PyObjectPayload::Integer { value } = &obj.payload {
-        !value.is_zero()
-    } else {
-        panic!("Inner error getting inner boolean");
-    }
+    !obj.payload::<PyInt>().unwrap().value.is_zero()
 }
 
 fn bool_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {

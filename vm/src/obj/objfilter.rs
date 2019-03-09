@@ -36,13 +36,7 @@ fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter
                 // iteration
-                vm.invoke(
-                    predicate.clone(),
-                    PyFuncArgs {
-                        args: vec![next_obj.clone()],
-                        kwargs: vec![],
-                    },
-                )?
+                vm.invoke(predicate.clone(), vec![next_obj.clone()])?
             };
             if objbool::boolval(vm, predicate_value)? {
                 return Ok(next_obj);

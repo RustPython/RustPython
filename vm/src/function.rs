@@ -1,3 +1,4 @@
+use std::fmt;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -21,6 +22,7 @@ use crate::vm::VirtualMachine;
 /// A `PyRef<T>` can be directly returned from a built-in function to handle
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
+#[derive(Clone)]
 pub struct PyRef<T> {
     // invariant: this obj must always have payload of type T
     obj: PyObjectRef,
@@ -79,5 +81,11 @@ where
 impl<T> IntoPyObject for PyRef<T> {
     fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
         Ok(self.obj)
+    }
+}
+
+impl<T> fmt::Display for PyRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.obj.fmt(f)
     }
 }

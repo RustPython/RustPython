@@ -1,55 +1,85 @@
-use super::objfloat;
-use super::objstr;
-use super::objtype;
-use crate::format::FormatSpec;
-use crate::pyobject::{
-    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TryFromObject, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
+use std::hash::{Hash, Hasher};
+
 use num_bigint::{BigInt, ToBigInt};
 use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
-use std::hash::{Hash, Hasher};
 
-// This proxy allows for easy switching between types.
-type IntType = BigInt;
+use crate::format::FormatSpec;
+use crate::function::PyRef;
+use crate::pyobject::{
+    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
+    PyObjectPayload2, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
 
-pub type PyInt = BigInt;
+use super::objfloat;
+use super::objstr;
+use super::objtype;
 
-impl IntoPyObject for PyInt {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.new_int(self))
-    }
+#[derive(Debug)]
+pub struct PyInt {
+    // TODO: shouldn't be public
+    pub value: BigInt,
 }
 
-// TODO: macro to impl for all primitive ints
+pub type PyIntRef = PyRef<PyInt>;
 
-impl IntoPyObject for usize {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.new_int(self))
-    }
-}
-
-impl TryFromObject for usize {
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // FIXME: don't use get_value
-        match get_value(&obj).to_usize() {
-            Some(value) => Ok(value),
-            None => Err(vm.new_overflow_error("Int value cannot fit into Rust usize".to_string())),
+impl PyInt {
+    pub fn new<T: ToBigInt>(i: T) -> Self {
+        PyInt {
+            value: i.to_bigint().unwrap(),
         }
     }
 }
 
-impl TryFromObject for isize {
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // FIXME: don't use get_value
-        match get_value(&obj).to_isize() {
-            Some(value) => Ok(value),
-            None => Err(vm.new_overflow_error("Int value cannot fit into Rust isize".to_string())),
-        }
+impl PyObjectPayload2 for PyInt {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.int_type()
     }
 }
+
+macro_rules! impl_into_pyobject_int {
+    ($($t:ty)*) => {$(
+        impl IntoPyObject for $t {
+            fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+                Ok(ctx.new_int(self))
+            }
+        }
+    )*};
+}
+
+impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64) ;
+
+macro_rules! impl_try_from_object_int {
+    ($(($t:ty, $to_prim:ident),)*) => {$(
+        impl TryFromObject for $t {
+            fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                match PyRef::<PyInt>::try_from_object(vm, obj)?.value.$to_prim() {
+                    Some(value) => Ok(value),
+                    None => Err(
+                        vm.new_overflow_error(concat!(
+                            "Int value cannot fit into Rust ",
+                            stringify!($t)
+                        ).to_string())
+                    ),
+                }
+            }
+        }
+    )*};
+}
+
+impl_try_from_object_int!(
+    (isize, to_isize),
+    (i8, to_i8),
+    (i16, to_i16),
+    (i32, to_i32),
+    (i64, to_i64),
+    (usize, to_usize),
+    (u8, to_u8),
+    (u16, to_u16),
+    (u32, to_u32),
+    (u64, to_u64),
+);
 
 fn int_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(int, Some(vm.ctx.int_type()))]);
@@ -77,13 +107,15 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => Zero::zero(),
     };
     Ok(PyObject::new(
-        PyObjectPayload::Integer { value: val },
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyInt::new(val)),
+        },
         cls.clone(),
     ))
 }
 
 // Casting function:
-pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<IntType> {
+pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
     let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj)
     } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
@@ -111,12 +143,8 @@ pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult
 }
 
 // Retrieve inner int value:
-pub fn get_value(obj: &PyObjectRef) -> IntType {
-    if let PyObjectPayload::Integer { value } = &obj.payload {
-        value.clone()
-    } else {
-        panic!("Inner error getting int {:?}", obj);
-    }
+pub fn get_value(obj: &PyObjectRef) -> BigInt {
+    obj.payload::<PyInt>().unwrap().value.clone()
 }
 
 impl FromPyObjectRef for BigInt {

@@ -244,7 +244,16 @@ mod tests {
                 node: ast::Statement::Expression {
                     expression: ast::Expression::Lambda {
                         args: ast::Parameters {
-                            args: vec![String::from("x"), String::from("y")],
+                            args: vec![
+                                ast::Parameter {
+                                    arg: String::from("x"),
+                                    annotation: None,
+                                },
+                                ast::Parameter {
+                                    arg: String::from("y"),
+                                    annotation: None,
+                                }
+                            ],
                             kwonlyargs: vec![],
                             vararg: None,
                             kwarg: None,
@@ -330,7 +339,10 @@ mod tests {
                             node: ast::Statement::FunctionDef {
                                 name: String::from("__init__"),
                                 args: ast::Parameters {
-                                    args: vec![String::from("self")],
+                                    args: vec![ast::Parameter {
+                                        arg: String::from("self"),
+                                        annotation: None,
+                                    }],
                                     kwonlyargs: vec![],
                                     vararg: None,
                                     kwarg: None,
@@ -342,6 +354,7 @@ mod tests {
                                     node: ast::Statement::Pass,
                                 }],
                                 decorator_list: vec![],
+                                returns: None,
                             }
                         },
                         ast::LocatedStatement {
@@ -349,7 +362,16 @@ mod tests {
                             node: ast::Statement::FunctionDef {
                                 name: String::from("method_with_default"),
                                 args: ast::Parameters {
-                                    args: vec![String::from("self"), String::from("arg"),],
+                                    args: vec![
+                                        ast::Parameter {
+                                            arg: String::from("self"),
+                                            annotation: None,
+                                        },
+                                        ast::Parameter {
+                                            arg: String::from("arg"),
+                                            annotation: None,
+                                        }
+                                    ],
                                     kwonlyargs: vec![],
                                     vararg: None,
                                     kwarg: None,
@@ -365,6 +387,7 @@ mod tests {
                                     node: ast::Statement::Pass,
                                 }],
                                 decorator_list: vec![],
+                                returns: None,
                             }
                         }
                     ],

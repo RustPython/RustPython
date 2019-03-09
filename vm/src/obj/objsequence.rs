@@ -2,12 +2,16 @@ use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
-use super::objbool;
-use super::objint;
-use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+
+use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
+
+use super::objbool;
+use super::objint::{self, PyInt};
+use super::objlist::PyList;
+use super::objtuple::PyTuple;
 
 pub trait PySliceableSequence {
     fn do_slice(&self, range: Range<usize>) -> Self;
@@ -141,8 +145,8 @@ pub fn get_item(
     elements: &[PyObjectRef],
     subscript: PyObjectRef,
 ) -> PyResult {
-    match &subscript.payload {
-        PyObjectPayload::Integer { value } => match value.to_i32() {
+    if let Some(i) = subscript.payload::<PyInt>() {
+        return match i.value.to_i32() {
             Some(value) => {
                 if let Some(pos_index) = elements.to_vec().get_pos(value) {
                     let obj = elements[pos_index].clone();
@@ -154,17 +158,29 @@ pub fn get_item(
             None => {
                 Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
             }
-        },
+        };
+    }
 
-        PyObjectPayload::Slice { .. } => Ok(PyObject::new(
-            match &sequence.payload {
-                PyObjectPayload::Sequence { .. } => PyObjectPayload::Sequence {
-                    elements: RefCell::new(elements.to_vec().get_slice_items(vm, &subscript)?),
-                },
-                ref payload => panic!("sequence get_item called for non-sequence: {:?}", payload),
-            },
-            sequence.typ(),
-        )),
+    match &subscript.payload {
+        PyObjectPayload::Slice { .. } => {
+            let payload = if sequence.payload::<PyList>().is_some() {
+                PyObjectPayload::AnyRustValue {
+                    value: Box::new(PyList::from(
+                        elements.to_vec().get_slice_items(vm, &subscript)?,
+                    )),
+                }
+            } else if sequence.payload::<PyTuple>().is_some() {
+                PyObjectPayload::AnyRustValue {
+                    value: Box::new(PyTuple::from(
+                        elements.to_vec().get_slice_items(vm, &subscript)?,
+                    )),
+                }
+            } else {
+                panic!("sequence get_item called for non-sequence")
+            };
+
+            Ok(PyObject::new(payload, sequence.typ()))
+        }
         _ => Err(vm.new_type_error(format!(
             "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
             sequence, subscript
@@ -303,27 +319,31 @@ pub fn seq_mul(elements: &[PyObjectRef], product: &PyObjectRef) -> Vec<PyObjectR
 }
 
 pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRef>> {
-    if let PyObjectPayload::Sequence { ref elements } = obj.payload {
-        elements
-    } else {
-        panic!("Cannot extract elements from non-sequence");
+    if let Some(list) = obj.payload::<PyList>() {
+        return &list.elements;
     }
+    if let Some(tuple) = obj.payload::<PyTuple>() {
+        return &tuple.elements;
+    }
+    panic!("Cannot extract elements from non-sequence");
 }
 
 pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
-    if let PyObjectPayload::Sequence { ref elements } = obj.payload {
-        elements.borrow()
-    } else {
-        panic!("Cannot extract elements from non-sequence");
+    if let Some(list) = obj.payload::<PyList>() {
+        return list.elements.borrow();
     }
+    if let Some(tuple) = obj.payload::<PyTuple>() {
+        return tuple.elements.borrow();
+    }
+    panic!("Cannot extract elements from non-sequence");
 }
 
 pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<PyObjectRef>> + 'a {
-    if let PyObjectPayload::Sequence { ref elements } = obj.payload {
-        elements.borrow_mut()
-    } else {
-        panic!("Cannot extract list elements from non-sequence");
-        // TODO: raise proper error?
-        // Err(vm.new_type_error("list.append is called with no list".to_string()))
+    if let Some(list) = obj.payload::<PyList>() {
+        return list.elements.borrow_mut();
     }
+    if let Some(tuple) = obj.payload::<PyTuple>() {
+        return tuple.elements.borrow_mut();
+    }
+    panic!("Cannot extract elements from non-sequence");
 }
