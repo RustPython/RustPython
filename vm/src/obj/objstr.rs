@@ -612,6 +612,16 @@ impl IntoPyObject for String {
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     let str_type = &context.str_type;
+    let str_doc = "str(object='') -> str\n\
+                   str(bytes_or_buffer[, encoding[, errors]]) -> str\n\
+                   \n\
+                   Create a new string object from the given object. If encoding or\n\
+                   errors is specified, then the object must expose a data buffer\n\
+                   that will be decoded using the given encoding and error handler.\n\
+                   Otherwise, returns the result of object.__str__() (if defined)\n\
+                   or repr(object).\n\
+                   encoding defaults to sys.getdefaultencoding().\n\
+                   errors defaults to 'strict'.";
     context.set_attr(&str_type, "__add__", context.new_rustfunc(PyStringRef::add));
     context.set_attr(&str_type, "__eq__", context.new_rustfunc(PyStringRef::eq));
     context.set_attr(&str_type, "__contains__", context.new_rustfunc(PyStringRef::contains));
@@ -666,6 +676,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "center", context.new_rustfunc(PyStringRef::center));
     context.set_attr(&str_type, "expandtabs", context.new_rustfunc(PyStringRef::expandtabs));
     context.set_attr(&str_type, "isidentifier", context.new_rustfunc(PyStringRef::isidentifier));
+    context.set_attr(&str_type, "__doc__", context.new_str(str_doc.to_string()));
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {
