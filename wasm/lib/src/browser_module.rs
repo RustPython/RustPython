@@ -4,9 +4,10 @@ use js_sys::Promise;
 use num_traits::cast::ToPrimitive;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue,
+    TypeProtocol,
 };
-use rustpython_vm::{import::import, VirtualMachine};
+use rustpython_vm::{import::import_module, VirtualMachine};
 use std::path::PathBuf;
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
@@ -177,12 +178,10 @@ pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
 }
 
 pub fn import_promise_type(vm: &mut VirtualMachine) -> PyResult {
-    import(
-        vm,
-        PathBuf::default(),
-        BROWSER_NAME,
-        &Some("Promise".into()),
-    )
+    match import_module(vm, PathBuf::default(), BROWSER_NAME)?.get_attr("Promise".into()) {
+        Some(promise) => Ok(promise),
+        None => Err(vm.new_not_implemented_error("No Promise".to_string())),
+    }
 }
 
 fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
