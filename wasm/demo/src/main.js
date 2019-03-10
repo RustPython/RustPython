@@ -80,7 +80,7 @@ const term = new Terminal();
 term.open(document.getElementById('terminal'));
 term.write(prompt);
 
-function remove_non_ascii(str) {
+function removeNonAscii(str) {
     if ((str===null) || (str===''))
         return false;
     else
@@ -89,12 +89,12 @@ function remove_non_ascii(str) {
     return str.replace(/[^\x20-\x7E]/g, '');
 }
 
-function print_to_console(data) {
-    term.write(remove_non_ascii(data) + "\r\n");
+function printToConsole(data) {
+    term.write(removeNonAscii(data) + "\r\n");
 }
 
 const terminalVM = rp.vmStore.init("term_vm");
-terminalVM.setStdout(print_to_console);
+terminalVM.setStdout(printToConsole);
 
 var input = "";
 term.on("data", (data) => {
@@ -111,7 +111,7 @@ term.on("data", (data) => {
             if (err instanceof WebAssembly.RuntimeError) {
                 err = window.__RUSTPYTHON_ERROR || err;
             }
-            print_to_console(err);
+            printToConsole(err);
         }
         term.write(prompt);
         input = "";
