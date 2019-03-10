@@ -63,28 +63,6 @@ pub fn import_module(
     Ok(module)
 }
 
-pub fn import(
-    vm: &mut VirtualMachine,
-    current_path: PathBuf,
-    module_name: &str,
-    symbol: &Option<String>,
-) -> PyResult {
-    let module = import_module(vm, current_path, module_name)?;
-    // If we're importing a symbol, look it up and use it, otherwise construct a module and return
-    // that
-    if let Some(symbol) = symbol {
-        module.get_attr(symbol).map_or_else(
-            || {
-                let import_error = vm.context().exceptions.import_error.clone();
-                Err(vm.new_exception(import_error, format!("cannot import name '{}'", symbol)))
-            },
-            Ok,
-        )
-    } else {
-        Ok(module)
-    }
-}
-
 fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
     let sys_path = vm.sys_module.get_attr("path").unwrap();
     let mut paths: Vec<PathBuf> = objsequence::get_elements(&sys_path)

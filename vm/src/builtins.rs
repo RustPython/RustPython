@@ -5,8 +5,10 @@
 // use std::ops::Deref;
 use std::char;
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 use crate::compile;
+use crate::import::import_module;
 use crate::obj::objbool;
 use crate::obj::objdict;
 use crate::obj::objint;
@@ -713,8 +715,27 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(sum)
 }
 
+// Should be renamed to builtin___import__?
+fn builtin_import(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(name, Some(vm.ctx.str_type()))],
+        optional = [
+            (_globals, Some(vm.ctx.dict_type())),
+            (_locals, Some(vm.ctx.dict_type()))
+        ]
+    );
+    let current_path = {
+        let mut source_pathbuf = PathBuf::from(&vm.current_frame().code.source_path);
+        source_pathbuf.pop();
+        source_pathbuf
+    };
+
+    import_module(vm, current_path, &objstr::get_value(name))
+}
+
 // builtin_vars
-// builtin___import__
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = py_module!(ctx, "__builtins__", {
@@ -783,6 +804,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "tuple" => ctx.tuple_type(),
         "type" => ctx.type_type(),
         "zip" => ctx.zip_type(),
+        "__import__" => ctx.new_rustfunc(builtin_import),
 
         // Constants
         "NotImplemented" => ctx.not_implemented.clone(),

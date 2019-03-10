@@ -22,6 +22,11 @@ try:
 except ImportError:
     pass
 
+
+test = __import__("import_target")
+assert test.X == import_target.X
+
+
 # TODO: Once we can determine current directory, use that to construct this
 # path:
 #import sys

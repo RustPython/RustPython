@@ -13,8 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
-use crate::frame::ExecutionResult;
-use crate::frame::Scope;
+use crate::frame::{ExecutionResult, Frame, Scope};
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
@@ -94,9 +93,13 @@ impl VirtualMachine {
         result
     }
 
-    pub fn current_scope(&self) -> &Scope {
+    pub fn current_frame(&self) -> &Frame {
         let current_frame = &self.frames[self.frames.len() - 1];
-        let frame = objframe::get_value(current_frame);
+        objframe::get_value(current_frame)
+    }
+
+    pub fn current_scope(&self) -> &Scope {
+        let frame = self.current_frame();
         &frame.scope
     }
 

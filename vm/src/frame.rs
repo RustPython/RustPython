@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::fmt;
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use num_bigint::BigInt;
@@ -9,7 +8,6 @@ use rustpython_parser::ast;
 
 use crate::builtins;
 use crate::bytecode;
-use crate::import::{import, import_module};
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
@@ -22,8 +20,8 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -806,30 +804,39 @@ impl Frame {
         module: &str,
         symbol: &Option<String>,
     ) -> FrameResult {
-        let current_path = {
-            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
-            source_pathbuf.pop();
-            source_pathbuf
+        let import = vm.builtins.get_item("__import__");
+        let module = match import {
+            Some(func) => vm.invoke(func, vec![vm.ctx.new_str(module.to_string())])?,
+            None => panic!("No __import__ in builtins"),
         };
 
-        let obj = import(vm, current_path, module, symbol)?;
+        // If we're importing a symbol, look it up and use it, otherwise construct a module and return
+        // that
+        let obj = match symbol {
+            Some(symbol) => module.get_attr(symbol).map_or_else(
+                || {
+                    let import_error = vm.context().exceptions.import_error.clone();
+                    Err(vm.new_exception(import_error, format!("cannot import name '{}'", symbol)))
+                },
+                Ok,
+            ),
+            None => Ok(module),
+        };
 
         // Push module on stack:
-        self.push_value(obj);
+        self.push_value(obj?);
         Ok(None)
     }
 
     fn import_star(&self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
-        let current_path = {
-            let mut source_pathbuf = PathBuf::from(&self.code.source_path);
-            source_pathbuf.pop();
-            source_pathbuf
+        let import = vm.builtins.get_item("__import__");
+        let module = match import {
+            Some(func) => vm.invoke(func, vec![vm.ctx.new_str(module.to_string())])?,
+            None => panic!("No __import__ in builtins"),
         };
 
         // Grab all the names from the module and put them in the context
-        let obj = import_module(vm, current_path, module)?;
-
-        for (k, v) in obj.get_key_value_pairs().iter() {
+        for (k, v) in module.get_key_value_pairs().iter() {
             self.scope.store_name(&vm, &objstr::get_value(k), v.clone());
         }
         Ok(None)
