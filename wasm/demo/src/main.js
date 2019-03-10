@@ -93,6 +93,9 @@ function print_to_console(data) {
     term.write(remove_non_ascii(data) + "\r\n");
 }
 
+const terminalVM = rp.vmStore.init("term_vm");
+terminalVM.setStdout(print_to_console);
+
 var input = "";
 term.on("data", (data) => {
   const code = data.charCodeAt(0);
@@ -103,9 +106,7 @@ term.on("data", (data) => {
     } else {
         term.write("\r\n");
         try {
-            rp.pyEval(input, {
-                stdout: print_to_console
-            });
+            terminalVM.exec(input);
         } catch (err) {
             if (err instanceof WebAssembly.RuntimeError) {
                 err = window.__RUSTPYTHON_ERROR || err;
