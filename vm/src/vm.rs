@@ -16,8 +16,10 @@ use crate::bytecode;
 use crate::frame::ExecutionResult;
 use crate::frame::{Scope, ScopeRef};
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
 use crate::obj::objframe;
+use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
@@ -27,8 +29,8 @@ use crate::obj::objstr;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload,
-    PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::stdlib;
 use crate::sysmodule;
@@ -289,23 +291,28 @@ impl VirtualMachine {
     {
         let args = args.into();
         trace!("Invoke: {:?} {:?}", func_ref, args);
-        match func_ref.payload {
-            PyObjectPayload::RustFunction { ref function } => function(self, args),
-            PyObjectPayload::Function {
-                ref code,
-                ref scope,
-                ref defaults,
-            } => self.invoke_python_function(code, scope, defaults, args),
-            PyObjectPayload::BoundMethod {
-                ref function,
-                ref object,
-            } => self.invoke(function.clone(), args.insert(object.clone())),
-            ref payload => {
-                // TODO: is it safe to just invoke __call__ otherwise?
-                trace!("invoke __call__ for: {:?}", payload);
-                self.call_method(&func_ref, "__call__", args)
-            }
+        if let Some(PyFunction {
+            ref code,
+            ref scope,
+            ref defaults,
+        }) = func_ref.payload()
+        {
+            return self.invoke_python_function(code, scope, defaults, args);
         }
+        if let Some(PyMethod {
+            ref function,
+            ref object,
+        }) = func_ref.payload()
+        {
+            return self.invoke(function.clone(), args.insert(object.clone()));
+        }
+        if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
+            return value(self, args);
+        }
+
+        // TODO: is it safe to just invoke __call__ otherwise?
+        trace!("invoke __call__ for: {:?}", func_ref.payload);
+        self.call_method(&func_ref, "__call__", args)
     }
 
     fn invoke_python_function(
@@ -331,11 +338,11 @@ impl VirtualMachine {
     }
 
     pub fn invoke_with_locals(&mut self, function: PyObjectRef, locals: PyObjectRef) -> PyResult {
-        if let PyObjectPayload::Function {
+        if let Some(PyFunction {
             code,
             scope,
-            defaults: _defaults,
-        } = &function.payload
+            defaults: _,
+        }) = &function.payload()
         {
             let scope = Rc::new(Scope {
                 locals,

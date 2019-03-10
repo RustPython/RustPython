@@ -14,6 +14,7 @@ use crate::bytecode;
 use crate::exceptions;
 use crate::frame::{Frame, Scope, ScopeRef};
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objcode;
@@ -24,7 +25,7 @@ use crate::obj::objenumerate;
 use crate::obj::objfilter;
 use crate::obj::objfloat::{self, PyFloat};
 use crate::obj::objframe;
-use crate::obj::objfunction;
+use crate::obj::objfunction::{self, PyFunction, PyMethod};
 use crate::obj::objgenerator;
 use crate::obj::objint::{self, PyInt};
 use crate::obj::objiter;
@@ -615,8 +616,8 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R>,
     {
         PyObject::new(
-            PyObjectPayload::RustFunction {
-                function: f.into_func(),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyBuiltinFunction::new(f.into_func())),
             },
             self.builtin_function_or_method_type(),
         )
@@ -624,8 +625,8 @@ impl PyContext {
 
     pub fn new_frame(&self, code: PyObjectRef, scope: ScopeRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Frame {
-                frame: Frame::new(code, scope),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(Frame::new(code, scope)),
             },
             self.frame_type(),
         )
@@ -657,10 +658,8 @@ impl PyContext {
         defaults: PyObjectRef,
     ) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Function {
-                code: code_obj,
-                scope,
-                defaults,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyFunction::new(code_obj, scope, defaults)),
             },
             self.function_type(),
         )
@@ -668,7 +667,9 @@ impl PyContext {
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::BoundMethod { function, object },
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyMethod::new(object, function)),
+            },
             self.bound_method_type(),
         )
     }
@@ -1522,26 +1523,8 @@ pub enum PyObjectPayload {
     MemoryView {
         obj: PyObjectRef,
     },
-    Frame {
-        frame: Frame,
-    },
-    Function {
-        code: PyObjectRef,
-        scope: ScopeRef,
-        defaults: PyObjectRef,
-    },
-    Generator {
-        frame: PyObjectRef,
-    },
-    BoundMethod {
-        function: PyObjectRef,
-        object: PyObjectRef,
-    },
     WeakRef {
         referent: PyObjectWeakRef,
-    },
-    RustFunction {
-        function: PyNativeFunc,
     },
     AnyRustValue {
         value: Box<dyn std::any::Any>,
@@ -1563,14 +1546,6 @@ impl fmt::Debug for PyObjectPayload {
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
             PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
-            PyObjectPayload::Function { .. } => write!(f, "function"),
-            PyObjectPayload::Generator { .. } => write!(f, "generator"),
-            PyObjectPayload::BoundMethod {
-                ref function,
-                ref object,
-            } => write!(f, "bound-method: {:?} of {:?}", function, object),
-            PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
-            PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }
     }

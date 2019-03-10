@@ -11,6 +11,7 @@ use crate::builtins;
 use crate::bytecode;
 use crate::import::{import, import_module};
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
 use crate::obj::objdict;
 use crate::obj::objdict::PyDict;
@@ -20,8 +21,8 @@ use crate::obj::objlist;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult,
-    TryFromObject, TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2,
+    PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -73,6 +74,12 @@ pub struct Frame {
     blocks: RefCell<Vec<Block>>,      // Block frames, for controlling loops and exceptions
     pub scope: ScopeRef,              // Variables
     pub lasti: RefCell<usize>,        // index of last instruction ran
+}
+
+impl PyObjectPayload2 for Frame {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.frame_type()
+    }
 }
 
 // Running a frame can result in one of the below:
@@ -592,8 +599,10 @@ impl Frame {
             }
             bytecode::Instruction::LoadBuildClass => {
                 let rustfunc = PyObject::new(
-                    PyObjectPayload::RustFunction {
-                        function: Box::new(builtins::builtin_build_class_),
+                    PyObjectPayload::AnyRustValue {
+                        value: Box::new(PyBuiltinFunction::new(Box::new(
+                            builtins::builtin_build_class_,
+                        ))),
                     },
                     vm.ctx.type_type(),
                 );
