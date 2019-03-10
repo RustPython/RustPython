@@ -24,12 +24,12 @@ enum AddressFamily {
 }
 
 impl AddressFamily {
-    fn from_i32(value: i32) -> AddressFamily {
+    fn from_i32(vm: &mut VirtualMachine, value: i32) -> Result<AddressFamily, PyObjectRef> {
         match value {
-            1 => AddressFamily::Unix,
-            2 => AddressFamily::Inet,
-            3 => AddressFamily::Inet6,
-            _ => panic!("Unknown value: {}", value),
+            1 => Ok(AddressFamily::Unix),
+            2 => Ok(AddressFamily::Inet),
+            3 => Ok(AddressFamily::Inet6),
+            _ => Err(vm.new_os_error(format!("Unknown address family value: {}", value))),
         }
     }
 }
@@ -41,11 +41,11 @@ enum SocketKind {
 }
 
 impl SocketKind {
-    fn from_i32(value: i32) -> SocketKind {
+    fn from_i32(vm: &mut VirtualMachine, value: i32) -> Result<SocketKind, PyObjectRef> {
         match value {
-            1 => SocketKind::Stream,
-            2 => SocketKind::Dgram,
-            _ => panic!("Unknown value: {}", value),
+            1 => Ok(SocketKind::Stream),
+            2 => Ok(SocketKind::Dgram),
+            _ => Err(vm.new_os_error(format!("Unknown socket kind value: {}", value))),
         }
     }
 }
@@ -146,8 +146,9 @@ fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    let address_family = AddressFamily::from_i32(objint::get_value(family_int).to_i32().unwrap());
-    let kind = SocketKind::from_i32(objint::get_value(kind_int).to_i32().unwrap());
+    let address_family =
+        AddressFamily::from_i32(vm, objint::get_value(family_int).to_i32().unwrap())?;
+    let kind = SocketKind::from_i32(vm, objint::get_value(kind_int).to_i32().unwrap())?;
 
     let socket = RefCell::new(Socket::new(address_family, kind));
 
@@ -171,21 +172,18 @@ fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut socket = get_socket(zelf);
 
     match socket.socket_kind {
-        SocketKind::Stream => {
-            if let Ok(stream) = TcpStream::connect(address_string) {
+        SocketKind::Stream => match TcpStream::connect(address_string) {
+            Ok(stream) => {
                 socket.con = Some(Connection::TcpStream(stream));
                 Ok(vm.get_none())
-            } else {
-                // TODO: Socket error
-                Err(vm.new_type_error("socket failed".to_string()))
             }
-        }
+            Err(s) => Err(vm.new_os_error(s.to_string())),
+        },
         SocketKind::Dgram => {
             if let Some(Connection::UdpSocket(con)) = &socket.con {
                 match con.connect(address_string) {
                     Ok(_) => Ok(vm.get_none()),
-                    // TODO: Socket error
-                    Err(_) => Err(vm.new_type_error("socket failed".to_string())),
+                    Err(s) => Err(vm.new_os_error(s.to_string())),
                 }
             } else {
                 Err(vm.new_type_error("".to_string()))
@@ -206,24 +204,20 @@ fn socket_bind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut socket = get_socket(zelf);
 
     match socket.socket_kind {
-        SocketKind::Stream => {
-            if let Ok(stream) = TcpListener::bind(address_string) {
+        SocketKind::Stream => match TcpListener::bind(address_string) {
+            Ok(stream) => {
                 socket.con = Some(Connection::TcpListener(stream));
                 Ok(vm.get_none())
-            } else {
-                // TODO: Socket error
-                Err(vm.new_type_error("socket failed".to_string()))
             }
-        }
-        SocketKind::Dgram => {
-            if let Ok(dgram) = UdpSocket::bind(address_string) {
+            Err(s) => Err(vm.new_os_error(s.to_string())),
+        },
+        SocketKind::Dgram => match UdpSocket::bind(address_string) {
+            Ok(dgram) => {
                 socket.con = Some(Connection::UdpSocket(dgram));
                 Ok(vm.get_none())
-            } else {
-                // TODO: Socket error
-                Err(vm.new_type_error("socket failed".to_string()))
             }
-        }
+            Err(s) => Err(vm.new_os_error(s.to_string())),
+        },
     }
 }
 
@@ -272,7 +266,7 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let (tcp_stream, addr) = match ret {
         Ok((socket, addr)) => (socket, addr),
-        _ => return Err(vm.new_type_error("".to_string())),
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
     };
 
     let socket = RefCell::new(Socket {
@@ -303,7 +297,10 @@ fn socket_recv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let mut buffer = vec![0u8; objint::get_value(bufsize).to_usize().unwrap()];
     match socket.con {
-        Some(ref mut v) => v.read_exact(&mut buffer).unwrap(),
+        Some(ref mut v) => match v.read_exact(&mut buffer) {
+            Ok(_) => (),
+            Err(s) => return Err(vm.new_os_error(s.to_string())),
+        },
         None => return Err(vm.new_type_error("".to_string())),
     };
     Ok(vm.ctx.new_bytes(buffer))
@@ -326,7 +323,7 @@ fn socket_recvfrom(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let addr = match ret {
         Ok((_size, addr)) => addr,
-        _ => return Err(vm.new_type_error("".to_string())),
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
     };
 
     let addr_tuple = get_addr_tuple(vm, addr)?;
@@ -343,7 +340,10 @@ fn socket_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut socket = get_socket(zelf);
 
     match socket.con {
-        Some(ref mut v) => v.write(&objbytes::get_value(&bytes)).unwrap(),
+        Some(ref mut v) => match v.write(&objbytes::get_value(&bytes)) {
+            Ok(_) => (),
+            Err(s) => return Err(vm.new_os_error(s.to_string())),
+        },
         None => return Err(vm.new_type_error("".to_string())),
     };
     Ok(vm.get_none())
@@ -366,22 +366,24 @@ fn socket_sendto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match socket.socket_kind {
         SocketKind::Dgram => {
             match socket.con {
-                Some(ref mut v) => {
-                    if let Ok(_) = v.send_to(&objbytes::get_value(&bytes), address_string) {
-                        Ok(vm.get_none())
-                    } else {
-                        Err(vm.new_type_error("socket failed".to_string()))
-                    }
-                }
+                Some(ref mut v) => match v.send_to(&objbytes::get_value(&bytes), address_string) {
+                    Ok(_) => Ok(vm.get_none()),
+                    Err(s) => Err(vm.new_os_error(s.to_string())),
+                },
                 None => {
                     // Doing implicit bind
-                    if let Ok(dgram) = UdpSocket::bind("0.0.0.0:0") {
-                        if let Ok(_) = dgram.send_to(&objbytes::get_value(&bytes), address_string) {
-                            socket.con = Some(Connection::UdpSocket(dgram));
-                            return Ok(vm.get_none());
+                    match UdpSocket::bind("0.0.0.0:0") {
+                        Ok(dgram) => {
+                            match dgram.send_to(&objbytes::get_value(&bytes), address_string) {
+                                Ok(_) => {
+                                    socket.con = Some(Connection::UdpSocket(dgram));
+                                    Ok(vm.get_none())
+                                }
+                                Err(s) => Err(vm.new_os_error(s.to_string())),
+                            }
                         }
+                        Err(s) => Err(vm.new_os_error(s.to_string())),
                     }
-                    Err(vm.new_type_error("socket failed".to_string()))
                 }
             }
         }
@@ -408,7 +410,7 @@ fn socket_getsockname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match addr {
         Ok(addr) => get_addr_tuple(vm, addr),
-        _ => Err(vm.new_type_error("".to_string())),
+        Err(s) => Err(vm.new_os_error(s.to_string())),
     }
 }
 

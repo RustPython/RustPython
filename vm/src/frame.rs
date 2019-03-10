@@ -11,17 +11,19 @@ use crate::builtins;
 use crate::bytecode;
 use crate::import::{import, import_module};
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
 use crate::obj::objdict;
 use crate::obj::objdict::PyDict;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
+use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef,
-    PyResult, TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2,
+    PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -179,6 +181,12 @@ pub struct Frame {
     pub lasti: RefCell<usize>,        // index of last instruction ran
 }
 
+impl PyObjectPayload2 for Frame {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.frame_type()
+    }
+}
+
 // Running a frame can result in one of the below:
 pub enum ExecutionResult {
     Return(PyObjectRef),
@@ -242,14 +250,7 @@ impl Frame {
                         vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
-                    objlist::list_append(
-                        vm,
-                        PyFuncArgs {
-                            args: vec![traceback, pos],
-                            kwargs: vec![],
-                        },
-                    )
-                    .unwrap();
+                    objlist::PyListRef::try_from_object(vm, traceback)?.append(pos, vm);
                     // exception.__trace
                     match self.unwind_exception(vm, exception) {
                         None => {}
@@ -407,7 +408,9 @@ impl Frame {
                 let step = if out.len() == 3 { out[2].take() } else { None };
 
                 let obj = PyObject::new(
-                    PyObjectPayload::Slice { start, stop, step },
+                    PyObjectPayload::AnyRustValue {
+                        value: Box::new(PySlice { start, stop, step }),
+                    },
                     vm.ctx.slice_type(),
                 );
                 self.push_value(obj);
@@ -416,13 +419,7 @@ impl Frame {
             bytecode::Instruction::ListAppend { i } => {
                 let list_obj = self.nth_value(*i);
                 let item = self.pop_value();
-                objlist::list_append(
-                    vm,
-                    PyFuncArgs {
-                        args: vec![list_obj.clone(), item],
-                        kwargs: vec![],
-                    },
-                )?;
+                objlist::PyListRef::try_from_object(vm, list_obj)?.append(item, vm);
                 Ok(None)
             }
             bytecode::Instruction::SetAdd { i } => {
@@ -557,7 +554,7 @@ impl Frame {
                 let _qualified_name = self.pop_value();
                 let code_obj = self.pop_value();
 
-                let _annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
+                let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
                     self.pop_value()
                 } else {
                     vm.new_dict()
@@ -574,13 +571,8 @@ impl Frame {
                 let scope = self.scope.clone();
                 let obj = vm.ctx.new_function(code_obj, scope, defaults);
 
-                let annotation_repr = vm.to_pystr(&_annotations)?;
+                vm.ctx.set_attr(&obj, "__annotations__", annotations);
 
-                warn!(
-                    "Type annotation must be stored in attribute! {:?}",
-                    annotation_repr
-                );
-                // TODO: use annotations with set_attr here!
                 self.push_value(obj);
                 Ok(None)
             }
@@ -714,8 +706,10 @@ impl Frame {
             }
             bytecode::Instruction::LoadBuildClass => {
                 let rustfunc = PyObject::new(
-                    PyObjectPayload::RustFunction {
-                        function: Box::new(builtins::builtin_build_class_),
+                    PyObjectPayload::AnyRustValue {
+                        value: Box::new(PyBuiltinFunction::new(Box::new(
+                            builtins::builtin_build_class_,
+                        ))),
                     },
                     vm.ctx.type_type(),
                 );

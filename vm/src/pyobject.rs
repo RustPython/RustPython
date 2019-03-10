@@ -14,6 +14,7 @@ use crate::bytecode;
 use crate::exceptions;
 use crate::frame::{Frame, Scope};
 use crate::obj::objbool;
+use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objcode;
@@ -24,7 +25,7 @@ use crate::obj::objenumerate;
 use crate::obj::objfilter;
 use crate::obj::objfloat::{self, PyFloat};
 use crate::obj::objframe;
-use crate::obj::objfunction;
+use crate::obj::objfunction::{self, PyFunction, PyMethod};
 use crate::obj::objgenerator;
 use crate::obj::objint::{self, PyInt};
 use crate::obj::objiter;
@@ -99,17 +100,6 @@ impl fmt::Display for PyObject {
     }
 }
 
-/*
- // Idea: implement the iterator trait upon PyObjectRef
-impl Iterator for (VirtualMachine, PyObjectRef) {
-    type Item = char;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // call method ("_next__")
-    }
-}
-*/
-
 #[derive(Debug)]
 pub struct PyContext {
     pub bytes_type: PyObjectRef,
@@ -148,10 +138,9 @@ pub struct PyContext {
     pub function_type: PyObjectRef,
     pub builtin_function_or_method_type: PyObjectRef,
     pub property_type: PyObjectRef,
+    pub readonly_property_type: PyObjectRef,
     pub module_type: PyObjectRef,
     pub bound_method_type: PyObjectRef,
-    pub member_descriptor_type: PyObjectRef,
-    pub data_descriptor_type: PyObjectRef,
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -193,13 +182,11 @@ impl PyContext {
             &dict_type,
         );
         let property_type = create_type("property", &type_type, &object_type, &dict_type);
+        let readonly_property_type =
+            create_type("readonly_property", &type_type, &object_type, &dict_type);
         let super_type = create_type("super", &type_type, &object_type, &dict_type);
         let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
         let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
-        let member_descriptor_type =
-            create_type("member_descriptor", &type_type, &object_type, &dict_type);
-        let data_descriptor_type =
-            create_type("data_descriptor", &type_type, &object_type, &dict_type);
         let str_type = create_type("str", &type_type, &object_type, &dict_type);
         let list_type = create_type("list", &type_type, &object_type, &dict_type);
         let set_type = create_type("set", &type_type, &object_type, &dict_type);
@@ -293,11 +280,10 @@ impl PyContext {
             builtin_function_or_method_type,
             super_type,
             property_type,
+            readonly_property_type,
             generator_type,
             module_type,
             bound_method_type,
-            member_descriptor_type,
-            data_descriptor_type,
             type_type,
             exceptions,
         };
@@ -444,6 +430,10 @@ impl PyContext {
         self.property_type.clone()
     }
 
+    pub fn readonly_property_type(&self) -> PyObjectRef {
+        self.readonly_property_type.clone()
+    }
+
     pub fn classmethod_type(&self) -> PyObjectRef {
         self.classmethod_type.clone()
     }
@@ -458,12 +448,6 @@ impl PyContext {
 
     pub fn bound_method_type(&self) -> PyObjectRef {
         self.bound_method_type.clone()
-    }
-    pub fn member_descriptor_type(&self) -> PyObjectRef {
-        self.member_descriptor_type.clone()
-    }
-    pub fn data_descriptor_type(&self) -> PyObjectRef {
-        self.data_descriptor_type.clone()
     }
 
     pub fn type_type(&self) -> PyObjectRef {
@@ -614,8 +598,8 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R>,
     {
         PyObject::new(
-            PyObjectPayload::RustFunction {
-                function: f.into_func(),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyBuiltinFunction::new(f.into_func())),
             },
             self.builtin_function_or_method_type(),
         )
@@ -623,8 +607,8 @@ impl PyContext {
 
     pub fn new_frame(&self, code: PyObjectRef, scope: Scope) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Frame {
-                frame: Frame::new(code, scope),
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(Frame::new(code, scope)),
             },
             self.frame_type(),
         )
@@ -634,10 +618,7 @@ impl PyContext {
     where
         F: IntoPyNativeFunc<T, R>,
     {
-        let fget = self.new_rustfunc(f);
-        let py_obj = self.new_instance(self.property_type(), None);
-        self.set_attr(&py_obj, "fget", fget);
-        py_obj
+        PropertyBuilder::new(self).add_getter(f).create()
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
@@ -656,10 +637,8 @@ impl PyContext {
         defaults: PyObjectRef,
     ) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::Function {
-                code: code_obj,
-                scope,
-                defaults,
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyFunction::new(code_obj, scope, defaults)),
             },
             self.function_type(),
         )
@@ -667,34 +646,11 @@ impl PyContext {
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::BoundMethod { function, object },
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyMethod::new(object, function)),
+            },
             self.bound_method_type(),
         )
-    }
-
-    pub fn new_member_descriptor<F: 'static + Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult>(
-        &self,
-        function: F,
-    ) -> PyObjectRef {
-        let mut dict = PyAttributes::new();
-        dict.insert("function".to_string(), self.new_rustfunc(function));
-        self.new_instance(self.member_descriptor_type(), Some(dict))
-    }
-
-    pub fn new_data_descriptor<
-        G: IntoPyNativeFunc<(I, PyObjectRef), T>,
-        S: IntoPyNativeFunc<(I, T), PyResult>,
-        T,
-        I,
-    >(
-        &self,
-        getter: G,
-        setter: S,
-    ) -> PyObjectRef {
-        let mut dict = PyAttributes::new();
-        dict.insert("fget".to_string(), self.new_rustfunc(getter));
-        dict.insert("fset".to_string(), self.new_rustfunc(setter));
-        self.new_instance(self.data_descriptor_type(), Some(dict))
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
@@ -969,6 +925,15 @@ impl From<Vec<PyObjectRef>> for PyFuncArgs {
     fn from(args: Vec<PyObjectRef>) -> Self {
         PyFuncArgs {
             args: args,
+            kwargs: vec![],
+        }
+    }
+}
+
+impl From<PyObjectRef> for PyFuncArgs {
+    fn from(arg: PyObjectRef) -> Self {
+        PyFuncArgs {
+            args: vec![arg],
             kwargs: vec![],
         }
     }
@@ -1275,6 +1240,7 @@ pub enum OptionalArg<T> {
 }
 
 use self::OptionalArg::*;
+use crate::obj::objproperty::PropertyBuilder;
 
 impl<T> OptionalArg<T> {
     pub fn into_option(self) -> Option<T> {
@@ -1384,6 +1350,20 @@ where
     }
 }
 
+// For functions that accept no arguments. Implemented explicitly instead of via
+// macro below to avoid unused warnings.
+impl FromArgs for () {
+    fn from_args<I>(
+        _vm: &mut VirtualMachine,
+        _args: &mut iter::Peekable<I>,
+    ) -> Result<Self, ArgumentError>
+    where
+        I: Iterator<Item = PyArg>,
+    {
+        Ok(())
+    }
+}
+
 // A tuple of types that each implement `FromArgs` represents a sequence of
 // arguments that can be bound and passed to a built-in function.
 //
@@ -1470,25 +1450,26 @@ impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
 //
 // Note that this could be done without a macro - it is simply to avoid repetition.
 macro_rules! into_py_native_func_tuple {
-    ($(($n:tt, $T:ident)),+) => {
-        impl<F, $($T,)+ R> IntoPyNativeFunc<($($T,)+), R> for F
+    ($(($n:tt, $T:ident)),*) => {
+        impl<F, $($T,)* R> IntoPyNativeFunc<($($T,)*), R> for F
         where
-            F: Fn($($T,)+ &mut VirtualMachine) -> R + 'static,
-            $($T: FromArgs,)+
-            ($($T,)+): FromArgs,
+            F: Fn($($T,)* &mut VirtualMachine) -> R + 'static,
+            $($T: FromArgs,)*
+            ($($T,)*): FromArgs,
             R: IntoPyObject,
         {
             fn into_func(self) -> PyNativeFunc {
                 Box::new(move |vm, args| {
-                    let ($($n,)+) = args.bind::<($($T,)+)>(vm)?;
+                    let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                    (self)($($n,)+ vm).into_pyobject(&vm.ctx)
+                    (self)($($n,)* vm).into_pyobject(&vm.ctx)
                 })
             }
         }
     };
 }
 
+into_py_native_func_tuple!();
 into_py_native_func_tuple!((a, A));
 into_py_native_func_tuple!((a, A), (b, B));
 into_py_native_func_tuple!((a, A), (b, B), (c, C));
@@ -1500,42 +1481,8 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum PyObjectPayload {
-    Iterator {
-        position: Cell<usize>,
-        iterated_obj: PyObjectRef,
-    },
-    Slice {
-        start: Option<BigInt>,
-        stop: Option<BigInt>,
-        step: Option<BigInt>,
-    },
-    MemoryView {
-        obj: PyObjectRef,
-    },
-    Frame {
-        frame: Frame,
-    },
-    Function {
-        code: PyObjectRef,
-        scope: Scope,
-        defaults: PyObjectRef,
-    },
-    Generator {
-        frame: PyObjectRef,
-    },
-    BoundMethod {
-        function: PyObjectRef,
-        object: PyObjectRef,
-    },
-    WeakRef {
-        referent: PyObjectWeakRef,
-    },
-    RustFunction {
-        function: PyNativeFunc,
-    },
-    AnyRustValue {
-        value: Box<dyn std::any::Any>,
-    },
+    WeakRef { referent: PyObjectWeakRef },
+    AnyRustValue { value: Box<dyn std::any::Any> },
 }
 
 impl Default for PyObjectPayload {
@@ -1546,21 +1493,24 @@ impl Default for PyObjectPayload {
     }
 }
 
+// TODO: This is a workaround and shouldn't exist.
+//       Each iterable type should have its own distinct iterator type.
+#[derive(Debug)]
+pub struct PyIteratorValue {
+    pub position: Cell<usize>,
+    pub iterated_obj: PyObjectRef,
+}
+
+impl PyObjectPayload2 for PyIteratorValue {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.iter_type()
+    }
+}
+
 impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
-            PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
-            PyObjectPayload::Slice { .. } => write!(f, "slice"),
-            PyObjectPayload::Function { .. } => write!(f, "function"),
-            PyObjectPayload::Generator { .. } => write!(f, "generator"),
-            PyObjectPayload::BoundMethod {
-                ref function,
-                ref object,
-            } => write!(f, "bound-method: {:?} of {:?}", function, object),
-            PyObjectPayload::RustFunction { .. } => write!(f, "rust function"),
-            PyObjectPayload::Frame { .. } => write!(f, "frame"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }
     }
@@ -1571,7 +1521,7 @@ impl PyObject {
         PyObject {
             payload,
             typ: Some(typ),
-            dict: None,
+            dict: Some(RefCell::new(PyAttributes::new())),
         }
         .into_ref()
     }

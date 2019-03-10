@@ -1,7 +1,52 @@
+use crate::frame::Scope;
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+
+#[derive(Debug)]
+pub struct PyFunction {
+    // TODO: these shouldn't be public
+    pub code: PyObjectRef,
+    pub scope: Scope,
+    pub defaults: PyObjectRef,
+}
+
+impl PyFunction {
+    pub fn new(code: PyObjectRef, scope: Scope, defaults: PyObjectRef) -> Self {
+        PyFunction {
+            code,
+            scope,
+            defaults,
+        }
+    }
+}
+
+impl PyObjectPayload2 for PyFunction {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.function_type()
+    }
+}
+
+#[derive(Debug)]
+pub struct PyMethod {
+    // TODO: these shouldn't be public
+    pub object: PyObjectRef,
+    pub function: PyObjectRef,
+}
+
+impl PyMethod {
+    pub fn new(object: PyObjectRef, function: PyObjectRef) -> Self {
+        PyMethod { object, function }
+    }
+}
+
+impl PyObjectPayload2 for PyMethod {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.bound_method_type()
+    }
+}
 
 pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
@@ -10,7 +55,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(
         &function_type,
         "__code__",
-        context.new_member_descriptor(function_code),
+        context.new_property(function_code),
     );
 
     let builtin_function_or_method_type = &context.builtin_function_or_method_type;
@@ -18,25 +63,6 @@ pub fn init(context: &PyContext) {
         &builtin_function_or_method_type,
         "__get__",
         context.new_rustfunc(bind_method),
-    );
-
-    let member_descriptor_type = &context.member_descriptor_type;
-    context.set_attr(
-        &member_descriptor_type,
-        "__get__",
-        context.new_rustfunc(member_get),
-    );
-
-    let data_descriptor_type = &context.data_descriptor_type;
-    context.set_attr(
-        &data_descriptor_type,
-        "__get__",
-        context.new_rustfunc(data_get),
-    );
-    context.set_attr(
-        &data_descriptor_type,
-        "__set__",
-        context.new_rustfunc(data_set),
     );
 
     let classmethod_type = &context.classmethod_type;
@@ -79,39 +105,9 @@ fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn function_code(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].payload {
-        PyObjectPayload::Function { ref code, .. } => Ok(code.clone()),
-        _ => Err(vm.new_type_error("no code".to_string())),
-    }
-}
-
-fn member_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    match args.shift().get_attr("function") {
-        Some(function) => vm.invoke(function, args),
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
-        }
-    }
-}
-
-fn data_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    match args.shift().get_attr("fget") {
-        Some(function) => vm.invoke(function, args),
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
-        }
-    }
-}
-
-fn data_set(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    match args.shift().get_attr("fset") {
-        Some(function) => vm.invoke(function, args),
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
-        }
+    match args.args[0].payload() {
+        Some(PyFunction { ref code, .. }) => Ok(code.clone()),
+        None => Err(vm.new_type_error("no code".to_string())),
     }
 }
 

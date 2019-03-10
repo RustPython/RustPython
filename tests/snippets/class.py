@@ -16,22 +16,6 @@ assert foo.x == 5
 assert foo.square() == 25
 
 
-class Fubar:
-    def __init__(self):
-        self.x = 100
-
-    @property
-    def foo(self):
-        value = self.x
-        self.x += 1
-        return value
-
-
-f = Fubar()
-assert f.foo == 100
-assert f.foo == 101
-
-
 class Bar:
     """ W00t """
     def __init__(self, x):

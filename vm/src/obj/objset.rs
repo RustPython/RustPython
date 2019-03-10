@@ -13,8 +13,8 @@ use super::objiter;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload, PyObjectPayload2,
+    PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -566,9 +566,11 @@ fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items = get_elements(zelf).values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
     let iter_obj = PyObject::new(
-        PyObjectPayload::Iterator {
-            position: Cell::new(0),
-            iterated_obj: set_list,
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: set_list,
+            }),
         },
         vm.ctx.iter_type(),
     );

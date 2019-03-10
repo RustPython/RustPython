@@ -9,8 +9,9 @@ use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResu
 use crate::vm::VirtualMachine;
 
 use super::objbool;
-use super::objint::{self, PyInt};
+use super::objint::PyInt;
 use super::objlist::PyList;
+use super::objslice::PySlice;
 use super::objtuple::PyTuple;
 
 pub trait PySliceableSequence {
@@ -69,8 +70,8 @@ pub trait PySliceableSequence {
         Self: Sized,
     {
         // TODO: we could potentially avoid this copy and use slice
-        match &slice.payload {
-            PyObjectPayload::Slice { start, stop, step } => {
+        match slice.payload() {
+            Some(PySlice { start, stop, step }) => {
                 let step = step.clone().unwrap_or_else(BigInt::one);
                 if step.is_zero() {
                     Err(vm.new_value_error("slice step cannot be zero".to_string()))
@@ -161,31 +162,30 @@ pub fn get_item(
         };
     }
 
-    match &subscript.payload {
-        PyObjectPayload::Slice { .. } => {
-            let payload = if sequence.payload::<PyList>().is_some() {
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(PyList::from(
-                        elements.to_vec().get_slice_items(vm, &subscript)?,
-                    )),
-                }
-            } else if sequence.payload::<PyTuple>().is_some() {
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(PyTuple::from(
-                        elements.to_vec().get_slice_items(vm, &subscript)?,
-                    )),
-                }
-            } else {
-                panic!("sequence get_item called for non-sequence")
-            };
+    if subscript.payload::<PySlice>().is_some() {
+        let payload = if sequence.payload::<PyList>().is_some() {
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyList::from(
+                    elements.to_vec().get_slice_items(vm, &subscript)?,
+                )),
+            }
+        } else if sequence.payload::<PyTuple>().is_some() {
+            PyObjectPayload::AnyRustValue {
+                value: Box::new(PyTuple::from(
+                    elements.to_vec().get_slice_items(vm, &subscript)?,
+                )),
+            }
+        } else {
+            panic!("sequence get_item called for non-sequence")
+        };
 
-            Ok(PyObject::new(payload, sequence.typ()))
-        }
-        _ => Err(vm.new_type_error(format!(
-            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-            sequence, subscript
-        ))),
+        return Ok(PyObject::new(payload, sequence.typ()));
     }
+
+    Err(vm.new_type_error(format!(
+        "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+        sequence, subscript
+    )))
 }
 
 pub fn seq_equal(
@@ -304,9 +304,7 @@ pub fn seq_le(
     Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
 }
 
-pub fn seq_mul(elements: &[PyObjectRef], product: &PyObjectRef) -> Vec<PyObjectRef> {
-    let counter = objint::get_value(&product).to_isize().unwrap();
-
+pub fn seq_mul(elements: &[PyObjectRef], counter: isize) -> Vec<PyObjectRef> {
     let current_len = elements.len();
     let new_len = counter.max(0) as usize * current_len;
     let mut new_elements = Vec::with_capacity(new_len);

@@ -13,13 +13,14 @@ use crate::VirtualMachine;
 use std::rc::Rc;
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module("_weakref", ctx.new_dict());
+    let py_ref_class = py_class!(ctx, "ref", ctx.object(), {
+        "__new__" => ctx.new_rustfunc(ref_new),
+        "__call__" => ctx.new_rustfunc(ref_call)
+    });
 
-    let py_ref_class = ctx.new_class("ref", ctx.object());
-    ctx.set_attr(&py_ref_class, "__new__", ctx.new_rustfunc(ref_new));
-    ctx.set_attr(&py_ref_class, "__call__", ctx.new_rustfunc(ref_call));
-    ctx.set_attr(&py_mod, "ref", py_ref_class);
-    py_mod
+    py_module!(ctx, "_weakref", {
+        "ref" => py_ref_class
+    })
 }
 
 fn ref_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use crate::obj::objtype;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IntoPyObject, PyContext, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
     TryFromObject, TypeProtocol,
@@ -43,6 +44,32 @@ where
             ),
             _payload: PhantomData,
         }
+    }
+
+    pub fn new_with_type(vm: &mut VirtualMachine, payload: T, cls: PyClassRef) -> PyResult<Self> {
+        let required_type = T::required_type(&vm.ctx);
+        if objtype::issubclass(&cls.obj, &required_type) {
+            Ok(PyRef {
+                obj: PyObject::new(
+                    PyObjectPayload::AnyRustValue {
+                        value: Box::new(payload),
+                    },
+                    cls.obj,
+                ),
+                _payload: PhantomData,
+            })
+        } else {
+            let subtype = vm.to_pystr(&cls.obj)?;
+            let basetype = vm.to_pystr(&required_type)?;
+            Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
+        }
+    }
+
+    pub fn as_object(&self) -> &PyObjectRef {
+        &self.obj
+    }
+    pub fn into_object(self) -> PyObjectRef {
+        self.obj
     }
 }
 

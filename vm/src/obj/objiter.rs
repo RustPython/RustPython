@@ -3,7 +3,7 @@
  */
 
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyIteratorValue, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -128,10 +128,10 @@ fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
-    if let PyObjectPayload::Iterator {
+    if let Some(PyIteratorValue {
         ref position,
         iterated_obj: ref iterated_obj_ref,
-    } = iter.payload
+    }) = iter.payload()
     {
         if let Some(range) = iterated_obj_ref.payload::<PyRange>() {
             if let Some(int) = range.get(position.get()) {

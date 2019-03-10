@@ -60,6 +60,26 @@ fn bytes_io_getvalue(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn io_base_cm_enter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(instance, None)]);
+    Ok(instance.clone())
+}
+
+fn io_base_cm_exit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        // The context manager protocol requires these, but we don't use them
+        required = [
+            (_instance, None),
+            (_exception_type, None),
+            (_exception_value, None),
+            (_traceback, None)
+        ]
+    );
+    Ok(vm.get_none())
+}
+
 fn buffered_io_base_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
     vm.ctx.set_attr(&buffered, "raw", raw.clone());
@@ -347,10 +367,13 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     //IOBase the abstract base class of the IO Module
-    let io_base = ctx.new_class("IOBase", ctx.object());
+    let io_base = py_class!(ctx, "IOBase", ctx.object(), {
+        "__enter__" => ctx.new_rustfunc(io_base_cm_enter),
+        "__exit__" => ctx.new_rustfunc(io_base_cm_exit)
+    });
 
     // IOBase Subclasses
-    let raw_io_base = ctx.new_class("RawIOBase", ctx.object());
+    let raw_io_base = py_class!(ctx, "RawIOBase", ctx.object(), {});
 
     let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {
         "__init__" => ctx.new_rustfunc(buffered_io_base_init)
