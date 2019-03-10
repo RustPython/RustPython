@@ -117,15 +117,14 @@ impl Scope {
     }
 }
 
-// TODO: Merge with existing Attribute protocol.
-pub trait AttributeProtocol2 {
-    fn get_attr(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
-    fn set_attr(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
-    fn del_attr(&self, vm: &VirtualMachine, name: &str);
+pub trait NameProtocol {
+    fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
+    fn delete_name(&self, vm: &VirtualMachine, name: &str);
 }
 
-impl AttributeProtocol2 for Scope {
-    fn get_attr(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+impl NameProtocol for Scope {
+    fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
             if let Some(value) = dict.get_item(name) {
                 return Some(value);
@@ -139,11 +138,11 @@ impl AttributeProtocol2 for Scope {
         vm.builtins.get_item(name)
     }
 
-    fn set_attr(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
+    fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
         self.get_locals().set_item(&vm.ctx, key, value)
     }
 
-    fn del_attr(&self, _vm: &VirtualMachine, key: &str) {
+    fn delete_name(&self, _vm: &VirtualMachine, key: &str) {
         self.get_locals().del_item(key)
     }
 }
@@ -846,7 +845,7 @@ impl Frame {
         let obj = import_module(vm, current_path, module)?;
 
         for (k, v) in obj.get_key_value_pairs().iter() {
-            self.scope.set_attr(&vm, &objstr::get_value(k), v.clone());
+            self.scope.store_name(&vm, &objstr::get_value(k), v.clone());
         }
         Ok(None)
     }
@@ -968,17 +967,17 @@ impl Frame {
 
     fn store_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
-        self.scope.set_attr(&vm, name, obj);
+        self.scope.store_name(&vm, name, obj);
         Ok(None)
     }
 
     fn delete_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
-        self.scope.del_attr(vm, name);
+        self.scope.delete_name(vm, name);
         Ok(None)
     }
 
     fn load_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
-        match self.scope.get_attr(&vm, name) {
+        match self.scope.load_name(&vm, name) {
             Some(value) => {
                 self.push_value(value);
                 Ok(None)

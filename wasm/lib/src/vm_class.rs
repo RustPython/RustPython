@@ -4,7 +4,7 @@ use crate::wasm_builtins;
 use js_sys::{Object, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
-    frame::{AttributeProtocol2, Scope},
+    frame::{NameProtocol, Scope},
     pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult},
     VirtualMachine,
 };
@@ -258,7 +258,7 @@ impl WASMVirtualMachine {
                       ..
                   }| {
                 let value = convert::js_to_py(vm, value);
-                scope.set_attr(&vm, &name, value);
+                scope.store_name(&vm, &name, value);
             },
         )
     }
@@ -298,7 +298,7 @@ impl WASMVirtualMachine {
                         )
                         .into());
                     };
-                scope.set_attr(&vm, "print", vm.ctx.new_rustfunc(print_fn));
+                scope.store_name(&vm, "print", vm.ctx.new_rustfunc(print_fn));
                 Ok(())
             },
         )?
