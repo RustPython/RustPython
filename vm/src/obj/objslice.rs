@@ -1,6 +1,6 @@
 use super::objint;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
@@ -13,7 +13,7 @@ pub struct PySlice {
     pub step: Option<BigInt>,
 }
 
-impl PyObjectPayload2 for PySlice {
+impl PyValue for PySlice {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.slice_type()
     }

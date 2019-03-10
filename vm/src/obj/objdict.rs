@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
 use crate::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload2, PyObjectRef,
-    PyRef, PyResult, TypeProtocol,
+    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -21,7 +21,7 @@ pub struct PyDict {
 }
 pub type PyDictRef = PyRef<PyDict>;
 
-impl PyObjectPayload2 for PyDict {
+impl PyValue for PyDict {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.dict_type()
     }

@@ -22,8 +22,8 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef,
-    PyResult, TryFromObject, TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -181,7 +181,7 @@ pub struct Frame {
     pub lasti: RefCell<usize>,        // index of last instruction ran
 }
 
-impl PyObjectPayload2 for Frame {
+impl PyValue for Frame {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.frame_type()
     }

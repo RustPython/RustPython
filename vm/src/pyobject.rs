@@ -684,7 +684,7 @@ pub struct PyRef<T> {
 
 impl<T> PyRef<T>
 where
-    T: PyObjectPayload2,
+    T: PyValue,
 {
     pub fn new(ctx: &PyContext, payload: T) -> Self {
         PyRef {
@@ -717,7 +717,7 @@ where
 
 impl<T> Deref for PyRef<T>
 where
-    T: PyObjectPayload2,
+    T: PyValue,
 {
     type Target = T;
 
@@ -728,7 +728,7 @@ where
 
 impl<T> TryFromObject for PyRef<T>
 where
-    T: PyObjectPayload2,
+    T: PyValue,
 {
     fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if objtype::isinstance(&obj, &T::required_type(&vm.ctx)) {
@@ -1363,7 +1363,7 @@ where
 // explicitly implementing `IntoPyObject`.
 impl<T> IntoPyObject for T
 where
-    T: PyObjectPayload2 + Sized,
+    T: PyValue + Sized,
 {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult {
         Ok(PyObject::new(Box::new(self), T::required_type(ctx)))
@@ -1504,7 +1504,7 @@ pub struct PyIteratorValue {
     pub iterated_obj: PyObjectRef,
 }
 
-impl PyObjectPayload2 for PyIteratorValue {
+impl PyValue for PyIteratorValue {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.iter_type()
     }
@@ -1525,14 +1525,14 @@ impl PyObject {
         Rc::new(self)
     }
 
-    pub fn payload<T: PyObjectPayload2>(&self) -> Option<&T> {
+    pub fn payload<T: PyValue>(&self) -> Option<&T> {
         self.payload.downcast_ref()
     }
 }
 
 // The intention is for this to replace `PyObjectPayload` once everything is
 // converted to use `PyObjectPayload::AnyRustvalue`.
-pub trait PyObjectPayload2: std::any::Any + fmt::Debug {
+pub trait PyValue: Any + fmt::Debug {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
 }
 

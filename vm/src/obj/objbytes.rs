@@ -5,8 +5,7 @@ use std::ops::Deref;
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
@@ -30,7 +29,7 @@ impl Deref for PyBytes {
     }
 }
 
-impl PyObjectPayload2 for PyBytes {
+impl PyValue for PyBytes {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.bytes_type()
     }

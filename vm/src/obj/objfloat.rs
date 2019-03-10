@@ -3,7 +3,7 @@ use super::objint;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyObject, PyObjectPayload2, PyObjectRef, PyRef, PyResult, TypeProtocol,
+    IntoPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -15,7 +15,7 @@ pub struct PyFloat {
     value: f64,
 }
 
-impl PyObjectPayload2 for PyFloat {
+impl PyValue for PyFloat {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.float_type()
     }

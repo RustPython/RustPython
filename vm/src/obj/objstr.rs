@@ -7,8 +7,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::pyobject::{
-    IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectPayload2, PyObjectRef,
-    PyRef, PyResult, TypeProtocol,
+    IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -596,7 +596,7 @@ impl PyStringRef {
     }
 }
 
-impl PyObjectPayload2 for PyString {
+impl PyValue for PyString {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.str_type()
     }

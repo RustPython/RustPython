@@ -1,13 +1,13 @@
 use std::fmt;
 
-use crate::pyobject::{PyContext, PyNativeFunc, PyObjectPayload2, PyObjectRef};
+use crate::pyobject::{PyContext, PyNativeFunc, PyObjectRef, PyValue};
 
 pub struct PyBuiltinFunction {
     // TODO: shouldn't be public
     pub value: PyNativeFunc,
 }
 
-impl PyObjectPayload2 for PyBuiltinFunction {
+impl PyValue for PyBuiltinFunction {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.builtin_function_or_method_type()
     }

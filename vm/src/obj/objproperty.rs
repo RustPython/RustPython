@@ -7,8 +7,7 @@ use std::marker::PhantomData;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IntoPyNativeFunc, OptionalArg, PyContext, PyObject, PyObjectPayload2, PyObjectRef, PyRef,
-    PyResult,
+    IntoPyNativeFunc, OptionalArg, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::VirtualMachine;
 
@@ -18,7 +17,7 @@ pub struct PyReadOnlyProperty {
     getter: PyObjectRef,
 }
 
-impl PyObjectPayload2 for PyReadOnlyProperty {
+impl PyValue for PyReadOnlyProperty {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.readonly_property_type()
     }
@@ -40,7 +39,7 @@ pub struct PyProperty {
     deleter: Option<PyObjectRef>,
 }
 
-impl PyObjectPayload2 for PyProperty {
+impl PyValue for PyProperty {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.property_type()
     }

@@ -1,5 +1,5 @@
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -8,7 +8,7 @@ pub struct PyMemoryView {
     obj: PyObjectRef,
 }
 
-impl PyObjectPayload2 for PyMemoryView {
+impl PyValue for PyMemoryView {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.memoryview_type()
     }

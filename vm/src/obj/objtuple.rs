@@ -2,8 +2,8 @@ use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};
 
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyIteratorValue, PyObject, PyObjectPayload2, PyObjectRef,
-    PyRef, PyResult,
+    IdProtocol, OptionalArg, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -30,7 +30,7 @@ impl From<Vec<PyObjectRef>> for PyTuple {
     }
 }
 
-impl PyObjectPayload2 for PyTuple {
+impl PyValue for PyTuple {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.tuple_type()
     }

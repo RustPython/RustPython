@@ -2,7 +2,7 @@ use super::objfloat;
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_complex::Complex64;
@@ -13,7 +13,7 @@ pub struct PyComplex {
     value: Complex64,
 }
 
-impl PyObjectPayload2 for PyComplex {
+impl PyValue for PyComplex {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.complex_type()
     }

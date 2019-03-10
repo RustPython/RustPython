@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload2,
-    PyObjectRef, PyRef, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -18,7 +18,7 @@ pub struct PyClass {
 
 pub type PyClassRef = PyRef<PyClass>;
 
-impl PyObjectPayload2 for PyClass {
+impl PyValue for PyClass {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.type_type()
     }

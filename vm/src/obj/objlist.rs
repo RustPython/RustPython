@@ -9,8 +9,8 @@ use super::objsequence::{
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload2,
-    PyObjectRef, PyRef, PyResult, TypeProtocol,
+    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;
@@ -29,7 +29,7 @@ impl From<Vec<PyObjectRef>> for PyList {
     }
 }
 
-impl PyObjectPayload2 for PyList {
+impl PyValue for PyList {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.list_type()
     }

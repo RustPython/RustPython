@@ -1,4 +1,4 @@
-use crate::pyobject::{DictProtocol, PyContext, PyObjectPayload2, PyObjectRef, PyRef, PyResult};
+use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[derive(Clone, Debug)]
@@ -8,7 +8,7 @@ pub struct PyModule {
 }
 pub type PyModuleRef = PyRef<PyModule>;
 
-impl PyObjectPayload2 for PyModule {
+impl PyValue for PyModule {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.module_type()
     }

@@ -13,8 +13,7 @@ use super::objiter;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -23,7 +22,7 @@ pub struct PySet {
     elements: RefCell<HashMap<u64, PyObjectRef>>,
 }
 
-impl PyObjectPayload2 for PySet {
+impl PyValue for PySet {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.set_type()
     }

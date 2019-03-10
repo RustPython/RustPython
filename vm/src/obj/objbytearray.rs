@@ -5,7 +5,7 @@ use std::fmt::Write;
 use std::ops::{Deref, DerefMut};
 
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 
 use super::objint;
@@ -28,7 +28,7 @@ impl PyByteArray {
     }
 }
 
-impl PyObjectPayload2 for PyByteArray {
+impl PyValue for PyByteArray {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.bytearray_type()
     }

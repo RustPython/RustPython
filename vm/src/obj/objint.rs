@@ -6,8 +6,8 @@ use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
 use crate::pyobject::{
-    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef,
-    PyRef, PyResult, TryFromObject, TypeProtocol,
+    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -31,7 +31,7 @@ impl PyInt {
     }
 }
 
-impl PyObjectPayload2 for PyInt {
+impl PyValue for PyInt {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.int_type()
     }

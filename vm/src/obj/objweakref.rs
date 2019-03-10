@@ -1,5 +1,5 @@
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::PyObjectPayload2;
+use crate::pyobject::PyValue;
 use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
@@ -22,7 +22,7 @@ impl PyWeak {
     }
 }
 
-impl PyObjectPayload2 for PyWeak {
+impl PyValue for PyWeak {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.weakref_type()
     }
