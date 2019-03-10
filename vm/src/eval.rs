@@ -3,11 +3,11 @@ extern crate rustpython_parser;
 use std::error::Error;
 
 use crate::compile;
-use crate::frame::ScopeRef;
+use crate::frame::Scope;
 use crate::pyobject::PyResult;
 use crate::vm::VirtualMachine;
 
-pub fn eval(vm: &mut VirtualMachine, source: &str, scope: ScopeRef, source_path: &str) -> PyResult {
+pub fn eval(vm: &mut VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
     match compile::compile(
         source,
         &compile::Mode::Eval,
@@ -34,7 +34,7 @@ mod tests {
     fn test_print_42() {
         let source = String::from("print('Hello world')\n");
         let mut vm = VirtualMachine::new();
-        let vars = vm.context().new_scope(None);
+        let vars = vm.ctx.new_scope();
         let _result = eval(&mut vm, &source, vars, "<unittest>");
 
         // TODO: check result?

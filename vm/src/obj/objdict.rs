@@ -1,3 +1,4 @@
+use crate::function::PyRef;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
@@ -18,6 +19,7 @@ pub struct PyDict {
     // TODO: should be private
     pub entries: RefCell<DictContentType>,
 }
+pub type PyDictRef = PyRef<PyDict>;
 
 impl PyObjectPayload2 for PyDict {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
@@ -29,7 +31,7 @@ pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = DictContent
     obj.payload::<PyDict>().unwrap().entries.borrow()
 }
 
-fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictContentType> + 'a {
+pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = DictContentType> + 'a {
     obj.payload::<PyDict>().unwrap().entries.borrow_mut()
 }
 

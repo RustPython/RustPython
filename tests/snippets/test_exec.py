@@ -13,26 +13,21 @@ exec("assert max(1, 2) == 2", {}, {})
 
 exec("assert max(1, 5, square(5)) == 25", None)
 
-#
-# These doesn't work yet:
-#
 # Local environment shouldn't replace global environment:
-#
-# exec("assert max(1, 5, square(5)) == 25", None, {})
-#
+exec("assert max(1, 5, square(5)) == 25", None, {})
+
 # Closures aren't available if local scope is replaced:
-#
-# def g():
-#     seven = "seven"
-#     def f():
-#         try:
-#             exec("seven", None, {})
-#         except NameError:
-#             pass
-#         else:
-#             raise NameError("seven shouldn't be in scope")
-#     f()
-# g()
+def g():
+    seven = "seven"
+    def f():
+        try:
+            exec("seven", None, {})
+        except NameError:
+            pass
+        else:
+            raise NameError("seven shouldn't be in scope")
+    f()
+g()
 
 try:
     exec("", 1)
@@ -40,3 +35,12 @@ except TypeError:
     pass
 else:
     raise TypeError("exec should fail unless globals is a dict or None")
+
+g = globals()
+g['x'] = 2
+exec('x += 2')
+assert x == 4
+assert g['x'] == x
+
+exec("del x")
+assert 'x' not in g

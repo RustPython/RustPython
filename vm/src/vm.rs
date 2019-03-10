@@ -14,7 +14,7 @@ use std::sync::{Mutex, MutexGuard};
 use crate::builtins;
 use crate::bytecode;
 use crate::frame::ExecutionResult;
-use crate::frame::{Scope, ScopeRef};
+use crate::frame::Scope;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
@@ -23,7 +23,6 @@ use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
-use crate::obj::objmodule::PyModule;
 use crate::obj::objsequence;
 use crate::obj::objstr;
 use crate::obj::objtuple::PyTuple;
@@ -75,7 +74,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_code_obj(&mut self, code: PyObjectRef, scope: ScopeRef) -> PyResult {
+    pub fn run_code_obj(&mut self, code: PyObjectRef, scope: Scope) -> PyResult {
         let frame = self.ctx.new_frame(code, scope);
         self.run_frame_full(frame)
     }
@@ -95,7 +94,7 @@ impl VirtualMachine {
         result
     }
 
-    pub fn current_scope(&self) -> &ScopeRef {
+    pub fn current_scope(&self) -> &Scope {
         let current_frame = &self.frames[self.frames.len() - 1];
         let frame = objframe::get_value(current_frame);
         &frame.scope
@@ -211,17 +210,11 @@ impl VirtualMachine {
     }
 
     pub fn get_locals(&self) -> PyObjectRef {
-        let scope = self.current_scope();
-        scope.locals.clone()
+        self.current_scope().get_locals().clone()
     }
 
     pub fn context(&self) -> &PyContext {
         &self.ctx
-    }
-
-    pub fn get_builtin_scope(&self) -> ScopeRef {
-        let PyModule { ref scope, .. } = self.builtins.payload::<PyModule>().unwrap();
-        scope.clone()
     }
 
     // Container of the virtual machine state:
@@ -323,13 +316,13 @@ impl VirtualMachine {
     fn invoke_python_function(
         &mut self,
         code: &PyObjectRef,
-        scope: &ScopeRef,
+        scope: &Scope,
         defaults: &PyObjectRef,
         args: PyFuncArgs,
     ) -> PyResult {
         let code_object = objcode::get_value(code);
-        let scope = self.ctx.new_scope(Some(scope.clone()));
-        self.fill_locals_from_args(&code_object, &scope.locals, args, defaults)?;
+        let scope = scope.child_scope(&self.ctx);
+        self.fill_locals_from_args(&code_object, &scope.get_locals(), args, defaults)?;
 
         // Construct frame:
         let frame = self.ctx.new_frame(code.clone(), scope);
@@ -349,10 +342,7 @@ impl VirtualMachine {
             defaults: _,
         }) = &function.payload()
         {
-            let scope = Rc::new(Scope {
-                locals,
-                parent: Some(scope.clone()),
-            });
+            let scope = scope.child_scope_with_locals(locals);
             let frame = self.ctx.new_frame(code.clone(), scope);
             return self.run_frame_full(frame);
         }

@@ -1,4 +1,3 @@
-use crate::frame::ScopeRef;
 use crate::function::PyRef;
 use crate::pyobject::{DictProtocol, PyContext, PyObjectPayload2, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
@@ -6,7 +5,7 @@ use crate::vm::VirtualMachine;
 #[derive(Clone, Debug)]
 pub struct PyModule {
     pub name: String,
-    pub scope: ScopeRef,
+    pub dict: PyObjectRef,
 }
 pub type PyModuleRef = PyRef<PyModule>;
 
@@ -17,10 +16,9 @@ impl PyObjectPayload2 for PyModule {
 }
 
 impl PyModuleRef {
-    fn dir(self, vm: &mut VirtualMachine) -> PyResult {
+    fn dir(self: PyModuleRef, vm: &mut VirtualMachine) -> PyResult {
         let keys = self
-            .scope
-            .locals
+            .dict
             .get_key_value_pairs()
             .iter()
             .map(|(k, _v)| k.clone())

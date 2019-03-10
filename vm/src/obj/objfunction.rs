@@ -1,4 +1,4 @@
-use crate::frame::ScopeRef;
+use crate::frame::Scope;
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectPayload2, PyObjectRef, PyResult,
     TypeProtocol,
@@ -9,12 +9,12 @@ use crate::vm::VirtualMachine;
 pub struct PyFunction {
     // TODO: these shouldn't be public
     pub code: PyObjectRef,
-    pub scope: ScopeRef,
+    pub scope: Scope,
     pub defaults: PyObjectRef,
 }
 
 impl PyFunction {
-    pub fn new(code: PyObjectRef, scope: ScopeRef, defaults: PyObjectRef) -> Self {
+    pub fn new(code: PyObjectRef, scope: Scope, defaults: PyObjectRef) -> Self {
         PyFunction {
             code,
             scope,

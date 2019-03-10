@@ -4,8 +4,8 @@ use crate::wasm_builtins;
 use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
-    frame::ScopeRef,
-    pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult},
+    frame::{NameProtocol, Scope},
+    pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult},
     VirtualMachine,
 };
 use std::cell::RefCell;
@@ -19,7 +19,7 @@ impl<T> HeldRcInner for T {}
 
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
-    pub scope: ScopeRef,
+    pub scope: Scope,
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
     held_rcs: Vec<Rc<dyn HeldRcInner>>,
@@ -28,8 +28,7 @@ pub(crate) struct StoredVirtualMachine {
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut vm = VirtualMachine::new();
-        let builtin = vm.get_builtin_scope();
-        let scope = vm.context().new_scope(Some(builtin));
+        let scope = vm.ctx.new_scope();
         if inject_browser_module {
             setup_browser_module(&mut vm);
         }
@@ -259,7 +258,7 @@ impl WASMVirtualMachine {
                       ..
                   }| {
                 let value = convert::js_to_py(vm, value);
-                scope.locals.set_item(&vm.ctx, &name, value);
+                scope.store_name(&vm, &name, value);
             },
         )
     }
@@ -299,9 +298,7 @@ impl WASMVirtualMachine {
                         )
                         .into());
                     };
-                scope
-                    .locals
-                    .set_item(&vm.ctx, "print", vm.ctx.new_rustfunc(print_fn));
+                scope.store_name(&vm, "print", vm.ctx.new_rustfunc(print_fn));
                 Ok(())
             },
         )?
@@ -320,7 +317,7 @@ impl WASMVirtualMachine {
             let mod_name = name.clone();
 
             let stdlib_init_fn = move |ctx: &PyContext| {
-                let py_mod = ctx.new_module(&name, ctx.new_scope(None));
+                let py_mod = ctx.new_module(&name, ctx.new_dict());
                 for (key, value) in module_items.clone() {
                     ctx.set_attr(&py_mod, &key, value);
                 }

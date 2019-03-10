@@ -6,6 +6,7 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use crate::compile;
+use crate::frame::Scope;
 use crate::obj::{objsequence, objstr};
 use crate::pyobject::{AttributeProtocol, DictProtocol, PyResult};
 use crate::util;
@@ -41,13 +42,10 @@ fn import_uncached_module(
     })?;
     // trace!("Code object: {:?}", code_obj);
 
-    let builtins = vm.get_builtin_scope();
-    let scope = vm.ctx.new_scope(Some(builtins));
-    scope
-        .locals
-        .set_item(&vm.ctx, "__name__", vm.new_str(module.to_string()));
-    vm.run_code_obj(code_obj, scope.clone())?;
-    Ok(vm.ctx.new_module(module, scope))
+    let attrs = vm.ctx.new_dict();
+    attrs.set_item(&vm.ctx, "__name__", vm.new_str(module.to_string()));
+    vm.run_code_obj(code_obj, Scope::new(None, attrs.clone()))?;
+    Ok(vm.ctx.new_module(module, attrs))
 }
 
 pub fn import_module(

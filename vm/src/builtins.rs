@@ -14,7 +14,7 @@ use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objtype;
 
-use crate::frame::{Scope, ScopeRef};
+use crate::frame::Scope;
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
 };
@@ -245,7 +245,7 @@ fn make_scope(
     vm: &mut VirtualMachine,
     globals: Option<&PyObjectRef>,
     locals: Option<&PyObjectRef>,
-) -> PyResult<ScopeRef> {
+) -> PyResult<Scope> {
     let dict_type = vm.ctx.dict_type();
     let globals = match globals {
         Some(arg) => {
@@ -269,16 +269,16 @@ fn make_scope(
     };
 
     let current_scope = vm.current_scope();
-    let parent = match globals {
-        Some(dict) => Some(Scope::new(dict.clone(), Some(vm.get_builtin_scope()))),
-        None => current_scope.parent.clone(),
+    let globals = match globals {
+        Some(dict) => dict.clone(),
+        None => current_scope.globals.clone(),
     };
     let locals = match locals {
-        Some(dict) => dict.clone(),
-        None => current_scope.locals.clone(),
+        Some(dict) => Some(dict.clone()),
+        None => current_scope.get_only_locals(),
     };
 
-    Ok(Scope::new(locals, parent))
+    Ok(Scope::new(locals, globals))
 }
 
 fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -303,7 +303,9 @@ fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.get_attribute(obj.clone(), attr.clone())
 }
 
-// builtin_globals
+fn builtin_globals(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+    Ok(vm.current_scope().globals.clone())
+}
 
 fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -743,6 +745,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "filter" => ctx.filter_type(),
         "format" => ctx.new_rustfunc(builtin_format),
         "getattr" => ctx.new_rustfunc(builtin_getattr),
+        "globals" => ctx.new_rustfunc(builtin_globals),
         "hasattr" => ctx.new_rustfunc(builtin_hasattr),
         "hash" => ctx.new_rustfunc(builtin_hash),
         "hex" => ctx.new_rustfunc(builtin_hex),
