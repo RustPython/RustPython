@@ -29,8 +29,22 @@ y = [1, 10, 29]
 assert x > y, "list __gt__ failed"
 
 
-assert [1,2,'a'].pop() == 'a', "list pop failed"
+x = [0, 1, 2]
+assert x.pop() == 2
+assert x == [0, 1]
+
+def test_pop(lst, idx, value, new_lst):
+    assert lst.pop(idx) == value
+    assert lst == new_lst
+test_pop([0, 1, 2], -1, 2, [0, 1])
+test_pop([0, 1, 2], 0, 0, [1, 2])
+test_pop([0, 1, 2], 1, 1, [0, 2])
+test_pop([0, 1, 2], 2, 2, [0, 1])
 assert_raises(IndexError, lambda: [].pop())
+assert_raises(IndexError, lambda: [].pop(0))
+assert_raises(IndexError, lambda: [].pop(-1))
+assert_raises(IndexError, lambda: [0].pop(1))
+assert_raises(IndexError, lambda: [0].pop(-2))
 
 recursive = []
 recursive.append(recursive)
