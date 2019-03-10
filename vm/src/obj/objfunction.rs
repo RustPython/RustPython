@@ -55,7 +55,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(
         &function_type,
         "__code__",
-        context.new_member_descriptor(function_code),
+        context.new_property(function_code),
     );
 
     let builtin_function_or_method_type = &context.builtin_function_or_method_type;
@@ -63,25 +63,6 @@ pub fn init(context: &PyContext) {
         &builtin_function_or_method_type,
         "__get__",
         context.new_rustfunc(bind_method),
-    );
-
-    let member_descriptor_type = &context.member_descriptor_type;
-    context.set_attr(
-        &member_descriptor_type,
-        "__get__",
-        context.new_rustfunc(member_get),
-    );
-
-    let data_descriptor_type = &context.data_descriptor_type;
-    context.set_attr(
-        &data_descriptor_type,
-        "__get__",
-        context.new_rustfunc(data_get),
-    );
-    context.set_attr(
-        &data_descriptor_type,
-        "__set__",
-        context.new_rustfunc(data_set),
     );
 
     let classmethod_type = &context.classmethod_type;
@@ -127,36 +108,6 @@ fn function_code(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match args.args[0].payload() {
         Some(PyFunction { ref code, .. }) => Ok(code.clone()),
         None => Err(vm.new_type_error("no code".to_string())),
-    }
-}
-
-fn member_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    match args.shift().get_attr("function") {
-        Some(function) => vm.invoke(function, args),
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
-        }
-    }
-}
-
-fn data_get(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    match args.shift().get_attr("fget") {
-        Some(function) => vm.invoke(function, args),
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
-        }
-    }
-}
-
-fn data_set(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    match args.shift().get_attr("fset") {
-        Some(function) => vm.invoke(function, args),
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(attribute_error, String::from("Attribute Error")))
-        }
     }
 }
 

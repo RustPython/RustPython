@@ -137,6 +137,11 @@ impl VirtualMachine {
         self.invoke(exc_type, args).unwrap()
     }
 
+    pub fn new_attribute_error(&mut self, msg: String) -> PyObjectRef {
+        let type_error = self.ctx.exceptions.attribute_error.clone();
+        self.new_exception(type_error, msg)
+    }
+
     pub fn new_type_error(&mut self, msg: String) -> PyObjectRef {
         let type_error = self.ctx.exceptions.type_error.clone();
         self.new_exception(type_error, msg)
