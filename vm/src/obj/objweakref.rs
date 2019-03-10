@@ -1,7 +1,6 @@
-use crate::function::PyRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::PyObjectPayload2;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult};
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
 use std::rc::{Rc, Weak};

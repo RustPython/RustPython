@@ -1,19 +1,21 @@
-use super::objdict;
-use super::objstr;
-use crate::function::PyRef;
-use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 use std::cell::RefCell;
 use std::collections::HashMap;
+
+use crate::pyobject::{
+    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
+    PyObjectPayload2, PyObjectRef, PyRef, PyResult, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
+
+use super::objdict;
+use super::objstr;
 
 #[derive(Clone, Debug)]
 pub struct PyClass {
     pub name: String,
     pub mro: Vec<PyObjectRef>,
 }
+
 pub type PyClassRef = PyRef<PyClass>;
 
 impl PyObjectPayload2 for PyClass {

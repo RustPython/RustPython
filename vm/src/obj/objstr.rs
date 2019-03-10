@@ -6,10 +6,9 @@ use num_traits::ToPrimitive;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
-use crate::function::PyRef;
 use crate::pyobject::{
     IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectPayload2, PyObjectRef,
-    PyResult, TypeProtocol,
+    PyRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 

@@ -1,5 +1,4 @@
-use crate::function::PyRef;
-use crate::pyobject::{DictProtocol, PyContext, PyObjectPayload2, PyObjectRef, PyResult};
+use crate::pyobject::{DictProtocol, PyContext, PyObjectPayload2, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
 #[derive(Clone, Debug)]

@@ -2,10 +2,9 @@ use super::objbytes;
 use super::objint;
 use super::objstr;
 use super::objtype;
-use crate::function::PyRef;
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    IntoPyObject, PyContext, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyRef,
+    PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;

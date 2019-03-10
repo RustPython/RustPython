@@ -8,10 +8,9 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use crate::function::PyRef;
 use crate::pyobject::{
     IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    PyObjectPayload2, PyObjectRef, PyRef, PyResult, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;

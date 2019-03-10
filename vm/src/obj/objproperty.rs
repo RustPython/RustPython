@@ -2,15 +2,15 @@
 
 */
 
-use crate::function::PyRef;
+use std::marker::PhantomData;
+
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::IntoPyNativeFunc;
 use crate::pyobject::{
-    OptionalArg, PyContext, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    IntoPyNativeFunc, OptionalArg, PyContext, PyObject, PyObjectPayload, PyObjectPayload2,
+    PyObjectRef, PyRef, PyResult,
 };
 use crate::VirtualMachine;
-use std::marker::PhantomData;
 
 /// Read-only property, doesn't have __set__ or __delete__
 #[derive(Debug)]

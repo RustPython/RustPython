@@ -5,10 +5,9 @@ use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
-use crate::function::PyRef;
 use crate::pyobject::{
     FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    PyObjectPayload2, PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 

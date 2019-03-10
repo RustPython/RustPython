@@ -1,16 +1,16 @@
-use crate::function::PyRef;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
+use crate::pyobject::{
+    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload,
+    PyObjectPayload2, PyObjectRef, PyRef, PyResult, TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
+
 use super::objiter;
 use super::objstr;
 use super::objtype;
-use crate::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
 
 pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
 

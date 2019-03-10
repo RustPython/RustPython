@@ -1,10 +1,9 @@
 use super::objstr;
 use super::objtype;
-use crate::function::PyRef;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
-    PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyObjectPayload, PyObjectRef, PyRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -12,6 +11,7 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct PyInstance;
+
 pub type PyInstanceRef = PyRef<PyInstance>;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
