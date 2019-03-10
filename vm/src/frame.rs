@@ -18,6 +18,7 @@ use crate::obj::objdict::PyDict;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
+use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
@@ -303,7 +304,9 @@ impl Frame {
                 let step = if out.len() == 3 { out[2].take() } else { None };
 
                 let obj = PyObject::new(
-                    PyObjectPayload::Slice { start, stop, step },
+                    PyObjectPayload::AnyRustValue {
+                        value: Box::new(PySlice { start, stop, step }),
+                    },
                     vm.ctx.slice_type(),
                 );
                 self.push_value(obj);
