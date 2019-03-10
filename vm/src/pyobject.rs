@@ -1537,11 +1537,8 @@ impl PyObject {
     }
 
     pub fn payload<T: PyObjectPayload2>(&self) -> Option<&T> {
-        if let PyObjectPayload::AnyRustValue { ref value } = self.payload {
-            value.downcast_ref()
-        } else {
-            None
-        }
+        let PyObjectPayload::AnyRustValue { ref value } = self.payload;
+        value.downcast_ref()
     }
 }
 
