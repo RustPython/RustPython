@@ -117,8 +117,10 @@ term.on("data", (data) => {
         input = "";
     }
   } else if (code == 127) {
-    term.write("\b \b");
-    input = input.slice(0, -1);
+    if (input.length > 0) {
+        term.write("\b \b");
+        input = input.slice(0, -1);
+    }
   } else if (code < 32 || code == 127) { // Control
     return;
   } else { // Visible
