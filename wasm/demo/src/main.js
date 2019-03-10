@@ -2,6 +2,7 @@ import * as rp from '../../lib/pkg';
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/python/python';
 import 'codemirror/addon/comment/comment';
+import { Terminal } from 'xterm';
 
 // so people can play around with it
 window.rp = rp;
@@ -72,3 +73,58 @@ snippets.addEventListener('change', updateSnippet);
 // Run once for demo (updateSnippet b/c the browser might try to keep the same
 // option selected for the `select`, but the textarea won't be updated)
 updateSnippet();
+
+const prompt = ">>>>> ";
+
+const term = new Terminal();
+term.open(document.getElementById('terminal'));
+term.write(prompt);
+
+function removeNonAscii(str) {
+    if ((str===null) || (str===''))
+        return false;
+    else
+        str = str.toString();
+
+    return str.replace(/[^\x20-\x7E]/g, '');
+}
+
+function printToConsole(data) {
+    term.write(removeNonAscii(data) + "\r\n");
+}
+
+const terminalVM = rp.vmStore.init("term_vm");
+terminalVM.setStdout(printToConsole);
+
+var input = "";
+term.on("data", (data) => {
+  const code = data.charCodeAt(0);
+  if (code == 13) { // CR
+    if (input[input.length - 1] == ':') {
+        input += data
+        term.write("\r\n.....");
+    } else {
+        term.write("\r\n");
+        try {
+            terminalVM.exec(input);
+        } catch (err) {
+            if (err instanceof WebAssembly.RuntimeError) {
+                err = window.__RUSTPYTHON_ERROR || err;
+            }
+            printToConsole(err);
+        }
+        term.write(prompt);
+        input = "";
+    }
+  } else if (code == 127) {
+    if (input.length > 0) {
+        term.write("\b \b");
+        input = input.slice(0, -1);
+    }
+  } else if (code < 32 || code == 127) { // Control
+    return;
+  } else { // Visible
+    term.write(data);
+    input += data;
+  }
+});
