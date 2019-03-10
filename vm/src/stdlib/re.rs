@@ -17,7 +17,7 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 /// Create the python `re` module with all its members.
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let match_type = py_class!(ctx, "Match", ctx.object(), {
         "start" => ctx.new_rustfunc(match_start),
         "end" => ctx.new_rustfunc(match_end)

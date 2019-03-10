@@ -57,7 +57,7 @@ impl VirtualMachine {
 
         // Hard-core modules:
         let builtins = builtins::make_module(&ctx);
-        let sysmod = sysmodule::mk_module(&ctx);
+        let sysmod = sysmodule::make_module(&ctx);
 
         // Add builtins as builtins module:
         let modules = sysmod.get_attr("modules").unwrap();

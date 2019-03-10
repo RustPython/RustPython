@@ -118,7 +118,7 @@ fn os_error(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_os_error(msg))
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let py_mod = py_module!(ctx, "os", {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),

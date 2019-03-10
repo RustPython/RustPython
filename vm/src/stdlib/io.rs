@@ -365,7 +365,7 @@ pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     //IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "IOBase", ctx.object(), {
         "__enter__" => ctx.new_rustfunc(io_base_cm_enter),

@@ -5,7 +5,7 @@
 
 use crate::pyobject::{PyContext, PyObjectRef};
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let ascii_lowercase = "abcdefghijklmnopqrstuvwxyz".to_string();
     let ascii_uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".to_string();
     let ascii_letters = format!("{}{}", ascii_lowercase, ascii_uppercase);

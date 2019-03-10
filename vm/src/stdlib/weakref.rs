@@ -12,7 +12,7 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 use std::rc::Rc;
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let py_ref_class = py_class!(ctx, "ref", ctx.object(), {
         "__new__" => ctx.new_rustfunc(ref_new),
         "__call__" => ctx.new_rustfunc(ref_call)

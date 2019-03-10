@@ -30,7 +30,7 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     objtype::new(vm.ctx.type_type(), &name, bases, PyAttributes::new())
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "types", {
         "new_class" => ctx.new_rustfunc(types_new_class),
         "FunctionType" => ctx.function_type(),

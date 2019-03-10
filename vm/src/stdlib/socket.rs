@@ -421,7 +421,7 @@ fn get_addr_tuple(vm: &mut VirtualMachine, addr: SocketAddr) -> PyResult {
     Ok(vm.ctx.new_tuple(vec![ip, port]))
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let socket = py_class!(ctx, "socket", ctx.object(), {
          "__new__" => ctx.new_rustfunc(socket_new),
          "connect" => ctx.new_rustfunc(socket_connect),
