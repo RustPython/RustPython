@@ -100,17 +100,6 @@ impl fmt::Display for PyObject {
     }
 }
 
-/*
- // Idea: implement the iterator trait upon PyObjectRef
-impl Iterator for (VirtualMachine, PyObjectRef) {
-    type Item = char;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // call method ("_next__")
-    }
-}
-*/
-
 #[derive(Debug)]
 pub struct PyContext {
     pub bytes_type: PyObjectRef,
@@ -1511,10 +1500,6 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 /// of rust data for a particular python object. Determine the python type
 /// by using for example the `.typ()` method on a python object.
 pub enum PyObjectPayload {
-    Iterator {
-        position: Cell<usize>,
-        iterated_obj: PyObjectRef,
-    },
     Slice {
         start: Option<BigInt>,
         stop: Option<BigInt>,
@@ -1539,12 +1524,25 @@ impl Default for PyObjectPayload {
     }
 }
 
+// TODO: This is a workaround and shouldn't exist.
+//       Each iterable type should have its own distinct iterator type.
+#[derive(Debug)]
+pub struct PyIteratorValue {
+    pub position: Cell<usize>,
+    pub iterated_obj: PyObjectRef,
+}
+
+impl PyObjectPayload2 for PyIteratorValue {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.iter_type()
+    }
+}
+
 impl fmt::Debug for PyObjectPayload {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             PyObjectPayload::MemoryView { ref obj } => write!(f, "bytes/bytearray {:?}", obj),
             PyObjectPayload::WeakRef { .. } => write!(f, "weakref"),
-            PyObjectPayload::Iterator { .. } => write!(f, "iterator"),
             PyObjectPayload::Slice { .. } => write!(f, "slice"),
             PyObjectPayload::AnyRustValue { value } => value.fmt(f),
         }

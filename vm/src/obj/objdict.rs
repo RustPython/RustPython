@@ -6,8 +6,8 @@ use super::objiter;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef,
-    PyResult, TypeProtocol,
+    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload,
+    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -249,9 +249,11 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let key_list = vm.ctx.new_list(keys);
 
     let iter_obj = PyObject::new(
-        PyObjectPayload::Iterator {
-            position: Cell::new(0),
-            iterated_obj: key_list,
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: key_list,
+            }),
         },
         vm.ctx.iter_type(),
     );
@@ -269,9 +271,11 @@ fn dict_values(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let values_list = vm.ctx.new_list(values);
 
     let iter_obj = PyObject::new(
-        PyObjectPayload::Iterator {
-            position: Cell::new(0),
-            iterated_obj: values_list,
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: values_list,
+            }),
         },
         vm.ctx.iter_type(),
     );
@@ -289,9 +293,11 @@ fn dict_items(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items_list = vm.ctx.new_list(items);
 
     let iter_obj = PyObject::new(
-        PyObjectPayload::Iterator {
-            position: Cell::new(0),
-            iterated_obj: items_list,
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: items_list,
+            }),
         },
         vm.ctx.iter_type(),
     );

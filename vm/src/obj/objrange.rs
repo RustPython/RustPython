@@ -6,8 +6,8 @@ use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload, PyObjectPayload2,
+    PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -240,9 +240,11 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(range, Some(vm.ctx.range_type()))]);
 
     Ok(PyObject::new(
-        PyObjectPayload::Iterator {
-            position: Cell::new(0),
-            iterated_obj: range.clone(),
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: range.clone(),
+            }),
         },
         vm.ctx.iter_type(),
     ))
@@ -254,14 +256,16 @@ fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let range = get_value(zelf).reversed();
 
     Ok(PyObject::new(
-        PyObjectPayload::Iterator {
-            position: Cell::new(0),
-            iterated_obj: PyObject::new(
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(range),
-                },
-                vm.ctx.range_type(),
-            ),
+        PyObjectPayload::AnyRustValue {
+            value: Box::new(PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: PyObject::new(
+                    PyObjectPayload::AnyRustValue {
+                        value: Box::new(range),
+                    },
+                    vm.ctx.range_type(),
+                ),
+            }),
         },
         vm.ctx.iter_type(),
     ))
