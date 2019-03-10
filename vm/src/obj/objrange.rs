@@ -292,14 +292,12 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let range = get_value(zelf);
 
     if let Some(i) = subscript.payload::<PyInt>() {
-        return if let Some(int) = range.get(i.value.clone()) {
+        if let Some(int) = range.get(i.value.clone()) {
             Ok(vm.ctx.new_int(int))
         } else {
             Err(vm.new_index_error("range object index out of range".to_string()))
-        };
-    }
-
-    if let Some(PySlice {
+        }
+    } else if let Some(PySlice {
         ref start,
         ref stop,
         ref step,
@@ -331,7 +329,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             range.step
         };
 
-        return Ok(PyObject::new(
+        Ok(PyObject::new(
             PyObjectPayload::AnyRustValue {
                 value: Box::new(PyRange {
                     start: new_start,
@@ -340,10 +338,10 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 }),
             },
             vm.ctx.range_type(),
-        ));
+        ))
+    } else {
+        Err(vm.new_type_error("range indices must be integer or slice".to_string()))
     }
-
-    Err(vm.new_type_error("range indices must be integer or slice".to_string()))
 }
 
 fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
