@@ -22,8 +22,8 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2,
-    PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef,
+    PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -407,12 +407,8 @@ impl Frame {
                 let stop = out[1].take();
                 let step = if out.len() == 3 { out[2].take() } else { None };
 
-                let obj = PyObject::new(
-                    PyObjectPayload::AnyRustValue {
-                        value: Box::new(PySlice { start, stop, step }),
-                    },
-                    vm.ctx.slice_type(),
-                );
+                let obj =
+                    PyObject::new(Box::new(PySlice { start, stop, step }), vm.ctx.slice_type());
                 self.push_value(obj);
                 Ok(None)
             }
@@ -706,11 +702,9 @@ impl Frame {
             }
             bytecode::Instruction::LoadBuildClass => {
                 let rustfunc = PyObject::new(
-                    PyObjectPayload::AnyRustValue {
-                        value: Box::new(PyBuiltinFunction::new(Box::new(
-                            builtins::builtin_build_class_,
-                        ))),
-                    },
+                    Box::new(PyBuiltinFunction::new(Box::new(
+                        builtins::builtin_build_class_,
+                    ))),
                     vm.ctx.type_type(),
                 );
                 self.push_value(rustfunc);

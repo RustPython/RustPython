@@ -1,6 +1,6 @@
 use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef,
-    PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
@@ -27,12 +27,10 @@ fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let iterator = objiter::get_iter(vm, iterable)?;
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyFilter {
-                predicate: function.clone(),
-                iterator,
-            }),
-        },
+        Box::new(PyFilter {
+            predicate: function.clone(),
+            iterator,
+        }),
         cls.clone(),
     ))
 }

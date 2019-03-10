@@ -1,6 +1,5 @@
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -25,12 +24,7 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .iter()
         .map(|iterable| objiter::get_iter(vm, iterable))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyZip { iterators }),
-        },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(Box::new(PyZip { iterators }), cls.clone()))
 }
 
 fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

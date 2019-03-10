@@ -9,9 +9,7 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objsequence::get_elements;
 use crate::obj::objstr;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use num_traits::ToPrimitive;
@@ -127,8 +125,7 @@ impl Socket {
 }
 
 fn get_socket<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Socket> + 'a {
-    let PyObjectPayload::AnyRustValue { ref value } = obj.payload;
-    if let Some(socket) = value.downcast_ref::<RefCell<Socket>>() {
+    if let Some(socket) = obj.payload.downcast_ref::<RefCell<Socket>>() {
         return socket.borrow_mut();
     }
     panic!("Inner error getting socket {:?}", obj);
@@ -151,12 +148,7 @@ fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let socket = RefCell::new(Socket::new(address_family, kind));
 
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(socket),
-        },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(Box::new(socket), cls.clone()))
 }
 
 fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -274,12 +266,7 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         con: Some(Connection::TcpStream(tcp_stream)),
     });
 
-    let sock_obj = PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(socket),
-        },
-        zelf.typ(),
-    );
+    let sock_obj = PyObject::new(Box::new(socket), zelf.typ());
 
     let addr_tuple = get_addr_tuple(vm, addr)?;
 

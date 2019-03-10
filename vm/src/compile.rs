@@ -8,7 +8,7 @@
 use crate::bytecode::{self, CallType, CodeObject, Instruction};
 use crate::error::CompileError;
 use crate::obj::objcode;
-use crate::pyobject::{PyObject, PyObjectPayload, PyObjectRef};
+use crate::pyobject::{PyObject, PyObjectRef};
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
@@ -50,9 +50,7 @@ pub fn compile(
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(objcode::PyCode::new(code)),
-        },
+        Box::new(objcode::PyCode::new(code)),
         code_type,
     ))
 }

@@ -4,8 +4,7 @@
 
 use crate::frame::{ExecutionResult, Frame};
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -41,9 +40,7 @@ pub fn init(context: &PyContext) {
 
 pub fn new_generator(vm: &mut VirtualMachine, frame: PyObjectRef) -> PyResult {
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyGenerator { frame }),
-        },
+        Box::new(PyGenerator { frame }),
         vm.ctx.generator_type.clone(),
     ))
 }

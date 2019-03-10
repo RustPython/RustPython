@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IntoPyNativeFunc, OptionalArg, PyContext, PyObject, PyObjectPayload, PyObjectPayload2,
-    PyObjectRef, PyRef, PyResult,
+    IntoPyNativeFunc, OptionalArg, PyContext, PyObject, PyObjectPayload2, PyObjectRef, PyRef,
+    PyResult,
 };
 use crate::VirtualMachine;
 
@@ -138,12 +138,7 @@ impl<'a, T> PropertyBuilder<'a, T> {
                 deleter: None,
             };
 
-            PyObject::new(
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(payload),
-                },
-                self.ctx.property_type(),
-            )
+            PyObject::new(Box::new(payload), self.ctx.property_type())
         } else {
             let payload = PyReadOnlyProperty {
                 getter: self.getter.expect(
@@ -151,12 +146,7 @@ impl<'a, T> PropertyBuilder<'a, T> {
                 ),
             };
 
-            PyObject::new(
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(payload),
-                },
-                self.ctx.readonly_property_type(),
-            )
+            PyObject::new(Box::new(payload), self.ctx.readonly_property_type())
         }
     }
 }

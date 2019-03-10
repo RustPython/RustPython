@@ -4,8 +4,7 @@ use std::ops::AddAssign;
 use super::objint;
 use super::objiter;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
@@ -37,12 +36,10 @@ fn enumerate_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     let iterator = objiter::get_iter(vm, iterable)?;
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyEnumerate {
-                counter: RefCell::new(counter),
-                iterator,
-            }),
-        },
+        Box::new(PyEnumerate {
+            counter: RefCell::new(counter),
+            iterator,
+        }),
         cls.clone(),
     ))
 }

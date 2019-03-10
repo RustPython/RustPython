@@ -5,8 +5,7 @@ use std::fmt::Write;
 use std::ops::{Deref, DerefMut};
 
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 
 use super::objint;
@@ -174,9 +173,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyByteArray::new(value)),
-        },
+        Box::new(PyByteArray::new(value)),
         cls.clone(),
     ))
 }

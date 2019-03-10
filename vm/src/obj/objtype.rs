@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyRef, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectPayload2,
+    PyObjectRef, PyRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -32,12 +32,10 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type:
     // this is not ideal
     let ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
     unsafe {
-        (*ptr).payload = PyObjectPayload::AnyRustValue {
-            value: Box::new(PyClass {
-                name: String::from("type"),
-                mro: vec![object_type],
-            }),
-        };
+        (*ptr).payload = Box::new(PyClass {
+            name: String::from("type"),
+            mro: vec![object_type],
+        });
         (*ptr).dict = Some(RefCell::new(PyAttributes::new()));
         (*ptr).typ = Some(type_type);
     }
@@ -320,12 +318,10 @@ pub fn new(
     let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject {
-        payload: PyObjectPayload::AnyRustValue {
-            value: Box::new(PyClass {
-                name: String::from(name),
-                mro,
-            }),
-        },
+        payload: Box::new(PyClass {
+            name: String::from(name),
+            mro,
+        }),
         dict: Some(RefCell::new(dict)),
         typ: Some(typ),
     }

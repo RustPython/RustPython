@@ -5,8 +5,8 @@ use std::ops::Deref;
 use super::objint;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload, PyObjectPayload2,
-    PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload2, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
@@ -95,12 +95,7 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
 
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyBytes::new(value)),
-        },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(Box::new(PyBytes::new(value)), cls.clone()))
 }
 
 fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -209,12 +204,10 @@ fn bytes_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
 
     let iter_obj = PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: obj.clone(),
-            }),
-        },
+        Box::new(PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: obj.clone(),
+        }),
         vm.ctx.iter_type(),
     );
 

@@ -1,7 +1,6 @@
 use super::objint;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
@@ -55,13 +54,11 @@ fn slice_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     }?;
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PySlice {
-                start: start.map(|x| objint::get_value(x)),
-                stop: stop.map(|x| objint::get_value(x)),
-                step: step.map(|x| objint::get_value(x)),
-            }),
-        },
+        Box::new(PySlice {
+            start: start.map(|x| objint::get_value(x)),
+            stop: stop.map(|x| objint::get_value(x)),
+            step: step.map(|x| objint::get_value(x)),
+        }),
         cls.clone(),
     ))
 }

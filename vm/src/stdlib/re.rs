@@ -11,9 +11,7 @@ use regex::{Match, Regex};
 use std::path::PathBuf;
 
 use crate::obj::objstr;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 
 /// Create the python `re` module with all its members.
@@ -118,12 +116,7 @@ fn create_match(vm: &mut VirtualMachine, match_value: &Match) -> PyResult {
         end: match_value.end(),
     };
 
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(match_value),
-        },
-        match_class.clone(),
-    ))
+    Ok(PyObject::new(Box::new(match_value), match_class.clone()))
 }
 
 /// Compile a regular expression into a Pattern object.
@@ -141,12 +134,7 @@ fn re_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let module = import::import_module(vm, PathBuf::default(), "re").unwrap();
     let pattern_class = vm.ctx.get_attr(&module, "Pattern").unwrap();
 
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(regex),
-        },
-        pattern_class.clone(),
-    ))
+    Ok(PyObject::new(Box::new(regex), pattern_class.clone()))
 }
 
 fn pattern_match(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -192,8 +180,7 @@ fn match_end(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 /// Retrieve inner rust regex from python object:
 fn get_regex<'a>(obj: &'a PyObjectRef) -> &'a Regex {
     // TODO: Regex shouldn't be stored in payload directly, create newtype wrapper
-    let PyObjectPayload::AnyRustValue { ref value } = obj.payload;
-    if let Some(regex) = value.downcast_ref::<Regex>() {
+    if let Some(regex) = obj.payload.downcast_ref::<Regex>() {
         return regex;
     }
     panic!("Inner error getting regex {:?}", obj);
@@ -201,8 +188,7 @@ fn get_regex<'a>(obj: &'a PyObjectRef) -> &'a Regex {
 
 /// Retrieve inner rust match from python object:
 fn get_match<'a>(obj: &'a PyObjectRef) -> &'a PyMatch {
-    let PyObjectPayload::AnyRustValue { ref value } = obj.payload;
-    if let Some(value) = value.downcast_ref::<PyMatch>() {
+    if let Some(value) = obj.payload.downcast_ref::<PyMatch>() {
         return value;
     }
     panic!("Inner error getting match {:?}", obj);

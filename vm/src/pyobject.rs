@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
@@ -213,38 +214,19 @@ impl PyContext {
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objnone::PyNone),
-            },
+            Box::new(objnone::PyNone),
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
-        let ellipsis = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(()),
-            },
-            ellipsis_type.clone(),
-        );
+        let ellipsis = PyObject::new(Box::new(()), ellipsis_type.clone());
 
         let not_implemented = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(()),
-            },
+            Box::new(()),
             create_type("NotImplementedType", &type_type, &object_type, &dict_type),
         );
 
-        let true_value = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyInt::new(BigInt::one())),
-            },
-            bool_type.clone(),
-        );
-        let false_value = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyInt::new(BigInt::zero())),
-            },
-            bool_type.clone(),
-        );
+        let true_value = PyObject::new(Box::new(PyInt::new(BigInt::one())), bool_type.clone());
+        let false_value = PyObject::new(Box::new(PyInt::new(BigInt::zero())), bool_type.clone());
         let context = PyContext {
             bool_type,
             memoryview_type,
@@ -482,55 +464,28 @@ impl PyContext {
     }
 
     pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyInt::new(i)),
-            },
-            self.int_type(),
-        )
+        PyObject::new(Box::new(PyInt::new(i)), self.int_type())
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyFloat::from(value)),
-            },
-            self.float_type(),
-        )
+        PyObject::new(Box::new(PyFloat::from(value)), self.float_type())
     }
 
     pub fn new_complex(&self, value: Complex64) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyComplex::from(value)),
-            },
-            self.complex_type(),
-        )
+        PyObject::new(Box::new(PyComplex::from(value)), self.complex_type())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objstr::PyString { value: s }),
-            },
-            self.str_type(),
-        )
+        PyObject::new(Box::new(objstr::PyString { value: s }), self.str_type())
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objbytes::PyBytes::new(data)),
-            },
-            self.bytes_type(),
-        )
+        PyObject::new(Box::new(objbytes::PyBytes::new(data)), self.bytes_type())
     }
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objbytearray::PyByteArray::new(data)),
-            },
+            Box::new(objbytearray::PyByteArray::new(data)),
             self.bytearray_type(),
         )
     }
@@ -544,41 +499,21 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyTuple::from(elements)),
-            },
-            self.tuple_type(),
-        )
+        PyObject::new(Box::new(PyTuple::from(elements)), self.tuple_type())
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyList::from(elements)),
-            },
-            self.list_type(),
-        )
+        PyObject::new(Box::new(PyList::from(elements)), self.list_type())
     }
 
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PySet::default()),
-            },
-            self.set_type(),
-        )
+        PyObject::new(Box::new(PySet::default()), self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyDict::default()),
-            },
-            self.dict_type(),
-        )
+        PyObject::new(Box::new(PyDict::default()), self.dict_type())
     }
 
     pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
@@ -591,12 +526,10 @@ impl PyContext {
 
     pub fn new_module(&self, name: &str, dict: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyModule {
-                    name: name.to_string(),
-                    dict,
-                }),
-            },
+            Box::new(PyModule {
+                name: name.to_string(),
+                dict,
+            }),
             self.module_type.clone(),
         )
     }
@@ -606,20 +539,13 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R>,
     {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyBuiltinFunction::new(f.into_func())),
-            },
+            Box::new(PyBuiltinFunction::new(f.into_func())),
             self.builtin_function_or_method_type(),
         )
     }
 
     pub fn new_frame(&self, code: PyObjectRef, scope: Scope) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(Frame::new(code, scope)),
-            },
-            self.frame_type(),
-        )
+        PyObject::new(Box::new(Frame::new(code, scope)), self.frame_type())
     }
 
     pub fn new_property<F, T, R>(&self, f: F) -> PyObjectRef
@@ -630,12 +556,7 @@ impl PyContext {
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objcode::PyCode::new(code)),
-            },
-            self.code_type(),
-        )
+        PyObject::new(Box::new(objcode::PyCode::new(code)), self.code_type())
     }
 
     pub fn new_function(
@@ -645,18 +566,14 @@ impl PyContext {
         defaults: PyObjectRef,
     ) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyFunction::new(code_obj, scope, defaults)),
-            },
+            Box::new(PyFunction::new(code_obj, scope, defaults)),
             self.function_type(),
         )
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyMethod::new(object, function)),
-            },
+            Box::new(PyMethod::new(object, function)),
             self.bound_method_type(),
         )
     }
@@ -668,11 +585,9 @@ impl PyContext {
             PyAttributes::new()
         };
         PyObject {
-            payload: PyObjectPayload::AnyRustValue {
-                value: Box::new(objobject::PyInstance),
-            },
             typ: Some(class),
             dict: Some(RefCell::new(dict)),
+            payload: Box::new(objobject::PyInstance),
         }
         .into_ref()
     }
@@ -735,11 +650,20 @@ impl Default for PyContext {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
-#[derive(Default)]
 pub struct PyObject {
-    pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
+    pub payload: Box<dyn Any>,
+}
+
+impl Default for PyObject {
+    fn default() -> Self {
+        PyObject {
+            typ: None,
+            dict: None,
+            payload: Box::new(()),
+        }
+    }
 }
 
 /// A reference to a Python object.
@@ -764,12 +688,7 @@ where
 {
     pub fn new(ctx: &PyContext, payload: T) -> Self {
         PyRef {
-            obj: PyObject::new(
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(payload),
-                },
-                T::required_type(ctx),
-            ),
+            obj: PyObject::new(Box::new(payload), T::required_type(ctx)),
             _payload: PhantomData,
         }
     }
@@ -778,12 +697,7 @@ where
         let required_type = T::required_type(&vm.ctx);
         if objtype::issubclass(&cls.obj, &required_type) {
             Ok(PyRef {
-                obj: PyObject::new(
-                    PyObjectPayload::AnyRustValue {
-                        value: Box::new(payload),
-                    },
-                    cls.obj,
-                ),
+                obj: PyObject::new(Box::new(payload), cls.obj),
                 _payload: PhantomData,
             })
         } else {
@@ -1452,12 +1366,7 @@ where
     T: PyObjectPayload2 + Sized,
 {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(self),
-            },
-            T::required_type(ctx),
-        ))
+        Ok(PyObject::new(Box::new(self), T::required_type(ctx)))
     }
 }
 
@@ -1587,22 +1496,6 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 
-/// Rather than determining the type of a python object, this enum is more
-/// a holder for the rust payload of a python object. It is more a carrier
-/// of rust data for a particular python object. Determine the python type
-/// by using for example the `.typ()` method on a python object.
-pub enum PyObjectPayload {
-    AnyRustValue { value: Box<dyn std::any::Any> },
-}
-
-impl Default for PyObjectPayload {
-    fn default() -> Self {
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(()),
-        }
-    }
-}
-
 // TODO: This is a workaround and shouldn't exist.
 //       Each iterable type should have its own distinct iterator type.
 #[derive(Debug)]
@@ -1617,16 +1510,8 @@ impl PyObjectPayload2 for PyIteratorValue {
     }
 }
 
-impl fmt::Debug for PyObjectPayload {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            PyObjectPayload::AnyRustValue { value } => value.fmt(f),
-        }
-    }
-}
-
 impl PyObject {
-    pub fn new(payload: PyObjectPayload, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new(payload: Box<dyn Any>, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             payload,
             typ: Some(typ),
@@ -1641,8 +1526,7 @@ impl PyObject {
     }
 
     pub fn payload<T: PyObjectPayload2>(&self) -> Option<&T> {
-        let PyObjectPayload::AnyRustValue { ref value } = self.payload;
-        value.downcast_ref()
+        self.payload.downcast_ref()
     }
 }
 

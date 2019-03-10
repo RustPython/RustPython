@@ -1,6 +1,5 @@
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -31,12 +30,10 @@ fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .map(|iterable| objiter::get_iter(vm, iterable))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyMap {
-                    mapper: function.clone(),
-                    iterators,
-                }),
-            },
+            Box::new(PyMap {
+                mapper: function.clone(),
+                iterators,
+            }),
             cls.clone(),
         ))
     }

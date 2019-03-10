@@ -6,8 +6,8 @@ use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
 use crate::pyobject::{
-    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyRef, PyResult, TryFromObject, TypeProtocol,
+    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload2, PyObjectRef,
+    PyRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -105,12 +105,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(val) => to_int(vm, val, base)?,
         None => Zero::zero(),
     };
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyInt::new(val)),
-        },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(Box::new(PyInt::new(val)), cls.clone()))
 }
 
 // Casting function:
