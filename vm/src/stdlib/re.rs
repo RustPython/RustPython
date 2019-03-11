@@ -191,20 +191,19 @@ fn match_end(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Retrieve inner rust regex from python object:
 fn get_regex<'a>(obj: &'a PyObjectRef) -> &'a Regex {
-    if let PyObjectPayload::AnyRustValue { ref value } = obj.payload {
-        if let Some(regex) = value.downcast_ref::<Regex>() {
-            return regex;
-        }
+    // TODO: Regex shouldn't be stored in payload directly, create newtype wrapper
+    let PyObjectPayload::AnyRustValue { ref value } = obj.payload;
+    if let Some(regex) = value.downcast_ref::<Regex>() {
+        return regex;
     }
     panic!("Inner error getting regex {:?}", obj);
 }
 
 /// Retrieve inner rust match from python object:
 fn get_match<'a>(obj: &'a PyObjectRef) -> &'a PyMatch {
-    if let PyObjectPayload::AnyRustValue { ref value } = obj.payload {
-        if let Some(value) = value.downcast_ref::<PyMatch>() {
-            return value;
-        }
+    let PyObjectPayload::AnyRustValue { ref value } = obj.payload;
+    if let Some(value) = value.downcast_ref::<PyMatch>() {
+        return value;
     }
     panic!("Inner error getting match {:?}", obj);
 }

@@ -127,10 +127,9 @@ impl Socket {
 }
 
 fn get_socket<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Socket> + 'a {
-    if let PyObjectPayload::AnyRustValue { ref value } = obj.payload {
-        if let Some(socket) = value.downcast_ref::<RefCell<Socket>>() {
-            return socket.borrow_mut();
-        }
+    let PyObjectPayload::AnyRustValue { ref value } = obj.payload;
+    if let Some(socket) = value.downcast_ref::<RefCell<Socket>>() {
+        return socket.borrow_mut();
     }
     panic!("Inner error getting socket {:?}", obj);
 }
