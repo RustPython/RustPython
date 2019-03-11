@@ -54,11 +54,11 @@ fn slice_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     }?;
     Ok(PyObject::new(
-        Box::new(PySlice {
+        PySlice {
             start: start.map(|x| objint::get_value(x)),
             stop: stop.map(|x| objint::get_value(x)),
             step: step.map(|x| objint::get_value(x)),
-        }),
+        },
         cls.clone(),
     ))
 }

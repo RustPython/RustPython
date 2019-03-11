@@ -30,10 +30,10 @@ fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .map(|iterable| objiter::get_iter(vm, iterable))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PyObject::new(
-            Box::new(PyMap {
+            PyMap {
                 mapper: function.clone(),
                 iterators,
-            }),
+            },
             cls.clone(),
         ))
     }

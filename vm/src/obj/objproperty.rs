@@ -137,7 +137,7 @@ impl<'a, T> PropertyBuilder<'a, T> {
                 deleter: None,
             };
 
-            PyObject::new(Box::new(payload), self.ctx.property_type())
+            PyObject::new(payload, self.ctx.property_type())
         } else {
             let payload = PyReadOnlyProperty {
                 getter: self.getter.expect(
@@ -145,7 +145,7 @@ impl<'a, T> PropertyBuilder<'a, T> {
                 ),
             };
 
-            PyObject::new(Box::new(payload), self.ctx.readonly_property_type())
+            PyObject::new(payload, self.ctx.readonly_property_type())
         }
     }
 }

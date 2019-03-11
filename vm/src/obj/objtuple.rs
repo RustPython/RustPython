@@ -126,10 +126,10 @@ impl PyTupleRef {
 
     fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
         PyObject::new(
-            Box::new(PyIteratorValue {
+            PyIteratorValue {
                 position: Cell::new(0),
                 iterated_obj: self.into_object(),
-            }),
+            },
             vm.ctx.iter_type(),
         )
     }
@@ -213,10 +213,7 @@ fn tuple_new(
         vec![]
     };
 
-    Ok(PyObject::new(
-        Box::new(PyTuple::from(elements)),
-        cls.into_object(),
-    ))
+    Ok(PyObject::new(PyTuple::from(elements), cls.into_object()))
 }
 
 #[rustfmt::skip] // to avoid line splitting

@@ -4,7 +4,7 @@ use js_sys::Promise;
 use num_traits::cast::ToPrimitive;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use rustpython_vm::{import::import, VirtualMachine};
 use std::path::PathBuf;
@@ -151,13 +151,21 @@ fn browser_cancel_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> 
     Ok(vm.get_none())
 }
 
+#[derive(Debug)]
 pub struct PyPromise {
     value: Promise,
 }
 
+impl PyValue for PyPromise {
+    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+        // TODO
+        unimplemented!()
+    }
+}
+
 impl PyPromise {
     pub fn new_obj(promise_type: PyObjectRef, value: Promise) -> PyObjectRef {
-        PyObject::new(Box::new(PyPromise { value }), promise_type)
+        PyObject::new(PyPromise { value }, promise_type)
     }
 }
 

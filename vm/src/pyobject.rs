@@ -161,6 +161,24 @@ pub fn create_type(
     objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
 }
 
+#[derive(Debug)]
+pub struct PyNotImplemented;
+
+impl PyValue for PyNotImplemented {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.not_implemented().typ()
+    }
+}
+
+#[derive(Debug)]
+pub struct PyEllipsis;
+
+impl PyValue for PyEllipsis {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.ellipsis_type.clone()
+    }
+}
+
 // Basic objects:
 impl PyContext {
     pub fn new() -> Self {
@@ -214,19 +232,19 @@ impl PyContext {
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
-            Box::new(objnone::PyNone),
+            objnone::PyNone,
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
-        let ellipsis = PyObject::new(Box::new(()), ellipsis_type.clone());
+        let ellipsis = PyObject::new(PyEllipsis, ellipsis_type.clone());
 
         let not_implemented = PyObject::new(
-            Box::new(()),
+            PyNotImplemented,
             create_type("NotImplementedType", &type_type, &object_type, &dict_type),
         );
 
-        let true_value = PyObject::new(Box::new(PyInt::new(BigInt::one())), bool_type.clone());
-        let false_value = PyObject::new(Box::new(PyInt::new(BigInt::zero())), bool_type.clone());
+        let true_value = PyObject::new(PyInt::new(BigInt::one()), bool_type.clone());
+        let false_value = PyObject::new(PyInt::new(BigInt::zero()), bool_type.clone());
         let context = PyContext {
             bool_type,
             memoryview_type,
@@ -464,30 +482,27 @@ impl PyContext {
     }
 
     pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
-        PyObject::new(Box::new(PyInt::new(i)), self.int_type())
+        PyObject::new(PyInt::new(i), self.int_type())
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {
-        PyObject::new(Box::new(PyFloat::from(value)), self.float_type())
+        PyObject::new(PyFloat::from(value), self.float_type())
     }
 
     pub fn new_complex(&self, value: Complex64) -> PyObjectRef {
-        PyObject::new(Box::new(PyComplex::from(value)), self.complex_type())
+        PyObject::new(PyComplex::from(value), self.complex_type())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(Box::new(objstr::PyString { value: s }), self.str_type())
+        PyObject::new(objstr::PyString { value: s }, self.str_type())
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(Box::new(objbytes::PyBytes::new(data)), self.bytes_type())
+        PyObject::new(objbytes::PyBytes::new(data), self.bytes_type())
     }
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            Box::new(objbytearray::PyByteArray::new(data)),
-            self.bytearray_type(),
-        )
+        PyObject::new(objbytearray::PyByteArray::new(data), self.bytearray_type())
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
@@ -499,21 +514,21 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(Box::new(PyTuple::from(elements)), self.tuple_type())
+        PyObject::new(PyTuple::from(elements), self.tuple_type())
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(Box::new(PyList::from(elements)), self.list_type())
+        PyObject::new(PyList::from(elements), self.list_type())
     }
 
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        PyObject::new(Box::new(PySet::default()), self.set_type())
+        PyObject::new(PySet::default(), self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
-        PyObject::new(Box::new(PyDict::default()), self.dict_type())
+        PyObject::new(PyDict::default(), self.dict_type())
     }
 
     pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
@@ -526,10 +541,10 @@ impl PyContext {
 
     pub fn new_module(&self, name: &str, dict: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            Box::new(PyModule {
+            PyModule {
                 name: name.to_string(),
                 dict,
-            }),
+            },
             self.module_type.clone(),
         )
     }
@@ -539,13 +554,13 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R>,
     {
         PyObject::new(
-            Box::new(PyBuiltinFunction::new(f.into_func())),
+            PyBuiltinFunction::new(f.into_func()),
             self.builtin_function_or_method_type(),
         )
     }
 
     pub fn new_frame(&self, code: PyObjectRef, scope: Scope) -> PyObjectRef {
-        PyObject::new(Box::new(Frame::new(code, scope)), self.frame_type())
+        PyObject::new(Frame::new(code, scope), self.frame_type())
     }
 
     pub fn new_property<F, T, R>(&self, f: F) -> PyObjectRef
@@ -556,7 +571,7 @@ impl PyContext {
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
-        PyObject::new(Box::new(objcode::PyCode::new(code)), self.code_type())
+        PyObject::new(objcode::PyCode::new(code), self.code_type())
     }
 
     pub fn new_function(
@@ -566,16 +581,13 @@ impl PyContext {
         defaults: PyObjectRef,
     ) -> PyObjectRef {
         PyObject::new(
-            Box::new(PyFunction::new(code_obj, scope, defaults)),
+            PyFunction::new(code_obj, scope, defaults),
             self.function_type(),
         )
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-        PyObject::new(
-            Box::new(PyMethod::new(object, function)),
-            self.bound_method_type(),
-        )
+        PyObject::new(PyMethod::new(object, function), self.bound_method_type())
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
@@ -682,13 +694,10 @@ pub struct PyRef<T> {
     _payload: PhantomData<T>,
 }
 
-impl<T> PyRef<T>
-where
-    T: PyValue,
-{
+impl<T: PyValue> PyRef<T> {
     pub fn new(ctx: &PyContext, payload: T) -> Self {
         PyRef {
-            obj: PyObject::new(Box::new(payload), T::required_type(ctx)),
+            obj: PyObject::new(payload, T::required_type(ctx)),
             _payload: PhantomData,
         }
     }
@@ -697,7 +706,7 @@ where
         let required_type = T::required_type(&vm.ctx);
         if objtype::issubclass(&cls.obj, &required_type) {
             Ok(PyRef {
-                obj: PyObject::new(Box::new(payload), cls.obj),
+                obj: PyObject::new(payload, cls.obj),
                 _payload: PhantomData,
             })
         } else {
@@ -1366,7 +1375,7 @@ where
     T: PyValue + Sized,
 {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(PyObject::new(Box::new(self), T::required_type(ctx)))
+        Ok(PyObject::new(self, T::required_type(ctx)))
     }
 }
 
@@ -1511,11 +1520,11 @@ impl PyValue for PyIteratorValue {
 }
 
 impl PyObject {
-    pub fn new(payload: Box<dyn Any>, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new<T: PyValue>(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
-            payload,
             typ: Some(typ),
             dict: Some(RefCell::new(PyAttributes::new())),
+            payload: Box::new(payload),
         }
         .into_ref()
     }

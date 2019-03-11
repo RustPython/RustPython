@@ -11,8 +11,17 @@ use regex::{Match, Regex};
 use std::path::PathBuf;
 
 use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::VirtualMachine;
+
+impl PyValue for Regex {
+    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+        // TODO
+        unimplemented!()
+    }
+}
 
 /// Create the python `re` module with all its members.
 pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
@@ -95,9 +104,17 @@ fn make_regex(vm: &mut VirtualMachine, pattern: &PyObjectRef) -> PyResult<Regex>
 }
 
 /// Inner data for a match object.
+#[derive(Debug)]
 struct PyMatch {
     start: usize,
     end: usize,
+}
+
+impl PyValue for PyMatch {
+    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+        // TODO
+        unimplemented!()
+    }
 }
 
 /// Take a found regular expression and convert it to proper match object.
@@ -116,7 +133,7 @@ fn create_match(vm: &mut VirtualMachine, match_value: &Match) -> PyResult {
         end: match_value.end(),
     };
 
-    Ok(PyObject::new(Box::new(match_value), match_class.clone()))
+    Ok(PyObject::new(match_value, match_class.clone()))
 }
 
 /// Compile a regular expression into a Pattern object.
@@ -134,7 +151,7 @@ fn re_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let module = import::import_module(vm, PathBuf::default(), "re").unwrap();
     let pattern_class = vm.ctx.get_attr(&module, "Pattern").unwrap();
 
-    Ok(PyObject::new(Box::new(regex), pattern_class.clone()))
+    Ok(PyObject::new(regex, pattern_class.clone()))
 }
 
 fn pattern_match(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

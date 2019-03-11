@@ -26,10 +26,10 @@ fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let iterator = objiter::get_iter(vm, iterable)?;
     Ok(PyObject::new(
-        Box::new(PyFilter {
+        PyFilter {
             predicate: function.clone(),
             iterator,
-        }),
+        },
         cls.clone(),
     ))
 }

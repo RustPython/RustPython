@@ -36,10 +36,10 @@ fn enumerate_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     let iterator = objiter::get_iter(vm, iterable)?;
     Ok(PyObject::new(
-        Box::new(PyEnumerate {
+        PyEnumerate {
             counter: RefCell::new(counter),
             iterator,
-        }),
+        },
         cls.clone(),
     ))
 }

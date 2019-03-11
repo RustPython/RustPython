@@ -94,7 +94,7 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
 
-    Ok(PyObject::new(Box::new(PyBytes::new(value)), cls.clone()))
+    Ok(PyObject::new(PyBytes::new(value), cls.clone()))
 }
 
 fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -203,10 +203,10 @@ fn bytes_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
 
     let iter_obj = PyObject::new(
-        Box::new(PyIteratorValue {
+        PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: obj.clone(),
-        }),
+        },
         vm.ctx.iter_type(),
     );
 

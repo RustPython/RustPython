@@ -24,7 +24,7 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .iter()
         .map(|iterable| objiter::get_iter(vm, iterable))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(PyObject::new(Box::new(PyZip { iterators }), cls.clone()))
+    Ok(PyObject::new(PyZip { iterators }, cls.clone()))
 }
 
 fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

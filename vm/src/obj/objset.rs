@@ -168,9 +168,9 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        Box::new(PySet {
+        PySet {
             elements: RefCell::new(elements),
-        }),
+        },
         cls.clone(),
     ))
 }
@@ -187,9 +187,9 @@ fn set_copy(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let elements = get_elements(s);
     Ok(PyObject::new(
-        Box::new(PySet {
+        PySet {
             elements: RefCell::new(elements),
-        }),
+        },
         vm.ctx.set_type(),
     ))
 }
@@ -341,9 +341,9 @@ fn set_union(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     elements.extend(get_elements(other).clone());
 
     Ok(PyObject::new(
-        Box::new(PySet {
+        PySet {
             elements: RefCell::new(elements),
-        }),
+        },
         vm.ctx.set_type(),
     ))
 }
@@ -383,9 +383,9 @@ fn set_symmetric_difference(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResu
     }
 
     Ok(PyObject::new(
-        Box::new(PySet {
+        PySet {
             elements: RefCell::new(elements),
-        }),
+        },
         vm.ctx.set_type(),
     ))
 }
@@ -423,9 +423,9 @@ fn set_combine_inner(
     }
 
     Ok(PyObject::new(
-        Box::new(PySet {
+        PySet {
             elements: RefCell::new(elements),
-        }),
+        },
         vm.ctx.set_type(),
     ))
 }
@@ -555,10 +555,10 @@ fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items = get_elements(zelf).values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
     let iter_obj = PyObject::new(
-        Box::new(PyIteratorValue {
+        PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: set_list,
-        }),
+        },
         vm.ctx.iter_type(),
     );
 

@@ -89,7 +89,7 @@ fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let value = Complex64::new(real, imag);
 
-    Ok(PyObject::new(Box::new(PyComplex { value }), cls.clone()))
+    Ok(PyObject::new(PyComplex { value }, cls.clone()))
 }
 
 fn complex_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

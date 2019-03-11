@@ -251,10 +251,10 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let key_list = vm.ctx.new_list(keys);
 
     let iter_obj = PyObject::new(
-        Box::new(PyIteratorValue {
+        PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: key_list,
-        }),
+        },
         vm.ctx.iter_type(),
     );
 
@@ -271,10 +271,10 @@ fn dict_values(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let values_list = vm.ctx.new_list(values);
 
     let iter_obj = PyObject::new(
-        Box::new(PyIteratorValue {
+        PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: values_list,
-        }),
+        },
         vm.ctx.iter_type(),
     );
 
@@ -291,10 +291,10 @@ fn dict_items(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items_list = vm.ctx.new_list(items);
 
     let iter_obj = PyObject::new(
-        Box::new(PyIteratorValue {
+        PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: items_list,
-        }),
+        },
         vm.ctx.iter_type(),
     );
 

@@ -105,7 +105,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(val) => to_int(vm, val, base)?,
         None => Zero::zero(),
     };
-    Ok(PyObject::new(Box::new(PyInt::new(val)), cls.clone()))
+    Ok(PyObject::new(PyInt::new(val), cls.clone()))
 }
 
 // Casting function:

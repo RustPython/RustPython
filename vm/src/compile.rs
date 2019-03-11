@@ -49,10 +49,7 @@ pub fn compile(
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(PyObject::new(
-        Box::new(objcode::PyCode::new(code)),
-        code_type,
-    ))
+    Ok(PyObject::new(objcode::PyCode::new(code), code_type))
 }
 
 pub enum Mode {

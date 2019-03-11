@@ -188,7 +188,7 @@ impl PyFloatRef {
             let type_name = objtype::get_type_name(&arg.typ());
             return Err(vm.new_type_error(format!("can't convert {} to float", type_name)));
         };
-        Ok(PyObject::new(Box::new(PyFloat { value }), cls.clone()))
+        Ok(PyObject::new(PyFloat { value }, cls.clone()))
     }
 
     fn mod_(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {

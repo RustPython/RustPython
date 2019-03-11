@@ -165,16 +165,12 @@ pub fn get_item(
     if subscript.payload::<PySlice>().is_some() {
         if sequence.payload::<PyList>().is_some() {
             Ok(PyObject::new(
-                Box::new(PyList::from(
-                    elements.to_vec().get_slice_items(vm, &subscript)?,
-                )),
+                PyList::from(elements.to_vec().get_slice_items(vm, &subscript)?),
                 sequence.typ(),
             ))
         } else if sequence.payload::<PyTuple>().is_some() {
             Ok(PyObject::new(
-                Box::new(PyTuple::from(
-                    elements.to_vec().get_slice_items(vm, &subscript)?,
-                )),
+                PyTuple::from(elements.to_vec().get_slice_items(vm, &subscript)?),
                 sequence.typ(),
             ))
         } else {

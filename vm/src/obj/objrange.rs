@@ -227,10 +227,7 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if step.is_zero() {
         Err(vm.new_value_error("range with 0 step size".to_string()))
     } else {
-        Ok(PyObject::new(
-            Box::new(PyRange { start, end, step }),
-            cls.clone(),
-        ))
+        Ok(PyObject::new(PyRange { start, end, step }, cls.clone()))
     }
 }
 
@@ -238,10 +235,10 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(range, Some(vm.ctx.range_type()))]);
 
     Ok(PyObject::new(
-        Box::new(PyIteratorValue {
+        PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: range.clone(),
-        }),
+        },
         vm.ctx.iter_type(),
     ))
 }
@@ -252,10 +249,10 @@ fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let range = get_value(zelf).reversed();
 
     Ok(PyObject::new(
-        Box::new(PyIteratorValue {
+        PyIteratorValue {
             position: Cell::new(0),
-            iterated_obj: PyObject::new(Box::new(range), vm.ctx.range_type()),
-        }),
+            iterated_obj: PyObject::new(range, vm.ctx.range_type()),
+        },
         vm.ctx.iter_type(),
     ))
 }
@@ -318,11 +315,11 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         };
 
         Ok(PyObject::new(
-            Box::new(PyRange {
+            PyRange {
                 start: new_start,
                 end: new_end,
                 step: new_step,
-            }),
+            },
             vm.ctx.range_type(),
         ))
     } else {

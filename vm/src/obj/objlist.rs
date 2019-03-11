@@ -111,10 +111,10 @@ impl PyListRef {
 
     fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
         PyObject::new(
-            Box::new(PyIteratorValue {
+            PyIteratorValue {
                 position: Cell::new(0),
                 iterated_obj: self.into_object(),
-            }),
+            },
             vm.ctx.iter_type(),
         )
     }
@@ -302,10 +302,7 @@ fn list_new(
         vec![]
     };
 
-    Ok(PyObject::new(
-        Box::new(PyList::from(elements)),
-        cls.into_object(),
-    ))
+    Ok(PyObject::new(PyList::from(elements), cls.into_object()))
 }
 
 fn quicksort(
