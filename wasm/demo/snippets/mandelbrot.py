@@ -1,4 +1,7 @@
-from browser import request_animation_frame
+try:
+    from browser import request_animation_frame
+except:
+    def request_animation_frame(cb): cb()
 
 w = 50.0
 h = 50.0
