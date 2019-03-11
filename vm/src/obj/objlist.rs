@@ -203,12 +203,18 @@ impl PyListRef {
         Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
     }
 
-    fn pop(self, vm: &mut VirtualMachine) -> PyResult {
+    fn pop(self, i: OptionalArg<isize>, vm: &mut VirtualMachine) -> PyResult {
+        let mut i = i.into_option().unwrap_or(-1);
         let mut elements = self.elements.borrow_mut();
-        if let Some(result) = elements.pop() {
-            Ok(result)
-        } else {
+        if i < 0 {
+            i += elements.len() as isize;
+        }
+        if elements.is_empty() {
             Err(vm.new_index_error("pop from empty list".to_string()))
+        } else if i < 0 || i as usize >= elements.len() {
+            Err(vm.new_index_error("pop index out of range".to_string()))
+        } else {
+            Ok(elements.remove(i as usize))
         }
     }
 
