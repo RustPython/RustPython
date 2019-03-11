@@ -1,8 +1,3 @@
-try:
-    from browser import request_animation_frame
-except:
-    request_animation_frame = None
-
 w = 50.0
 h = 50.0
 
@@ -36,6 +31,9 @@ def mandel():
         print()
         y += 1
         yield
+
+try: from browser import request_animation_frame
+except: request_animation_frame = None
 
 gen = mandel()
 def gen_cb(_time=None):
