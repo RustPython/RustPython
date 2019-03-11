@@ -256,11 +256,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if let Some(getter) = cls.get_attr("__getattr__") {
         vm.invoke(getter, vec![cls, name_str.clone()])
     } else {
-        let attribute_error = vm.context().exceptions.attribute_error.clone();
-        Err(vm.new_exception(
-            attribute_error,
-            format!("{} has no attribute '{}'", obj, name),
-        ))
+        Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
     }
 }
 
