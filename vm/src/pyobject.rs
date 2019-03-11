@@ -745,6 +745,13 @@ impl<T: PyValue> PyRef<T> {
     pub fn into_object(self) -> PyObjectRef {
         self.obj
     }
+
+    pub fn typ(&self) -> PyClassRef {
+        PyRef {
+            obj: self.obj.typ(),
+            _payload: PhantomData,
+        }
+    }
 }
 
 impl<T> Deref for PyRef<T>
@@ -1211,6 +1218,16 @@ impl TryFromObject for PyObjectRef {
     }
 }
 
+impl<T: TryFromObject> TryFromObject for Option<T> {
+    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if vm.get_none().is(&obj) {
+            Ok(None)
+        } else {
+            T::try_from_object(vm, obj).map(|x| Some(x))
+        }
+    }
+}
+
 /// A map of keyword arguments to their values.
 ///
 /// A built-in function with a `KwArgs` parameter is analagous to a Python
@@ -1388,12 +1405,6 @@ where
         self.and_then(|res| T::into_pyobject(res, ctx))
     }
 }
-
-// TODO: Allow a built-in function to return an `Option`, i.e.:
-//
-//     impl<T: IntoPyObject> IntoPyObject for Option<T>
-//
-// Option::None should map to a Python `None`.
 
 // Allows a built-in function to return any built-in object payload without
 // explicitly implementing `IntoPyObject`.

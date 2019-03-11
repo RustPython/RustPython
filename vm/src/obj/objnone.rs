@@ -21,6 +21,15 @@ impl IntoPyObject for () {
     }
 }
 
+impl<T: IntoPyObject> IntoPyObject for Option<T> {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        match self {
+            Some(x) => x.into_pyobject(ctx),
+            None => Ok(ctx.none()),
+        }
+    }
+}
+
 impl PyNoneRef {
     fn repr(self, _vm: &mut VirtualMachine) -> PyResult<String> {
         Ok("None".to_string())
