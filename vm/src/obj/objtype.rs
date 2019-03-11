@@ -2,13 +2,15 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
+    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objdict;
+use super::objlist::PyList;
 use super::objstr;
+use super::objtuple::PyTuple;
 
 #[derive(Clone, Debug)]
 pub struct PyClass {
@@ -21,6 +23,41 @@ pub type PyClassRef = PyRef<PyClass>;
 impl PyValue for PyClass {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.type_type()
+    }
+}
+
+struct IterMro<'a> {
+    cls: &'a PyClassRef,
+    offset: Option<usize>,
+}
+
+impl<'a> Iterator for IterMro<'a> {
+    type Item = &'a PyObjectRef;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.offset {
+            None => {
+                self.offset = Some(0);
+                Some(&self.cls.as_object())
+            }
+            Some(offset) => {
+                if offset < self.cls.mro.len() {
+                    self.offset = Some(offset + 1);
+                    Some(&self.cls.mro[offset])
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+impl PyClassRef {
+    fn iter_mro(&self) -> IterMro {
+        IterMro {
+            cls: self,
+            offset: None,
+        }
     }
 }
 
@@ -60,22 +97,12 @@ pub fn init(ctx: &PyContext) {
     });
 }
 
-fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(cls, Some(vm.ctx.type_type()))]);
-    match _mro(cls.clone()) {
-        Some(mro) => Ok(vm.context().new_tuple(mro)),
-        None => Err(vm.new_type_error("Only classes have an MRO.".to_string())),
-    }
+fn type_mro(cls: PyClassRef, _vm: &mut VirtualMachine) -> PyResult<PyTuple> {
+    Ok(PyTuple::from(_mro(&cls)))
 }
 
-fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
-    if let Some(PyClass { ref mro, .. }) = cls.payload::<PyClass>() {
-        let mut mro = mro.clone();
-        mro.insert(0, cls.clone());
-        Some(mro)
-    } else {
-        None
-    }
+fn _mro(cls: &PyClassRef) -> Vec<PyObjectRef> {
+    cls.iter_mro().cloned().collect()
 }
 
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
@@ -212,24 +239,22 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
     }
 }
 
-pub fn type_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-
-    let attributes = get_attributes(&obj);
-    Ok(vm.ctx.new_list(
-        attributes
-            .keys()
-            .map(|k| vm.ctx.new_str(k.to_string()))
-            .collect(),
-    ))
+pub fn type_dir(obj: PyClassRef, vm: &mut VirtualMachine) -> PyList {
+    let attributes = get_attributes(obj);
+    let attributes: Vec<PyObjectRef> = attributes
+        .keys()
+        .map(|k| vm.ctx.new_str(k.to_string()))
+        .collect();
+    PyList::from(attributes)
 }
 
-pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
+pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
     // Gather all members here:
     let mut attributes = PyAttributes::new();
 
-    let mut base_classes = _mro(obj.clone()).expect("Type get_attributes on non-type");
+    let mut base_classes: Vec<&PyObjectRef> = cls.iter_mro().collect();
     base_classes.reverse();
+
     for bc in base_classes {
         if let Some(ref dict) = &bc.dict {
             for (name, value) in dict.borrow().iter() {
@@ -294,7 +319,10 @@ pub fn new(
     bases: Vec<PyObjectRef>,
     dict: HashMap<String, PyObjectRef>,
 ) -> PyResult {
-    let mros = bases.into_iter().map(|x| _mro(x).unwrap()).collect();
+    let mros = bases
+        .into_iter()
+        .map(|x| _mro(&FromPyObjectRef::from_pyobj(&x)))
+        .collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject {
         payload: Box::new(PyClass {
