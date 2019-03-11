@@ -41,39 +41,23 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type:
     }
 }
 
-pub fn init(context: &PyContext) {
-    let type_type = &context.type_type;
-
+pub fn init(ctx: &PyContext) {
     let type_doc = "type(object_or_name, bases, dict)\n\
                     type(object) -> the object's type\n\
                     type(name, bases, dict) -> a new type";
 
-    context.set_attr(&type_type, "__call__", context.new_rustfunc(type_call));
-    context.set_attr(&type_type, "__new__", context.new_rustfunc(type_new));
-    context.set_attr(&type_type, "__mro__", context.new_property(type_mro));
-    context.set_attr(&type_type, "__repr__", context.new_rustfunc(type_repr));
-    context.set_attr(
-        &type_type,
-        "__prepare__",
-        context.new_rustfunc(type_prepare),
-    );
-    context.set_attr(
-        &type_type,
-        "__getattribute__",
-        context.new_rustfunc(type_getattribute),
-    );
-    context.set_attr(
-        &type_type,
-        "__instancecheck__",
-        context.new_rustfunc(type_instance_check),
-    );
-    context.set_attr(
-        &type_type,
-        "__subclasscheck__",
-        context.new_rustfunc(type_subclass_check),
-    );
-    context.set_attr(&type_type, "__doc__", context.new_str(type_doc.to_string()));
-    context.set_attr(&type_type, "__dir__", context.new_rustfunc(type_dir));
+    extend_class!(&ctx, &ctx.type_type, {
+        "__call__" => ctx.new_rustfunc(type_call),
+        "__new__" => ctx.new_rustfunc(type_new),
+        "__mro__" => ctx.new_property(type_mro),
+        "__repr__" => ctx.new_rustfunc(type_repr),
+        "__prepare__" => ctx.new_rustfunc(type_prepare),
+        "__getattribute__" => ctx.new_rustfunc(type_getattribute),
+        "__instancecheck__" => ctx.new_rustfunc(type_instance_check),
+        "__subclasscheck__" => ctx.new_rustfunc(type_subclass_check),
+        "__doc__" => ctx.new_str(type_doc.to_string()),
+        "__dir__" => ctx.new_rustfunc(type_dir),
+    });
 }
 
 fn type_mro(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -97,8 +81,7 @@ fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    let mro = _mro(obj.typ()).unwrap();
-    mro.into_iter().any(|c| c.is(&cls))
+    issubclass(obj.type_ref(), &cls)
 }
 
 fn type_instance_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -114,8 +97,8 @@ fn type_instance_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
 pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    let mro = _mro(subclass.clone()).unwrap();
-    mro.into_iter().any(|c| c.is(&cls))
+    let ref mro = subclass.payload::<PyClass>().unwrap().mro;
+    subclass.is(&cls) || mro.iter().any(|c| c.is(&cls))
 }
 
 fn type_subclass_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
