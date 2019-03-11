@@ -1,6 +1,5 @@
-use crate::function::PyRef;
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyFuncArgs, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    IntoPyObject, PyContext, PyFuncArgs, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -8,7 +7,7 @@ use crate::vm::VirtualMachine;
 pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
 
-impl PyObjectPayload2 for PyNone {
+impl PyValue for PyNone {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.none().typ()
     }

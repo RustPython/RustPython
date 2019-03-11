@@ -1,6 +1,5 @@
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -12,7 +11,7 @@ pub struct PyMap {
     iterators: Vec<PyObjectRef>,
 }
 
-impl PyObjectPayload2 for PyMap {
+impl PyValue for PyMap {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.map_type()
     }
@@ -31,11 +30,9 @@ fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .map(|iterable| objiter::get_iter(vm, iterable))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyMap {
-                    mapper: function.clone(),
-                    iterators,
-                }),
+            PyMap {
+                mapper: function.clone(),
+                iterators,
             },
             cls.clone(),
         ))

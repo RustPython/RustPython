@@ -4,7 +4,7 @@
 
 use crate::bytecode;
 use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::fmt;
@@ -25,7 +25,7 @@ impl fmt::Debug for PyCode {
     }
 }
 
-impl PyObjectPayload2 for PyCode {
+impl PyValue for PyCode {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.code_type()
     }

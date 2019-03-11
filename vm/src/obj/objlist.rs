@@ -8,10 +8,9 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use crate::function::PyRef;
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;
@@ -30,7 +29,7 @@ impl From<Vec<PyObjectRef>> for PyList {
     }
 }
 
-impl PyObjectPayload2 for PyList {
+impl PyValue for PyList {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.list_type()
     }
@@ -112,11 +111,9 @@ impl PyListRef {
 
     fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyIteratorValue {
-                    position: Cell::new(0),
-                    iterated_obj: self.into_object(),
-                }),
+            PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: self.into_object(),
             },
             vm.ctx.iter_type(),
         )
@@ -311,12 +308,7 @@ fn list_new(
         vec![]
     };
 
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyList::from(elements)),
-        },
-        cls.into_object(),
-    ))
+    Ok(PyObject::new(PyList::from(elements), cls.into_object()))
 }
 
 fn quicksort(

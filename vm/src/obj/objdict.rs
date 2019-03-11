@@ -1,16 +1,16 @@
-use crate::function::PyRef;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
+use crate::pyobject::{
+    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
+
 use super::objiter;
 use super::objstr;
 use super::objtype;
-use crate::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
 
 pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
 
@@ -21,7 +21,7 @@ pub struct PyDict {
 }
 pub type PyDictRef = PyRef<PyDict>;
 
-impl PyObjectPayload2 for PyDict {
+impl PyValue for PyDict {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.dict_type()
     }
@@ -251,11 +251,9 @@ fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let key_list = vm.ctx.new_list(keys);
 
     let iter_obj = PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: key_list,
-            }),
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: key_list,
         },
         vm.ctx.iter_type(),
     );
@@ -273,11 +271,9 @@ fn dict_values(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let values_list = vm.ctx.new_list(values);
 
     let iter_obj = PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: values_list,
-            }),
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: values_list,
         },
         vm.ctx.iter_type(),
     );
@@ -295,11 +291,9 @@ fn dict_items(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items_list = vm.ctx.new_list(items);
 
     let iter_obj = PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: items_list,
-            }),
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: items_list,
         },
         vm.ctx.iter_type(),
     );
@@ -348,12 +342,10 @@ pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: 
     // this is not ideal
     let ptr = PyObjectRef::into_raw(dict_type.clone()) as *mut PyObject;
     unsafe {
-        (*ptr).payload = PyObjectPayload::AnyRustValue {
-            value: Box::new(objtype::PyClass {
-                name: String::from("dict"),
-                mro: vec![object_type],
-            }),
-        };
+        (*ptr).payload = Box::new(objtype::PyClass {
+            name: String::from("dict"),
+            mro: vec![object_type],
+        });
         (*ptr).dict = Some(RefCell::new(HashMap::new()));
         (*ptr).typ = Some(type_type.clone());
     }

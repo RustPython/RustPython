@@ -1,6 +1,5 @@
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -11,7 +10,7 @@ pub struct PyZip {
     iterators: Vec<PyObjectRef>,
 }
 
-impl PyObjectPayload2 for PyZip {
+impl PyValue for PyZip {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.zip_type()
     }
@@ -25,12 +24,7 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .iter()
         .map(|iterable| objiter::get_iter(vm, iterable))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyZip { iterators }),
-        },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(PyZip { iterators }, cls.clone()))
 }
 
 fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -2,15 +2,14 @@
 
 */
 
-use crate::function::PyRef;
+use std::marker::PhantomData;
+
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::IntoPyNativeFunc;
 use crate::pyobject::{
-    OptionalArg, PyContext, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
+    IntoPyNativeFunc, OptionalArg, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::VirtualMachine;
-use std::marker::PhantomData;
 
 /// Read-only property, doesn't have __set__ or __delete__
 #[derive(Debug)]
@@ -18,7 +17,7 @@ pub struct PyReadOnlyProperty {
     getter: PyObjectRef,
 }
 
-impl PyObjectPayload2 for PyReadOnlyProperty {
+impl PyValue for PyReadOnlyProperty {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.readonly_property_type()
     }
@@ -40,7 +39,7 @@ pub struct PyProperty {
     deleter: Option<PyObjectRef>,
 }
 
-impl PyObjectPayload2 for PyProperty {
+impl PyValue for PyProperty {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.property_type()
     }
@@ -138,12 +137,7 @@ impl<'a, T> PropertyBuilder<'a, T> {
                 deleter: None,
             };
 
-            PyObject::new(
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(payload),
-                },
-                self.ctx.property_type(),
-            )
+            PyObject::new(payload, self.ctx.property_type())
         } else {
             let payload = PyReadOnlyProperty {
                 getter: self.getter.expect(
@@ -151,12 +145,7 @@ impl<'a, T> PropertyBuilder<'a, T> {
                 ),
             };
 
-            PyObject::new(
-                PyObjectPayload::AnyRustValue {
-                    value: Box::new(payload),
-                },
-                self.ctx.readonly_property_type(),
-            )
+            PyObject::new(payload, self.ctx.readonly_property_type())
         }
     }
 }

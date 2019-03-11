@@ -5,7 +5,7 @@ use std::ops::{Deref, DerefMut, Range};
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use crate::pyobject::{IdProtocol, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objbool;
@@ -163,29 +163,25 @@ pub fn get_item(
     }
 
     if subscript.payload::<PySlice>().is_some() {
-        let payload = if sequence.payload::<PyList>().is_some() {
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyList::from(
-                    elements.to_vec().get_slice_items(vm, &subscript)?,
-                )),
-            }
+        if sequence.payload::<PyList>().is_some() {
+            Ok(PyObject::new(
+                PyList::from(elements.to_vec().get_slice_items(vm, &subscript)?),
+                sequence.typ(),
+            ))
         } else if sequence.payload::<PyTuple>().is_some() {
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyTuple::from(
-                    elements.to_vec().get_slice_items(vm, &subscript)?,
-                )),
-            }
+            Ok(PyObject::new(
+                PyTuple::from(elements.to_vec().get_slice_items(vm, &subscript)?),
+                sequence.typ(),
+            ))
         } else {
             panic!("sequence get_item called for non-sequence")
-        };
-
-        return Ok(PyObject::new(payload, sequence.typ()));
+        }
+    } else {
+        Err(vm.new_type_error(format!(
+            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+            sequence, subscript
+        )))
     }
-
-    Err(vm.new_type_error(format!(
-        "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-        sequence, subscript
-    )))
 }
 
 pub fn seq_equal(
