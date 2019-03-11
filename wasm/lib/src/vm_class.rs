@@ -280,11 +280,10 @@ impl WASMVirtualMachine {
                 }
                 let print_fn: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> =
                     if let Some(s) = stdout.as_string() {
-                        let print = match s.as_str() {
-                            "console" => wasm_builtins::builtin_print_console,
+                        match s.as_str() {
+                            "console" => Box::new(wasm_builtins::builtin_print_console),
                             _ => return Err(error()),
-                        };
-                        Box::new(print)
+                        }
                     } else if let Some(element) = stdout.dyn_ref::<web_sys::HtmlTextAreaElement>() {
                         let element = element.clone();
                         Box::new(
