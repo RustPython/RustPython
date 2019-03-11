@@ -1,7 +1,7 @@
 try:
     from browser import request_animation_frame
 except:
-    def request_animation_frame(cb): cb()
+    request_animation_frame = None
 
 w = 50.0
 h = 50.0
@@ -41,4 +41,5 @@ gen = mandel()
 def gen_cb(_time=None):
     gen.__next__()
     request_animation_frame(gen_cb)
-gen_cb()
+if request_animation_frame: gen_cb()
+else: list(gen)
