@@ -7,7 +7,7 @@ use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol
 use crate::stdlib::random::rand::distributions::{Distribution, Normal};
 use crate::VirtualMachine;
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "random", {
         "guass" => ctx.new_rustfunc(random_gauss),
         "normalvariate" => ctx.new_rustfunc(random_normalvariate),

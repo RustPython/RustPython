@@ -22,7 +22,7 @@ fn dis_disassemble(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "dis", {
         "dis" => ctx.new_rustfunc(dis_dis),
         "disassemble" => ctx.new_rustfunc(dis_disassemble)

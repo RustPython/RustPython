@@ -296,7 +296,7 @@ fn struct_unpack(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_tuple(items))
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "struct", {
         "pack" => ctx.new_rustfunc(struct_pack),
         "unpack" => ctx.new_rustfunc(struct_unpack)

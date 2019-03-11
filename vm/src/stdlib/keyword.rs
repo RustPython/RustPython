@@ -17,7 +17,7 @@ fn keyword_iskeyword(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(value)
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let keyword_kwlist = ctx.new_list(
         lexer::get_keywords()
             .keys()

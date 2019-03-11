@@ -228,7 +228,7 @@ fn json_loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     })
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // TODO: Make this a proper type with a constructor
     let json_decode_error = create_type(
         "JSONDecodeError",

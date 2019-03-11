@@ -25,7 +25,7 @@ fn tokenize_tokenize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // TODO: create main function when called with -m
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "tokenize", {
         "tokenize" => ctx.new_rustfunc(tokenize_tokenize)
     })
