@@ -9,7 +9,7 @@ use crate::vm::VirtualMachine;
 
 use super::objdict;
 use super::objlist::PyList;
-use super::objstr;
+use super::objstr::{self, PyStringRef};
 use super::objtuple::PyTuple;
 
 #[derive(Clone, Debug)]
@@ -59,6 +59,35 @@ impl PyClassRef {
             offset: None,
         }
     }
+
+    fn mro(self, _vm: &mut VirtualMachine) -> PyTuple {
+        PyTuple::from(_mro(&self))
+    }
+
+    fn dir(self, vm: &mut VirtualMachine) -> PyList {
+        let attributes = get_attributes(self);
+        let attributes: Vec<PyObjectRef> = attributes
+            .keys()
+            .map(|k| vm.ctx.new_str(k.to_string()))
+            .collect();
+        PyList::from(attributes)
+    }
+
+    fn instance_check(self, obj: PyObjectRef, _vm: &mut VirtualMachine) -> bool {
+        isinstance(&obj, self.as_object())
+    }
+
+    fn subclass_check(self, subclass: PyObjectRef, _vm: &mut VirtualMachine) -> bool {
+        issubclass(&subclass, self.as_object())
+    }
+
+    fn repr(self, _vm: &mut VirtualMachine) -> String {
+        format!("<class '{}'>", self.name)
+    }
+
+    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.new_dict()
+    }
 }
 
 /*
@@ -86,19 +115,15 @@ pub fn init(ctx: &PyContext) {
     extend_class!(&ctx, &ctx.type_type, {
         "__call__" => ctx.new_rustfunc(type_call),
         "__new__" => ctx.new_rustfunc(type_new),
-        "__mro__" => ctx.new_property(type_mro),
-        "__repr__" => ctx.new_rustfunc(type_repr),
-        "__prepare__" => ctx.new_rustfunc(type_prepare),
+        "__mro__" => ctx.new_property(PyClassRef::mro),
+        "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
+        "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
         "__getattribute__" => ctx.new_rustfunc(type_getattribute),
-        "__instancecheck__" => ctx.new_rustfunc(type_instance_check),
-        "__subclasscheck__" => ctx.new_rustfunc(type_subclass_check),
+        "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),
+        "__subclasscheck__" => ctx.new_rustfunc(PyClassRef::subclass_check),
         "__doc__" => ctx.new_str(type_doc.to_string()),
-        "__dir__" => ctx.new_rustfunc(type_dir),
+        "__dir__" => ctx.new_rustfunc(PyClassRef::dir),
     });
-}
-
-fn type_mro(cls: PyClassRef, _vm: &mut VirtualMachine) -> PyResult<PyTuple> {
-    Ok(PyTuple::from(_mro(&cls)))
 }
 
 fn _mro(cls: &PyClassRef) -> Vec<PyObjectRef> {
@@ -111,33 +136,12 @@ pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
     issubclass(obj.type_ref(), &cls)
 }
 
-fn type_instance_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(typ, Some(vm.ctx.type_type())), (obj, None)]
-    );
-    Ok(vm.new_bool(isinstance(obj, typ)))
-}
-
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
 pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let ref mro = subclass.payload::<PyClass>().unwrap().mro;
     subclass.is(&cls) || mro.iter().any(|c| c.is(&cls))
-}
-
-fn type_subclass_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, Some(vm.ctx.type_type())),
-            (subclass, Some(vm.ctx.type_type()))
-        ]
-    );
-    Ok(vm.new_bool(issubclass(subclass, cls)))
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
@@ -239,15 +243,6 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
     }
 }
 
-pub fn type_dir(obj: PyClassRef, vm: &mut VirtualMachine) -> PyList {
-    let attributes = get_attributes(obj);
-    let attributes: Vec<PyObjectRef> = attributes
-        .keys()
-        .map(|k| vm.ctx.new_str(k.to_string()))
-        .collect();
-    PyList::from(attributes)
-}
-
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
     // Gather all members here:
     let mut attributes = PyAttributes::new();
@@ -333,16 +328,6 @@ pub fn new(
         typ: Some(typ),
     }
     .into_ref())
-}
-
-fn type_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.type_type()))]);
-    let type_name = get_type_name(&obj);
-    Ok(vm.new_str(format!("<class '{}'>", type_name)))
-}
-
-fn type_prepare(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    Ok(vm.new_dict())
 }
 
 #[cfg(test)]
