@@ -129,13 +129,9 @@ fn classmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             let py_method = vm.ctx.new_bound_method(function, py_obj);
             Ok(py_method)
         }
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(
-                attribute_error,
-                String::from("Attribute Error: classmethod must have 'function' attribute"),
-            ))
-        }
+        None => Err(vm.new_attribute_error(
+            "Attribute Error: classmethod must have 'function' attribute".to_string(),
+        )),
     }
 }
 
@@ -162,13 +158,9 @@ fn staticmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     match cls.get_attr("function") {
         Some(function) => Ok(function),
-        None => {
-            let attribute_error = vm.context().exceptions.attribute_error.clone();
-            Err(vm.new_exception(
-                attribute_error,
-                String::from("Attribute Error: staticmethod must have 'function' attribute"),
-            ))
-        }
+        None => Err(vm.new_attribute_error(
+            "Attribute Error: staticmethod must have 'function' attribute".to_string(),
+        )),
     }
 }
 
