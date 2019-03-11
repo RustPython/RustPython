@@ -791,6 +791,9 @@ pub trait TypeProtocol {
     fn typ(&self) -> PyObjectRef {
         self.type_ref().clone()
     }
+    fn type_pyref(&self) -> PyClassRef {
+        FromPyObjectRef::from_pyobj(self.type_ref())
+    }
     fn type_ref(&self) -> &PyObjectRef;
 }
 
@@ -1546,6 +1549,19 @@ impl PyObject {
 // converted to use `PyObjectPayload::AnyRustvalue`.
 pub trait PyValue: Any + fmt::Debug {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
+}
+
+impl FromPyObjectRef for PyRef<PyClass> {
+    fn from_pyobj(obj: &PyObjectRef) -> Self {
+        if let Some(_) = obj.payload::<PyClass>() {
+            PyRef {
+                obj: obj.clone(),
+                _payload: PhantomData,
+            }
+        } else {
+            panic!("Error getting inner type.")
+        }
+    }
 }
 
 #[cfg(test)]
