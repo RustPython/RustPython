@@ -674,7 +674,7 @@ fn builtin_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         // without a parameter, the result type is coerced to int
         let rounded = &vm.call_method(number, "__round__", vec![])?;
-        Ok(vm.ctx.new_int(objint::get_value(rounded)))
+        Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
     }
 }
 

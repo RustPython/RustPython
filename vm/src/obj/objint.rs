@@ -88,7 +88,7 @@ impl PyIntRef {
 
     fn eq(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_bool(self.value == get_value(&other))
+            vm.ctx.new_bool(self.value == *get_value(&other))
         } else {
             vm.ctx.not_implemented()
         }
@@ -96,7 +96,7 @@ impl PyIntRef {
 
     fn ne(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_bool(self.value != get_value(&other))
+            vm.ctx.new_bool(self.value != *get_value(&other))
         } else {
             vm.ctx.not_implemented()
         }
@@ -104,7 +104,7 @@ impl PyIntRef {
 
     fn lt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_bool(self.value < get_value(&other))
+            vm.ctx.new_bool(self.value < *get_value(&other))
         } else {
             vm.ctx.not_implemented()
         }
@@ -112,7 +112,7 @@ impl PyIntRef {
 
     fn le(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_bool(self.value <= get_value(&other))
+            vm.ctx.new_bool(self.value <= *get_value(&other))
         } else {
             vm.ctx.not_implemented()
         }
@@ -120,7 +120,7 @@ impl PyIntRef {
 
     fn gt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_bool(self.value > get_value(&other))
+            vm.ctx.new_bool(self.value > *get_value(&other))
         } else {
             vm.ctx.not_implemented()
         }
@@ -128,7 +128,7 @@ impl PyIntRef {
 
     fn ge(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_bool(self.value >= get_value(&other))
+            vm.ctx.new_bool(self.value >= *get_value(&other))
         } else {
             vm.ctx.not_implemented()
         }
@@ -185,7 +185,7 @@ impl PyIntRef {
     fn floordiv(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
-            if v2 != BigInt::zero() {
+            if *v2 != BigInt::zero() {
                 Ok(vm.ctx.new_int((&self.value) / v2))
             } else {
                 Err(vm.new_zero_division_error("integer floordiv by zero".to_string()))
@@ -210,10 +210,8 @@ impl PyIntRef {
 
         // i2 failed `to_usize()` conversion
         match get_value(&other) {
-            ref v if *v < BigInt::zero() => {
-                Err(vm.new_value_error("negative shift count".to_string()))
-            }
-            ref v if *v > BigInt::from(usize::max_value()) => {
+            v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+            v if *v > BigInt::from(usize::max_value()) => {
                 Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
             }
             _ => panic!("Failed converting {} to rust usize", get_value(&other)),
@@ -235,10 +233,8 @@ impl PyIntRef {
 
         // i2 failed `to_usize()` conversion
         match get_value(&other) {
-            ref v if *v < BigInt::zero() => {
-                Err(vm.new_value_error("negative shift count".to_string()))
-            }
-            ref v if *v > BigInt::from(usize::max_value()) => {
+            v if *v < BigInt::zero() => Err(vm.new_value_error("negative shift count".to_string())),
+            v if *v > BigInt::from(usize::max_value()) => {
                 Err(vm.new_overflow_error("the number is too large to convert to int".to_string()))
             }
             _ => panic!("Failed converting {} to rust usize", get_value(&other)),
@@ -293,7 +289,7 @@ impl PyIntRef {
     fn mod_(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
-            if v2 != BigInt::zero() {
+            if *v2 != BigInt::zero() {
                 Ok(vm.ctx.new_int((&self.value) % v2))
             } else {
                 Err(vm.new_zero_division_error("integer modulo by zero".to_string()))
@@ -306,8 +302,8 @@ impl PyIntRef {
     fn divmod(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
-            if v2 != BigInt::zero() {
-                let (r1, r2) = self.value.div_rem(&v2);
+            if *v2 != BigInt::zero() {
+                let (r1, r2) = self.value.div_rem(v2);
                 Ok(vm
                     .ctx
                     .new_tuple(vec![vm.ctx.new_int(r1), vm.ctx.new_int(r2)]))
@@ -395,7 +391,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 // Casting function:
 pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
     let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
-        get_value(obj)
+        get_value(obj).clone()
     } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
         objfloat::get_value(obj).to_bigint().unwrap()
     } else if objtype::isinstance(obj, &vm.ctx.str_type()) {
@@ -421,8 +417,8 @@ pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult
 }
 
 // Retrieve inner int value:
-pub fn get_value(obj: &PyObjectRef) -> BigInt {
-    obj.payload::<PyInt>().unwrap().value.clone()
+pub fn get_value(obj: &PyObjectRef) -> &BigInt {
+    &obj.payload::<PyInt>().unwrap().value
 }
 
 #[inline]

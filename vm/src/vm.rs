@@ -861,7 +861,7 @@ mod tests {
         let b = vm.ctx.new_int(12_i32);
         let res = vm._add(a, b).unwrap();
         let value = objint::get_value(&res);
-        assert_eq!(value, 45_i32.to_bigint().unwrap());
+        assert_eq!(*value, 45_i32.to_bigint().unwrap());
     }
 
     #[test]

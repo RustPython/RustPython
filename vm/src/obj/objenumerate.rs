@@ -30,7 +30,7 @@ fn enumerate_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(start, Some(vm.ctx.int_type()))]
     );
     let counter = if let Some(x) = start {
-        objint::get_value(x)
+        objint::get_value(x).clone()
     } else {
         BigInt::zero()
     };

@@ -45,7 +45,7 @@ impl PyFloatRef {
             let other_int = objint::get_value(&other);
 
             if let (Some(self_int), Some(other_float)) = (value.to_bigint(), other_int.to_f64()) {
-                value == other_float && self_int == other_int
+                value == other_float && self_int == *other_int
             } else {
                 false
             }

@@ -118,7 +118,8 @@ impl PyTupleRef {
     fn hash(self, vm: &mut VirtualMachine) -> PyResult<u64> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         for element in self.elements.borrow().iter() {
-            let element_hash = objint::get_value(&vm.call_method(element, "__hash__", vec![])?);
+            let hash_result = vm.call_method(element, "__hash__", vec![])?;
+            let element_hash = objint::get_value(&hash_result);
             element_hash.hash(&mut hasher);
         }
         Ok(hasher.finish())
