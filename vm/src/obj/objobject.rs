@@ -1,3 +1,4 @@
+use super::objlist::PyList;
 use super::objstr;
 use super::objtype;
 use crate::obj::objproperty::PropertyBuilder;
@@ -133,16 +134,13 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
 }
 
-pub fn object_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-
+pub fn object_dir(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyList {
     let attributes = get_attributes(&obj);
-    Ok(vm.ctx.new_list(
-        attributes
-            .keys()
-            .map(|k| vm.ctx.new_str(k.to_string()))
-            .collect(),
-    ))
+    let attributes: Vec<PyObjectRef> = attributes
+        .keys()
+        .map(|k| vm.ctx.new_str(k.to_string()))
+        .collect();
+    PyList::from(attributes)
 }
 
 fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -260,7 +258,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     // Get class attributes:
-    let mut attributes = objtype::get_attributes(&obj.typ());
+    let mut attributes = objtype::get_attributes(obj.type_pyref());
 
     // Get instance attributes:
     if let Some(dict) = &obj.dict {
