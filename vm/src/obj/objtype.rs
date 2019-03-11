@@ -81,7 +81,7 @@ fn _mro(cls: PyObjectRef) -> Option<Vec<PyObjectRef>> {
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    issubclass(&obj.typ(), &cls)
+    issubclass(obj.type_ref(), &cls)
 }
 
 fn type_instance_check(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -761,19 +761,22 @@ pub trait FromPyObjectRef {
 }
 
 pub trait TypeProtocol {
-    fn typ(&self) -> PyObjectRef;
+    fn typ(&self) -> PyObjectRef {
+        self.type_ref().clone()
+    }
+    fn type_ref(&self) -> &PyObjectRef;
 }
 
 impl TypeProtocol for PyObjectRef {
-    fn typ(&self) -> PyObjectRef {
-        (**self).typ()
+    fn type_ref(&self) -> &PyObjectRef {
+        (**self).type_ref()
     }
 }
 
 impl TypeProtocol for PyObject {
-    fn typ(&self) -> PyObjectRef {
+    fn type_ref(&self) -> &PyObjectRef {
         match self.typ {
-            Some(ref typ) => typ.clone(),
+            Some(ref typ) => &typ,
             None => panic!("Object {:?} doesn't have a type!", self),
         }
     }
