@@ -70,11 +70,9 @@ pub fn init(context: &PyContext) {
          Return an iterator yielding those items of iterable for which function(item)\n\
          is true. If function is None, return the items that are true.";
 
-    context.set_attr(&filter_type, "__new__", context.new_rustfunc(filter_new));
-    context.set_attr(
-        &filter_type,
-        "__doc__",
-        context.new_str(filter_doc.to_string()),
-    );
-    context.set_attr(&filter_type, "__next__", context.new_rustfunc(filter_next));
+    extend_class!(context, filter_type, {
+        "__new__" => context.new_rustfunc(filter_new),
+        "__doc__" => context.new_str(filter_doc.to_string()),
+        "__next__" => context.new_rustfunc(filter_next)
+    });
 }
