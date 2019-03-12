@@ -4,7 +4,7 @@ use super::objtype;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
-    PyObjectRef, PyRef, PyResult, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -12,6 +12,12 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct PyInstance;
+
+impl PyValue for PyInstance {
+    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+        panic!("no specific type for PyInstance, don't type check me")
+    }
+}
 
 pub type PyInstanceRef = PyRef<PyInstance>;
 

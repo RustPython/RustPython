@@ -591,11 +591,7 @@ impl PyContext {
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
-        let dict = if let Some(dict) = dict {
-            dict
-        } else {
-            PyAttributes::new()
-        };
+        let dict = dict.unwrap_or_default();
         PyObject {
             typ: Some(class),
             dict: Some(RefCell::new(dict)),
@@ -665,7 +661,7 @@ impl Default for PyContext {
 pub struct PyObject {
     pub typ: Option<PyObjectRef>,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
-    pub payload: Box<dyn Any>,
+    pub payload: Box<dyn PyValuePayload>,
 }
 
 impl Default for PyObject {
@@ -1526,7 +1522,7 @@ impl PyValue for PyIteratorValue {
 }
 
 impl PyObject {
-    pub fn new<T: PyValue>(payload: T, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new<T: PyValuePayload>(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             typ: Some(typ),
             dict: Some(RefCell::new(PyAttributes::new())),
@@ -1541,14 +1537,29 @@ impl PyObject {
     }
 
     pub fn payload<T: PyValue>(&self) -> Option<&T> {
-        self.payload.downcast_ref()
+        let payload: &dyn Any = &self.payload;
+        payload.downcast_ref()
     }
 }
 
-// The intention is for this to replace `PyObjectPayload` once everything is
-// converted to use `PyObjectPayload::AnyRustvalue`.
-pub trait PyValue: Any + fmt::Debug {
+pub trait PyValue: fmt::Debug + 'static {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
+}
+
+pub trait PyValuePayload: Any + fmt::Debug + 'static {
+    fn required_type(&self, ctx: &PyContext) -> PyObjectRef;
+}
+
+impl<T: PyValue + 'static> PyValuePayload for T {
+    fn required_type(&self, ctx: &PyContext) -> PyObjectRef {
+        T::required_type(ctx)
+    }
+}
+
+impl PyValuePayload for () {
+    fn required_type(&self, _ctx: &PyContext) -> PyObjectRef {
+        panic!("No specific python type for rust unit, don't type check")
+    }
 }
 
 impl FromPyObjectRef for PyRef<PyClass> {
