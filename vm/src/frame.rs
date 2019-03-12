@@ -804,11 +804,7 @@ impl Frame {
         module: &str,
         symbol: &Option<String>,
     ) -> FrameResult {
-        let import = vm.builtins.get_item("__import__");
-        let module = match import {
-            Some(func) => vm.invoke(func, vec![vm.ctx.new_str(module.to_string())])?,
-            None => panic!("No __import__ in builtins"),
-        };
+        let module = vm.import(module)?;
 
         // If we're importing a symbol, look it up and use it, otherwise construct a module and return
         // that
@@ -829,11 +825,7 @@ impl Frame {
     }
 
     fn import_star(&self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
-        let import = vm.builtins.get_item("__import__");
-        let module = match import {
-            Some(func) => vm.invoke(func, vec![vm.ctx.new_str(module.to_string())])?,
-            None => panic!("No __import__ in builtins"),
-        };
+        let module = vm.import(module)?;
 
         // Grab all the names from the module and put them in the context
         for (k, v) in module.get_key_value_pairs().iter() {

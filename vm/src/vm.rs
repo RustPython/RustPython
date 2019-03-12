@@ -234,6 +234,14 @@ impl VirtualMachine {
         self.call_method(obj, "__repr__", vec![])
     }
 
+    pub fn import(&mut self, module: &str) -> PyResult {
+        let builtins_import = self.builtins.get_item("__import__");
+        match builtins_import {
+            Some(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
+            None => panic!("No __import__ in builtins"),
+        }
+    }
+
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
     pub fn isinstance(&mut self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
