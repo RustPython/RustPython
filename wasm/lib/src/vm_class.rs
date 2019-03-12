@@ -272,10 +272,8 @@ impl WASMVirtualMachine {
                       ..
                   }| {
                 fn error() -> JsValue {
-                    TypeError::new(
-                        "Unknown stdout option, please pass a function or 'console'",
-                    )
-                    .into()
+                    TypeError::new("Unknown stdout option, please pass a function or 'console'")
+                        .into()
                 }
                 let print_fn: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> =
                     if let Some(s) = stdout.as_string() {
