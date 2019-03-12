@@ -49,6 +49,8 @@ fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let zip_type = &context.zip_type;
     objiter::iter_type_init(context, zip_type);
-    context.set_attr(zip_type, "__new__", context.new_rustfunc(zip_new));
-    context.set_attr(zip_type, "__next__", context.new_rustfunc(zip_next));
+    extend_class!(context, zip_type, {
+        "__new__" => context.new_rustfunc(zip_new),
+        "__next__" => context.new_rustfunc(zip_next)
+    });
 }
