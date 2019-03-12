@@ -273,8 +273,7 @@ impl WASMVirtualMachine {
                   }| {
                 fn error() -> JsValue {
                     TypeError::new(
-                        "Unknown stdout option, please pass a function, a textarea element, or \
-                         'console'",
+                        "Unknown stdout option, please pass a function or 'console'",
                     )
                     .into()
                 }
@@ -284,13 +283,6 @@ impl WASMVirtualMachine {
                             "console" => Box::new(wasm_builtins::builtin_print_console),
                             _ => return Err(error()),
                         }
-                    } else if let Some(element) = stdout.dyn_ref::<web_sys::HtmlTextAreaElement>() {
-                        let element = element.clone();
-                        Box::new(
-                            move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
-                                wasm_builtins::builtin_print_html(vm, args, &element)
-                            },
-                        )
                     } else if stdout.is_function() {
                         let func = js_sys::Function::from(stdout);
                         Box::new(

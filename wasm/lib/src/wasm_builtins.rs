@@ -4,33 +4,14 @@
 //! desktop.
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html.
 
-use crate::convert;
 use js_sys::{self, Array};
 use rustpython_vm::obj::{objstr, objtype};
 use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
-use wasm_bindgen::prelude::*;
-use web_sys::{self, console, HtmlTextAreaElement};
+use web_sys::{self, console};
 
 pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("Window to be available")
-}
-
-// The HTML id of the element element that act as our STDOUT
-
-pub fn print_to_html(text: &str, element: &HtmlTextAreaElement) -> Result<(), JsValue> {
-    let value = element.value();
-
-    let scroll_height = element.scroll_height();
-    let scrolled_to_bottom = scroll_height - element.scroll_top() == element.client_height();
-
-    element.set_value(&format!("{}{}", value, text));
-
-    if scrolled_to_bottom {
-        element.scroll_with_x_and_y(0.0, scroll_height.into());
-    }
-
-    Ok(())
 }
 
 pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
@@ -83,16 +64,6 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
         output.push('\n');
     }
     Ok(output)
-}
-
-pub fn builtin_print_html(
-    vm: &mut VirtualMachine,
-    args: PyFuncArgs,
-    element: &HtmlTextAreaElement,
-) -> PyResult {
-    let output = format_print_args(vm, args)?;
-    print_to_html(&output, element).map_err(|err| convert::js_to_py(vm, err))?;
-    Ok(vm.get_none())
 }
 
 pub fn builtin_print_console(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
