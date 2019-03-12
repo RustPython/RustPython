@@ -108,20 +108,6 @@ impl PyClassRef {
  * The magical type type
  */
 
-pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type: PyObjectRef) {
-    let object_type = FromPyObjectRef::from_pyobj(&object_type);
-    // this is not ideal
-    let ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
-    unsafe {
-        (*ptr).payload = Box::new(PyClass {
-            name: String::from("type"),
-            mro: vec![object_type],
-        });
-        (*ptr).dict = Some(RefCell::new(PyAttributes::new()));
-        (*ptr).typ = Some(type_type);
-    }
-}
-
 pub fn init(ctx: &PyContext) {
     let type_doc = "type(object_or_name, bases, dict)\n\
                     type(object) -> the object's type\n\
@@ -349,7 +335,7 @@ pub fn new(
             mro,
         }),
         dict: Some(RefCell::new(dict)),
-        typ: Some(typ),
+        typ,
     }
     .into_ref())
 }
