@@ -338,16 +338,27 @@ fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
-    // this is not ideal
-    let ptr = PyObjectRef::into_raw(dict_type.clone()) as *mut PyObject;
-    unsafe {
-        (*ptr).payload = Box::new(objtype::PyClass {
-            name: String::from("dict"),
-            mro: vec![object_type],
-        });
-        (*ptr).dict = Some(RefCell::new(HashMap::new()));
-        (*ptr).typ = Some(type_type.clone());
+fn dict_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (dict, Some(vm.ctx.dict_type())),
+            (key, Some(vm.ctx.str_type()))
+        ],
+        optional = [(default, None)]
+    );
+
+    // What we are looking for:
+    let key = objstr::get_value(&key);
+
+    let elements = get_elements(dict);
+    if elements.contains_key(&key) {
+        Ok(elements[&key].1.clone())
+    } else if let Some(value) = default {
+        Ok(value.clone())
+    } else {
+        Ok(vm.get_none())
     }
 }
 
@@ -381,4 +392,5 @@ pub fn init(context: &PyContext) {
     context.set_attr(&dict_type, "values", context.new_rustfunc(dict_values));
     context.set_attr(&dict_type, "items", context.new_rustfunc(dict_items));
     context.set_attr(&dict_type, "keys", context.new_rustfunc(dict_iter));
+    context.set_attr(&dict_type, "get", context.new_rustfunc(dict_get));
 }

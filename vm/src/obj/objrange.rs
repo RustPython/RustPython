@@ -207,19 +207,19 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let start = if second.is_some() {
-        objint::get_value(first)
+        objint::get_value(first).clone()
     } else {
         BigInt::zero()
     };
 
     let end = if let Some(pyint) = second {
-        objint::get_value(pyint)
+        objint::get_value(pyint).clone()
     } else {
-        objint::get_value(first)
+        objint::get_value(first).clone()
     };
 
     let step = if let Some(pyint) = step {
-        objint::get_value(pyint)
+        objint::get_value(pyint).clone()
     } else {
         BigInt::one()
     };

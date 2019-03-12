@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::iter;
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::{Deref, RangeInclusive};
+use std::ptr;
 use std::rc::Rc;
 
 use num_bigint::BigInt;
@@ -19,6 +21,7 @@ use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
+use crate::obj::objclassmethod;
 use crate::obj::objcode;
 use crate::obj::objcomplex::{self, PyComplex};
 use crate::obj::objdict::{self, PyDict};
@@ -41,6 +44,7 @@ use crate::obj::objproperty;
 use crate::obj::objrange;
 use crate::obj::objset::{self, PySet};
 use crate::obj::objslice;
+use crate::obj::objstaticmethod;
 use crate::obj::objstr;
 use crate::obj::objsuper;
 use crate::obj::objtuple::{self, PyTuple};
@@ -146,19 +150,15 @@ pub struct PyContext {
     pub exceptions: exceptions::ExceptionZoo,
 }
 
-fn _nothing() -> PyObjectRef {
-    let obj: PyObject = Default::default();
-    obj.into_ref()
-}
-
-pub fn create_type(
-    name: &str,
-    type_type: &PyObjectRef,
-    base: &PyObjectRef,
-    _dict_type: &PyObjectRef,
-) -> PyObjectRef {
+pub fn create_type(name: &str, type_type: &PyObjectRef, base: &PyObjectRef) -> PyObjectRef {
     let dict = PyAttributes::new();
-    objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
+    objtype::new(
+        type_type.clone(),
+        name,
+        vec![FromPyObjectRef::from_pyobj(base)],
+        dict,
+    )
+    .unwrap()
 }
 
 #[derive(Debug)]
@@ -179,68 +179,93 @@ impl PyValue for PyEllipsis {
     }
 }
 
+fn init_type_hierarchy() -> (PyObjectRef, PyObjectRef) {
+    // `type` inherits from `object`
+    // and both `type` and `object are instances of `type`.
+    // to produce this circular dependency, we need an unsafe block.
+    // (and yes, this will never get dropped. TODO?)
+    unsafe {
+        let object_type = PyObject {
+            typ: mem::uninitialized(), // !
+            dict: Some(RefCell::new(PyAttributes::new())),
+            payload: Box::new(PyClass {
+                name: String::from("object"),
+                mro: vec![],
+            }),
+        }
+        .into_ref();
+
+        let type_type = PyObject {
+            typ: mem::uninitialized(), // !
+            dict: Some(RefCell::new(PyAttributes::new())),
+            payload: Box::new(PyClass {
+                name: String::from("type"),
+                mro: vec![FromPyObjectRef::from_pyobj(&object_type)],
+            }),
+        }
+        .into_ref();
+
+        let object_type_ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject;
+        let type_type_ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
+        ptr::write(&mut (*object_type_ptr).typ, type_type.clone());
+        ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
+
+        (type_type, object_type)
+    }
+}
+
 // Basic objects:
 impl PyContext {
     pub fn new() -> Self {
-        let type_type = _nothing();
-        let object_type = _nothing();
-        let dict_type = _nothing();
+        let (type_type, object_type) = init_type_hierarchy();
 
-        objtype::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
-        objobject::create_object(type_type.clone(), object_type.clone(), dict_type.clone());
-        objdict::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
-
-        let module_type = create_type("module", &type_type, &object_type, &dict_type);
-        let classmethod_type = create_type("classmethod", &type_type, &object_type, &dict_type);
-        let staticmethod_type = create_type("staticmethod", &type_type, &object_type, &dict_type);
-        let function_type = create_type("function", &type_type, &object_type, &dict_type);
-        let builtin_function_or_method_type = create_type(
-            "builtin_function_or_method",
-            &type_type,
-            &object_type,
-            &dict_type,
-        );
-        let property_type = create_type("property", &type_type, &object_type, &dict_type);
-        let readonly_property_type =
-            create_type("readonly_property", &type_type, &object_type, &dict_type);
-        let super_type = create_type("super", &type_type, &object_type, &dict_type);
-        let weakref_type = create_type("ref", &type_type, &object_type, &dict_type);
-        let generator_type = create_type("generator", &type_type, &object_type, &dict_type);
-        let bound_method_type = create_type("method", &type_type, &object_type, &dict_type);
-        let str_type = create_type("str", &type_type, &object_type, &dict_type);
-        let list_type = create_type("list", &type_type, &object_type, &dict_type);
-        let set_type = create_type("set", &type_type, &object_type, &dict_type);
-        let frozenset_type = create_type("frozenset", &type_type, &object_type, &dict_type);
-        let int_type = create_type("int", &type_type, &object_type, &dict_type);
-        let float_type = create_type("float", &type_type, &object_type, &dict_type);
-        let frame_type = create_type("frame", &type_type, &object_type, &dict_type);
-        let complex_type = create_type("complex", &type_type, &object_type, &dict_type);
-        let bytes_type = create_type("bytes", &type_type, &object_type, &dict_type);
-        let bytearray_type = create_type("bytearray", &type_type, &object_type, &dict_type);
-        let tuple_type = create_type("tuple", &type_type, &object_type, &dict_type);
-        let iter_type = create_type("iter", &type_type, &object_type, &dict_type);
-        let ellipsis_type = create_type("EllipsisType", &type_type, &object_type, &dict_type);
-        let enumerate_type = create_type("enumerate", &type_type, &object_type, &dict_type);
-        let filter_type = create_type("filter", &type_type, &object_type, &dict_type);
-        let map_type = create_type("map", &type_type, &object_type, &dict_type);
-        let zip_type = create_type("zip", &type_type, &object_type, &dict_type);
-        let bool_type = create_type("bool", &type_type, &int_type, &dict_type);
-        let memoryview_type = create_type("memoryview", &type_type, &object_type, &dict_type);
-        let code_type = create_type("code", &type_type, &int_type, &dict_type);
-        let range_type = create_type("range", &type_type, &object_type, &dict_type);
-        let slice_type = create_type("slice", &type_type, &object_type, &dict_type);
-        let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
+        let dict_type = create_type("dict", &type_type, &object_type);
+        let module_type = create_type("module", &type_type, &object_type);
+        let classmethod_type = create_type("classmethod", &type_type, &object_type);
+        let staticmethod_type = create_type("staticmethod", &type_type, &object_type);
+        let function_type = create_type("function", &type_type, &object_type);
+        let builtin_function_or_method_type =
+            create_type("builtin_function_or_method", &type_type, &object_type);
+        let property_type = create_type("property", &type_type, &object_type);
+        let readonly_property_type = create_type("readonly_property", &type_type, &object_type);
+        let super_type = create_type("super", &type_type, &object_type);
+        let weakref_type = create_type("ref", &type_type, &object_type);
+        let generator_type = create_type("generator", &type_type, &object_type);
+        let bound_method_type = create_type("method", &type_type, &object_type);
+        let str_type = create_type("str", &type_type, &object_type);
+        let list_type = create_type("list", &type_type, &object_type);
+        let set_type = create_type("set", &type_type, &object_type);
+        let frozenset_type = create_type("frozenset", &type_type, &object_type);
+        let int_type = create_type("int", &type_type, &object_type);
+        let float_type = create_type("float", &type_type, &object_type);
+        let frame_type = create_type("frame", &type_type, &object_type);
+        let complex_type = create_type("complex", &type_type, &object_type);
+        let bytes_type = create_type("bytes", &type_type, &object_type);
+        let bytearray_type = create_type("bytearray", &type_type, &object_type);
+        let tuple_type = create_type("tuple", &type_type, &object_type);
+        let iter_type = create_type("iter", &type_type, &object_type);
+        let ellipsis_type = create_type("EllipsisType", &type_type, &object_type);
+        let enumerate_type = create_type("enumerate", &type_type, &object_type);
+        let filter_type = create_type("filter", &type_type, &object_type);
+        let map_type = create_type("map", &type_type, &object_type);
+        let zip_type = create_type("zip", &type_type, &object_type);
+        let bool_type = create_type("bool", &type_type, &int_type);
+        let memoryview_type = create_type("memoryview", &type_type, &object_type);
+        let code_type = create_type("code", &type_type, &int_type);
+        let range_type = create_type("range", &type_type, &object_type);
+        let slice_type = create_type("slice", &type_type, &object_type);
+        let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type);
 
         let none = PyObject::new(
             objnone::PyNone,
-            create_type("NoneType", &type_type, &object_type, &dict_type),
+            create_type("NoneType", &type_type, &object_type),
         );
 
         let ellipsis = PyObject::new(PyEllipsis, ellipsis_type.clone());
 
         let not_implemented = PyObject::new(
             PyNotImplemented,
-            create_type("NotImplementedType", &type_type, &object_type, &dict_type),
+            create_type("NotImplementedType", &type_type, &object_type),
         );
 
         let true_value = PyObject::new(PyInt::new(BigInt::one()), bool_type.clone());
@@ -296,6 +321,8 @@ impl PyContext {
         objobject::init(&context);
         objdict::init(&context);
         objfunction::init(&context);
+        objstaticmethod::init(&context);
+        objclassmethod::init(&context);
         objgenerator::init(&context);
         objint::init(&context);
         objfloat::init(&context);
@@ -532,7 +559,13 @@ impl PyContext {
     }
 
     pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
-        objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
+        objtype::new(
+            self.type_type(),
+            name,
+            vec![FromPyObjectRef::from_pyobj(&base)],
+            PyAttributes::new(),
+        )
+        .unwrap()
     }
 
     pub fn new_scope(&self) -> Scope {
@@ -593,7 +626,7 @@ impl PyContext {
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
         let dict = dict.unwrap_or_default();
         PyObject {
-            typ: Some(class),
+            typ: class,
             dict: Some(RefCell::new(dict)),
             payload: Box::new(objobject::PyInstance),
         }
@@ -659,19 +692,9 @@ impl Default for PyContext {
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
 pub struct PyObject {
-    pub typ: Option<PyObjectRef>,
+    pub typ: PyObjectRef,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
     pub payload: Box<dyn PyValuePayload>,
-}
-
-impl Default for PyObject {
-    fn default() -> Self {
-        PyObject {
-            typ: None,
-            dict: None,
-            payload: Box::new(()),
-        }
-    }
 }
 
 /// A reference to a Python object.
@@ -683,7 +706,7 @@ impl Default for PyObject {
 /// A `PyRef<T>` can be directly returned from a built-in function to handle
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PyRef<T> {
     // invariant: this obj must always have payload of type T
     obj: PyObjectRef,
@@ -766,16 +789,17 @@ impl<T> fmt::Display for PyRef<T> {
 
 pub trait IdProtocol {
     fn get_id(&self) -> usize;
-    fn is(&self, other: &PyObjectRef) -> bool;
+    fn is<T>(&self, other: &T) -> bool
+    where
+        T: IdProtocol,
+    {
+        self.get_id() == other.get_id()
+    }
 }
 
 impl IdProtocol for PyObjectRef {
     fn get_id(&self) -> usize {
         &*self as &PyObject as *const PyObject as usize
-    }
-
-    fn is(&self, other: &PyObjectRef) -> bool {
-        self.get_id() == other.get_id()
     }
 }
 
@@ -801,10 +825,7 @@ impl TypeProtocol for PyObjectRef {
 
 impl TypeProtocol for PyObject {
     fn type_ref(&self) -> &PyObjectRef {
-        match self.typ {
-            Some(ref typ) => &typ,
-            None => panic!("Object {:?} doesn't have a type!", self),
-        }
+        &self.typ
     }
 }
 
@@ -836,7 +857,7 @@ impl AttributeProtocol for PyObjectRef {
                 return Some(item);
             }
             for class in mro {
-                if let Some(item) = class_get_item(class, attr_name) {
+                if let Some(item) = class_get_item(class.as_object(), attr_name) {
                     return Some(item);
                 }
             }
@@ -857,7 +878,7 @@ impl AttributeProtocol for PyObjectRef {
     fn has_attr(&self, attr_name: &str) -> bool {
         if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
             return class_has_item(self, attr_name)
-                || mro.iter().any(|d| class_has_item(d, attr_name));
+                || mro.iter().any(|d| class_has_item(d.as_object(), attr_name));
         }
 
         if let Some(PyModule { ref dict, .. }) = self.payload::<PyModule>() {
@@ -1524,7 +1545,7 @@ impl PyValue for PyIteratorValue {
 impl PyObject {
     pub fn new<T: PyValuePayload>(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
-            typ: Some(typ),
+            typ,
             dict: Some(RefCell::new(PyAttributes::new())),
             payload: Box::new(payload),
         }
@@ -1570,7 +1591,7 @@ impl FromPyObjectRef for PyRef<PyClass> {
                 _payload: PhantomData,
             }
         } else {
-            panic!("Error getting inner type.")
+            panic!("Error getting inner type: {:?}", obj.typ)
         }
     }
 }

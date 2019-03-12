@@ -3,12 +3,10 @@ use super::objstr;
 use super::objtype;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct PyInstance;
@@ -26,19 +24,6 @@ pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let type_ref = args.shift();
     let obj = vm.ctx.new_instance(type_ref.clone(), None);
     Ok(obj)
-}
-
-pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type: PyObjectRef) {
-    // this is not ideal
-    let ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject;
-    unsafe {
-        (*ptr).payload = Box::new(objtype::PyClass {
-            name: String::from("object"),
-            mro: vec![],
-        });
-        (*ptr).dict = Some(RefCell::new(HashMap::new()));
-        (*ptr).typ = Some(type_type.clone());
-    }
 }
 
 fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

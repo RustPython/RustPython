@@ -160,7 +160,7 @@ impl PyListRef {
     fn count(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self.elements.borrow().iter() {
-            if needle.is(&element) {
+            if needle.is(element) {
                 count += 1;
             } else {
                 let py_equal = vm._eq(element.clone(), needle.clone())?;
@@ -174,7 +174,7 @@ impl PyListRef {
 
     fn contains(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
         for element in self.elements.borrow().iter() {
-            if needle.is(&element) {
+            if needle.is(element) {
                 return Ok(true);
             }
             let py_equal = vm._eq(element.clone(), needle.clone())?;
@@ -188,7 +188,7 @@ impl PyListRef {
 
     fn index(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<usize> {
         for (index, element) in self.elements.borrow().iter().enumerate() {
-            if needle.is(&element) {
+            if needle.is(element) {
                 return Ok(index);
             }
             let py_equal = vm._eq(needle.clone(), element.clone())?;
@@ -218,7 +218,7 @@ impl PyListRef {
     fn remove(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<()> {
         let mut ri: Option<usize> = None;
         for (index, element) in self.elements.borrow().iter().enumerate() {
-            if needle.is(&element) {
+            if needle.is(element) {
                 ri = Some(index);
                 break;
             }
