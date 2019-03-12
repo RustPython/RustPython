@@ -774,7 +774,7 @@ impl<T> fmt::Display for PyRef<T> {
 
 pub trait IdProtocol {
     fn get_id(&self) -> usize;
-    fn is(&self, other: &PyObjectRef) -> bool;
+    fn is(&self, other: &Self) -> bool;
 }
 
 impl IdProtocol for PyObjectRef {
@@ -782,7 +782,7 @@ impl IdProtocol for PyObjectRef {
         &*self as &PyObject as *const PyObject as usize
     }
 
-    fn is(&self, other: &PyObjectRef) -> bool {
+    fn is(&self, other: &Self) -> bool {
         self.get_id() == other.get_id()
     }
 }

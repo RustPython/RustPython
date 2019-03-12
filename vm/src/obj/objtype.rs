@@ -26,6 +26,22 @@ impl PyValue for PyClass {
     }
 }
 
+impl IdProtocol for PyClassRef {
+    fn get_id(&self) -> usize {
+        self.as_object().get_id()
+    }
+
+    fn is(&self, other: &Self) -> bool {
+        self.get_id() == other.get_id()
+    }
+}
+
+impl TypeProtocol for PyClassRef {
+    fn type_ref(&self) -> &PyObjectRef {
+        &self.as_object().type_ref()
+    }
+}
+
 struct IterMro<'a> {
     cls: &'a PyClassRef,
     offset: Option<usize>,
