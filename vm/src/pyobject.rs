@@ -694,7 +694,7 @@ impl Default for PyContext {
 pub struct PyObject {
     pub typ: PyObjectRef,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
-    pub payload: Box<dyn PyValuePayload>,
+    pub payload: Box<dyn PyObjectPayload>,
 }
 
 /// A reference to a Python object.
@@ -1543,7 +1543,7 @@ impl PyValue for PyIteratorValue {
 }
 
 impl PyObject {
-    pub fn new<T: PyValuePayload>(payload: T, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new<T: PyObjectPayload>(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             typ,
             dict: Some(RefCell::new(PyAttributes::new())),
@@ -1567,17 +1567,17 @@ pub trait PyValue: fmt::Debug + 'static {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
 }
 
-pub trait PyValuePayload: Any + fmt::Debug + 'static {
+pub trait PyObjectPayload: Any + fmt::Debug + 'static {
     fn required_type(&self, ctx: &PyContext) -> PyObjectRef;
 }
 
-impl<T: PyValue + 'static> PyValuePayload for T {
+impl<T: PyValue + 'static> PyObjectPayload for T {
     fn required_type(&self, ctx: &PyContext) -> PyObjectRef {
         T::required_type(ctx)
     }
 }
 
-impl PyValuePayload for () {
+impl PyObjectPayload for () {
     fn required_type(&self, _ctx: &PyContext) -> PyObjectRef {
         panic!("No specific python type for rust unit, don't type check")
     }
