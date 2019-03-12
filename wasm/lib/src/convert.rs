@@ -130,7 +130,7 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     } else {
         let dumps = rustpython_vm::import::import_module(vm, std::path::PathBuf::default(), "json")
             .expect("Couldn't get json module")
-            .get_attr("dump".into())
+            .get_attr("dumps".into())
             .expect("Couldn't get json dumps");
         match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
             Ok(value) => {
