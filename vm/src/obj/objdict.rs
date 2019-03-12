@@ -344,9 +344,7 @@ fn dict_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             (dict, Some(vm.ctx.dict_type())),
             (key, Some(vm.ctx.str_type()))
         ],
-        optional = [
-            (default, None)
-        ]
+        optional = [(default, None)]
     );
 
     // What we are looking for:
