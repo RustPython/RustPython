@@ -30,10 +30,6 @@ impl IdProtocol for PyClassRef {
     fn get_id(&self) -> usize {
         self.as_object().get_id()
     }
-
-    fn is(&self, other: &Self) -> bool {
-        self.get_id() == other.get_id()
-    }
 }
 
 impl TypeProtocol for PyClassRef {
@@ -160,7 +156,7 @@ pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
 /// method.
 pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let ref mro = subclass.payload::<PyClass>().unwrap().mro;
-    subclass.is(&cls) || mro.iter().any(|c| c.as_object().is(&cls))
+    subclass.is(cls) || mro.iter().any(|c| c.is(cls))
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
