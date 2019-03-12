@@ -3,7 +3,7 @@ extern crate rustc_version_runtime;
 use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "platform", {
         "python_compiler" => ctx.new_rustfunc(platform_python_compiler),
         "python_implementation" => ctx.new_rustfunc(platform_python_implementation),

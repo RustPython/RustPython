@@ -13,8 +13,7 @@ use super::objiter;
 use super::objstr;
 use super::objtype;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload, PyObjectPayload2,
-    PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -23,7 +22,7 @@ pub struct PySet {
     elements: RefCell<HashMap<u64, PyObjectRef>>,
 }
 
-impl PyObjectPayload2 for PySet {
+impl PyValue for PySet {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.set_type()
     }
@@ -169,10 +168,8 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PySet {
-                elements: RefCell::new(elements),
-            }),
+        PySet {
+            elements: RefCell::new(elements),
         },
         cls.clone(),
     ))
@@ -190,10 +187,8 @@ fn set_copy(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let elements = get_elements(s);
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PySet {
-                elements: RefCell::new(elements),
-            }),
+        PySet {
+            elements: RefCell::new(elements),
         },
         vm.ctx.set_type(),
     ))
@@ -346,10 +341,8 @@ fn set_union(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     elements.extend(get_elements(other).clone());
 
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PySet {
-                elements: RefCell::new(elements),
-            }),
+        PySet {
+            elements: RefCell::new(elements),
         },
         vm.ctx.set_type(),
     ))
@@ -390,10 +383,8 @@ fn set_symmetric_difference(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResu
     }
 
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PySet {
-                elements: RefCell::new(elements),
-            }),
+        PySet {
+            elements: RefCell::new(elements),
         },
         vm.ctx.set_type(),
     ))
@@ -432,10 +423,8 @@ fn set_combine_inner(
     }
 
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PySet {
-                elements: RefCell::new(elements),
-            }),
+        PySet {
+            elements: RefCell::new(elements),
         },
         vm.ctx.set_type(),
     ))
@@ -566,11 +555,9 @@ fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let items = get_elements(zelf).values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
     let iter_obj = PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: set_list,
-            }),
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: set_list,
         },
         vm.ctx.iter_type(),
     );

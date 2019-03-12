@@ -1,8 +1,10 @@
+use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::iter;
-use std::ops::RangeInclusive;
+use std::marker::PhantomData;
+use std::ops::{Deref, RangeInclusive};
 use std::rc::Rc;
 
 use num_bigint::BigInt;
@@ -42,7 +44,7 @@ use crate::obj::objslice;
 use crate::obj::objstr;
 use crate::obj::objsuper;
 use crate::obj::objtuple::{self, PyTuple};
-use crate::obj::objtype::{self, PyClass};
+use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
@@ -159,6 +161,24 @@ pub fn create_type(
     objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
 }
 
+#[derive(Debug)]
+pub struct PyNotImplemented;
+
+impl PyValue for PyNotImplemented {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.not_implemented().typ()
+    }
+}
+
+#[derive(Debug)]
+pub struct PyEllipsis;
+
+impl PyValue for PyEllipsis {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.ellipsis_type.clone()
+    }
+}
+
 // Basic objects:
 impl PyContext {
     pub fn new() -> Self {
@@ -212,38 +232,19 @@ impl PyContext {
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type, &dict_type);
 
         let none = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objnone::PyNone),
-            },
+            objnone::PyNone,
             create_type("NoneType", &type_type, &object_type, &dict_type),
         );
 
-        let ellipsis = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(()),
-            },
-            ellipsis_type.clone(),
-        );
+        let ellipsis = PyObject::new(PyEllipsis, ellipsis_type.clone());
 
         let not_implemented = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(()),
-            },
+            PyNotImplemented,
             create_type("NotImplementedType", &type_type, &object_type, &dict_type),
         );
 
-        let true_value = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyInt::new(BigInt::one())),
-            },
-            bool_type.clone(),
-        );
-        let false_value = PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyInt::new(BigInt::zero())),
-            },
-            bool_type.clone(),
-        );
+        let true_value = PyObject::new(PyInt::new(BigInt::one()), bool_type.clone());
+        let false_value = PyObject::new(PyInt::new(BigInt::zero()), bool_type.clone());
         let context = PyContext {
             bool_type,
             memoryview_type,
@@ -481,57 +482,27 @@ impl PyContext {
     }
 
     pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyInt::new(i)),
-            },
-            self.int_type(),
-        )
+        PyObject::new(PyInt::new(i), self.int_type())
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyFloat::from(value)),
-            },
-            self.float_type(),
-        )
+        PyObject::new(PyFloat::from(value), self.float_type())
     }
 
     pub fn new_complex(&self, value: Complex64) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyComplex::from(value)),
-            },
-            self.complex_type(),
-        )
+        PyObject::new(PyComplex::from(value), self.complex_type())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objstr::PyString { value: s }),
-            },
-            self.str_type(),
-        )
+        PyObject::new(objstr::PyString { value: s }, self.str_type())
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objbytes::PyBytes::new(data)),
-            },
-            self.bytes_type(),
-        )
+        PyObject::new(objbytes::PyBytes::new(data), self.bytes_type())
     }
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objbytearray::PyByteArray::new(data)),
-            },
-            self.bytearray_type(),
-        )
+        PyObject::new(objbytearray::PyByteArray::new(data), self.bytearray_type())
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
@@ -543,41 +514,21 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyTuple::from(elements)),
-            },
-            self.tuple_type(),
-        )
+        PyObject::new(PyTuple::from(elements), self.tuple_type())
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyList::from(elements)),
-            },
-            self.list_type(),
-        )
+        PyObject::new(PyList::from(elements), self.list_type())
     }
 
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PySet::default()),
-            },
-            self.set_type(),
-        )
+        PyObject::new(PySet::default(), self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyDict::default()),
-            },
-            self.dict_type(),
-        )
+        PyObject::new(PyDict::default(), self.dict_type())
     }
 
     pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
@@ -590,11 +541,9 @@ impl PyContext {
 
     pub fn new_module(&self, name: &str, dict: PyObjectRef) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyModule {
-                    name: name.to_string(),
-                    dict,
-                }),
+            PyModule {
+                name: name.to_string(),
+                dict,
             },
             self.module_type.clone(),
         )
@@ -605,20 +554,13 @@ impl PyContext {
         F: IntoPyNativeFunc<T, R>,
     {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyBuiltinFunction::new(f.into_func())),
-            },
+            PyBuiltinFunction::new(f.into_func()),
             self.builtin_function_or_method_type(),
         )
     }
 
     pub fn new_frame(&self, code: PyObjectRef, scope: Scope) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(Frame::new(code, scope)),
-            },
-            self.frame_type(),
-        )
+        PyObject::new(Frame::new(code, scope), self.frame_type())
     }
 
     pub fn new_property<F, T, R>(&self, f: F) -> PyObjectRef
@@ -629,12 +571,7 @@ impl PyContext {
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(objcode::PyCode::new(code)),
-            },
-            self.code_type(),
-        )
+        PyObject::new(objcode::PyCode::new(code), self.code_type())
     }
 
     pub fn new_function(
@@ -644,20 +581,13 @@ impl PyContext {
         defaults: PyObjectRef,
     ) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyFunction::new(code_obj, scope, defaults)),
-            },
+            PyFunction::new(code_obj, scope, defaults),
             self.function_type(),
         )
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyMethod::new(object, function)),
-            },
-            self.bound_method_type(),
-        )
+        PyObject::new(PyMethod::new(object, function), self.bound_method_type())
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
@@ -667,11 +597,9 @@ impl PyContext {
             PyAttributes::new()
         };
         PyObject {
-            payload: PyObjectPayload::AnyRustValue {
-                value: Box::new(objobject::PyInstance),
-            },
             typ: Some(class),
             dict: Some(RefCell::new(dict)),
+            payload: Box::new(objobject::PyInstance),
         }
         .into_ref()
     }
@@ -734,11 +662,110 @@ impl Default for PyContext {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
-#[derive(Default)]
 pub struct PyObject {
-    pub payload: PyObjectPayload,
     pub typ: Option<PyObjectRef>,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
+    pub payload: Box<dyn Any>,
+}
+
+impl Default for PyObject {
+    fn default() -> Self {
+        PyObject {
+            typ: None,
+            dict: None,
+            payload: Box::new(()),
+        }
+    }
+}
+
+/// A reference to a Python object.
+///
+/// Note that a `PyRef<T>` can only deref to a shared / immutable reference.
+/// It is the payload type's responsibility to handle (possibly concurrent)
+/// mutability with locks or concurrent data structures if required.
+///
+/// A `PyRef<T>` can be directly returned from a built-in function to handle
+/// situations (such as when implementing in-place methods such as `__iadd__`)
+/// where a reference to the same object must be returned.
+#[derive(Clone)]
+pub struct PyRef<T> {
+    // invariant: this obj must always have payload of type T
+    obj: PyObjectRef,
+    _payload: PhantomData<T>,
+}
+
+impl<T: PyValue> PyRef<T> {
+    pub fn new(ctx: &PyContext, payload: T) -> Self {
+        PyRef {
+            obj: PyObject::new(payload, T::required_type(ctx)),
+            _payload: PhantomData,
+        }
+    }
+
+    pub fn new_with_type(vm: &mut VirtualMachine, payload: T, cls: PyClassRef) -> PyResult<Self> {
+        let required_type = T::required_type(&vm.ctx);
+        if objtype::issubclass(&cls.obj, &required_type) {
+            Ok(PyRef {
+                obj: PyObject::new(payload, cls.obj),
+                _payload: PhantomData,
+            })
+        } else {
+            let subtype = vm.to_pystr(&cls.obj)?;
+            let basetype = vm.to_pystr(&required_type)?;
+            Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
+        }
+    }
+
+    pub fn as_object(&self) -> &PyObjectRef {
+        &self.obj
+    }
+    pub fn into_object(self) -> PyObjectRef {
+        self.obj
+    }
+}
+
+impl<T> Deref for PyRef<T>
+where
+    T: PyValue,
+{
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.obj.payload().expect("unexpected payload for type")
+    }
+}
+
+impl<T> TryFromObject for PyRef<T>
+where
+    T: PyValue,
+{
+    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if objtype::isinstance(&obj, &T::required_type(&vm.ctx)) {
+            Ok(PyRef {
+                obj,
+                _payload: PhantomData,
+            })
+        } else {
+            let expected_type = vm.to_pystr(&T::required_type(&vm.ctx))?;
+            let actual_type = vm.to_pystr(&obj.typ())?;
+            Err(vm.new_type_error(format!(
+                "Expected type {}, not {}",
+                expected_type, actual_type,
+            )))
+        }
+    }
+}
+
+impl<T> IntoPyObject for PyRef<T> {
+    fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
+        Ok(self.obj)
+    }
+}
+
+impl<T> fmt::Display for PyRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.obj.fmt(f)
+    }
 }
 
 pub trait IdProtocol {
@@ -761,19 +788,25 @@ pub trait FromPyObjectRef {
 }
 
 pub trait TypeProtocol {
-    fn typ(&self) -> PyObjectRef;
+    fn typ(&self) -> PyObjectRef {
+        self.type_ref().clone()
+    }
+    fn type_pyref(&self) -> PyClassRef {
+        FromPyObjectRef::from_pyobj(self.type_ref())
+    }
+    fn type_ref(&self) -> &PyObjectRef;
 }
 
 impl TypeProtocol for PyObjectRef {
-    fn typ(&self) -> PyObjectRef {
-        (**self).typ()
+    fn type_ref(&self) -> &PyObjectRef {
+        (**self).type_ref()
     }
 }
 
 impl TypeProtocol for PyObject {
-    fn typ(&self) -> PyObjectRef {
+    fn type_ref(&self) -> &PyObjectRef {
         match self.typ {
-            Some(ref typ) => typ.clone(),
+            Some(ref typ) => &typ,
             None => panic!("Object {:?} doesn't have a type!", self),
         }
     }
@@ -1345,15 +1378,10 @@ where
 // explicitly implementing `IntoPyObject`.
 impl<T> IntoPyObject for T
 where
-    T: PyObjectPayload2 + Sized,
+    T: PyValue + Sized,
 {
     fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(self),
-            },
-            T::required_type(ctx),
-        ))
+        Ok(PyObject::new(self, T::required_type(ctx)))
     }
 }
 
@@ -1483,22 +1511,6 @@ into_py_native_func_tuple!((a, A), (b, B), (c, C));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
 
-/// Rather than determining the type of a python object, this enum is more
-/// a holder for the rust payload of a python object. It is more a carrier
-/// of rust data for a particular python object. Determine the python type
-/// by using for example the `.typ()` method on a python object.
-pub enum PyObjectPayload {
-    AnyRustValue { value: Box<dyn std::any::Any> },
-}
-
-impl Default for PyObjectPayload {
-    fn default() -> Self {
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(()),
-        }
-    }
-}
-
 // TODO: This is a workaround and shouldn't exist.
 //       Each iterable type should have its own distinct iterator type.
 #[derive(Debug)]
@@ -1507,26 +1519,18 @@ pub struct PyIteratorValue {
     pub iterated_obj: PyObjectRef,
 }
 
-impl PyObjectPayload2 for PyIteratorValue {
+impl PyValue for PyIteratorValue {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.iter_type()
     }
 }
 
-impl fmt::Debug for PyObjectPayload {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            PyObjectPayload::AnyRustValue { value } => value.fmt(f),
-        }
-    }
-}
-
 impl PyObject {
-    pub fn new(payload: PyObjectPayload, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new<T: PyValue>(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
-            payload,
             typ: Some(typ),
             dict: Some(RefCell::new(PyAttributes::new())),
+            payload: Box::new(payload),
         }
         .into_ref()
     }
@@ -1536,16 +1540,28 @@ impl PyObject {
         Rc::new(self)
     }
 
-    pub fn payload<T: PyObjectPayload2>(&self) -> Option<&T> {
-        let PyObjectPayload::AnyRustValue { ref value } = self.payload;
-        value.downcast_ref()
+    pub fn payload<T: PyValue>(&self) -> Option<&T> {
+        self.payload.downcast_ref()
     }
 }
 
 // The intention is for this to replace `PyObjectPayload` once everything is
 // converted to use `PyObjectPayload::AnyRustvalue`.
-pub trait PyObjectPayload2: std::any::Any + fmt::Debug {
+pub trait PyValue: Any + fmt::Debug {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
+}
+
+impl FromPyObjectRef for PyRef<PyClass> {
+    fn from_pyobj(obj: &PyObjectRef) -> Self {
+        if let Some(_) = obj.payload::<PyClass>() {
+            PyRef {
+                obj: obj.clone(),
+                _payload: PhantomData,
+            }
+        } else {
+            panic!("Error getting inner type.")
+        }
+    }
 }
 
 #[cfg(test)]

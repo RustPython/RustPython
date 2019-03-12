@@ -2,10 +2,8 @@ use super::objbytes;
 use super::objint;
 use super::objstr;
 use super::objtype;
-use crate::function::PyRef;
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    IntoPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -17,7 +15,7 @@ pub struct PyFloat {
     value: f64,
 }
 
-impl PyObjectPayload2 for PyFloat {
+impl PyValue for PyFloat {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.float_type()
     }
@@ -190,12 +188,7 @@ impl PyFloatRef {
             let type_name = objtype::get_type_name(&arg.typ());
             return Err(vm.new_type_error(format!("can't convert {} to float", type_name)));
         };
-        Ok(PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyFloat { value }),
-            },
-            cls.clone(),
-        ))
+        Ok(PyObject::new(PyFloat { value }, cls.clone()))
     }
 
     fn mod_(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {

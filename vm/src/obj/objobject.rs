@@ -1,10 +1,10 @@
+use super::objlist::PyList;
 use super::objstr;
 use super::objtype;
-use crate::function::PyRef;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
-    PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyObjectRef, PyRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
@@ -12,6 +12,7 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct PyInstance;
+
 pub type PyInstanceRef = PyRef<PyInstance>;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
@@ -25,12 +26,10 @@ pub fn create_object(type_type: PyObjectRef, object_type: PyObjectRef, _dict_typ
     // this is not ideal
     let ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject;
     unsafe {
-        (*ptr).payload = PyObjectPayload::AnyRustValue {
-            value: Box::new(objtype::PyClass {
-                name: String::from("object"),
-                mro: vec![],
-            }),
-        };
+        (*ptr).payload = Box::new(objtype::PyClass {
+            name: String::from("object"),
+            mro: vec![],
+        });
         (*ptr).dict = Some(RefCell::new(HashMap::new()));
         (*ptr).typ = Some(type_type.clone());
     }
@@ -135,16 +134,13 @@ fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
 }
 
-pub fn object_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-
+pub fn object_dir(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyList {
     let attributes = get_attributes(&obj);
-    Ok(vm.ctx.new_list(
-        attributes
-            .keys()
-            .map(|k| vm.ctx.new_str(k.to_string()))
-            .collect(),
-    ))
+    let attributes: Vec<PyObjectRef> = attributes
+        .keys()
+        .map(|k| vm.ctx.new_str(k.to_string()))
+        .collect();
+    PyList::from(attributes)
 }
 
 fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -256,17 +252,13 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if let Some(getter) = cls.get_attr("__getattr__") {
         vm.invoke(getter, vec![cls, name_str.clone()])
     } else {
-        let attribute_error = vm.context().exceptions.attribute_error.clone();
-        Err(vm.new_exception(
-            attribute_error,
-            format!("{} has no attribute '{}'", obj, name),
-        ))
+        Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
     }
 }
 
 pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
     // Get class attributes:
-    let mut attributes = objtype::get_attributes(&obj.typ());
+    let mut attributes = objtype::get_attributes(obj.type_pyref());
 
     // Get instance attributes:
     if let Some(dict) = &obj.dict {

@@ -7,7 +7,7 @@
 
 use super::super::pyobject::{PyContext, PyObjectRef};
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "_weakref", {
         "ref" => ctx.weakref_type()
     })

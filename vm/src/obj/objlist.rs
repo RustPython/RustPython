@@ -8,10 +8,9 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use crate::function::PyRef;
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TypeProtocol,
+    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;
@@ -30,7 +29,7 @@ impl From<Vec<PyObjectRef>> for PyList {
     }
 }
 
-impl PyObjectPayload2 for PyList {
+impl PyValue for PyList {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.list_type()
     }
@@ -112,11 +111,9 @@ impl PyListRef {
 
     fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyIteratorValue {
-                    position: Cell::new(0),
-                    iterated_obj: self.into_object(),
-                }),
+            PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: self.into_object(),
             },
             vm.ctx.iter_type(),
         )
@@ -203,12 +200,18 @@ impl PyListRef {
         Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
     }
 
-    fn pop(self, vm: &mut VirtualMachine) -> PyResult {
+    fn pop(self, i: OptionalArg<isize>, vm: &mut VirtualMachine) -> PyResult {
+        let mut i = i.into_option().unwrap_or(-1);
         let mut elements = self.elements.borrow_mut();
-        if let Some(result) = elements.pop() {
-            Ok(result)
-        } else {
+        if i < 0 {
+            i += elements.len() as isize;
+        }
+        if elements.is_empty() {
             Err(vm.new_index_error("pop from empty list".to_string()))
+        } else if i < 0 || i as usize >= elements.len() {
+            Err(vm.new_index_error("pop index out of range".to_string()))
+        } else {
+            Ok(elements.remove(i as usize))
         }
     }
 
@@ -305,12 +308,7 @@ fn list_new(
         vec![]
     };
 
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyList::from(elements)),
-        },
-        cls.into_object(),
-    ))
+    Ok(PyObject::new(PyList::from(elements), cls.into_object()))
 }
 
 fn quicksort(

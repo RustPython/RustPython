@@ -171,7 +171,7 @@ fn math_lgamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "math", {
         // Number theory functions:
         "fabs" => ctx.new_rustfunc(math_fabs),

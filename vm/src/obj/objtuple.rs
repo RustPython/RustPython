@@ -1,10 +1,9 @@
 use std::cell::{Cell, RefCell};
 use std::hash::{Hash, Hasher};
 
-use crate::function::PyRef;
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyIteratorValue, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult,
+    IdProtocol, OptionalArg, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -31,7 +30,7 @@ impl From<Vec<PyObjectRef>> for PyTuple {
     }
 }
 
-impl PyObjectPayload2 for PyTuple {
+impl PyValue for PyTuple {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.tuple_type()
     }
@@ -127,11 +126,9 @@ impl PyTupleRef {
 
     fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
         PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyIteratorValue {
-                    position: Cell::new(0),
-                    iterated_obj: self.into_object(),
-                }),
+            PyIteratorValue {
+                position: Cell::new(0),
+                iterated_obj: self.into_object(),
             },
             vm.ctx.iter_type(),
         )
@@ -216,12 +213,7 @@ fn tuple_new(
         vec![]
     };
 
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyTuple::from(elements)),
-        },
-        cls.into_object(),
-    ))
+    Ok(PyObject::new(PyTuple::from(elements), cls.into_object()))
 }
 
 #[rustfmt::skip] // to avoid line splitting

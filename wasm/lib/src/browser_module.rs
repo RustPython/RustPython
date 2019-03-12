@@ -4,7 +4,7 @@ use js_sys::Promise;
 use num_traits::cast::ToPrimitive;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use rustpython_vm::{import::import, VirtualMachine};
 use std::path::PathBuf;
@@ -151,26 +151,27 @@ fn browser_cancel_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> 
     Ok(vm.get_none())
 }
 
+#[derive(Debug)]
 pub struct PyPromise {
     value: Promise,
 }
 
+impl PyValue for PyPromise {
+    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+        // TODO
+        unimplemented!()
+    }
+}
+
 impl PyPromise {
     pub fn new_obj(promise_type: PyObjectRef, value: Promise) -> PyObjectRef {
-        PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyPromise { value }),
-            },
-            promise_type,
-        )
+        PyObject::new(PyPromise { value }, promise_type)
     }
 }
 
 pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
-    if let PyObjectPayload::AnyRustValue { value } = &obj.payload {
-        if let Some(promise) = value.downcast_ref::<PyPromise>() {
-            return promise.value.clone();
-        }
+    if let Some(promise) = obj.payload.downcast_ref::<PyPromise>() {
+        return promise.value.clone();
     }
     panic!("Inner error getting promise")
 }
@@ -310,7 +311,7 @@ fn browser_prompt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 const BROWSER_NAME: &str = "browser";
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let promise = py_class!(ctx, "Promise", ctx.object(), {
         "then" => ctx.new_rustfunc(promise_then),
         "catch" => ctx.new_rustfunc(promise_catch)
@@ -329,5 +330,5 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
 
 pub fn setup_browser_module(vm: &mut VirtualMachine) {
     vm.stdlib_inits
-        .insert(BROWSER_NAME.to_string(), Box::new(mk_module));
+        .insert(BROWSER_NAME.to_string(), Box::new(make_module));
 }

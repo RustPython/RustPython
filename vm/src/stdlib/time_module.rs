@@ -30,7 +30,7 @@ fn time_time(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(value)
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "time", {
         "sleep" => ctx.new_rustfunc(time_sleep),
         "time" => ctx.new_rustfunc(time_time)

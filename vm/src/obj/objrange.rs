@@ -6,8 +6,7 @@ use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectPayload, PyObjectPayload2,
-    PyObjectRef, PyResult, TypeProtocol,
+    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -24,7 +23,7 @@ pub struct PyRange {
     pub step: BigInt,
 }
 
-impl PyObjectPayload2 for PyRange {
+impl PyValue for PyRange {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.range_type()
     }
@@ -228,12 +227,7 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if step.is_zero() {
         Err(vm.new_value_error("range with 0 step size".to_string()))
     } else {
-        Ok(PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyRange { start, end, step }),
-            },
-            cls.clone(),
-        ))
+        Ok(PyObject::new(PyRange { start, end, step }, cls.clone()))
     }
 }
 
@@ -241,11 +235,9 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(range, Some(vm.ctx.range_type()))]);
 
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: range.clone(),
-            }),
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: range.clone(),
         },
         vm.ctx.iter_type(),
     ))
@@ -257,16 +249,9 @@ fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let range = get_value(zelf).reversed();
 
     Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: PyObject::new(
-                    PyObjectPayload::AnyRustValue {
-                        value: Box::new(range),
-                    },
-                    vm.ctx.range_type(),
-                ),
-            }),
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: PyObject::new(range, vm.ctx.range_type()),
         },
         vm.ctx.iter_type(),
     ))
@@ -330,12 +315,10 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         };
 
         Ok(PyObject::new(
-            PyObjectPayload::AnyRustValue {
-                value: Box::new(PyRange {
-                    start: new_start,
-                    end: new_end,
-                    step: new_step,
-                }),
+            PyRange {
+                start: new_start,
+                end: new_end,
+                step: new_step,
             },
             vm.ctx.range_type(),
         ))

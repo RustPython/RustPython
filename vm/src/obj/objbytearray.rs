@@ -5,8 +5,7 @@ use std::fmt::Write;
 use std::ops::{Deref, DerefMut};
 
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectPayload2, PyObjectRef, PyResult,
-    TypeProtocol,
+    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 
 use super::objint;
@@ -29,7 +28,7 @@ impl PyByteArray {
     }
 }
 
-impl PyObjectPayload2 for PyByteArray {
+impl PyValue for PyByteArray {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.bytearray_type()
     }
@@ -173,12 +172,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         vec![]
     };
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyByteArray::new(value)),
-        },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(PyByteArray::new(value), cls.clone()))
 }
 
 fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

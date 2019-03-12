@@ -5,10 +5,9 @@ use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
-use crate::function::PyRef;
 use crate::pyobject::{
-    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectPayload,
-    PyObjectPayload2, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    FromPyObjectRef, IntoPyObject, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -32,7 +31,7 @@ impl PyInt {
     }
 }
 
-impl PyObjectPayload2 for PyInt {
+impl PyValue for PyInt {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.int_type()
     }
@@ -106,12 +105,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(val) => to_int(vm, val, base)?,
         None => Zero::zero(),
     };
-    Ok(PyObject::new(
-        PyObjectPayload::AnyRustValue {
-            value: Box::new(PyInt::new(val)),
-        },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(PyInt::new(val), cls.clone()))
 }
 
 // Casting function:

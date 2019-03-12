@@ -621,7 +621,7 @@ fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(ast_node)
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "ast", {
         "parse" => ctx.new_rustfunc(ast_parse),
         "Module" => py_class!(ctx, "_ast.Module", ctx.object(), {}),
