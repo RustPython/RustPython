@@ -15,7 +15,7 @@ use super::objtuple::PyTuple;
 #[derive(Clone, Debug)]
 pub struct PyClass {
     pub name: String,
-    pub mro: Vec<PyObjectRef>,
+    pub mro: Vec<PyClassRef>,
 }
 
 pub type PyClassRef = PyRef<PyClass>;
@@ -48,13 +48,13 @@ struct IterMro<'a> {
 }
 
 impl<'a> Iterator for IterMro<'a> {
-    type Item = &'a PyObjectRef;
+    type Item = &'a PyClassRef;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.offset {
             None => {
                 self.offset = Some(0);
-                Some(&self.cls.as_object())
+                Some(&self.cls)
             }
             Some(offset) => {
                 if offset < self.cls.mro.len() {
@@ -77,7 +77,9 @@ impl PyClassRef {
     }
 
     fn mro(self, _vm: &mut VirtualMachine) -> PyTuple {
-        PyTuple::from(_mro(&self))
+        let elements: Vec<PyObjectRef> =
+            _mro(&self).iter().map(|x| x.as_object().clone()).collect();
+        PyTuple::from(elements)
     }
 
     fn dir(self, vm: &mut VirtualMachine) -> PyList {
@@ -111,6 +113,7 @@ impl PyClassRef {
  */
 
 pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, _dict_type: PyObjectRef) {
+    let object_type = FromPyObjectRef::from_pyobj(&object_type);
     // this is not ideal
     let ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
     unsafe {
@@ -142,7 +145,7 @@ pub fn init(ctx: &PyContext) {
     });
 }
 
-fn _mro(cls: &PyClassRef) -> Vec<PyObjectRef> {
+fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
     cls.iter_mro().cloned().collect()
 }
 
@@ -157,7 +160,7 @@ pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
 /// method.
 pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
     let ref mro = subclass.payload::<PyClass>().unwrap().mro;
-    subclass.is(&cls) || mro.iter().any(|c| c.is(&cls))
+    subclass.is(&cls) || mro.iter().any(|c| c.as_object().is(&cls))
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
@@ -188,18 +191,32 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
                 (dict, Some(vm.ctx.dict_type()))
             ]
         );
-        let mut bases = vm.extract_elements(bases)?;
-        bases.push(vm.context().object());
-        let name = objstr::get_value(name);
-        new(
-            typ.clone(),
-            &name,
-            bases,
-            objdict::py_dict_to_attributes(dict),
-        )
+        type_new_class(vm, typ, name, bases, dict)
     } else {
         Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }
+}
+
+pub fn type_new_class(
+    vm: &mut VirtualMachine,
+    typ: &PyObjectRef,
+    name: &PyObjectRef,
+    bases: &PyObjectRef,
+    dict: &PyObjectRef,
+) -> PyResult {
+    let mut bases: Vec<PyClassRef> = vm
+        .extract_elements(bases)?
+        .iter()
+        .map(|x| FromPyObjectRef::from_pyobj(x))
+        .collect();
+    bases.push(FromPyObjectRef::from_pyobj(&vm.ctx.object()));
+    let name = objstr::get_value(name);
+    new(
+        typ.clone(),
+        &name,
+        bases,
+        objdict::py_dict_to_attributes(dict),
+    )
 }
 
 pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
@@ -263,11 +280,11 @@ pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
     // Gather all members here:
     let mut attributes = PyAttributes::new();
 
-    let mut base_classes: Vec<&PyObjectRef> = cls.iter_mro().collect();
+    let mut base_classes: Vec<&PyClassRef> = cls.iter_mro().collect();
     base_classes.reverse();
 
     for bc in base_classes {
-        if let Some(ref dict) = &bc.dict {
+        if let Some(ref dict) = &bc.as_object().dict {
             for (name, value) in dict.borrow().iter() {
                 attributes.insert(name.to_string(), value.clone());
             }
@@ -277,9 +294,7 @@ pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
     attributes
 }
 
-fn take_next_base(
-    mut bases: Vec<Vec<PyObjectRef>>,
-) -> Option<(PyObjectRef, Vec<Vec<PyObjectRef>>)> {
+fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Vec<PyClassRef>>)> {
     let mut next = None;
 
     bases = bases.into_iter().filter(|x| !x.is_empty()).collect();
@@ -306,7 +321,7 @@ fn take_next_base(
     None
 }
 
-fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
+fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
     debug!("Linearising MRO: {:?}", bases);
     let mut result = vec![];
     loop {
@@ -327,13 +342,10 @@ fn linearise_mro(mut bases: Vec<Vec<PyObjectRef>>) -> Option<Vec<PyObjectRef>> {
 pub fn new(
     typ: PyObjectRef,
     name: &str,
-    bases: Vec<PyObjectRef>,
+    bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
 ) -> PyResult {
-    let mros = bases
-        .into_iter()
-        .map(|x| _mro(&FromPyObjectRef::from_pyobj(&x)))
-        .collect();
+    let mros = bases.into_iter().map(|x| _mro(&x)).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject {
         payload: Box::new(PyClass {
@@ -348,10 +360,11 @@ pub fn new(
 
 #[cfg(test)]
 mod tests {
+    use super::FromPyObjectRef;
     use super::{linearise_mro, new};
-    use super::{HashMap, IdProtocol, PyContext, PyObjectRef};
+    use super::{HashMap, IdProtocol, PyClassRef, PyContext};
 
-    fn map_ids(obj: Option<Vec<PyObjectRef>>) -> Option<Vec<usize>> {
+    fn map_ids(obj: Option<Vec<PyClassRef>>) -> Option<Vec<usize>> {
         match obj {
             Some(vec) => Some(vec.into_iter().map(|x| x.get_id()).collect()),
             None => None,
@@ -361,11 +374,14 @@ mod tests {
     #[test]
     fn test_linearise() {
         let context = PyContext::new();
-        let object = context.object;
-        let type_type = context.type_type;
+        let object: PyClassRef = FromPyObjectRef::from_pyobj(&context.object);
+        let type_type = &context.type_type;
 
         let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
         let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
+
+        let a: PyClassRef = FromPyObjectRef::from_pyobj(&a);
+        let b: PyClassRef = FromPyObjectRef::from_pyobj(&b);
 
         assert_eq!(
             map_ids(linearise_mro(vec![

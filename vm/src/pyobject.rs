@@ -160,7 +160,13 @@ pub fn create_type(
     _dict_type: &PyObjectRef,
 ) -> PyObjectRef {
     let dict = PyAttributes::new();
-    objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
+    objtype::new(
+        type_type.clone(),
+        name,
+        vec![FromPyObjectRef::from_pyobj(base)],
+        dict,
+    )
+    .unwrap()
 }
 
 #[derive(Debug)]
@@ -188,8 +194,9 @@ impl PyContext {
         let object_type = _nothing();
         let dict_type = _nothing();
 
-        objtype::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
+        // Must create object first, as type creation will fail if the base type is not a type.
         objobject::create_object(type_type.clone(), object_type.clone(), dict_type.clone());
+        objtype::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
         objdict::create_type(type_type.clone(), object_type.clone(), dict_type.clone());
 
         let module_type = create_type("module", &type_type, &object_type, &dict_type);
@@ -536,7 +543,13 @@ impl PyContext {
     }
 
     pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
-        objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
+        objtype::new(
+            self.type_type(),
+            name,
+            vec![FromPyObjectRef::from_pyobj(&base)],
+            PyAttributes::new(),
+        )
+        .unwrap()
     }
 
     pub fn new_scope(&self) -> Scope {
@@ -691,7 +704,7 @@ impl Default for PyObject {
 /// A `PyRef<T>` can be directly returned from a built-in function to handle
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PyRef<T> {
     // invariant: this obj must always have payload of type T
     obj: PyObjectRef,
@@ -844,7 +857,7 @@ impl AttributeProtocol for PyObjectRef {
                 return Some(item);
             }
             for class in mro {
-                if let Some(item) = class_get_item(class, attr_name) {
+                if let Some(item) = class_get_item(class.as_object(), attr_name) {
                     return Some(item);
                 }
             }
@@ -865,7 +878,7 @@ impl AttributeProtocol for PyObjectRef {
     fn has_attr(&self, attr_name: &str) -> bool {
         if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
             return class_has_item(self, attr_name)
-                || mro.iter().any(|d| class_has_item(d, attr_name));
+                || mro.iter().any(|d| class_has_item(d.as_object(), attr_name));
         }
 
         if let Some(PyModule { ref dict, .. }) = self.payload::<PyModule>() {
@@ -1563,7 +1576,7 @@ impl FromPyObjectRef for PyRef<PyClass> {
                 _payload: PhantomData,
             }
         } else {
-            panic!("Error getting inner type.")
+            panic!("Error getting inner type: {:?}", obj.typ)
         }
     }
 }

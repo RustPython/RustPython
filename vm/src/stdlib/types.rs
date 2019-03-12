@@ -2,8 +2,8 @@
  * Dynamic type creation and names for built in types.
  */
 
-use crate::obj::{objsequence, objstr, objtype};
-use crate::pyobject::{PyAttributes, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::obj::objtype;
+use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 
 fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -14,20 +14,13 @@ fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(bases, None), (_kwds, None), (_exec_body, None)]
     );
 
-    let name = objstr::get_value(name);
-
-    let bases = match bases {
-        Some(b) => {
-            if objtype::isinstance(b, &vm.ctx.tuple_type()) {
-                objsequence::get_elements(b).to_vec()
-            } else {
-                return Err(vm.new_type_error("Bases must be a tuple".to_string()));
-            }
-        }
-        None => vec![vm.ctx.object()],
+    let ref type_type = vm.ctx.type_type();
+    let bases: PyObjectRef = match bases {
+        Some(bases) => bases.clone(),
+        None => vm.ctx.new_tuple(vec![]),
     };
-
-    objtype::new(vm.ctx.type_type(), &name, bases, PyAttributes::new())
+    let dict = vm.ctx.new_dict();
+    objtype::type_new_class(vm, &type_type, name, &bases, &dict)
 }
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
