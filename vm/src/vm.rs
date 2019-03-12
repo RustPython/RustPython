@@ -238,7 +238,10 @@ impl VirtualMachine {
         let builtins_import = self.builtins.get_item("__import__");
         match builtins_import {
             Some(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
-            None => panic!("No __import__ in builtins"),
+            None => Err(self.new_exception(
+                self.ctx.exceptions.import_error.clone(),
+                "__import__ not found".to_string(),
+            )),
         }
     }
 
