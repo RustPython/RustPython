@@ -128,13 +128,10 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         }
         arr.into()
     } else {
-        let dumps = rustpython_vm::import::import(
-            vm,
-            std::path::PathBuf::default(),
-            "json",
-            &Some("dumps".into()),
-        )
-        .expect("Couldn't get json.dumps function");
+        let dumps = rustpython_vm::import::import_module(vm, std::path::PathBuf::default(), "json")
+            .expect("Couldn't get json module")
+            .get_attr("dumps".into())
+            .expect("Couldn't get json dumps");
         match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
             Ok(value) => {
                 let json = vm.to_pystr(&value).unwrap();
@@ -231,13 +228,10 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
         // Because `JSON.stringify(undefined)` returns undefined
         vm.get_none()
     } else {
-        let loads = rustpython_vm::import::import(
-            vm,
-            std::path::PathBuf::default(),
-            "json",
-            &Some("loads".into()),
-        )
-        .expect("json.loads function to be available");
+        let loads = rustpython_vm::import::import_module(vm, std::path::PathBuf::default(), "json")
+            .expect("Couldn't get json module")
+            .get_attr("loads".into())
+            .expect("Couldn't get json dumps");
 
         let json = match js_sys::JSON::stringify(&js_val) {
             Ok(json) => String::from(json),

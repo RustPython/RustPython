@@ -22,6 +22,28 @@ try:
 except ImportError:
     pass
 
+
+test = __import__("import_target")
+assert test.X == import_target.X
+
+import builtins
+class OverrideImportContext():
+
+	def __enter__(self):
+		self.original_import = builtins.__import__
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		builtins.__import__ = self.original_import
+
+with OverrideImportContext():
+	def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+		return len(name)
+
+	builtins.__import__ = fake_import
+	import test
+	assert test == 4
+
+
 # TODO: Once we can determine current directory, use that to construct this
 # path:
 #import sys

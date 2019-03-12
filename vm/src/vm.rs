@@ -13,8 +13,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
-use crate::frame::ExecutionResult;
-use crate::frame::Scope;
+use crate::frame::{ExecutionResult, Frame, Scope};
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
@@ -94,9 +93,13 @@ impl VirtualMachine {
         result
     }
 
-    pub fn current_scope(&self) -> &Scope {
+    pub fn current_frame(&self) -> &Frame {
         let current_frame = &self.frames[self.frames.len() - 1];
-        let frame = objframe::get_value(current_frame);
+        objframe::get_value(current_frame)
+    }
+
+    pub fn current_scope(&self) -> &Scope {
+        let frame = self.current_frame();
         &frame.scope
     }
 
@@ -229,6 +232,17 @@ impl VirtualMachine {
 
     pub fn to_repr(&mut self, obj: &PyObjectRef) -> PyResult {
         self.call_method(obj, "__repr__", vec![])
+    }
+
+    pub fn import(&mut self, module: &str) -> PyResult {
+        let builtins_import = self.builtins.get_item("__import__");
+        match builtins_import {
+            Some(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
+            None => Err(self.new_exception(
+                self.ctx.exceptions.import_error.clone(),
+                "__import__ not found".to_string(),
+            )),
+        }
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
