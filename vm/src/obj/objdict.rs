@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
 use crate::pyobject::{
-    FromPyObjectRef, PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -359,20 +359,6 @@ fn dict_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(value.clone())
     } else {
         Ok(vm.get_none())
-    }
-}
-
-pub fn create_type(type_type: PyObjectRef, object_type: PyObjectRef, dict_type: PyObjectRef) {
-    let object_type = FromPyObjectRef::from_pyobj(&object_type);
-    // this is not ideal
-    let ptr = PyObjectRef::into_raw(dict_type.clone()) as *mut PyObject;
-    unsafe {
-        (*ptr).payload = Box::new(objtype::PyClass {
-            name: String::from("dict"),
-            mro: vec![object_type],
-        });
-        (*ptr).dict = Some(RefCell::new(HashMap::new()));
-        (*ptr).typ = Some(type_type.clone());
     }
 }
 

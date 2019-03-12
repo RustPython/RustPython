@@ -234,7 +234,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "JSONDecodeError",
         &ctx.type_type,
         &ctx.exceptions.exception_type,
-        &ctx.dict_type,
     );
 
     py_module!(ctx, "json", {
