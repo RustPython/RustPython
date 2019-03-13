@@ -12,8 +12,8 @@ use crate::vm::VirtualMachine;
 pub struct PyInstance;
 
 impl PyValue for PyInstance {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
-        panic!("no specific type for PyInstance, don't type check me")
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.object()
     }
 }
 

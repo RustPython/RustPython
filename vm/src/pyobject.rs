@@ -1567,21 +1567,9 @@ pub trait PyValue: fmt::Debug + 'static {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
 }
 
-pub trait PyObjectPayload: Any + fmt::Debug + 'static {
-    fn required_type(&self, ctx: &PyContext) -> PyObjectRef;
-}
+pub trait PyObjectPayload: Any + fmt::Debug + 'static {}
 
-impl<T: PyValue + 'static> PyObjectPayload for T {
-    fn required_type(&self, ctx: &PyContext) -> PyObjectRef {
-        T::required_type(ctx)
-    }
-}
-
-impl PyObjectPayload for () {
-    fn required_type(&self, _ctx: &PyContext) -> PyObjectRef {
-        panic!("No specific python type for rust unit, don't type check")
-    }
-}
+impl<T: PyValue + 'static> PyObjectPayload for T {}
 
 impl FromPyObjectRef for PyRef<PyClass> {
     fn from_pyobj(obj: &PyObjectRef) -> Self {
