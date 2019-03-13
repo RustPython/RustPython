@@ -29,6 +29,12 @@ impl PyInt {
     }
 }
 
+impl IntoPyObject for BigInt {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        Ok(ctx.new_int(self))
+    }
+}
+
 impl PyValue for PyInt {
     fn required_type(ctx: &PyContext) -> PyObjectRef {
         ctx.int_type()
@@ -312,8 +318,8 @@ impl PyIntRef {
         }
     }
 
-    fn neg(self, vm: &mut VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(-(&self.value))
+    fn neg(self, _vm: &mut VirtualMachine) -> BigInt {
+        -(&self.value)
     }
 
     fn hash(self, _vm: &mut VirtualMachine) -> u64 {
@@ -322,8 +328,8 @@ impl PyIntRef {
         hasher.finish()
     }
 
-    fn abs(self, vm: &mut VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self.value.abs())
+    fn abs(self, _vm: &mut VirtualMachine) -> BigInt {
+        self.value.abs()
     }
 
     fn round(self, _precision: OptionalArg<PyObjectRef>, _vm: &mut VirtualMachine) -> Self {
@@ -334,8 +340,8 @@ impl PyIntRef {
         self.value.to_f64().unwrap()
     }
 
-    fn invert(self, vm: &mut VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(!(&self.value))
+    fn invert(self, _vm: &mut VirtualMachine) -> BigInt {
+        !(&self.value)
     }
 
     fn repr(self, _vm: &mut VirtualMachine) -> String {
