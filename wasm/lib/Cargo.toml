@@ -26,7 +26,6 @@ features = [
     "console",
     "Document",
     "Element",
-    "HtmlTextAreaElement",
     "Window",
     "Headers",
     "Request",
