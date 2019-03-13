@@ -323,7 +323,7 @@ impl VirtualMachine {
         }
 
         // TODO: is it safe to just invoke __call__ otherwise?
-        trace!("invoke __call__ for: {:?}", func_ref.payload);
+        //trace!("invoke __call__ for: {:?}", func_ref.payload);
         self.call_method(&func_ref, "__call__", args)
     }
 
@@ -547,7 +547,7 @@ impl VirtualMachine {
         let cls = obj.typ();
         match cls.get_attr(method_name) {
             Some(method) => self.call_get_descriptor(method, obj.clone()),
-            None => Err(self.new_type_error(format!("{} has no method {:?}", obj, method_name))),
+            None => Err(self.new_type_error(format!("{} has no method {:?}", &obj, method_name))),
         }
     }
 

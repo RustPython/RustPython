@@ -72,7 +72,7 @@ Basically reference counting, but then done by rust.
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = Rc<PyObject>;
+pub type PyObjectRef = Rc<PyObject<dyn Any>>;
 
 /// Use this type for function which return a python object or and exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -83,7 +83,7 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, o
 /// faster, unordered, and only supports strings as keys.
 pub type PyAttributes = HashMap<String, PyObjectRef>;
 
-impl fmt::Display for PyObject {
+impl fmt::Display for PyObject<dyn Any> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
@@ -188,25 +188,25 @@ fn init_type_hierarchy() -> (PyObjectRef, PyObjectRef) {
         let object_type = PyObject {
             typ: mem::uninitialized(), // !
             dict: Some(RefCell::new(PyAttributes::new())),
-            payload: Box::new(PyClass {
+            payload: PyClass {
                 name: String::from("object"),
                 mro: vec![],
-            }),
+            },
         }
         .into_ref();
 
         let type_type = PyObject {
             typ: mem::uninitialized(), // !
             dict: Some(RefCell::new(PyAttributes::new())),
-            payload: Box::new(PyClass {
+            payload: PyClass {
                 name: String::from("type"),
                 mro: vec![FromPyObjectRef::from_pyobj(&object_type)],
-            }),
+            },
         }
         .into_ref();
 
-        let object_type_ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject;
-        let type_type_ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
+        let object_type_ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject<PyClass>;
+        let type_type_ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject<PyClass>;
         ptr::write(&mut (*object_type_ptr).typ, type_type.clone());
         ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
 
@@ -632,7 +632,7 @@ impl PyContext {
         PyObject {
             typ: class,
             dict: Some(RefCell::new(dict)),
-            payload: Box::new(objobject::PyInstance),
+            payload: objobject::PyInstance,
         }
         .into_ref()
     }
@@ -695,10 +695,10 @@ impl Default for PyContext {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
-pub struct PyObject {
+pub struct PyObject<T: ?Sized> {
     pub typ: PyObjectRef,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
-    pub payload: Box<dyn Any>,
+    pub payload: T,
 }
 
 /// A reference to a Python object.
@@ -711,7 +711,7 @@ pub struct PyObject {
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
 #[derive(Clone, Debug)]
-pub struct PyRef<T> {
+pub struct PyRef<T: ?Sized> {
     // invariant: this obj must always have payload of type T
     obj: PyObjectRef,
     _payload: PhantomData<T>,
@@ -747,10 +747,7 @@ impl<T: PyValue> PyRef<T> {
     }
 }
 
-impl<T> Deref for PyRef<T>
-where
-    T: PyValue,
-{
+impl<T: PyValue> Deref for PyRef<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -758,10 +755,7 @@ where
     }
 }
 
-impl<T> TryFromObject for PyRef<T>
-where
-    T: PyValue,
-{
+impl<T: PyValue> TryFromObject for PyRef<T> {
     fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if objtype::isinstance(&obj, &T::required_type(&vm.ctx)) {
             Ok(PyRef {
@@ -785,9 +779,9 @@ impl<T> IntoPyObject for PyRef<T> {
     }
 }
 
-impl<T> fmt::Display for PyRef<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.obj.fmt(f)
+impl<T: ?Sized> fmt::Display for PyRef<T> {
+    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
+        Ok(()) // TODO
     }
 }
 
@@ -803,7 +797,10 @@ pub trait IdProtocol {
 
 impl IdProtocol for PyObjectRef {
     fn get_id(&self) -> usize {
-        &*self as &PyObject as *const PyObject as usize
+        // This is kinda ridiculous...
+        //
+        // Rc -> (fat) shared ref -> (fat) pointer -> (thin) pointer -> usize
+        &*self as &PyObject<dyn Any> as *const PyObject<dyn Any> as *const PyObject<()> as usize
     }
 }
 
@@ -827,7 +824,7 @@ impl TypeProtocol for PyObjectRef {
     }
 }
 
-impl TypeProtocol for PyObject {
+impl<T: ?Sized> TypeProtocol for PyObject<T> {
     fn type_ref(&self) -> &PyObjectRef {
         &self.typ
     }
@@ -966,9 +963,9 @@ impl BufferProtocol for PyObjectRef {
     }
 }
 
-impl fmt::Debug for PyObject {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[PyObj {:?}]", self.payload)
+impl<T: ?Sized> fmt::Debug for PyObject<T> {
+    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
+        Ok(()) // TODO
     }
 }
 
@@ -1546,12 +1543,12 @@ impl PyValue for PyIteratorValue {
     }
 }
 
-impl PyObject {
-    pub fn new<T: PyValue>(payload: T, typ: PyObjectRef) -> PyObjectRef {
+impl<T: Any> PyObject<T> {
+    pub fn new(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             typ,
             dict: Some(RefCell::new(PyAttributes::new())),
-            payload: Box::new(payload),
+            payload,
         }
         .into_ref()
     }
@@ -1560,7 +1557,9 @@ impl PyObject {
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(self)
     }
+}
 
+impl PyObject<dyn Any> {
     pub fn payload<T: PyValue>(&self) -> Option<&T> {
         self.payload.downcast_ref()
     }

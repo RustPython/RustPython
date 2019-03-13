@@ -7,7 +7,7 @@ use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
 pub struct PyWeak {
-    referent: Weak<PyObject>,
+    referent: Weak<PyObject<dyn std::any::Any>>,
 }
 
 impl PyWeak {

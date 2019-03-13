@@ -330,10 +330,10 @@ pub fn new(
     let mros = bases.into_iter().map(|x| _mro(&x)).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject {
-        payload: Box::new(PyClass {
+        payload: PyClass {
             name: String::from(name),
             mro,
-        }),
+        },
         dict: Some(RefCell::new(dict)),
         typ,
     }
