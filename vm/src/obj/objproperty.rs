@@ -2,8 +2,6 @@
 
 */
 
-use std::marker::PhantomData;
-
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -92,30 +90,27 @@ impl PyPropertyRef {
     }
 }
 
-pub struct PropertyBuilder<'a, T> {
+pub struct PropertyBuilder<'a> {
     ctx: &'a PyContext,
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
-    _return: PhantomData<T>,
 }
 
-impl<'a, T> PropertyBuilder<'a, T> {
+impl<'a> PropertyBuilder<'a> {
     pub fn new(ctx: &'a PyContext) -> Self {
         Self {
             ctx,
             getter: None,
             setter: None,
-            _return: PhantomData,
         }
     }
 
-    pub fn add_getter<I, F: IntoPyNativeFunc<I, T>>(self, func: F) -> Self {
+    pub fn add_getter<I, V, F: IntoPyNativeFunc<I, V>>(self, func: F) -> Self {
         let func = self.ctx.new_rustfunc(func);
         Self {
             ctx: self.ctx,
             getter: Some(func),
             setter: self.setter,
-            _return: PhantomData,
         }
     }
 
@@ -125,7 +120,6 @@ impl<'a, T> PropertyBuilder<'a, T> {
             ctx: self.ctx,
             getter: self.getter,
             setter: Some(func),
-            _return: PhantomData,
         }
     }
 

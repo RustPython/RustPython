@@ -596,9 +596,9 @@ impl PyContext {
         PyObject::new(Frame::new(code, scope), self.frame_type())
     }
 
-    pub fn new_property<F, T, R>(&self, f: F) -> PyObjectRef
+    pub fn new_property<F, I, V>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R>,
+        F: IntoPyNativeFunc<I, V>,
     {
         PropertyBuilder::new(self).add_getter(f).create()
     }
