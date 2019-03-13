@@ -265,43 +265,38 @@ impl WASMVirtualMachine {
 
     #[wasm_bindgen(js_name = setStdout)]
     pub fn set_stdout(&self, stdout: JsValue) -> Result<(), JsValue> {
-        self.with(
-            move |StoredVirtualMachine {
-                      ref mut vm,
-                      ref mut scope,
-                      ..
-                  }| {
-                let print_fn: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> =
-                    if let Some(selector) = stdout.as_string() {
-                        Box::new(
-                            move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
-                                wasm_builtins::builtin_print_html(vm, args, &selector)
-                            },
-                        )
-                    } else if stdout.is_function() {
-                        let func = js_sys::Function::from(stdout);
-                        Box::new(
-                            move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
-                                func.call1(
-                                    &JsValue::UNDEFINED,
-                                    &wasm_builtins::format_print_args(vm, args)?.into(),
-                                )
-                                .map_err(|err| convert::js_to_py(vm, err))?;
-                                Ok(vm.get_none())
-                            },
-                        )
-                    } else if stdout.is_undefined() || stdout.is_null() {
-                        Box::new(wasm_builtins::builtin_print_console)
-                    } else {
-                        return Err(TypeError::new(
-                            "stdout must be null, a function or a css selector",
-                        )
-                        .into());
-                    };
-                scope.store_name(&vm, "print", vm.ctx.new_rustfunc(print_fn));
-                Ok(())
-            },
-        )?
+        self.with(move |StoredVirtualMachine { ref mut vm, .. }| {
+            let print_fn: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> =
+                if let Some(selector) = stdout.as_string() {
+                    Box::new(
+                        move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
+                            wasm_builtins::builtin_print_html(vm, args, &selector)
+                        },
+                    )
+                } else if stdout.is_function() {
+                    let func = js_sys::Function::from(stdout);
+                    Box::new(
+                        move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
+                            func.call1(
+                                &JsValue::UNDEFINED,
+                                &wasm_builtins::format_print_args(vm, args)?.into(),
+                            )
+                            .map_err(|err| convert::js_to_py(vm, err))?;
+                            Ok(vm.get_none())
+                        },
+                    )
+                } else if stdout.is_undefined() || stdout.is_null() {
+                    Box::new(wasm_builtins::builtin_print_console)
+                } else {
+                    return Err(TypeError::new(
+                        "stdout must be null, a function or a css selector",
+                    )
+                    .into());
+                };
+            let rustfunc = vm.ctx.new_rustfunc(print_fn);
+            vm.ctx.set_attr(&vm.builtins, "print", rustfunc);
+            Ok(())
+        })?
     }
 
     #[wasm_bindgen(js_name = injectModule)]
@@ -390,5 +385,10 @@ impl WASMVirtualMachine {
 
     pub fn eval(&self, source: String) -> Result<JsValue, JsValue> {
         self.run(source, compile::Mode::Eval)
+    }
+
+    #[wasm_bindgen(js_name = execSingle)]
+    pub fn exec_single(&self, source: String) -> Result<JsValue, JsValue> {
+        self.run(source, compile::Mode::Single)
     }
 }
