@@ -1558,8 +1558,7 @@ impl PyObject {
     }
 
     pub fn payload<T: PyValue>(&self) -> Option<&T> {
-        let payload: &dyn Any = &self.payload;
-        payload.downcast_ref()
+        self.payload.as_any().downcast_ref()
     }
 }
 
@@ -1567,9 +1566,15 @@ pub trait PyValue: fmt::Debug + 'static {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
 }
 
-pub trait PyObjectPayload: Any + fmt::Debug + 'static {}
+pub trait PyObjectPayload: Any + fmt::Debug + 'static {
+    fn as_any(&self) -> &dyn Any;
+}
 
-impl<T: PyValue + 'static> PyObjectPayload for T {}
+impl<T: PyValue + 'static> PyObjectPayload for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 impl FromPyObjectRef for PyRef<PyClass> {
     fn from_pyobj(obj: &PyObjectRef) -> Self {
