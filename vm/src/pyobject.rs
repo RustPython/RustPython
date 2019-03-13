@@ -1557,6 +1557,7 @@ impl PyObject {
         Rc::new(self)
     }
 
+    #[inline]
     pub fn payload<T: PyValue>(&self) -> Option<&T> {
         self.payload.as_any().downcast_ref()
     }
@@ -1571,6 +1572,7 @@ pub trait PyObjectPayload: Any + fmt::Debug + 'static {
 }
 
 impl<T: PyValue + 'static> PyObjectPayload for T {
+    #[inline]
     fn as_any(&self) -> &dyn Any {
         self
     }
