@@ -119,7 +119,7 @@ impl<'a, T> PropertyBuilder<'a, T> {
         }
     }
 
-    pub fn add_setter<I, F: IntoPyNativeFunc<(I, T), PyResult>>(self, func: F) -> Self {
+    pub fn add_setter<I, V, F: IntoPyNativeFunc<(I, V), PyResult>>(self, func: F) -> Self {
         let func = self.ctx.new_rustfunc(func);
         Self {
             ctx: self.ctx,
