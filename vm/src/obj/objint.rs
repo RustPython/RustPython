@@ -24,11 +24,8 @@ pub struct PyInt {
 pub type PyIntRef = PyRef<PyInt>;
 
 impl PyInt {
-    pub fn new<T: ToBigInt>(i: T) -> Self {
-        PyInt {
-            // TODO: this .clone()s a BigInt, which is not what we want.
-            value: i.to_bigint().unwrap(),
-        }
+    pub fn new<T: Into<BigInt>>(i: T) -> Self {
+        PyInt { value: i.into() }
     }
 }
 
