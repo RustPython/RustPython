@@ -7,15 +7,15 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::pyobject::{
-    IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    IdProtocol, IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySlice;
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Clone, Debug)]
 pub struct PyString {
@@ -788,16 +788,21 @@ fn perform_format(
 // TODO: should with following format
 // class str(object='')
 // class str(object=b'', encoding='utf-8', errors='strict')
-fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() == 1 {
-        return Ok(vm.new_str("".to_string()));
-    }
-
-    if args.args.len() > 2 {
-        panic!("str expects exactly one parameter");
+fn str_new(
+    cls: PyClassRef,
+    object: OptionalArg<PyObjectRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult<PyStringRef> {
+    let string = match object {
+        OptionalArg::Present(ref input) => vm.to_str(input)?,
+        OptionalArg::Missing => vm.new_str("".to_string()),
     };
-
-    vm.to_str(&args.args[1])
+    if string.typ().is(&cls) {
+        TryFromObject::try_from_object(vm, string)
+    } else {
+        let payload = string.payload::<PyString>().unwrap();
+        PyRef::new_with_type(vm, payload.clone(), cls)
+    }
 }
 
 impl PySliceableSequence for String {
