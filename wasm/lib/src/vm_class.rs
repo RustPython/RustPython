@@ -288,10 +288,9 @@ impl WASMVirtualMachine {
                 } else if stdout.is_undefined() || stdout.is_null() {
                     Box::new(wasm_builtins::builtin_print_console)
                 } else {
-                    return Err(TypeError::new(
-                        "stdout must be null, a function or a css selector",
-                    )
-                    .into());
+                    return Err(
+                        TypeError::new("stdout must be null, a function or a css selector").into()
+                    );
                 };
             let rustfunc = vm.ctx.new_rustfunc(print_fn);
             vm.ctx.set_attr(&vm.builtins, "print", rustfunc);
