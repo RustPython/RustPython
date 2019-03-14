@@ -10,7 +10,6 @@ use std::ptr;
 use std::rc::Rc;
 
 use num_bigint::BigInt;
-use num_bigint::ToBigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
 
@@ -508,7 +507,7 @@ impl PyContext {
         self.new_instance(self.object(), None)
     }
 
-    pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
+    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
         PyObject::new(PyInt::new(i), self.int_type())
     }
 
