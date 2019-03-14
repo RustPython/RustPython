@@ -30,3 +30,18 @@ with assertRaises(AttributeError):
 
 with assertRaises(TypeError):
     property.__new__(object)
+
+
+p1 = property("a", "b", "c")
+
+assert p1.fget == "a"
+assert p1.fset == "b"
+assert p1.fdel == "c"
+
+assert p1.getter(1).fget == 1
+assert p1.setter(2).fset == 2
+assert p1.deleter(3).fdel == 3
+
+assert p1.getter(None).fget == "a"
+assert p1.setter(None).fset == "b"
+assert p1.deleter(None).fdel == "c"

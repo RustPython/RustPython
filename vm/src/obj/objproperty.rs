@@ -65,6 +65,8 @@ impl PyPropertyRef {
         )
     }
 
+    // Descriptor methods
+
     fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
             vm.invoke(getter.clone(), obj)
@@ -87,6 +89,58 @@ impl PyPropertyRef {
         } else {
             Err(vm.new_attribute_error("can't delete attribute".to_string()))
         }
+    }
+
+    // Access functions
+
+    fn fget(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+        self.getter.clone()
+    }
+
+    fn fset(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+        self.setter.clone()
+    }
+
+    fn fdel(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+        self.deleter.clone()
+    }
+
+    // Python builder functions
+
+    fn getter(self, getter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+        Self::new_with_type(
+            vm,
+            PyProperty {
+                getter: getter.or_else(|| self.getter.clone()),
+                setter: self.setter.clone(),
+                deleter: self.deleter.clone(),
+            },
+            self.typ(),
+        )
+    }
+
+    fn setter(self, setter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+        Self::new_with_type(
+            vm,
+            PyProperty {
+                getter: self.getter.clone(),
+                setter: setter.or_else(|| self.setter.clone()),
+                deleter: self.deleter.clone(),
+            },
+            self.typ(),
+        )
+    }
+
+    fn deleter(self, deleter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+        Self::new_with_type(
+            vm,
+            PyProperty {
+                getter: self.getter.clone(),
+                setter: self.setter.clone(),
+                deleter: deleter.or_else(|| self.deleter.clone()),
+            },
+            self.typ(),
+        )
     }
 }
 
@@ -184,5 +238,13 @@ pub fn init(context: &PyContext) {
         "__get__" => context.new_rustfunc(PyPropertyRef::get),
         "__set__" => context.new_rustfunc(PyPropertyRef::set),
         "__delete__" => context.new_rustfunc(PyPropertyRef::delete),
+
+        "fget" => context.new_property(PyPropertyRef::fget),
+        "fset" => context.new_property(PyPropertyRef::fset),
+        "fdel" => context.new_property(PyPropertyRef::fdel),
+
+        "getter" => context.new_rustfunc(PyPropertyRef::getter),
+        "setter" => context.new_rustfunc(PyPropertyRef::setter),
+        "deleter" => context.new_rustfunc(PyPropertyRef::deleter),
     });
 }
