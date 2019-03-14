@@ -1211,11 +1211,18 @@ impl Frame {
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        trace!("formatting stack");
         let stack_str = self
             .stack
             .borrow()
             .iter()
-            .map(|elem| format!("\n  > {:?}", elem))
+            .map(|elem| {
+                if elem.payload.as_any().is::<Frame>() {
+                    "\n  > {frame}".to_string()
+                } else {
+                    format!("\n  > {:?}", elem)
+                }
+            })
             .collect::<String>();
         let block_str = self
             .blocks

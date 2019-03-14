@@ -14,11 +14,19 @@ use crate::pyobject::{
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 use num_traits::ToPrimitive;
+use std::fmt;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct PyList {
     // TODO: shouldn't be public
     pub elements: RefCell<Vec<PyObjectRef>>,
+}
+
+impl fmt::Debug for PyList {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("list")
+    }
 }
 
 impl From<Vec<PyObjectRef>> for PyList {
