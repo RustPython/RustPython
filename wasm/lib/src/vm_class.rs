@@ -41,12 +41,13 @@ impl StoredVirtualMachine {
     }
 }
 
-// It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local! probably
-// gets compiled down to a normal-ish static varible, like Atomic* types:
+// It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local!
+// probably gets compiled down to a normal-ish static varible, like Atomic* types do:
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
-    static STORED_VMS: Rc<RefCell<HashMap<String, Rc<RefCell<StoredVirtualMachine>>>>> = Rc::default();
-    static ACTIVE_VMS: Rc<RefCell<HashMap<String, *mut VirtualMachine>>> = Rc::default();
+    static STORED_VMS: RefCell<HashMap<String, Rc<RefCell<StoredVirtualMachine>>>> =
+        RefCell::default();
+    static ACTIVE_VMS: RefCell<HashMap<String, *mut VirtualMachine>> = RefCell::default();
 }
 
 #[wasm_bindgen(js_name = vmStore)]
