@@ -33,7 +33,7 @@ pub type PyWeakRef = PyRef<PyWeak>;
 impl PyWeakRef {
     // TODO callbacks
     fn create(cls: PyClassRef, referent: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<Self> {
-        Self::new_with_type(vm, PyWeak::downgrade(referent), cls)
+        PyWeak::downgrade(referent).into_ref_with_type(vm, cls)
     }
 
     fn call(self, vm: &mut VirtualMachine) -> PyObjectRef {
