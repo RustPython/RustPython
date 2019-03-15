@@ -10,7 +10,6 @@ use std::ptr;
 use std::rc::Rc;
 
 use num_bigint::BigInt;
-use num_bigint::ToBigInt;
 use num_complex::Complex64;
 use num_traits::{One, Zero};
 
@@ -72,7 +71,7 @@ Basically reference counting, but then done by rust.
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = Rc<PyObject<dyn Any>>;
+pub type PyObjectRef = Rc<PyObject<dyn PyObjectPayload>>;
 
 /// Use this type for function which return a python object or and exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -83,7 +82,7 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, o
 /// faster, unordered, and only supports strings as keys.
 pub type PyAttributes = HashMap<String, PyObjectRef>;
 
-impl fmt::Display for PyObject<dyn Any> {
+impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
@@ -508,7 +507,7 @@ impl PyContext {
         self.new_instance(self.object(), None)
     }
 
-    pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
+    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
         PyObject::new(PyInt::new(i), self.int_type())
     }
 
@@ -596,9 +595,9 @@ impl PyContext {
         PyObject::new(Frame::new(code, scope), self.frame_type())
     }
 
-    pub fn new_property<F, T, R>(&self, f: F) -> PyObjectRef
+    pub fn new_property<F, I, V>(&self, f: F) -> PyObjectRef
     where
-        F: IntoPyNativeFunc<T, R>,
+        F: IntoPyNativeFunc<I, V>,
     {
         PropertyBuilder::new(self).add_getter(f).create()
     }
@@ -624,11 +623,7 @@ impl PyContext {
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
-        let dict = if let Some(dict) = dict {
-            dict
-        } else {
-            PyAttributes::new()
-        };
+        let dict = dict.unwrap_or_default();
         PyObject {
             typ: class,
             dict: Some(RefCell::new(dict)),
@@ -745,6 +740,13 @@ impl<T: PyValue> PyRef<T> {
     pub fn into_object(self) -> PyObjectRef {
         self.obj
     }
+
+    pub fn typ(&self) -> PyClassRef {
+        PyRef {
+            obj: self.obj.typ(),
+            _payload: PhantomData,
+        }
+    }
 }
 
 impl<T: PyValue> Deref for PyRef<T> {
@@ -800,7 +802,7 @@ impl IdProtocol for PyObjectRef {
         // This is kinda ridiculous...
         //
         // Rc -> (fat) shared ref -> (fat) pointer -> (thin) pointer -> usize
-        &*self as &PyObject<dyn Any> as *const PyObject<dyn Any> as *const PyObject<()> as usize
+        &*self as &_ as *const _ as *const PyObject<()> as usize
     }
 }
 
@@ -1208,6 +1210,16 @@ impl TryFromObject for PyObjectRef {
     }
 }
 
+impl<T: TryFromObject> TryFromObject for Option<T> {
+    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if vm.get_none().is(&obj) {
+            Ok(None)
+        } else {
+            T::try_from_object(vm, obj).map(|x| Some(x))
+        }
+    }
+}
+
 /// A map of keyword arguments to their values.
 ///
 /// A built-in function with a `KwArgs` parameter is analagous to a Python
@@ -1386,12 +1398,6 @@ where
     }
 }
 
-// TODO: Allow a built-in function to return an `Option`, i.e.:
-//
-//     impl<T: IntoPyObject> IntoPyObject for Option<T>
-//
-// Option::None should map to a Python `None`.
-
 // Allows a built-in function to return any built-in object payload without
 // explicitly implementing `IntoPyObject`.
 impl<T> IntoPyObject for T
@@ -1543,7 +1549,7 @@ impl PyValue for PyIteratorValue {
     }
 }
 
-impl<T: Any> PyObject<T> {
+impl<T: PyObjectPayload> PyObject<T> {
     pub fn new(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             typ,
@@ -1559,16 +1565,47 @@ impl<T: Any> PyObject<T> {
     }
 }
 
-impl PyObject<dyn Any> {
+impl PyObject<dyn PyObjectPayload> {
+    #[inline]
     pub fn payload<T: PyValue>(&self) -> Option<&T> {
-        self.payload.downcast_ref()
+        self.payload.as_any().downcast_ref()
     }
 }
 
-// The intention is for this to replace `PyObjectPayload` once everything is
-// converted to use `PyObjectPayload::AnyRustvalue`.
-pub trait PyValue: Any + fmt::Debug {
+pub trait PyValue: fmt::Debug + Sized + 'static {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
+
+    fn into_ref(self, ctx: &PyContext) -> PyRef<Self> {
+        PyRef {
+            obj: PyObject::new(self, Self::required_type(ctx)),
+            _payload: PhantomData,
+        }
+    }
+
+    fn into_ref_with_type(self, vm: &mut VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
+        let required_type = Self::required_type(&vm.ctx);
+        if objtype::issubclass(&cls.obj, &required_type) {
+            Ok(PyRef {
+                obj: PyObject::new(self, cls.obj),
+                _payload: PhantomData,
+            })
+        } else {
+            let subtype = vm.to_pystr(&cls.obj)?;
+            let basetype = vm.to_pystr(&required_type)?;
+            Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
+        }
+    }
+}
+
+pub trait PyObjectPayload: Any + fmt::Debug + 'static {
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: PyValue + 'static> PyObjectPayload for T {
+    #[inline]
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl FromPyObjectRef for PyRef<PyClass> {

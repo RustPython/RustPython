@@ -24,11 +24,14 @@ pub struct PyInt {
 pub type PyIntRef = PyRef<PyInt>;
 
 impl PyInt {
-    pub fn new<T: ToBigInt>(i: T) -> Self {
-        PyInt {
-            // TODO: this .clone()s a BigInt, which is not what we want.
-            value: i.to_bigint().unwrap(),
-        }
+    pub fn new<T: Into<BigInt>>(i: T) -> Self {
+        PyInt { value: i.into() }
+    }
+}
+
+impl IntoPyObject for BigInt {
+    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+        Ok(ctx.new_int(self))
     }
 }
 
@@ -315,8 +318,8 @@ impl PyIntRef {
         }
     }
 
-    fn neg(self, vm: &mut VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(-(&self.value))
+    fn neg(self, _vm: &mut VirtualMachine) -> BigInt {
+        -(&self.value)
     }
 
     fn hash(self, _vm: &mut VirtualMachine) -> u64 {
@@ -325,8 +328,8 @@ impl PyIntRef {
         hasher.finish()
     }
 
-    fn abs(self, vm: &mut VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self.value.abs())
+    fn abs(self, _vm: &mut VirtualMachine) -> BigInt {
+        self.value.abs()
     }
 
     fn round(self, _precision: OptionalArg<PyObjectRef>, _vm: &mut VirtualMachine) -> Self {
@@ -337,8 +340,8 @@ impl PyIntRef {
         self.value.to_f64().unwrap()
     }
 
-    fn invert(self, vm: &mut VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(!(&self.value))
+    fn invert(self, _vm: &mut VirtualMachine) -> BigInt {
+        !(&self.value)
     }
 
     fn repr(self, _vm: &mut VirtualMachine) -> String {

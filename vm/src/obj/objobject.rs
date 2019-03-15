@@ -4,12 +4,18 @@ use super::objtype;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObjectRef,
-    PyRef, PyResult, TypeProtocol,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 #[derive(Clone, Debug)]
 pub struct PyInstance;
+
+impl PyValue for PyInstance {
+    fn required_type(ctx: &PyContext) -> PyObjectRef {
+        ctx.object()
+    }
+}
 
 pub type PyInstanceRef = PyRef<PyInstance>;
 

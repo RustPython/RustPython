@@ -11,7 +11,7 @@ use rustpython_vm::{
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{prelude::*, JsCast};
 
 pub trait HeldRcInner {}
 
@@ -271,13 +271,16 @@ impl WASMVirtualMachine {
                       ref mut scope,
                       ..
                   }| {
+                fn error() -> JsValue {
+                    TypeError::new("Unknown stdout option, please pass a function or 'console'")
+                        .into()
+                }
                 let print_fn: Box<Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult> =
-                    if let Some(selector) = stdout.as_string() {
-                        Box::new(
-                            move |vm: &mut VirtualMachine, args: PyFuncArgs| -> PyResult {
-                                wasm_builtins::builtin_print_html(vm, args, &selector)
-                            },
-                        )
+                    if let Some(s) = stdout.as_string() {
+                        match s.as_str() {
+                            "console" => Box::new(wasm_builtins::builtin_print_console),
+                            _ => return Err(error()),
+                        }
                     } else if stdout.is_function() {
                         let func = js_sys::Function::from(stdout);
                         Box::new(
@@ -291,12 +294,12 @@ impl WASMVirtualMachine {
                             },
                         )
                     } else if stdout.is_undefined() || stdout.is_null() {
-                        Box::new(wasm_builtins::builtin_print_console)
+                        fn noop(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+                            Ok(vm.get_none())
+                        }
+                        Box::new(noop)
                     } else {
-                        return Err(TypeError::new(
-                            "stdout must be null, a function or a css selector",
-                        )
-                        .into());
+                        return Err(error());
                     };
                 scope.store_name(&vm, "print", vm.ctx.new_rustfunc(print_fn));
                 Ok(())

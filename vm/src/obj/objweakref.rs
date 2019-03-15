@@ -1,13 +1,13 @@
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::PyValue;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult};
+use crate::pyobject::{PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
 use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
 pub struct PyWeak {
-    referent: Weak<PyObject<dyn std::any::Any>>,
+    referent: Weak<PyObject<dyn PyObjectPayload>>,
 }
 
 impl PyWeak {

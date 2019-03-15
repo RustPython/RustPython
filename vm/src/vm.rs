@@ -32,7 +32,7 @@ use crate::pyobject::{
 };
 use crate::stdlib;
 use crate::sysmodule;
-use num_bigint::ToBigInt;
+use num_bigint::BigInt;
 
 // use objects::objects;
 
@@ -109,7 +109,7 @@ impl VirtualMachine {
     }
 
     /// Create a new python int object.
-    pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
+    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
         self.ctx.new_int(i)
     }
 

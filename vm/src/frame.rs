@@ -76,10 +76,17 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Scope {
     locals: RcList<PyObjectRef>,
     pub globals: PyObjectRef,
+}
+
+impl fmt::Debug for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: have a more informative Debug impl that DOESN'T recurse and cause a stack overflow
+        f.write_str("Scope")
+    }
 }
 
 impl Scope {
@@ -99,10 +106,7 @@ impl Scope {
     }
 
     pub fn get_only_locals(&self) -> Option<PyObjectRef> {
-        match self.locals.iter().next() {
-            Some(dict) => Some(dict.clone()),
-            None => None,
-        }
+        self.locals.iter().next().cloned()
     }
 
     pub fn child_scope_with_locals(&self, locals: PyObjectRef) -> Scope {
@@ -1211,22 +1215,25 @@ impl fmt::Debug for Frame {
             .stack
             .borrow()
             .iter()
-            .map(|elem| format!("\n  > {:?}", elem))
-            .collect::<Vec<_>>()
-            .join("");
+            .map(|elem| {
+                if elem.payload.as_any().is::<Frame>() {
+                    "\n  > {frame}".to_string()
+                } else {
+                    format!("\n  > {:?}", elem)
+                }
+            })
+            .collect::<String>();
         let block_str = self
             .blocks
             .borrow()
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
-            .collect::<Vec<_>>()
-            .join("");
+            .collect::<String>();
         let local_str = match self.scope.get_locals().payload::<PyDict>() {
             Some(dict) => objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
                 .iter()
                 .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-                .collect::<Vec<_>>()
-                .join(""),
+                .collect::<String>(),
             None => panic!("locals unexpectedly not wrapping a dict!",),
         };
         write!(
