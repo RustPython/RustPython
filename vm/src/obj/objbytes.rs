@@ -32,8 +32,8 @@ impl Deref for PyBytes {
 }
 
 impl PyValue for PyBytes {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.bytes_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.bytes_type()
     }
 }
 

@@ -12,8 +12,8 @@ pub struct PyMap {
 }
 
 impl PyValue for PyMap {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.map_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.map_type()
     }
 }
 
