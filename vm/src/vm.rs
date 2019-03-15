@@ -229,7 +229,7 @@ impl VirtualMachine {
 
     // Container of the virtual machine state:
     pub fn to_str(&mut self, obj: &PyObjectRef) -> PyResult {
-        self.call_method(&obj, "__str__", vec![])
+        self.call_method(&obj, crate::VM_STR, vec![])
     }
 
     pub fn to_pystr(&mut self, obj: &PyObjectRef) -> Result<String, PyObjectRef> {

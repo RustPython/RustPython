@@ -56,3 +56,4 @@ pub use self::vm::VirtualMachine;
 
 pub static VM_REPR: &str = "__repr__";
 pub static VM_MODULE: &str = "<module>";
+pub static VM_STR: &str = "__str__";

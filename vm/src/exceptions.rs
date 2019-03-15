@@ -168,7 +168,7 @@ pub fn init(context: &PyContext) {
     let exception_type = &context.exceptions.exception_type;
     context.set_attr(
         &exception_type,
-        "__str__",
+        crate::VM_STR,
         context.new_rustfunc(exception_str),
     );
 }

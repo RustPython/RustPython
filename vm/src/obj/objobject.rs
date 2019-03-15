@@ -174,7 +174,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__dict__", context.new_property(object_dict));
     context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));
     context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
-    context.set_attr(&object, "__str__", context.new_rustfunc(object_str));
+    context.set_attr(&object, crate::VM_STR, context.new_rustfunc(object_str));
     context.set_attr(&object, crate::VM_REPR, context.new_rustfunc(object_repr));
     context.set_attr(&object, "__format__", context.new_rustfunc(object_format));
     context.set_attr(
