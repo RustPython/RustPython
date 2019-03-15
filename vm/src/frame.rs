@@ -1211,7 +1211,6 @@ impl Frame {
 
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        trace!("formatting stack");
         let stack_str = self
             .stack
             .borrow()
