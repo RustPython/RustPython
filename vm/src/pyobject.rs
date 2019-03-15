@@ -782,8 +782,8 @@ impl<T> IntoPyObject for PyRef<T> {
 }
 
 impl<T: ?Sized> fmt::Display for PyRef<T> {
-    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
-        Ok(()) // TODO
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.obj.fmt(f)
     }
 }
 
@@ -965,9 +965,9 @@ impl BufferProtocol for PyObjectRef {
     }
 }
 
-impl<T: ?Sized> fmt::Debug for PyObject<T> {
-    fn fmt(&self, _f: &mut fmt::Formatter) -> fmt::Result {
-        Ok(()) // TODO
+impl<T: ?Sized + fmt::Debug> fmt::Debug for PyObject<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[PyObj {:?}]", &self.payload)
     }
 }
 
