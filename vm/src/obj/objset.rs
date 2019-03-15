@@ -45,7 +45,7 @@ fn perform_action_with_hash(
     item: &PyObjectRef,
     f: &Fn(&mut VirtualMachine, &mut HashMap<u64, PyObjectRef>, u64, &PyObjectRef) -> PyResult,
 ) -> PyResult {
-    let hash: PyObjectRef = vm.call_method(item, "__hash__", vec![])?;
+    let hash: PyObjectRef = vm.call_method(item, crate::VM_HASH, vec![])?;
 
     let hash_value = objint::get_value(&hash);
     let mut hasher = DefaultHasher::new();

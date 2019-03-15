@@ -325,7 +325,7 @@ fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
-    vm.call_method(obj, "__hash__", vec![])
+    vm.call_method(obj, crate::VM_HASH, vec![])
 }
 
 // builtin_help

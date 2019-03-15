@@ -57,7 +57,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(bytes_type, "__le__", context.new_rustfunc(bytes_le));
     context.set_attr(bytes_type, "__gt__", context.new_rustfunc(bytes_gt));
     context.set_attr(bytes_type, "__ge__", context.new_rustfunc(bytes_ge));
-    context.set_attr(bytes_type, "__hash__", context.new_rustfunc(bytes_hash));
+    context.set_attr(bytes_type, crate::VM_HASH, context.new_rustfunc(bytes_hash));
     context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
     context.set_attr(bytes_type, crate::VM_REPR, context.new_rustfunc(bytes_repr));
     context.set_attr(bytes_type, "__len__", context.new_rustfunc(bytes_len));

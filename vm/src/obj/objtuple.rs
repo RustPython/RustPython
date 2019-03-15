@@ -126,7 +126,7 @@ impl PyTupleRef {
     fn hash(self, vm: &mut VirtualMachine) -> PyResult<u64> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         for element in self.elements.borrow().iter() {
-            let hash_result = vm.call_method(element, "__hash__", vec![])?;
+            let hash_result = vm.call_method(element, crate::VM_HASH, vec![])?;
             let element_hash = objint::get_value(&hash_result);
             element_hash.hash(&mut hasher);
         }
@@ -236,7 +236,7 @@ If the argument is a tuple, the return value is the same object.";
     context.set_attr(&tuple_type, "__eq__", context.new_rustfunc(PyTupleRef::eq));
     context.set_attr(&tuple_type,"__contains__",context.new_rustfunc(PyTupleRef::contains));
     context.set_attr(&tuple_type,"__getitem__",context.new_rustfunc(PyTupleRef::getitem));
-    context.set_attr(&tuple_type, "__hash__", context.new_rustfunc(PyTupleRef::hash));
+    context.set_attr(&tuple_type, crate::VM_HASH, context.new_rustfunc(PyTupleRef::hash));
     context.set_attr(&tuple_type, "__iter__", context.new_rustfunc(PyTupleRef::iter));
     context.set_attr(&tuple_type, "__len__", context.new_rustfunc(PyTupleRef::len));
     context.set_attr(&tuple_type, "__new__", context.new_rustfunc(tuple_new));

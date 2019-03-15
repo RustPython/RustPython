@@ -629,7 +629,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "__ge__", context.new_rustfunc(PyStringRef::ge));
     context.set_attr(&str_type, "__lt__", context.new_rustfunc(PyStringRef::lt));
     context.set_attr(&str_type, "__le__", context.new_rustfunc(PyStringRef::le));
-    context.set_attr(&str_type, "__hash__", context.new_rustfunc(PyStringRef::hash));
+    context.set_attr(&str_type, crate::VM_HASH, context.new_rustfunc(PyStringRef::hash));
     context.set_attr(&str_type, "__len__", context.new_rustfunc(PyStringRef::len));
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(PyStringRef::mul));
     context.set_attr(&str_type, "__new__", context.new_rustfunc(str_new));

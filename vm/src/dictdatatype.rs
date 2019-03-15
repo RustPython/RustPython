@@ -170,7 +170,7 @@ enum LookupResult {
 }
 
 fn calc_hash(vm: &mut VirtualMachine, key: &PyObjectRef) -> PyResult<usize> {
-    let hash = vm.call_method(key, "__hash__", vec![])?;
+    let hash = vm.call_method(key, crate::VM_HASH, vec![])?;
     Ok(objint::get_value(&hash).to_usize().unwrap())
 }
 
