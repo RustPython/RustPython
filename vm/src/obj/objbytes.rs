@@ -3,9 +3,10 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
 use super::objint;
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_traits::ToPrimitive;
@@ -14,6 +15,7 @@ use num_traits::ToPrimitive;
 pub struct PyBytes {
     value: Vec<u8>,
 }
+type PyBytesRef = PyRef<PyBytes>;
 
 impl PyBytes {
     pub fn new(data: Vec<u8>) -> Self {
@@ -69,20 +71,14 @@ pub fn init(context: &PyContext) {
     );
 }
 
-fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None)],
-        optional = [(val_option, None)]
-    );
-    if !objtype::issubclass(cls, &vm.ctx.bytes_type()) {
-        return Err(vm.new_type_error(format!("{:?} is not a subtype of bytes", cls)));
-    }
-
+fn bytes_new(
+    cls: PyClassRef,
+    val_option: OptionalArg<PyObjectRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult<PyBytesRef> {
     // Create bytes data:
-    let value = if let Some(ival) = val_option {
-        let elements = vm.extract_elements(ival)?;
+    let value = if let OptionalArg::Present(ival) = val_option {
+        let elements = vm.extract_elements(&ival)?;
         let mut data_bytes = vec![];
         for elem in elements.iter() {
             let v = objint::to_int(vm, elem, 10)?;
@@ -94,7 +90,7 @@ fn bytes_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         vec![]
     };
 
-    Ok(PyObject::new(PyBytes::new(value), cls.clone()))
+    PyBytes::new(value).into_ref_with_type(vm, cls)
 }
 
 fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -199,16 +195,9 @@ fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(format!("b'{}'", data)))
 }
 
-fn bytes_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
-
-    let iter_obj = PyObject::new(
-        PyIteratorValue {
-            position: Cell::new(0),
-            iterated_obj: obj.clone(),
-        },
-        vm.ctx.iter_type(),
-    );
-
-    Ok(iter_obj)
+fn bytes_iter(obj: PyBytesRef, _vm: &mut VirtualMachine) -> PyIteratorValue {
+    PyIteratorValue {
+        position: Cell::new(0),
+        iterated_obj: obj.into_object(),
+    }
 }
