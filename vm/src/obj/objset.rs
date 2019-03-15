@@ -30,7 +30,7 @@ impl fmt::Debug for PySet {
 }
 
 impl PyValue for PySet {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.set_type()
     }
 }

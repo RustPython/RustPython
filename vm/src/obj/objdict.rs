@@ -30,7 +30,7 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyValue for PyDict {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.dict_type()
     }
 }

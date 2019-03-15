@@ -23,7 +23,7 @@ impl PyFunction {
 }
 
 impl PyValue for PyFunction {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.function_type()
     }
 }
@@ -42,7 +42,7 @@ impl PyMethod {
 }
 
 impl PyValue for PyMethod {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.bound_method_type()
     }
 }

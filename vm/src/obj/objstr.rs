@@ -597,7 +597,7 @@ impl PyStringRef {
 }
 
 impl PyValue for PyString {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.str_type()
     }
 }

@@ -12,7 +12,7 @@ pub struct PyMap {
 }
 
 impl PyValue for PyMap {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.map_type()
     }
 }

@@ -14,7 +14,7 @@ pub struct PyGenerator {
 }
 
 impl PyValue for PyGenerator {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.generator_type()
     }
 }

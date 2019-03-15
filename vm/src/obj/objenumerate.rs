@@ -17,7 +17,7 @@ pub struct PyEnumerate {
 }
 
 impl PyValue for PyEnumerate {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.enumerate_type()
     }
 }

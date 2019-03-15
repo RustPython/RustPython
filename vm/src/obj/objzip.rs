@@ -11,7 +11,7 @@ pub struct PyZip {
 }
 
 impl PyValue for PyZip {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.zip_type()
     }
 }

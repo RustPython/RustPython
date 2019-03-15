@@ -16,7 +16,7 @@ pub struct PyReadOnlyProperty {
 }
 
 impl PyValue for PyReadOnlyProperty {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.readonly_property_type()
     }
 }
@@ -38,7 +38,7 @@ pub struct PyProperty {
 }
 
 impl PyValue for PyProperty {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.property_type()
     }
 }

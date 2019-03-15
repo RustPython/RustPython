@@ -9,7 +9,7 @@ pub struct PyMemoryView {
 }
 
 impl PyValue for PyMemoryView {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.memoryview_type()
     }
 }

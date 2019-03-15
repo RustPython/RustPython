@@ -30,7 +30,7 @@ impl Deref for PyBytes {
 }
 
 impl PyValue for PyBytes {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.bytes_type()
     }
 }

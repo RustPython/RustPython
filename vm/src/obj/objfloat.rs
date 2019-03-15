@@ -16,7 +16,7 @@ pub struct PyFloat {
 }
 
 impl PyValue for PyFloat {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.float_type()
     }
 }

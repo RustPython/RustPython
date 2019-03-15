@@ -119,7 +119,7 @@ pub struct Socket {
 }
 
 impl PyValue for Socket {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+    fn class(_ctx: &PyContext) -> PyObjectRef {
         // TODO
         unimplemented!()
     }

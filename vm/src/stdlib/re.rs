@@ -17,7 +17,7 @@ use crate::pyobject::{
 use crate::VirtualMachine;
 
 impl PyValue for Regex {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+    fn class(_ctx: &PyContext) -> PyObjectRef {
         // TODO
         unimplemented!()
     }
@@ -111,7 +111,7 @@ struct PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+    fn class(_ctx: &PyContext) -> PyObjectRef {
         // TODO
         unimplemented!()
     }

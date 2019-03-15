@@ -13,7 +13,7 @@ pub struct PyFilter {
 }
 
 impl PyValue for PyFilter {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.filter_type()
     }
 }

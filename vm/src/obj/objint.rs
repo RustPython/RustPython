@@ -36,7 +36,7 @@ impl IntoPyObject for BigInt {
 }
 
 impl PyValue for PyInt {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
+    fn class(ctx: &PyContext) -> PyObjectRef {
         ctx.int_type()
     }
 }
