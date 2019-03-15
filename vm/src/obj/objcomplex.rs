@@ -51,7 +51,7 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(
         &complex_type,
-        "__repr__",
+        crate::VM_REPR,
         context.new_rustfunc(complex_repr),
     );
     context.set_attr(

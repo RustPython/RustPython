@@ -9,7 +9,7 @@ use crate::vm::VirtualMachine;
 pub fn init(context: &PyContext) {
     let frame_type = &context.frame_type;
     context.set_attr(&frame_type, "__new__", context.new_rustfunc(frame_new));
-    context.set_attr(&frame_type, "__repr__", context.new_rustfunc(frame_repr));
+    context.set_attr(&frame_type, crate::VM_REPR, context.new_rustfunc(frame_repr));
     context.set_attr(&frame_type, "f_locals", context.new_property(frame_flocals));
     context.set_attr(&frame_type, "f_code", context.new_property(frame_fcode));
 }

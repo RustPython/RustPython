@@ -238,7 +238,7 @@ impl VirtualMachine {
     }
 
     pub fn to_repr(&mut self, obj: &PyObjectRef) -> PyResult {
-        self.call_method(obj, "__repr__", vec![])
+        self.call_method(obj, crate::VM_REPR, vec![])
     }
 
     pub fn import(&mut self, module: &str) -> PyResult {

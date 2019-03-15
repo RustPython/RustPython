@@ -115,7 +115,7 @@ fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.object()))]);
-    vm.call_method(zelf, "__repr__", vec![])
+    vm.call_method(zelf, crate::VM_REPR, vec![])
 }
 
 fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -175,7 +175,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));
     context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
     context.set_attr(&object, "__str__", context.new_rustfunc(object_str));
-    context.set_attr(&object, "__repr__", context.new_rustfunc(object_repr));
+    context.set_attr(&object, crate::VM_REPR, context.new_rustfunc(object_repr));
     context.set_attr(&object, "__format__", context.new_rustfunc(object_format));
     context.set_attr(
         &object,

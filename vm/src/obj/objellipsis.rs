@@ -6,7 +6,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(ellipsis_type, "__new__", context.new_rustfunc(ellipsis_new));
     context.set_attr(
         ellipsis_type,
-        "__repr__",
+        crate::VM_REPR,
         context.new_rustfunc(ellipsis_repr),
     );
 }

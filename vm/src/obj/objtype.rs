@@ -126,7 +126,7 @@ pub fn init(ctx: &PyContext) {
                 .add_getter(PyClassRef::mro)
                 .add_setter(PyClassRef::set_mro)
                 .create(),
-        "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
+        crate::VM_REPR => ctx.new_rustfunc(PyClassRef::repr),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
         "__getattribute__" => ctx.new_rustfunc(type_getattribute),
         "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),

@@ -372,7 +372,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&float_type, "__pow__", context.new_rustfunc(PyFloatRef::pow));
     context.set_attr(&float_type, "__sub__", context.new_rustfunc(PyFloatRef::sub));
     context.set_attr(&float_type, "__rsub__", context.new_rustfunc(PyFloatRef::rsub));
-    context.set_attr(&float_type, "__repr__", context.new_rustfunc(PyFloatRef::repr));
+    context.set_attr(&float_type, crate::VM_REPR, context.new_rustfunc(PyFloatRef::repr));
     context.set_attr(&float_type, "__doc__", context.new_str(float_doc.to_string()));
     context.set_attr(&float_type, "__truediv__", context.new_rustfunc(PyFloatRef::truediv));
     context.set_attr(&float_type, "__rtruediv__", context.new_rustfunc(PyFloatRef::rtruediv));

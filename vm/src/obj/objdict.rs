@@ -390,7 +390,7 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&dict_type, "__iter__", context.new_rustfunc(dict_iter));
     context.set_attr(&dict_type, "__new__", context.new_rustfunc(dict_new));
-    context.set_attr(&dict_type, "__repr__", context.new_rustfunc(dict_repr));
+    context.set_attr(&dict_type, crate::VM_REPR, context.new_rustfunc(dict_repr));
     context.set_attr(
         &dict_type,
         "__setitem__",

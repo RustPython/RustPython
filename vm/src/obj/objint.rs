@@ -505,7 +505,7 @@ Base 0 means to interpret the base from the string as an integer literal.
     context.set_attr(&int_type, "__neg__", context.new_rustfunc(PyIntRef::neg));
     context.set_attr(&int_type, "__pos__", context.new_rustfunc(PyIntRef::pass_value));
     context.set_attr(&int_type, "__pow__", context.new_rustfunc(PyIntRef::pow));
-    context.set_attr(&int_type, "__repr__", context.new_rustfunc(PyIntRef::repr));
+    context.set_attr(&int_type, crate::VM_REPR, context.new_rustfunc(PyIntRef::repr));
     context.set_attr(&int_type, "__sub__", context.new_rustfunc(PyIntRef::sub));
     context.set_attr(&int_type, "__rsub__", context.new_rustfunc(PyIntRef::rsub));
     context.set_attr(&int_type, "__format__", context.new_rustfunc(PyIntRef::format));

@@ -634,7 +634,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&str_type, "__mul__", context.new_rustfunc(PyStringRef::mul));
     context.set_attr(&str_type, "__new__", context.new_rustfunc(str_new));
     context.set_attr(&str_type, "__str__", context.new_rustfunc(PyStringRef::str));
-    context.set_attr(&str_type, "__repr__", context.new_rustfunc(PyStringRef::repr));
+    context.set_attr(&str_type, crate::VM_REPR, context.new_rustfunc(PyStringRef::repr));
     context.set_attr(&str_type, "format", context.new_rustfunc(str_format));
     context.set_attr(&str_type, "lower", context.new_rustfunc(PyStringRef::lower));
     context.set_attr(&str_type, "casefold", context.new_rustfunc(PyStringRef::casefold));

@@ -73,7 +73,7 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(
         &bytearray_type,
-        "__repr__",
+        crate::VM_REPR,
         context.new_rustfunc(bytearray_repr),
     );
     context.set_attr(

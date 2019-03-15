@@ -52,7 +52,7 @@ fn none_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.none.typ(), {
         "__new__" => context.new_rustfunc(none_new),
-        "__repr__" => context.new_rustfunc(PyNoneRef::repr),
+        crate::VM_REPR => context.new_rustfunc(PyNoneRef::repr),
         "__bool__" => context.new_rustfunc(PyNoneRef::bool),
     });
 }

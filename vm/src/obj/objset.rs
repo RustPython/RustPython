@@ -604,7 +604,7 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(&set_type, "__len__", context.new_rustfunc(set_len));
     context.set_attr(&set_type, "__new__", context.new_rustfunc(set_new));
-    context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
+    context.set_attr(&set_type, crate::VM_REPR, context.new_rustfunc(set_repr));
     context.set_attr(&set_type, "__eq__", context.new_rustfunc(set_eq));
     context.set_attr(&set_type, "__ge__", context.new_rustfunc(set_ge));
     context.set_attr(&set_type, "__gt__", context.new_rustfunc(set_gt));
@@ -684,7 +684,7 @@ pub fn init(context: &PyContext) {
     );
     context.set_attr(
         &frozenset_type,
-        "__repr__",
+        crate::VM_REPR,
         context.new_rustfunc(frozenset_repr),
     );
 }

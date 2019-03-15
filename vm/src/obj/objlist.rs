@@ -430,7 +430,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&list_type, "__mul__", context.new_rustfunc(PyListRef::mul));
     context.set_attr(&list_type, "__len__", context.new_rustfunc(PyListRef::len));
     context.set_attr(&list_type, "__new__", context.new_rustfunc(list_new));
-    context.set_attr(&list_type, "__repr__", context.new_rustfunc(PyListRef::repr));
+    context.set_attr(&list_type, crate::VM_REPR, context.new_rustfunc(PyListRef::repr));
     context.set_attr(&list_type, "__doc__", context.new_str(list_doc.to_string()));
     context.set_attr(&list_type, "append", context.new_rustfunc(PyListRef::append));
     context.set_attr(&list_type, "clear", context.new_rustfunc(PyListRef::clear));

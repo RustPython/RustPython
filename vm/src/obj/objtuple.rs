@@ -241,7 +241,7 @@ If the argument is a tuple, the return value is the same object.";
     context.set_attr(&tuple_type, "__len__", context.new_rustfunc(PyTupleRef::len));
     context.set_attr(&tuple_type, "__new__", context.new_rustfunc(tuple_new));
     context.set_attr(&tuple_type, "__mul__", context.new_rustfunc(PyTupleRef::mul));
-    context.set_attr(&tuple_type, "__repr__", context.new_rustfunc(PyTupleRef::repr));
+    context.set_attr(&tuple_type, crate::VM_REPR, context.new_rustfunc(PyTupleRef::repr));
     context.set_attr(&tuple_type, "count", context.new_rustfunc(PyTupleRef::count));
     context.set_attr(&tuple_type, "__lt__", context.new_rustfunc(PyTupleRef::lt));
     context.set_attr(&tuple_type, "__le__", context.new_rustfunc(PyTupleRef::le));

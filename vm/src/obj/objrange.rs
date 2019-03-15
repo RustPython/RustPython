@@ -181,7 +181,11 @@ pub fn init(context: &PyContext) {
         "__getitem__",
         context.new_rustfunc(range_getitem),
     );
-    context.set_attr(&range_type, "__repr__", context.new_rustfunc(range_repr));
+    context.set_attr(
+        &range_type,
+        crate::VM_REPR,
+        context.new_rustfunc(range_repr),
+    );
     context.set_attr(&range_type, "__bool__", context.new_rustfunc(range_bool));
     context.set_attr(
         &range_type,
