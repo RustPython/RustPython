@@ -30,8 +30,8 @@ impl fmt::Debug for PySet {
 }
 
 impl PyValue for PySet {
-    fn class(ctx: &PyContext) -> PyObjectRef {
-        ctx.set_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.set_type()
     }
 }
 

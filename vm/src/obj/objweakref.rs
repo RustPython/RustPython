@@ -23,8 +23,8 @@ impl PyWeak {
 }
 
 impl PyValue for PyWeak {
-    fn class(ctx: &PyContext) -> PyObjectRef {
-        ctx.weakref_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.weakref_type()
     }
 }
 

@@ -158,7 +158,7 @@ pub struct PyPromise {
 }
 
 impl PyValue for PyPromise {
-    fn class(_ctx: &PyContext) -> PyObjectRef {
+    fn class(_vm: &mut VirtualMachine) -> PyObjectRef {
         // TODO
         unimplemented!()
     }

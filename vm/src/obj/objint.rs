@@ -30,22 +30,22 @@ impl PyInt {
 }
 
 impl IntoPyObject for BigInt {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.new_int(self))
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_int(self))
     }
 }
 
 impl PyValue for PyInt {
-    fn class(ctx: &PyContext) -> PyObjectRef {
-        ctx.int_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.int_type()
     }
 }
 
 macro_rules! impl_into_pyobject_int {
     ($($t:ty)*) => {$(
         impl IntoPyObject for $t {
-            fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-                Ok(ctx.new_int(self))
+            fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+                Ok(vm.ctx.new_int(self))
             }
         }
     )*};

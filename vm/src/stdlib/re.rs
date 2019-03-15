@@ -5,21 +5,21 @@
  * system.
  */
 
-// extern crate regex;
-use crate::import;
-use regex::{Match, Regex};
 use std::path::PathBuf;
 
+use regex::{Match, Regex};
+
+use crate::import;
 use crate::obj::objstr;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::VirtualMachine;
 
 impl PyValue for Regex {
-    fn class(_ctx: &PyContext) -> PyObjectRef {
-        // TODO
-        unimplemented!()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.import("re").unwrap().get_attr("Pattern").unwrap()
     }
 }
 
@@ -111,9 +111,8 @@ struct PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn class(_ctx: &PyContext) -> PyObjectRef {
-        // TODO
-        unimplemented!()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.import("re").unwrap().get_attr("Match").unwrap()
     }
 }
 

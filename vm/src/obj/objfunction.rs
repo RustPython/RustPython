@@ -23,8 +23,8 @@ impl PyFunction {
 }
 
 impl PyValue for PyFunction {
-    fn class(ctx: &PyContext) -> PyObjectRef {
-        ctx.function_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.function_type()
     }
 }
 
@@ -42,8 +42,8 @@ impl PyMethod {
 }
 
 impl PyValue for PyMethod {
-    fn class(ctx: &PyContext) -> PyObjectRef {
-        ctx.bound_method_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.bound_method_type()
     }
 }
 

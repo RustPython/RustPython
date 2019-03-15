@@ -9,8 +9,8 @@ pub struct PyMemoryView {
 }
 
 impl PyValue for PyMemoryView {
-    fn class(ctx: &PyContext) -> PyObjectRef {
-        ctx.memoryview_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.memoryview_type()
     }
 }
 

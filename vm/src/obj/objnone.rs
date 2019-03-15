@@ -8,24 +8,24 @@ pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
-    fn class(ctx: &PyContext) -> PyObjectRef {
-        ctx.none().typ()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.none().typ()
     }
 }
 
 // This allows a built-in function to not return a value, mapping to
 // Python's behavior of returning `None` in this situation.
 impl IntoPyObject for () {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.none())
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+        Ok(vm.ctx.none())
     }
 }
 
 impl<T: IntoPyObject> IntoPyObject for Option<T> {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
         match self {
-            Some(x) => x.into_pyobject(ctx),
-            None => Ok(ctx.none()),
+            Some(x) => x.into_pyobject(vm),
+            None => Ok(vm.ctx.none()),
         }
     }
 }

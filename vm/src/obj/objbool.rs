@@ -12,8 +12,8 @@ use super::objtuple::PyTuple;
 use super::objtype;
 
 impl IntoPyObject for bool {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.new_bool(self))
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bool(self))
     }
 }
 
