@@ -371,34 +371,19 @@ fn dict_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let dict_type = &context.dict_type;
-    context.set_attr(&dict_type, "__len__", context.new_rustfunc(dict_len));
-    context.set_attr(
-        &dict_type,
-        "__contains__",
-        context.new_rustfunc(dict_contains),
-    );
-    context.set_attr(
-        &dict_type,
-        "__delitem__",
-        context.new_rustfunc(dict_delitem),
-    );
-    context.set_attr(
-        &dict_type,
-        "__getitem__",
-        context.new_rustfunc(dict_getitem),
-    );
-    context.set_attr(&dict_type, "__iter__", context.new_rustfunc(dict_iter));
-    context.set_attr(&dict_type, "__new__", context.new_rustfunc(dict_new));
-    context.set_attr(&dict_type, "__repr__", context.new_rustfunc(dict_repr));
-    context.set_attr(
-        &dict_type,
-        "__setitem__",
-        context.new_rustfunc(dict_setitem),
-    );
-    context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
-    context.set_attr(&dict_type, "values", context.new_rustfunc(dict_values));
-    context.set_attr(&dict_type, "items", context.new_rustfunc(dict_items));
-    context.set_attr(&dict_type, "keys", context.new_rustfunc(dict_iter));
-    context.set_attr(&dict_type, "get", context.new_rustfunc(dict_get));
+    extend_class!(context, &context.dict_type, {
+        "__len__" => context.new_rustfunc(dict_len),
+        "__contains__" => context.new_rustfunc(dict_contains),
+        "__delitem__" => context.new_rustfunc(dict_delitem),
+        "__getitem__" => context.new_rustfunc(dict_getitem),
+        "__iter__" => context.new_rustfunc(dict_iter),
+        "__new__" => context.new_rustfunc(dict_new),
+        "__repr__" => context.new_rustfunc(dict_repr),
+        "__setitem__" => context.new_rustfunc(dict_setitem),
+        "clear" => context.new_rustfunc(dict_clear),
+        "values" => context.new_rustfunc(dict_values),
+        "items" => context.new_rustfunc(dict_items),
+        "keys" => context.new_rustfunc(dict_iter),
+        "get" => context.new_rustfunc(dict_get),
+    });
 }
