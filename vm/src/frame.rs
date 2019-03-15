@@ -184,8 +184,8 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.frame_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.frame_type()
     }
 }
 

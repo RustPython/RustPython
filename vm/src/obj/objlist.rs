@@ -38,8 +38,8 @@ impl From<Vec<PyObjectRef>> for PyList {
 }
 
 impl PyValue for PyList {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.list_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.list_type()
     }
 }
 

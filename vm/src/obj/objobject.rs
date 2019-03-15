@@ -12,8 +12,8 @@ use crate::vm::VirtualMachine;
 pub struct PyInstance;
 
 impl PyValue for PyInstance {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.object()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.object()
     }
 }
 

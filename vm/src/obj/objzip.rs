@@ -11,8 +11,8 @@ pub struct PyZip {
 }
 
 impl PyValue for PyZip {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.zip_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.zip_type()
     }
 }
 

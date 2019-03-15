@@ -9,8 +9,8 @@ pub struct PyModule {
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.module_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.module_type()
     }
 }
 

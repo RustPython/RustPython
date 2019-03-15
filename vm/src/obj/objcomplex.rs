@@ -14,8 +14,8 @@ pub struct PyComplex {
 }
 
 impl PyValue for PyComplex {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.complex_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.complex_type()
     }
 }
 
