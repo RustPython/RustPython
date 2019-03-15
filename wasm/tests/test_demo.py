@@ -1,7 +1,7 @@
 import time
 
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.firefox.options import Options
 import pytest
 
 RUN_CODE_TEMPLATE = """
@@ -19,15 +19,13 @@ return output;
 @pytest.fixture(scope="module")
 def driver(request):
 	options = Options()
-	options.headless = True
-	options.add_argument('--disable-gpu')
-	driver = webdriver.Chrome(options=options)
+	options.add_argument('-headless')
+	driver = webdriver.Firefox(options=options)
 	driver.get("http://localhost:8080")
-	assert "RustPython" in driver.title
 	time.sleep(5)
 	yield driver
-	driver.close()	
-    
+	driver.close()
+
 
 @pytest.mark.parametrize("script, output",
 	[
