@@ -16,12 +16,15 @@
         "raw-loader": "^1.0.0",
         "webpack": "^4.16.3",
         "webpack-cli": "^3.1.0",
-        "webpack-dev-server": "^3.1.5"
+        "webpack-dev-server": "^3.1.5",
+        "start-server-and-test": "^1.7.11"
     },
     "scripts": {
         "dev": "webpack-dev-server -d",
         "build": "webpack",
-        "dist": "webpack --mode production"
+        "dist": "webpack --mode production",
+        "test": "cd ../tests; pipenv run pytest",
+        "ci": "start-server-and-test dev http-get://localhost:8080 test"
     },
     "repository": {
         "type": "git",
