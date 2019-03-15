@@ -10,7 +10,7 @@ use crate::pyobject::{
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objiter;
-use super::objstr;
+use super::objstr::{self, PyStringRef};
 use super::objtype;
 
 pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
@@ -197,18 +197,17 @@ impl PyDictRef {
         Ok(vm.new_str(s))
     }
 
-    fn contains(self, needle: PyObjectRef, _vm: &mut VirtualMachine) -> bool {
-        let needle = objstr::get_value(&needle);
-        self.entries.borrow().contains_key(&needle)
+    fn contains(self, key: PyStringRef, _vm: &mut VirtualMachine) -> bool {
+        self.entries.borrow().contains_key(&key.value)
     }
 
-    fn delitem(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<()> {
-        let needle = objstr::get_value(&needle);
+    fn delitem(self, key: PyStringRef, vm: &mut VirtualMachine) -> PyResult<()> {
+        let ref key = key.value;
         // Delete the item:
         let mut elements = self.entries.borrow_mut();
-        match elements.remove(&needle) {
+        match elements.remove(key) {
             Some(_) => Ok(()),
-            None => Err(vm.new_value_error(format!("Key not found: {}", needle))),
+            None => Err(vm.new_value_error(format!("Key not found: {}", key))),
         }
     }
 
@@ -267,30 +266,30 @@ impl PyDictRef {
         set_item_in_content(&mut elements, &needle, &value)
     }
 
-    fn getitem(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
-        // What we are looking for:
-        let needle = objstr::get_value(&needle);
+    fn getitem(self, key: PyStringRef, vm: &mut VirtualMachine) -> PyResult {
+        let ref key = key.value;
 
+        // What we are looking for:
         let elements = self.entries.borrow();
-        if elements.contains_key(&needle) {
-            Ok(elements[&needle].1.clone())
+        if elements.contains_key(key) {
+            Ok(elements[key].1.clone())
         } else {
-            Err(vm.new_value_error(format!("Key not found: {}", needle)))
+            Err(vm.new_value_error(format!("Key not found: {}", key)))
         }
     }
 
     fn get(
         self,
-        key: PyObjectRef,
+        key: PyStringRef,
         default: OptionalArg<PyObjectRef>,
         vm: &mut VirtualMachine,
     ) -> PyObjectRef {
         // What we are looking for:
-        let key = objstr::get_value(&key);
+        let ref key = key.value;
 
         let elements = self.entries.borrow();
-        if elements.contains_key(&key) {
-            elements[&key].1.clone()
+        if elements.contains_key(key) {
+            elements[key].1.clone()
         } else {
             match default {
                 OptionalArg::Present(value) => value,
