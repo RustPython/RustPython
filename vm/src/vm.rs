@@ -23,12 +23,12 @@ use crate::obj::objgenerator;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objsequence;
-use crate::obj::objstr;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
-    TypeProtocol,
+    TryFromObject, TypeProtocol,
 };
 use crate::stdlib;
 use crate::sysmodule;
@@ -228,17 +228,19 @@ impl VirtualMachine {
     }
 
     // Container of the virtual machine state:
-    pub fn to_str(&mut self, obj: &PyObjectRef) -> PyResult {
-        self.call_method(&obj, "__str__", vec![])
+    pub fn to_str(&mut self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
+        let str = self.call_method(&obj, "__str__", vec![])?;
+        TryFromObject::try_from_object(self, str)
     }
 
     pub fn to_pystr(&mut self, obj: &PyObjectRef) -> Result<String, PyObjectRef> {
         let py_str_obj = self.to_str(obj)?;
-        Ok(objstr::get_value(&py_str_obj))
+        Ok(py_str_obj.value.clone())
     }
 
-    pub fn to_repr(&mut self, obj: &PyObjectRef) -> PyResult {
-        self.call_method(obj, "__repr__", vec![])
+    pub fn to_repr(&mut self, obj: &PyObjectRef) -> PyResult<PyStringRef> {
+        let repr = self.call_method(obj, "__repr__", vec![])?;
+        TryFromObject::try_from_object(self, repr)
     }
 
     pub fn import(&mut self, module: &str) -> PyResult {

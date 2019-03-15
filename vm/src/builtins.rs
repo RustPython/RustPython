@@ -13,7 +13,7 @@ use crate::obj::objbool;
 use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
-use crate::obj::objstr;
+use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype;
 
 use crate::frame::Scope;
@@ -625,8 +625,7 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         } else {
             write!(stdout_lock, " ").unwrap();
         }
-        let v = vm.to_str(&a)?;
-        let s = objstr::borrow_value(&v);
+        let ref s = vm.to_str(&a)?.value;
         write!(stdout_lock, "{}", s).unwrap();
     }
 
@@ -643,9 +642,8 @@ pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-    vm.to_repr(obj)
+fn builtin_repr(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<PyStringRef> {
+    vm.to_repr(&obj)
 }
 
 fn builtin_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

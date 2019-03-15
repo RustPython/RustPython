@@ -1,5 +1,5 @@
 use super::objlist::PyList;
-use super::objstr;
+use super::objstr::{self, PyStringRef};
 use super::objtype;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
@@ -134,17 +134,13 @@ pub fn object_dir(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyList {
     PyList::from(attributes)
 }
 
-fn object_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (obj, Some(vm.ctx.object())),
-            (format_spec, Some(vm.ctx.str_type()))
-        ]
-    );
-    if objstr::get_value(format_spec).is_empty() {
-        vm.to_str(obj)
+fn object_format(
+    obj: PyObjectRef,
+    format_spec: PyStringRef,
+    vm: &mut VirtualMachine,
+) -> PyResult<PyStringRef> {
+    if format_spec.value.is_empty() {
+        vm.to_str(&obj)
     } else {
         Err(vm.new_type_error("unsupported format string passed to object.__format__".to_string()))
     }

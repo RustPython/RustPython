@@ -185,9 +185,7 @@ impl PyDictRef {
             for (key, value) in elements {
                 let key_repr = vm.to_repr(&key)?;
                 let value_repr = vm.to_repr(&value)?;
-                let key_str = objstr::get_value(&key_repr);
-                let value_str = objstr::get_value(&value_repr);
-                str_parts.push(format!("{}: {}", key_str, value_str));
+                str_parts.push(format!("{}: {}", key_repr.value, value_repr.value));
             }
 
             format!("{{{}}}", str_parts.join(", "))

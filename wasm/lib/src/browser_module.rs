@@ -70,9 +70,9 @@ fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(headers) = headers {
         let h = request.headers();
         for (key, value) in rustpython_vm::obj::objdict::get_key_value_pairs(&headers) {
-            let key = objstr::get_value(&vm.to_str(&key)?);
-            let value = objstr::get_value(&vm.to_str(&value)?);
-            h.set(&key, &value)
+            let ref key = vm.to_str(&key)?.value;
+            let ref value = vm.to_str(&value)?.value;
+            h.set(key, value)
                 .map_err(|err| convert::js_py_typeerror(vm, err))?;
         }
     }
