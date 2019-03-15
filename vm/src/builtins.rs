@@ -19,7 +19,8 @@ use crate::obj::objtype;
 
 use crate::frame::Scope;
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyImmutableClass, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyImmutableClass, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 
 #[cfg(not(target_arch = "wasm32"))]

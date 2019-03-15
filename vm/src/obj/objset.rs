@@ -11,9 +11,12 @@ use super::objbool;
 use super::objint;
 use super::objiter;
 use super::objstr;
-use crate::pyobject::{PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol, OptionalArg, PyImmutableClass};
-use crate::vm::{ReprGuard, VirtualMachine};
 use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{
+    OptionalArg, PyContext, PyFuncArgs, PyImmutableClass, PyIteratorValue, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 
 #[derive(Clone, Default)]
 pub struct PySet {
@@ -161,7 +164,11 @@ fn set_clear(set: PySetRef, _vm: &mut VirtualMachine) -> () {
 }
 
 /* Create a new object of sub-type of set */
-fn set_new(cls: PyClassRef, iterable: OptionalArg<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<PySetRef> {
+fn set_new(
+    cls: PyClassRef,
+    iterable: OptionalArg<PyObjectRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult<PySetRef> {
     let elements: HashMap<u64, PyObjectRef> = match iterable {
         OptionalArg::Missing => HashMap::new(),
         OptionalArg::Present(iterable) => {
@@ -176,7 +183,8 @@ fn set_new(cls: PyClassRef, iterable: OptionalArg<PyObjectRef>, vm: &mut Virtual
 
     PySet {
         elements: RefCell::new(elements),
-    }.into_ref_with_type(vm, cls)
+    }
+    .into_ref_with_type(vm, cls)
 }
 
 fn set_len(set: PySetRef, _vm: &mut VirtualMachine) -> usize {
@@ -184,7 +192,10 @@ fn set_len(set: PySetRef, _vm: &mut VirtualMachine) -> usize {
 }
 
 fn set_copy(set: PySetRef, vm: &mut VirtualMachine) -> PySetRef {
-    (*set).clone().into_ref_with_type(vm, set.typ()).expect("Can create new copy with same type")
+    (*set)
+        .clone()
+        .into_ref_with_type(vm, set.typ())
+        .expect("Can create new copy with same type")
 }
 
 fn set_repr(set: PySetRef, vm: &mut VirtualMachine) -> PyResult<String> {
@@ -297,7 +308,11 @@ fn set_compare_inner(
         return Ok(false);
     }
     for element in other_elements.iter() {
-        match vm.call_method(get_zelf(swap).as_object(), "__contains__", vec![element.1.clone()]) {
+        match vm.call_method(
+            get_zelf(swap).as_object(),
+            "__contains__",
+            vec![element.1.clone()],
+        ) {
             Ok(value) => {
                 if !objbool::get_value(&value) {
                     return Ok(false);
@@ -318,7 +333,11 @@ fn set_union(zelf: PySetRef, other: PySetRef, _vm: &mut VirtualMachine) -> PySet
     }
 }
 
-fn set_intersection(zelf: PySetRef, other: PySetRef, vm: &mut VirtualMachine) -> PyResult<PySetRef> {
+fn set_intersection(
+    zelf: PySetRef,
+    other: PySetRef,
+    vm: &mut VirtualMachine,
+) -> PyResult<PySetRef> {
     set_combine_inner(zelf, other, vm, SetCombineOperation::Intersection)
 }
 
@@ -326,7 +345,11 @@ fn set_difference(zelf: PySetRef, other: PySetRef, vm: &mut VirtualMachine) -> P
     set_combine_inner(zelf, other, vm, SetCombineOperation::Difference)
 }
 
-fn set_symmetric_difference(zelf: PySetRef, other: PySetRef, vm: &mut VirtualMachine) -> PyResult<PySetRef> {
+fn set_symmetric_difference(
+    zelf: PySetRef,
+    other: PySetRef,
+    vm: &mut VirtualMachine,
+) -> PyResult<PySetRef> {
     let mut elements = HashMap::new();
 
     for element in zelf.elements.borrow().iter() {
@@ -345,7 +368,8 @@ fn set_symmetric_difference(zelf: PySetRef, other: PySetRef, vm: &mut VirtualMac
 
     Ok(PySet {
         elements: RefCell::new(elements),
-    }.into_ref(vm))
+    }
+    .into_ref(vm))
 }
 
 enum SetCombineOperation {
@@ -354,7 +378,8 @@ enum SetCombineOperation {
 }
 
 fn set_combine_inner(
-    zelf: PySetRef, other: PySetRef,
+    zelf: PySetRef,
+    other: PySetRef,
     vm: &mut VirtualMachine,
     op: SetCombineOperation,
 ) -> PyResult<PySetRef> {
@@ -373,7 +398,8 @@ fn set_combine_inner(
 
     Ok(PySet {
         elements: RefCell::new(elements),
-    }.into_ref(vm))
+    }
+    .into_ref(vm))
 }
 
 fn set_pop(set: PySetRef, vm: &mut VirtualMachine) -> PyResult {
@@ -397,8 +423,12 @@ fn set_ior(set: PySetRef, iterable: PyObjectRef, vm: &mut VirtualMachine) -> PyR
     Ok(set.clone())
 }
 
-fn set_intersection_update(set: PySetRef, iterable: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
-    set_combine_update_inner(set, iterable, vm,SetCombineOperation::Intersection)?;
+fn set_intersection_update(
+    set: PySetRef,
+    iterable: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult {
+    set_combine_update_inner(set, iterable, vm, SetCombineOperation::Intersection)?;
     Ok(vm.get_none())
 }
 
@@ -406,7 +436,11 @@ fn set_iand(set: PySetRef, iterable: PyObjectRef, vm: &mut VirtualMachine) -> Py
     set_combine_update_inner(set, iterable, vm, SetCombineOperation::Intersection)
 }
 
-fn set_difference_update(set: PySetRef, iterable: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+fn set_difference_update(
+    set: PySetRef,
+    iterable: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult {
     set_combine_update_inner(set, iterable, vm, SetCombineOperation::Difference)?;
     Ok(vm.get_none())
 }
@@ -415,8 +449,12 @@ fn set_isub(set: PySetRef, iterable: PyObjectRef, vm: &mut VirtualMachine) -> Py
     set_combine_update_inner(set, iterable, vm, SetCombineOperation::Difference)
 }
 
-fn set_combine_update_inner(set: PySetRef, iterable: PyObjectRef, vm: &mut VirtualMachine,
-                            op: SetCombineOperation) -> PyResult {
+fn set_combine_update_inner(
+    set: PySetRef,
+    iterable: PyObjectRef,
+    vm: &mut VirtualMachine,
+    op: SetCombineOperation,
+) -> PyResult {
     {
         let mut elements = set.elements.borrow_mut();
         for element in elements.clone().iter() {
@@ -433,7 +471,11 @@ fn set_combine_update_inner(set: PySetRef, iterable: PyObjectRef, vm: &mut Virtu
     Ok(set.into_object())
 }
 
-fn set_symmetric_difference_update(set: PySetRef, iterable: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+fn set_symmetric_difference_update(
+    set: PySetRef,
+    iterable: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult {
     set_ixor(set, iterable, vm)?;
     Ok(vm.get_none())
 }

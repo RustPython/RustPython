@@ -146,7 +146,7 @@ pub struct PyContext {
     pub weakref_type: PyObjectRef,
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
-    types: RefCell<HashMap<TypeId, PyClassRef>>
+    types: RefCell<HashMap<TypeId, PyClassRef>>,
 }
 
 pub fn create_type(name: &str, type_type: &PyObjectRef, base: &PyObjectRef) -> PyObjectRef {
@@ -310,7 +310,7 @@ impl PyContext {
             weakref_type,
             type_type,
             exceptions,
-            types: Default::default()
+            types: Default::default(),
         };
         objtype::init(&context);
         objlist::init(&context);
@@ -350,11 +350,11 @@ impl PyContext {
         context
     }
 
-    pub fn get_type<T:PyImmutableClass + 'static>(&self) -> Option<PyClassRef> {
+    pub fn get_type<T: PyImmutableClass + 'static>(&self) -> Option<PyClassRef> {
         self.types.borrow().get(&TypeId::of::<T>()).cloned()
     }
 
-    pub fn set_type<T:PyImmutableClass>(&self, cls: PyClassRef) {
+    pub fn set_type<T: PyImmutableClass>(&self, cls: PyClassRef) {
         let mut map = self.types.borrow_mut();
         let entry = map.entry(TypeId::of::<T>());
         if let Entry::Vacant(entry) = entry {
@@ -658,11 +658,12 @@ impl PyContext {
         obj.get_attr(attr_name)
     }
 
-    pub fn set_attr<T:Into<PyObjectRef>>(&self, obj: &PyObjectRef, attr_name: &str, value: T) {
+    pub fn set_attr<T: Into<PyObjectRef>>(&self, obj: &PyObjectRef, attr_name: &str, value: T) {
         if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
             dict.set_item(self, attr_name, value.into())
         } else if let Some(ref dict) = obj.dict {
-            dict.borrow_mut().insert(attr_name.to_string(), value.into());
+            dict.borrow_mut()
+                .insert(attr_name.to_string(), value.into());
         } else {
             unimplemented!("set_attr unimplemented for: {:?}", obj);
         };
@@ -1624,8 +1625,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     }
 }
 
-
-pub trait PyImmutableClass : PyValue {
+pub trait PyImmutableClass: PyValue {
     fn create_type(ctx: &PyContext) -> PyClassRef;
 
     fn into_ref_with_context(self, ctx: &PyContext) -> PyRef<Self> {
@@ -1646,12 +1646,11 @@ pub trait PyImmutableClass : PyValue {
     }
 }
 
-impl<T:PyImmutableClass + 'static> PyValue for T {
+impl<T: PyImmutableClass + 'static> PyValue for T {
     fn class(vm: &mut VirtualMachine) -> PyObjectRef {
         T::class_from_ctx(&vm.ctx).into_object()
     }
 }
-
 
 pub trait PyObjectPayload: Any + fmt::Debug + 'static {
     fn as_any(&self) -> &dyn Any;
