@@ -30,7 +30,7 @@ pub fn compile(
 ) -> Result<PyObjectRef, CompileError> {
     let mut compiler = Compiler::new();
     compiler.source_path = Some(source_path);
-    compiler.push_new_code_object("<module>".to_string());
+    compiler.push_new_code_object(crate::VM_MODULE.to_string());
 
     match mode {
         Mode::Exec => {
@@ -1524,7 +1524,7 @@ mod tests {
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler = Compiler::new();
         compiler.source_path = Some("source_path".to_string());
-        compiler.push_new_code_object("<module>".to_string());
+        compiler.push_new_code_object(crate::VM_MODULE.to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
         compiler.compile_program(&ast).unwrap();
         compiler.pop_code_object()
