@@ -19,7 +19,7 @@ use crate::obj::objtype;
 
 use crate::frame::Scope;
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyImmutableClass, PyResult, TypeProtocol,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -794,7 +794,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "repr" => ctx.new_rustfunc(builtin_repr),
         "reversed" => ctx.new_rustfunc(builtin_reversed),
         "round" => ctx.new_rustfunc(builtin_round),
-        "set" => ctx.get_type::<objset::PySet>().unwrap().into_object(),
+        "set" => objset::PySet::class_from_ctx(ctx),
         "setattr" => ctx.new_rustfunc(builtin_setattr),
         "sorted" => ctx.new_rustfunc(builtin_sorted),
         "slice" => ctx.slice_type(),

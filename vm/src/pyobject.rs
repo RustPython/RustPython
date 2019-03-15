@@ -355,7 +355,8 @@ impl PyContext {
     }
 
     pub fn set_type<T:PyImmutableClass>(&self, cls: PyClassRef) {
-        let entry = self.types.borrow_mut().entry(TypeId::of::<T>());
+        let mut map = self.types.borrow_mut();
+        let entry = map.entry(TypeId::of::<T>());
         if let Entry::Vacant(entry) = entry {
             entry.insert(cls);
         } else {
@@ -558,7 +559,7 @@ impl PyContext {
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        PySet::default().into_ref().into_object()
+        PySet::default().into_ref_with_context(self).into_object()
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
@@ -657,11 +658,11 @@ impl PyContext {
         obj.get_attr(attr_name)
     }
 
-    pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
+    pub fn set_attr<T:Into<PyObjectRef>>(&self, obj: &PyObjectRef, attr_name: &str, value: T) {
         if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
-            dict.set_item(self, attr_name, value)
+            dict.set_item(self, attr_name, value.into())
         } else if let Some(ref dict) = obj.dict {
-            dict.borrow_mut().insert(attr_name.to_string(), value);
+            dict.borrow_mut().insert(attr_name.to_string(), value.into());
         } else {
             unimplemented!("set_attr unimplemented for: {:?}", obj);
         };
@@ -755,6 +756,15 @@ impl<T: PyValue> PyRef<T> {
             _payload: PhantomData,
         }
     }
+
+    // Temporary escape hatch, until more things are using PyRef instead of PyObjectRef
+    // This is used in contexts were we don't have access to a VM
+    pub unsafe fn from_object_unchecked(obj: PyObjectRef) -> Self {
+        PyRef {
+            obj,
+            _payload: PhantomData,
+        }
+    }
 }
 
 impl<T> Deref for PyRef<T>
@@ -793,6 +803,12 @@ where
 impl<T> IntoPyObject for PyRef<T> {
     fn into_pyobject(self, _vm: &mut VirtualMachine) -> PyResult {
         Ok(self.obj)
+    }
+}
+
+impl<T> Into<PyObjectRef> for PyRef<T> {
+    fn into(self) -> PyObjectRef {
+        self.obj
     }
 }
 
@@ -1612,12 +1628,19 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
 pub trait PyImmutableClass : PyValue {
     fn create_type(ctx: &PyContext) -> PyClassRef;
 
+    fn into_ref_with_context(self, ctx: &PyContext) -> PyRef<Self> {
+        PyRef {
+            obj: PyObject::new(self, Self::class_from_ctx(ctx).into_object()),
+            _payload: PhantomData,
+        }
+    }
+
     fn class_from_ctx(ctx: &PyContext) -> PyClassRef {
-        if let Some(class) = ctx.get_type::<T>() {
+        if let Some(class) = ctx.get_type::<Self>() {
             class
         } else {
-            let class = T::create_type(ctx);
-            ctx.set_type::<T>(class);
+            let class = Self::create_type(ctx);
+            ctx.set_type::<Self>(class.clone());
             class
         }
     }
