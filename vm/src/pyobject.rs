@@ -623,11 +623,7 @@ impl PyContext {
     }
 
     pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
-        let dict = if let Some(dict) = dict {
-            dict
-        } else {
-            PyAttributes::new()
-        };
+        let dict = dict.unwrap_or_default();
         PyObject {
             typ: class,
             dict: Some(RefCell::new(dict)),
@@ -697,7 +693,7 @@ impl Default for PyContext {
 pub struct PyObject {
     pub typ: PyObjectRef,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
-    pub payload: Box<dyn Any>,
+    pub payload: Box<dyn PyObjectPayload>,
 }
 
 /// A reference to a Python object.
@@ -1557,7 +1553,7 @@ impl PyValue for PyIteratorValue {
 }
 
 impl PyObject {
-    pub fn new<T: PyValue>(payload: T, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new<T: PyObjectPayload>(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             typ,
             dict: Some(RefCell::new(PyAttributes::new())),
@@ -1571,14 +1567,13 @@ impl PyObject {
         Rc::new(self)
     }
 
+    #[inline]
     pub fn payload<T: PyValue>(&self) -> Option<&T> {
-        self.payload.downcast_ref()
+        self.payload.as_any().downcast_ref()
     }
 }
 
-// The intention is for this to replace `PyObjectPayload` once everything is
-// converted to use `PyObjectPayload::AnyRustvalue`.
-pub trait PyValue: Any + fmt::Debug + Sized {
+pub trait PyValue: fmt::Debug + Sized + 'static {
     fn required_type(ctx: &PyContext) -> PyObjectRef;
 
     fn into_ref(self, ctx: &PyContext) -> PyRef<Self> {
@@ -1600,6 +1595,17 @@ pub trait PyValue: Any + fmt::Debug + Sized {
             let basetype = vm.to_pystr(&required_type)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
+    }
+}
+
+pub trait PyObjectPayload: Any + fmt::Debug + 'static {
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: PyValue + 'static> PyObjectPayload for T {
+    #[inline]
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

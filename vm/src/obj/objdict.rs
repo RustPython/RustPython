@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 
 use crate::pyobject::{
@@ -14,12 +15,19 @@ use super::objtype;
 
 pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct PyDict {
     // TODO: should be private
     pub entries: RefCell<DictContentType>,
 }
 pub type PyDictRef = PyRef<PyDict>;
+
+impl fmt::Debug for PyDict {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("dict")
+    }
+}
 
 impl PyValue for PyDict {
     fn required_type(ctx: &PyContext) -> PyObjectRef {

@@ -3,8 +3,8 @@
  */
 
 use std::cell::{Cell, RefCell};
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use super::objbool;
@@ -17,9 +17,16 @@ use crate::pyobject::{
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct PySet {
     elements: RefCell<HashMap<u64, PyObjectRef>>,
+}
+
+impl fmt::Debug for PySet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("set")
+    }
 }
 
 impl PyValue for PySet {

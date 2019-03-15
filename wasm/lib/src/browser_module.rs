@@ -171,7 +171,7 @@ impl PyPromise {
 }
 
 pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
-    if let Some(promise) = obj.payload.downcast_ref::<PyPromise>() {
+    if let Some(promise) = obj.payload::<PyPromise>() {
         return promise.value.clone();
     }
     panic!("Inner error getting promise")
