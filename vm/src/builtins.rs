@@ -13,6 +13,7 @@ use crate::obj::objbool;
 use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
+use crate::obj::objset;
 use crate::obj::objstr;
 use crate::obj::objtype;
 
@@ -793,7 +794,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "repr" => ctx.new_rustfunc(builtin_repr),
         "reversed" => ctx.new_rustfunc(builtin_reversed),
         "round" => ctx.new_rustfunc(builtin_round),
-        "set" => ctx.set_type(),
+        "set" => ctx.get_type::<objset::PySet>().unwrap().into_object(),
         "setattr" => ctx.new_rustfunc(builtin_setattr),
         "sorted" => ctx.new_rustfunc(builtin_sorted),
         "slice" => ctx.slice_type(),

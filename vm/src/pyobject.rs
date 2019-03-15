@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
@@ -130,7 +130,6 @@ pub struct PyContext {
     pub ellipsis: PyObjectRef,
     pub not_implemented: PyObjectRef,
     pub tuple_type: PyObjectRef,
-    pub set_type: PyObjectRef,
     pub staticmethod_type: PyObjectRef,
     pub super_type: PyObjectRef,
     pub str_type: PyObjectRef,
@@ -147,6 +146,7 @@ pub struct PyContext {
     pub weakref_type: PyObjectRef,
     pub object: PyObjectRef,
     pub exceptions: exceptions::ExceptionZoo,
+    types: RefCell<HashMap<TypeId, PyClassRef>>
 }
 
 pub fn create_type(name: &str, type_type: &PyObjectRef, base: &PyObjectRef) -> PyObjectRef {
@@ -233,7 +233,6 @@ impl PyContext {
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
-        let set_type = create_type("set", &type_type, &object_type);
         let frozenset_type = create_type("frozenset", &type_type, &object_type);
         let int_type = create_type("int", &type_type, &object_type);
         let float_type = create_type("float", &type_type, &object_type);
@@ -282,7 +281,6 @@ impl PyContext {
             frame_type,
             staticmethod_type,
             list_type,
-            set_type,
             frozenset_type,
             true_value,
             false_value,
@@ -312,6 +310,7 @@ impl PyContext {
             weakref_type,
             type_type,
             exceptions,
+            types: Default::default()
         };
         objtype::init(&context);
         objlist::init(&context);
@@ -349,6 +348,19 @@ impl PyContext {
         objmodule::init(&context);
         exceptions::init(&context);
         context
+    }
+
+    pub fn get_type<T:PyImmutableClass + 'static>(&self) -> Option<PyClassRef> {
+        self.types.borrow().get(&TypeId::of::<T>()).cloned()
+    }
+
+    pub fn set_type<T:PyImmutableClass>(&self, cls: PyClassRef) {
+        let entry = self.types.borrow_mut().entry(TypeId::of::<T>());
+        if let Entry::Vacant(entry) = entry {
+            entry.insert(cls);
+        } else {
+            panic!("Can't overwrite type in PyContext");
+        }
     }
 
     pub fn bytearray_type(&self) -> PyObjectRef {
@@ -389,10 +401,6 @@ impl PyContext {
 
     pub fn module_type(&self) -> PyObjectRef {
         self.module_type.clone()
-    }
-
-    pub fn set_type(&self) -> PyObjectRef {
-        self.set_type.clone()
     }
 
     pub fn range_type(&self) -> PyObjectRef {
@@ -550,7 +558,7 @@ impl PyContext {
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        PyObject::new(PySet::default(), self.set_type())
+        PySet::default().into_ref().into_object()
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
@@ -1315,6 +1323,7 @@ pub enum OptionalArg<T> {
 
 use self::OptionalArg::*;
 use crate::obj::objproperty::PropertyBuilder;
+use std::collections::hash_map::Entry;
 
 impl<T> OptionalArg<T> {
     pub fn into_option(self) -> Option<T> {
@@ -1598,6 +1607,28 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
         }
     }
 }
+
+
+pub trait PyImmutableClass : PyValue {
+    fn create_type(ctx: &PyContext) -> PyClassRef;
+
+    fn class_from_ctx(ctx: &PyContext) -> PyClassRef {
+        if let Some(class) = ctx.get_type::<T>() {
+            class
+        } else {
+            let class = T::create_type(ctx);
+            ctx.set_type::<T>(class);
+            class
+        }
+    }
+}
+
+impl<T:PyImmutableClass + 'static> PyValue for T {
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        T::class_from_ctx(&vm.ctx).into_object()
+    }
+}
+
 
 pub trait PyObjectPayload: Any + fmt::Debug + 'static {
     fn as_any(&self) -> &dyn Any;
