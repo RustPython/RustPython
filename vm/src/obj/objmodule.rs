@@ -1,3 +1,4 @@
+use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -24,10 +25,15 @@ impl PyModuleRef {
             .collect();
         Ok(vm.ctx.new_list(keys))
     }
+
+    fn set_attr(self, attr: PyStringRef, value: PyObjectRef, vm: &mut VirtualMachine) {
+        self.dict.set_item(&vm.ctx, &attr.value, value)
+    }
 }
 
 pub fn init(context: &PyContext) {
     extend_class!(&context, &context.module_type, {
-        "__dir__" => context.new_rustfunc(PyModuleRef::dir)
+        "__dir__" => context.new_rustfunc(PyModuleRef::dir),
+        "__setattr__" => context.new_rustfunc(PyModuleRef::set_attr)
     });
 }
