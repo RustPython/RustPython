@@ -129,6 +129,13 @@ impl PyFuncArgs {
                     given_args,
                 )));
             }
+            Err(ArgumentError::TooManyArgs) => {
+                return Err(vm.new_type_error(format!(
+                    "Expected at most {} arguments ({} given)",
+                    T::arity().end(),
+                    given_args,
+                )));
+            }
             Err(ArgumentError::Exception(ex)) => {
                 return Err(ex);
             }
@@ -153,8 +160,15 @@ pub enum PyArg {
     Keyword(String, PyObjectRef),
 }
 
+/// An error encountered while binding arguments to the parameters of a Python
+/// function call.
 pub enum ArgumentError {
+    /// The call provided fewer positional arguments than the function requires.
     TooFewArgs,
+    /// The call provided more positional arguments than the function accepts.
+    TooManyArgs,
+    /// An exception was raised while binding arguments to the function
+    /// parameters.
     Exception(PyObjectRef),
 }
 
@@ -205,10 +219,19 @@ where
         I: Iterator<Item = PyArg>,
     {
         let mut kwargs = HashMap::new();
-        while let Some(PyArg::Keyword(name, value)) = args.next() {
-            kwargs.insert(name, T::try_from_object(vm, value)?);
+        loop {
+            match args.next() {
+                Some(PyArg::Keyword(name, value)) => {
+                    kwargs.insert(name, T::try_from_object(vm, value)?);
+                }
+                Some(PyArg::Positional(_)) => {
+                    return Err(ArgumentError::TooManyArgs);
+                }
+                None => {
+                    return Ok(KwArgs(kwargs));
+                }
+            }
         }
-        Ok(KwArgs(kwargs))
     }
 }
 
