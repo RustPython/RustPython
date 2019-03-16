@@ -1,7 +1,9 @@
 use num_traits::Zero;
 
 use crate::function::PyFuncArgs;
-use crate::pyobject::{IntoPyObject, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{
+    IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 use super::objdict::PyDict;
@@ -15,6 +17,12 @@ use super::objtype;
 impl IntoPyObject for bool {
     fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bool(self))
+    }
+}
+
+impl TryFromObject for bool {
+    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
+        boolval(vm, obj)
     }
 }
 

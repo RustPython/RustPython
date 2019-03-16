@@ -136,6 +136,9 @@ impl PyFuncArgs {
                     given_args,
                 )));
             }
+            Err(ArgumentError::InvalidKeywordArgument(name)) => {
+                return Err(vm.new_type_error(format!("{} is an invalid keyword argument", name)));
+            }
             Err(ArgumentError::Exception(ex)) => {
                 return Err(ex);
             }
@@ -162,6 +165,8 @@ pub enum ArgumentError {
     TooFewArgs,
     /// The call provided more positional arguments than the function accepts.
     TooManyArgs,
+    /// The function doesn't accept a keyword argument with the given name.
+    InvalidKeywordArgument(String),
     /// An exception was raised while binding arguments to the function
     /// parameters.
     Exception(PyObjectRef),
@@ -218,7 +223,7 @@ where
 ///
 /// `Args` optionally accepts a generic type parameter to allow type checks
 /// or conversions of each argument.
-pub struct Args<T>(Vec<T>);
+pub struct Args<T = PyObjectRef>(Vec<T>);
 
 impl<T> FromArgs for Args<T>
 where
@@ -230,6 +235,15 @@ where
             varargs.push(T::try_from_object(vm, value)?);
         }
         Ok(Args(varargs))
+    }
+}
+
+impl<T> IntoIterator for Args<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 

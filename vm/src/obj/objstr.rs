@@ -1,6 +1,7 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
+use std::string::ToString;
 
 use num_traits::ToPrimitive;
 use unicode_segmentation::UnicodeSegmentation;
@@ -22,6 +23,14 @@ use super::objtype::{self, PyClassRef};
 pub struct PyString {
     // TODO: shouldn't be public
     pub value: String,
+}
+
+impl<T: ToString> From<T> for PyString {
+    fn from(t: T) -> PyString {
+        PyString {
+            value: t.to_string(),
+        }
+    }
 }
 
 pub type PyStringRef = PyRef<PyString>;
