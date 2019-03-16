@@ -409,7 +409,7 @@ impl Frame {
                 let stop = out[1].take();
                 let step = if out.len() == 3 { out[2].take() } else { None };
 
-                let obj = PySlice { start, stop, step }.into_ref(&vm.ctx);
+                let obj = PySlice { start, stop, step }.into_ref(vm);
                 self.push_value(obj.into_object());
                 Ok(None)
             }
@@ -699,8 +699,8 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                let rustfunc = PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_))
-                    .into_ref(&vm.ctx);
+                let rustfunc =
+                    PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_)).into_ref(vm);
                 self.push_value(rustfunc.into_object());
                 Ok(None)
             }
