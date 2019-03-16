@@ -192,14 +192,21 @@ pub trait FromArgs: Sized {
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
 }
+
 /// A map of keyword arguments to their values.
 ///
 /// A built-in function with a `KwArgs` parameter is analagous to a Python
-/// function with `*kwargs`. All remaining keyword arguments are extracted
+/// function with `**kwargs`. All remaining keyword arguments are extracted
 /// (and hence the function will permit an arbitrary number of them).
 ///
 /// `KwArgs` optionally accepts a generic type parameter to allow type checks
 /// or conversions of each argument.
+///
+/// Note:
+///
+/// KwArgs is only for functions that accept arbitrary keyword arguments. For
+/// functions that accept only *specific* named arguments, a rust struct with
+/// an appropriate FromArgs implementation must be created.
 pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
 
 impl<T> FromArgs for KwArgs<T>
