@@ -1,3 +1,6 @@
+assert any([1]);
+assert not any([]);
+
 def anything(a):
     return a
 
@@ -6,4 +9,4 @@ class Test:
    while True:
     yield True
 
-assert True == any(map(anything, Test()))
+assert any(map(anything, Test()))
