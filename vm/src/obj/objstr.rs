@@ -801,7 +801,7 @@ fn str_new(
         TryFromObject::try_from_object(vm, string)
     } else {
         let payload = string.payload::<PyString>().unwrap();
-        PyRef::new_with_type(vm, payload.clone(), cls)
+        payload.clone().into_ref_with_type(vm, cls)
     }
 }
 
