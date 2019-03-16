@@ -93,7 +93,17 @@ fn object_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_type_error("unhashable type".to_string()))
 }
 
-// TODO: is object the right place for delattr?
+fn object_setattr(
+    obj: PyInstanceRef,
+    name: PyStringRef,
+    value: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult {
+    trace!("object.__setattr__({:?}, {}, {:?})", obj, name, value);
+    vm.ctx.set_attr(obj.as_object(), &name.value, value);
+    Ok(vm.get_none())
+}
+
 fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -167,6 +177,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__le__", context.new_rustfunc(object_le));
     context.set_attr(&object, "__gt__", context.new_rustfunc(object_gt));
     context.set_attr(&object, "__ge__", context.new_rustfunc(object_ge));
+    context.set_attr(&object, "__setattr__", context.new_rustfunc(object_setattr));
     context.set_attr(&object, "__delattr__", context.new_rustfunc(object_delattr));
     context.set_attr(&object, "__dict__", context.new_property(object_dict));
     context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));

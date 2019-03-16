@@ -658,15 +658,14 @@ fn builtin_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None), (attr, Some(vm.ctx.str_type())), (value, None)]
-    );
-    let name = objstr::get_value(attr);
-    vm.ctx.set_attr(obj, &name, value.clone());
-    Ok(vm.get_none())
+fn builtin_setattr(
+    obj: PyObjectRef,
+    attr: PyStringRef,
+    value: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult<()> {
+    vm.set_attr(&obj, attr.into_object(), value)?;
+    Ok(())
 }
 
 // builtin_slice
