@@ -5,7 +5,7 @@ use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use rustpython_vm::{
     compile,
     frame::{NameProtocol, Scope},
-    pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult},
+    pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult},
     VirtualMachine,
 };
 use std::cell::RefCell;
@@ -13,16 +13,12 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 use wasm_bindgen::{prelude::*, JsCast};
 
-pub trait HeldRcInner {}
-
-impl<T> HeldRcInner for T {}
-
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
     pub scope: Scope,
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
-    held_rcs: Vec<Rc<dyn HeldRcInner>>,
+    held_rcs: Vec<PyObjectRef>,
 }
 
 impl StoredVirtualMachine {
@@ -221,10 +217,10 @@ impl WASMVirtualMachine {
         STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
     }
 
-    pub(crate) fn push_held_rc<T: HeldRcInner + 'static>(
+    pub(crate) fn push_held_rc(
         &self,
-        rc: Rc<T>,
-    ) -> Result<Weak<T>, JsValue> {
+        rc: PyObjectRef,
+    ) -> Result<Weak<PyObject<dyn PyObjectPayload + 'static>>, JsValue> {
         self.with(|stored_vm| {
             let weak = Rc::downgrade(&rc);
             stored_vm.held_rcs.push(rc);
