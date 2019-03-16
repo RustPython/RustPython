@@ -1,5 +1,6 @@
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 

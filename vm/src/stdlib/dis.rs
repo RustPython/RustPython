@@ -1,5 +1,6 @@
+use crate::function::PyFuncArgs;
 use crate::obj::objcode;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 fn dis_dis(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -7,6 +7,8 @@ use std::char;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use num_traits::{Signed, ToPrimitive};
+
 use crate::compile;
 use crate::import::import_module;
 use crate::obj::objbool;
@@ -17,15 +19,14 @@ use crate::obj::objstr;
 use crate::obj::objtype;
 
 use crate::frame::Scope;
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
+use crate::vm::VirtualMachine;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
-
-use crate::vm::VirtualMachine;
-use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();

@@ -3,7 +3,8 @@
 */
 
 use crate::frame::Frame;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {

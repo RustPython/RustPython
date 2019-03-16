@@ -1,9 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    AttributeProtocol, FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 

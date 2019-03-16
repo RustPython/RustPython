@@ -3,14 +3,16 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
-extern crate rustpython_parser;
-
-use self::rustpython_parser::{ast, parser};
-use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::VirtualMachine;
-use num_complex::Complex64;
 use std::ops::Deref;
+
+use num_complex::Complex64;
+
+use rustpython_parser::{ast, parser};
+
+use crate::function::PyFuncArgs;
+use crate::obj::objstr;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 /*
  * Idea: maybe we can create a sort of struct with some helper functions?

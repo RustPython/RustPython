@@ -1,11 +1,11 @@
 //! Random module.
 
-extern crate rand;
+use rand::distributions::{Distribution, Normal};
 
+use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::stdlib::random::rand::distributions::{Distribution, Normal};
-use crate::VirtualMachine;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "random", {

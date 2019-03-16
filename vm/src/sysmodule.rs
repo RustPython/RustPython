@@ -1,9 +1,12 @@
-use crate::obj::objint;
-use crate::pyobject::{DictProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine;
-use num_traits::ToPrimitive;
 use std::rc::Rc;
 use std::{env, mem};
+
+use num_traits::ToPrimitive;
+
+use crate::function::PyFuncArgs;
+use crate::obj::objint;
+use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 /*
  * The magic sys module.

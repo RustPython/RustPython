@@ -2,9 +2,8 @@
  * Various types to support iteration.
  */
 
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objbool;

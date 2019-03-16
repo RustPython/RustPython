@@ -1,6 +1,7 @@
 use num_traits::Zero;
 
-use crate::pyobject::{IntoPyObject, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{IntoPyObject, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objdict::PyDict;

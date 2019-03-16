@@ -2,12 +2,12 @@
 
 */
 
+use crate::function::IntoPyNativeFunc;
+use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{
-    IntoPyNativeFunc, OptionalArg, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-};
-use crate::VirtualMachine;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::vm::VirtualMachine;
 
 /// Read-only property, doesn't have __set__ or __delete__
 #[derive(Debug)]

@@ -8,6 +8,7 @@ use rustpython_parser::ast;
 
 use crate::builtins;
 use crate::bytecode;
+use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
@@ -20,8 +21,8 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObject, PyObjectRef, PyResult,
+    PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 

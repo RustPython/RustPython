@@ -2,13 +2,16 @@ use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
-use super::objint;
-use super::objtype;
+use num_traits::ToPrimitive;
+
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use num_traits::ToPrimitive;
+
+use super::objint;
+use super::objtype;
 
 #[derive(Debug)]
 pub struct PyBytes {

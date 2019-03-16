@@ -5,14 +5,14 @@ use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
+use crate::function::PyFuncArgs;
 use crate::obj::{
     objbool, objdict, objfloat, objint, objsequence,
     objstr::{self, PyString},
     objtype,
 };
 use crate::pyobject::{
-    create_type, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
-    TypeProtocol,
+    create_type, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;

@@ -2,29 +2,25 @@
  * I/O core tools.
  */
 
-//library imports
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-//3rd party imports
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
-//custom imports
 use super::os;
+use crate::function::PyFuncArgs;
+use crate::import;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
-
 use crate::pyobject::{
-    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, BufferProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
-
-use crate::import;
 use crate::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {

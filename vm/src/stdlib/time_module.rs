@@ -1,10 +1,12 @@
 //! The python `time` module.
 
-use crate::obj::objfloat;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::VirtualMachine;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::function::PyFuncArgs;
+use crate::obj::objfloat;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 fn time_sleep(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(seconds, Some(vm.ctx.float_type()))]);

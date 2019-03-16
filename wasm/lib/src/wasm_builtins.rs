@@ -5,10 +5,12 @@
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html.
 
 use js_sys::{self, Array};
-use rustpython_vm::obj::{objstr, objtype};
-use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use rustpython_vm::VirtualMachine;
 use web_sys::{self, console};
+
+use rustpython_vm::function::PyFuncArgs;
+use rustpython_vm::obj::{objstr, objtype};
+use rustpython_vm::pyobject::{IdProtocol, PyObjectRef, PyResult, TypeProtocol};
+use rustpython_vm::VirtualMachine;
 
 pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("Window to be available")
