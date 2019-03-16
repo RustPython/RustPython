@@ -35,14 +35,13 @@ assert not hasattr(a, 'c')
 with assertRaises(AttributeError):
     _ = a.c
 
-# TODO Fix
-# test setting attribute on builtin
-# with assertRaises(AttributeError):
-#     None.a = 1
-#
-# with assertRaises(AttributeError):
-#     setattr(None, 'a', 2)
 
+# test setting attribute on builtin
+with assertRaises(AttributeError):
+    object().a = 1
+
+with assertRaises(AttributeError):
+    setattr(object(), 'a', 2)
 
 attrs = {}
 

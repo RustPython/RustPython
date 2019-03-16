@@ -1112,6 +1112,15 @@ impl PyObject {
         .into_ref()
     }
 
+    pub fn new_without_dict<T: PyObjectPayload>(payload: T, typ: PyObjectRef) -> PyObjectRef {
+        PyObject {
+            typ,
+            dict: None,
+            payload: Box::new(payload),
+        }
+        .into_ref()
+    }
+
     // Move this object into a reference object, transferring ownership.
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(self)
