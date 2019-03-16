@@ -604,7 +604,7 @@ impl FromArgs for PrintOptions {
         let mut end: Option<PyStringRef> = Some(PyString::from("\n").into_ref(vm));
         let mut flush = false;
 
-        while let Some(arg) = args.next() {
+        for arg in args {
             match arg {
                 PyArg::Keyword(name, value) => match name.as_str() {
                     "sep" => {
