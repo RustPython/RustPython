@@ -1,18 +1,19 @@
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objfloat;
 use super::objint;
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
     value: Complex64,
 }
+type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
     fn class(vm: &mut VirtualMachine) -> PyObjectRef {
@@ -66,31 +67,24 @@ pub fn get_value(obj: &PyObjectRef) -> Complex64 {
     obj.payload::<PyComplex>().unwrap().value
 }
 
-fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None)],
-        optional = [(real, None), (imag, None)]
-    );
-
-    if !objtype::issubclass(cls, &vm.ctx.complex_type()) {
-        return Err(vm.new_type_error(format!("{:?} is not a subtype of complex", cls)));
-    }
-
+fn complex_new(
+    cls: PyClassRef,
+    real: OptionalArg<PyObjectRef>,
+    imag: OptionalArg<PyObjectRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult<PyComplexRef> {
     let real = match real {
-        None => 0.0,
-        Some(value) => objfloat::make_float(vm, value)?,
+        OptionalArg::Missing => 0.0,
+        OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
     };
 
     let imag = match imag {
-        None => 0.0,
-        Some(value) => objfloat::make_float(vm, value)?,
+        OptionalArg::Missing => 0.0,
+        OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
     };
 
     let value = Complex64::new(real, imag);
-
-    Ok(PyObject::new(PyComplex { value }, cls.clone()))
+    PyComplex { value }.into_ref_with_type(vm, cls)
 }
 
 fn complex_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

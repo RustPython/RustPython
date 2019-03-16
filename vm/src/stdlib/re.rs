@@ -112,7 +112,7 @@ struct PyMatch {
 
 impl PyValue for PyMatch {
     fn class(vm: &mut VirtualMachine) -> PyObjectRef {
-        vm.import("re").unwrap().get_attr("Match").unwrap()
+        vm.class("re", "Match")
     }
 }
 

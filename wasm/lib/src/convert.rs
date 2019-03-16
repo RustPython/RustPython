@@ -48,7 +48,7 @@ pub fn py_err_to_js_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> JsValu
                         .ok()
                         .and_then(|lineno| lineno.to_u32())
                     {
-                        Reflect::set(&js_err, &"row".into(), &lineno.into());
+                        let _ = Reflect::set(&js_err, &"row".into(), &lineno.into());
                     }
                 }
             }

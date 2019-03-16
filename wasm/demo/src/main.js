@@ -113,7 +113,7 @@ term.on('data', data => {
         } else {
             term.write('\r\n');
             try {
-                terminalVM.exec(input);
+                terminalVM.execSingle(input);
             } catch (err) {
                 if (err instanceof WebAssembly.RuntimeError) {
                     err = window.__RUSTPYTHON_ERROR || err;

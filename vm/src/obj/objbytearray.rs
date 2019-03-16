@@ -6,18 +6,19 @@ use std::ops::{Deref, DerefMut};
 
 use num_traits::ToPrimitive;
 
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objint;
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Debug)]
 pub struct PyByteArray {
     // TODO: shouldn't be public
     pub value: RefCell<Vec<u8>>,
 }
+type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
     pub fn new(data: Vec<u8>) -> Self {
@@ -143,20 +144,14 @@ pub fn init(context: &PyContext) {
     );
 }
 
-fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None)],
-        optional = [(val_option, None)]
-    );
-    if !objtype::issubclass(cls, &vm.ctx.bytearray_type()) {
-        return Err(vm.new_type_error(format!("{:?} is not a subtype of bytearray", cls)));
-    }
-
+fn bytearray_new(
+    cls: PyClassRef,
+    val_option: OptionalArg<PyObjectRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult<PyByteArrayRef> {
     // Create bytes data:
-    let value = if let Some(ival) = val_option {
-        let elements = vm.extract_elements(ival)?;
+    let value = if let OptionalArg::Present(ival) = val_option {
+        let elements = vm.extract_elements(&ival)?;
         let mut data_bytes = vec![];
         for elem in elements.iter() {
             let v = objint::to_int(vm, elem, 10)?;
@@ -171,7 +166,7 @@ fn bytearray_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         vec![]
     };
-    Ok(PyObject::new(PyByteArray::new(value), cls.clone()))
+    PyByteArray::new(value).into_ref_with_type(vm, cls.clone())
 }
 
 fn bytesarray_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

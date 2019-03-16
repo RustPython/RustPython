@@ -65,13 +65,19 @@ fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
-    let items = vm.extract_elements(iterable)?;
-    for item in items {
+    let iterator = objiter::get_iter(vm, iterable)?;
+
+    loop {
+        let item = match objiter::get_next_object(vm, &iterator)? {
+            Some(obj) => obj,
+            None => break,
+        };
         let result = objbool::boolval(vm, item)?;
         if result {
             return Ok(vm.new_bool(true));
         }
     }
+
     Ok(vm.new_bool(false))
 }
 

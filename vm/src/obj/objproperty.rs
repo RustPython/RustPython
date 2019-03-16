@@ -54,15 +54,12 @@ impl PyPropertyRef {
         _doc: OptionalArg<PyStringRef>,
         vm: &mut VirtualMachine,
     ) -> PyResult<PyPropertyRef> {
-        Self::new_with_type(
-            vm,
-            PyProperty {
-                getter: fget.into_option(),
-                setter: fset.into_option(),
-                deleter: fdel.into_option(),
-            },
-            cls,
-        )
+        PyProperty {
+            getter: fget.into_option(),
+            setter: fset.into_option(),
+            deleter: fdel.into_option(),
+        }
+        .into_ref_with_type(vm, cls)
     }
 
     // Descriptor methods
@@ -108,39 +105,30 @@ impl PyPropertyRef {
     // Python builder functions
 
     fn getter(self, getter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
-        Self::new_with_type(
-            vm,
-            PyProperty {
-                getter: getter.or_else(|| self.getter.clone()),
-                setter: self.setter.clone(),
-                deleter: self.deleter.clone(),
-            },
-            self.typ(),
-        )
+        PyProperty {
+            getter: getter.or_else(|| self.getter.clone()),
+            setter: self.setter.clone(),
+            deleter: self.deleter.clone(),
+        }
+        .into_ref_with_type(vm, self.typ())
     }
 
     fn setter(self, setter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
-        Self::new_with_type(
-            vm,
-            PyProperty {
-                getter: self.getter.clone(),
-                setter: setter.or_else(|| self.setter.clone()),
-                deleter: self.deleter.clone(),
-            },
-            self.typ(),
-        )
+        PyProperty {
+            getter: self.getter.clone(),
+            setter: setter.or_else(|| self.setter.clone()),
+            deleter: self.deleter.clone(),
+        }
+        .into_ref_with_type(vm, self.typ())
     }
 
     fn deleter(self, deleter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
-        Self::new_with_type(
-            vm,
-            PyProperty {
-                getter: self.getter.clone(),
-                setter: self.setter.clone(),
-                deleter: deleter.or_else(|| self.deleter.clone()),
-            },
-            self.typ(),
-        )
+        PyProperty {
+            getter: self.getter.clone(),
+            setter: self.setter.clone(),
+            deleter: deleter.or_else(|| self.deleter.clone()),
+        }
+        .into_ref_with_type(vm, self.typ())
     }
 }
 

@@ -21,8 +21,8 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObject, PyObjectRef, PyResult,
-    PyValue, TryFromObject, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -410,8 +410,8 @@ impl Frame {
                 let stop = out[1].take();
                 let step = if out.len() == 3 { out[2].take() } else { None };
 
-                let obj = PyObject::new(PySlice { start, stop, step }, vm.ctx.slice_type());
-                self.push_value(obj);
+                let obj = PySlice { start, stop, step }.into_ref(vm);
+                self.push_value(obj.into_object());
                 Ok(None)
             }
             bytecode::Instruction::ListAppend { i } => {
@@ -692,22 +692,17 @@ impl Frame {
                 let expr = self.pop_value();
                 if !expr.is(&vm.get_none()) {
                     let repr = vm.to_repr(&expr)?;
-                    builtins::builtin_print(
-                        vm,
-                        PyFuncArgs {
-                            args: vec![repr],
-                            kwargs: vec![],
-                        },
-                    )?;
+                    // TODO: implement sys.displayhook
+                    if let Some(print) = vm.ctx.get_attr(&vm.builtins, "print") {
+                        vm.invoke(print, vec![repr])?;
+                    }
                 }
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                let rustfunc = PyObject::new(
-                    PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_)),
-                    vm.ctx.type_type(),
-                );
-                self.push_value(rustfunc);
+                let rustfunc =
+                    PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_)).into_ref(vm);
+                self.push_value(rustfunc.into_object());
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
