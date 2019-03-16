@@ -4,7 +4,6 @@
 
 use std::char;
 use std::io::{self, Write};
-use std::iter;
 use std::path::PathBuf;
 
 use num_traits::{Signed, ToPrimitive};
@@ -19,7 +18,7 @@ use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype;
 
 use crate::frame::Scope;
-use crate::function::{Args, ArgumentError, FromArgs, PyArg, PyFuncArgs};
+use crate::function::{Args, ArgumentError, FromArgs, PyFuncArgs};
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
@@ -592,40 +591,21 @@ pub struct PrintOptions {
 
 // In the future, this impl will be generated w/ a derive macro.
 impl FromArgs for PrintOptions {
-    fn from_args<I>(
-        vm: &mut VirtualMachine,
-        args: &mut iter::Peekable<I>,
-    ) -> Result<Self, ArgumentError>
-    where
-        I: Iterator<Item = PyArg>,
-    {
-        let mut sep: Option<PyStringRef> = None;
-        let mut end: Option<PyStringRef> = None;
-        let mut flush = false;
-
-        for arg in args {
-            match arg {
-                PyArg::Keyword(name, value) => match name.as_str() {
-                    "sep" => {
-                        sep = TryFromObject::try_from_object(vm, value)?;
-                    }
-                    "end" => {
-                        end = TryFromObject::try_from_object(vm, value)?;
-                    }
-                    "flush" => {
-                        flush = TryFromObject::try_from_object(vm, value)?;
-                    }
-                    _ => {
-                        return Err(ArgumentError::InvalidKeywordArgument(name));
-                    }
-                },
-                PyArg::Positional(_) => {
-                    return Err(ArgumentError::TooManyArgs);
-                }
-            }
-        }
-
-        Ok(PrintOptions { sep, end, flush })
+    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+        Ok(PrintOptions {
+            sep: TryFromObject::try_from_object(
+                vm,
+                args.take_keyword("sep").unwrap_or_else(|| vm.ctx.none()),
+            )?,
+            end: TryFromObject::try_from_object(
+                vm,
+                args.take_keyword("end").unwrap_or_else(|| vm.ctx.none()),
+            )?,
+            flush: TryFromObject::try_from_object(
+                vm,
+                args.take_keyword("flush").unwrap_or_else(|| vm.ctx.none()),
+            )?,
+        })
     }
 }
 

@@ -106,6 +106,19 @@ impl PyFuncArgs {
         }
     }
 
+    pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
+        // TODO: change kwarg representation so this scan isn't necessary
+        if let Some(index) = self
+            .kwargs
+            .iter()
+            .position(|(arg_name, _)| arg_name == name)
+        {
+            Some(self.kwargs.remove(index).1)
+        } else {
+            None
+        }
+    }
+
     pub fn remaining_keyword<'a>(&'a mut self) -> impl Iterator<Item = (String, PyObjectRef)> + 'a {
         self.kwargs.drain(..)
     }
