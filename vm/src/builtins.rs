@@ -15,14 +15,13 @@ use crate::obj::objbool;
 use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
-use crate::obj::objstr::{self, PyString, PyStringRef};
+use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype;
 
 use crate::frame::Scope;
 use crate::function::{Args, ArgumentError, FromArgs, PyArg, PyFuncArgs};
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -600,8 +599,8 @@ impl FromArgs for PrintOptions {
     where
         I: Iterator<Item = PyArg>,
     {
-        let mut sep: Option<PyStringRef> = Some(PyString::from(" ").into_ref(vm));
-        let mut end: Option<PyStringRef> = Some(PyString::from("\n").into_ref(vm));
+        let mut sep: Option<PyStringRef> = None;
+        let mut end: Option<PyStringRef> = None;
         let mut flush = false;
 
         for arg in args {
