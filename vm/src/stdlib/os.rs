@@ -1,18 +1,13 @@
-//library imports
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::ErrorKind;
-// use std::env;
 
-//3rd party imports
 use num_traits::cast::ToPrimitive;
 
-//custom imports
+use crate::function::PyFuncArgs;
 use crate::obj::objint;
 use crate::obj::objstr;
-// use crate::obj::objdict;
-
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]

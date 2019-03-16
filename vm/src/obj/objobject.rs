@@ -1,12 +1,14 @@
+use crate::function::PyFuncArgs;
+use crate::obj::objproperty::PropertyBuilder;
+use crate::pyobject::{
+    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
+
 use super::objlist::PyList;
 use super::objstr;
 use super::objtype;
-use crate::obj::objproperty::PropertyBuilder;
-use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 
 #[derive(Clone, Debug)]
 pub struct PyInstance;

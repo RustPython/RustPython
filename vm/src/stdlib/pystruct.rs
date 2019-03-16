@@ -7,15 +7,16 @@
  * https://docs.rs/byteorder/1.2.6/byteorder/
  */
 
-extern crate byteorder;
-use self::byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::io::{Cursor, Read, Write};
 
-use crate::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::VirtualMachine;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use std::io::{Cursor, Read, Write};
+
+use crate::function::PyFuncArgs;
+use crate::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::VirtualMachine;
 
 #[derive(Debug)]
 struct FormatCode {

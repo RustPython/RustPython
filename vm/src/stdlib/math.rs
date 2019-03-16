@@ -3,12 +3,13 @@
  *
  */
 
-use crate::obj::objfloat;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::VirtualMachine;
 use statrs::function::erf::{erf, erfc};
 use statrs::function::gamma::{gamma, ln_gamma};
-use std;
+
+use crate::function::PyFuncArgs;
+use crate::obj::objfloat;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 // Helper macro:
 macro_rules! make_math_func {

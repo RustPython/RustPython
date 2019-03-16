@@ -4,15 +4,14 @@ use std::cell::RefCell;
 use std::fmt::Write;
 use std::ops::{Deref, DerefMut};
 
-use crate::pyobject::{
-    OptionalArg, PyContext, PyFuncArgs, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use num_traits::ToPrimitive;
+
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 use super::objint;
-
 use super::objtype::{self, PyClassRef};
-use crate::vm::VirtualMachine;
-use num_traits::ToPrimitive;
 
 #[derive(Debug)]
 pub struct PyByteArray {

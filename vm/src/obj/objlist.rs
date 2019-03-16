@@ -1,4 +1,14 @@
 use std::cell::{Cell, RefCell};
+use std::fmt;
+
+use num_traits::ToPrimitive;
+
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{
+    IdProtocol, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
@@ -8,13 +18,6 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
-use num_traits::ToPrimitive;
-use std::fmt;
 
 #[derive(Default)]
 pub struct PyList {

@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    PyAttributes, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 

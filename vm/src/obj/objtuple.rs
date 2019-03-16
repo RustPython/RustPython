@@ -2,9 +2,9 @@ use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue,
+    IdProtocol, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 

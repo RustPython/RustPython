@@ -2,12 +2,12 @@
 
 */
 
-use crate::bytecode;
-use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 use std::fmt;
+
+use crate::bytecode;
+use crate::function::PyFuncArgs;
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 pub struct PyCode {
     code: bytecode::CodeObject,

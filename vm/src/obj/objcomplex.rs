@@ -1,12 +1,13 @@
+use num_complex::Complex64;
+use num_traits::ToPrimitive;
+
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
+
 use super::objfloat;
 use super::objint;
 use super::objtype::{self, PyClassRef};
-use crate::pyobject::{
-    OptionalArg, PyContext, PyFuncArgs, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
-use num_complex::Complex64;
-use num_traits::ToPrimitive;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {

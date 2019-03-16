@@ -1,17 +1,19 @@
-use crate::browser_module::setup_browser_module;
-use crate::convert;
-use crate::wasm_builtins;
-use js_sys::{Object, Reflect, SyntaxError, TypeError};
-use rustpython_vm::{
-    compile,
-    frame::{NameProtocol, Scope},
-    pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult},
-    VirtualMachine,
-};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
+
+use js_sys::{Object, Reflect, SyntaxError, TypeError};
 use wasm_bindgen::{prelude::*, JsCast};
+
+use rustpython_vm::compile;
+use rustpython_vm::frame::{NameProtocol, Scope};
+use rustpython_vm::function::PyFuncArgs;
+use rustpython_vm::pyobject::{PyContext, PyObjectRef, PyResult};
+use rustpython_vm::VirtualMachine;
+
+use crate::browser_module::setup_browser_module;
+use crate::convert;
+use crate::wasm_builtins;
 
 pub trait HeldRcInner {}
 
