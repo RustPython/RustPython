@@ -30,8 +30,8 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyValue for PyDict {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.dict_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.dict_type()
     }
 }
 

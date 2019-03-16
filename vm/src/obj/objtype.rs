@@ -22,8 +22,8 @@ pub struct PyClass {
 pub type PyClassRef = PyRef<PyClass>;
 
 impl PyValue for PyClass {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.type_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.type_type()
     }
 }
 

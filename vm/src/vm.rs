@@ -103,6 +103,13 @@ impl VirtualMachine {
         &frame.scope
     }
 
+    pub fn class(&mut self, module: &str, class: &str) -> PyObjectRef {
+        self.import(module)
+            .unwrap_or_else(|_| panic!("unable to import {}", module))
+            .get_attr(class)
+            .unwrap_or_else(|| panic!("module {} has no class {}", module, class))
+    }
+
     /// Create a new python string object.
     pub fn new_str(&self, s: String) -> PyObjectRef {
         self.ctx.new_str(s)

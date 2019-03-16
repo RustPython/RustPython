@@ -13,8 +13,8 @@ pub struct PyFilter {
 }
 
 impl PyValue for PyFilter {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.filter_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.filter_type()
     }
 }
 

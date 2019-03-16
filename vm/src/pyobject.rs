@@ -164,8 +164,8 @@ pub fn create_type(name: &str, type_type: &PyObjectRef, base: &PyObjectRef) -> P
 pub struct PyNotImplemented;
 
 impl PyValue for PyNotImplemented {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.not_implemented().typ()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented().typ()
     }
 }
 
@@ -173,8 +173,8 @@ impl PyValue for PyNotImplemented {
 pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.ellipsis_type.clone()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.ellipsis_type.clone()
     }
 }
 
@@ -713,23 +713,23 @@ pub struct PyRef<T: ?Sized> {
 }
 
 impl<T: PyValue> PyRef<T> {
-    pub fn new(ctx: &PyContext, payload: T) -> Self {
+    pub fn new(vm: &mut VirtualMachine, payload: T) -> Self {
         PyRef {
-            obj: PyObject::new(payload, T::required_type(ctx)),
+            obj: PyObject::new(payload, T::class(vm)),
             _payload: PhantomData,
         }
     }
 
     pub fn new_with_type(vm: &mut VirtualMachine, payload: T, cls: PyClassRef) -> PyResult<Self> {
-        let required_type = T::required_type(&vm.ctx);
-        if objtype::issubclass(&cls.obj, &required_type) {
+        let class = T::class(vm);
+        if objtype::issubclass(&cls.obj, &class) {
             Ok(PyRef {
                 obj: PyObject::new(payload, cls.obj),
                 _payload: PhantomData,
             })
         } else {
             let subtype = vm.to_pystr(&cls.obj)?;
-            let basetype = vm.to_pystr(&required_type)?;
+            let basetype = vm.to_pystr(&class)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
     }
@@ -759,13 +759,14 @@ impl<T: PyValue> Deref for PyRef<T> {
 
 impl<T: PyValue> TryFromObject for PyRef<T> {
     fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if objtype::isinstance(&obj, &T::required_type(&vm.ctx)) {
+        if objtype::isinstance(&obj, &T::class(vm)) {
             Ok(PyRef {
                 obj,
                 _payload: PhantomData,
             })
         } else {
-            let expected_type = vm.to_pystr(&T::required_type(&vm.ctx))?;
+            let class = T::class(vm);
+            let expected_type = vm.to_pystr(&class)?;
             let actual_type = vm.to_pystr(&obj.typ())?;
             Err(vm.new_type_error(format!(
                 "Expected type {}, not {}",
@@ -776,7 +777,7 @@ impl<T: PyValue> TryFromObject for PyRef<T> {
 }
 
 impl<T> IntoPyObject for PyRef<T> {
-    fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
+    fn into_pyobject(self, _vm: &mut VirtualMachine) -> PyResult {
         Ok(self.obj)
     }
 }
@@ -1380,11 +1381,11 @@ pub trait TryFromObject: Sized {
 /// and should be implemented by many primitive Rust types, allowing a built-in
 /// function to simply return a `bool` or a `usize` for example.
 pub trait IntoPyObject {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult;
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult;
 }
 
 impl IntoPyObject for PyObjectRef {
-    fn into_pyobject(self, _ctx: &PyContext) -> PyResult {
+    fn into_pyobject(self, _vm: &mut VirtualMachine) -> PyResult {
         Ok(self)
     }
 }
@@ -1393,8 +1394,8 @@ impl<T> IntoPyObject for PyResult<T>
 where
     T: IntoPyObject,
 {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        self.and_then(|res| T::into_pyobject(res, ctx))
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+        self.and_then(|res| T::into_pyobject(res, vm))
     }
 }
 
@@ -1404,8 +1405,8 @@ impl<T> IntoPyObject for T
 where
     T: PyValue + Sized,
 {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(PyObject::new(self, T::required_type(ctx)))
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+        Ok(PyObject::new(self, T::class(vm)))
     }
 }
 
@@ -1521,7 +1522,7 @@ macro_rules! into_py_native_func_tuple {
                 Box::new(move |vm, args| {
                     let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
-                    (self)($($n,)* vm).into_pyobject(&vm.ctx)
+                    (self)($($n,)* vm).into_pyobject(vm)
                 })
             }
         }
@@ -1544,8 +1545,8 @@ pub struct PyIteratorValue {
 }
 
 impl PyValue for PyIteratorValue {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.iter_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.iter_type()
     }
 }
 
@@ -1573,25 +1574,25 @@ impl PyObject<dyn PyObjectPayload> {
 }
 
 pub trait PyValue: fmt::Debug + Sized + 'static {
-    fn required_type(ctx: &PyContext) -> PyObjectRef;
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef;
 
-    fn into_ref(self, ctx: &PyContext) -> PyRef<Self> {
+    fn into_ref(self, vm: &mut VirtualMachine) -> PyRef<Self> {
         PyRef {
-            obj: PyObject::new(self, Self::required_type(ctx)),
+            obj: PyObject::new(self, Self::class(vm)),
             _payload: PhantomData,
         }
     }
 
     fn into_ref_with_type(self, vm: &mut VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
-        let required_type = Self::required_type(&vm.ctx);
-        if objtype::issubclass(&cls.obj, &required_type) {
+        let class = Self::class(vm);
+        if objtype::issubclass(&cls.obj, &class) {
             Ok(PyRef {
                 obj: PyObject::new(self, cls.obj),
                 _payload: PhantomData,
             })
         } else {
             let subtype = vm.to_pystr(&cls.obj)?;
-            let basetype = vm.to_pystr(&required_type)?;
+            let basetype = vm.to_pystr(&class)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
     }

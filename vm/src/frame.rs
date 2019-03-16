@@ -184,8 +184,8 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.frame_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.frame_type()
     }
 }
 
@@ -691,13 +691,10 @@ impl Frame {
                 let expr = self.pop_value();
                 if !expr.is(&vm.get_none()) {
                     let repr = vm.to_repr(&expr)?;
-                    builtins::builtin_print(
-                        vm,
-                        PyFuncArgs {
-                            args: vec![repr],
-                            kwargs: vec![],
-                        },
-                    )?;
+                    // TODO: implement sys.displayhook
+                    if let Some(print) = vm.ctx.get_attr(&vm.builtins, "print") {
+                        vm.invoke(print, vec![repr])?;
+                    }
                 }
                 Ok(None)
             }

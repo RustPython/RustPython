@@ -597,14 +597,14 @@ impl PyStringRef {
 }
 
 impl PyValue for PyString {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.str_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.str_type()
     }
 }
 
 impl IntoPyObject for String {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.new_str(self))
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_str(self))
     }
 }
 
