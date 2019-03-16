@@ -25,6 +25,8 @@ extern crate serde_json;
 extern crate statrs;
 
 extern crate rustpython_parser;
+#[macro_use]
+extern crate rustpython_derive;
 
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};

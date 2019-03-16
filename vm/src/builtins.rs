@@ -18,9 +18,9 @@ use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype;
 
 use crate::frame::Scope;
-use crate::function::{Args, ArgumentError, FromArgs, PyFuncArgs};
+use crate::function::{Args, PyFuncArgs};
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -582,31 +582,11 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, FromArgs)]
 pub struct PrintOptions {
     sep: Option<PyStringRef>,
     end: Option<PyStringRef>,
     flush: bool,
-}
-
-// In the future, this impl will be generated w/ a derive macro.
-impl FromArgs for PrintOptions {
-    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        Ok(PrintOptions {
-            sep: TryFromObject::try_from_object(
-                vm,
-                args.take_keyword("sep").unwrap_or_else(|| vm.ctx.none()),
-            )?,
-            end: TryFromObject::try_from_object(
-                vm,
-                args.take_keyword("end").unwrap_or_else(|| vm.ctx.none()),
-            )?,
-            flush: TryFromObject::try_from_object(
-                vm,
-                args.take_keyword("flush").unwrap_or_else(|| vm.ctx.none()),
-            )?,
-        })
-    }
 }
 
 pub fn builtin_print(
