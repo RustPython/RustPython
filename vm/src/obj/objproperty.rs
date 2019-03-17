@@ -68,6 +68,19 @@ impl PyPropertyRef {
 
     // Descriptor methods
 
+    // specialised version that doesn't check for None
+    pub(crate) fn instance_binding_get(
+        self,
+        obj: PyObjectRef,
+        vm: &mut VirtualMachine,
+    ) -> PyResult {
+        if let Some(getter) = self.getter.as_ref() {
+            vm.invoke(getter.clone(), obj)
+        } else {
+            Err(vm.new_attribute_error("unreadable attribute".to_string()))
+        }
+    }
+
     fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
             if obj.is(&vm.ctx.none) {
