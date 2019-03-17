@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::iter;
 use std::ops::RangeInclusive;
 
 use crate::obj::objtype;
@@ -99,14 +98,16 @@ impl PyFuncArgs {
         }
     }
 
-    /// Serializes these arguments into an iterator starting with the positional
-    /// arguments followed by keyword arguments.
-    fn into_iter(self) -> impl Iterator<Item = PyArg> {
-        self.args.into_iter().map(PyArg::Positional).chain(
-            self.kwargs
-                .into_iter()
-                .map(|(name, value)| PyArg::Keyword(name, value)),
-        )
+    pub fn next_positional(&mut self) -> Option<PyObjectRef> {
+        if self.args.is_empty() {
+            None
+        } else {
+            Some(self.args.remove(0))
+        }
+    }
+
+    pub fn remaining_keyword<'a>(&'a mut self) -> impl Iterator<Item = (String, PyObjectRef)> + 'a {
+        self.kwargs.drain(..)
     }
 
     /// Binds these arguments to their respective values.
@@ -117,10 +118,9 @@ impl PyFuncArgs {
     ///
     /// If the given `FromArgs` includes any conversions, exceptions raised
     /// during the conversion will halt the binding and return the error.
-    fn bind<T: FromArgs>(self, vm: &mut VirtualMachine) -> PyResult<T> {
+    fn bind<T: FromArgs>(mut self, vm: &mut VirtualMachine) -> PyResult<T> {
         let given_args = self.args.len();
-        let mut args = self.into_iter().peekable();
-        let bound = match T::from_args(vm, &mut args) {
+        let bound = match T::from_args(vm, &mut self) {
             Ok(args) => args,
             Err(ArgumentError::TooFewArgs) => {
                 return Err(vm.new_type_error(format!(
@@ -141,23 +141,18 @@ impl PyFuncArgs {
             }
         };
 
-        match args.next() {
-            None => Ok(bound),
-            Some(PyArg::Positional(_)) => Err(vm.new_type_error(format!(
+        if !self.args.is_empty() {
+            Err(vm.new_type_error(format!(
                 "Expected at most {} arguments ({} given)",
                 T::arity().end(),
                 given_args,
-            ))),
-            Some(PyArg::Keyword(name, _)) => {
-                Err(vm.new_type_error(format!("Unexpected keyword argument {}", name)))
-            }
+            )))
+        } else if !self.kwargs.is_empty() {
+            Err(vm.new_type_error(format!("Unexpected keyword argument {}", self.kwargs[0].0)))
+        } else {
+            Ok(bound)
         }
     }
-}
-
-pub enum PyArg {
-    Positional(PyObjectRef),
-    Keyword(String, PyObjectRef),
 }
 
 /// An error encountered while binding arguments to the parameters of a Python
@@ -190,12 +185,7 @@ pub trait FromArgs: Sized {
     }
 
     /// Extracts this item from the next argument(s).
-    fn from_args<I>(
-        vm: &mut VirtualMachine,
-        args: &mut iter::Peekable<I>,
-    ) -> Result<Self, ArgumentError>
-    where
-        I: Iterator<Item = PyArg>;
+    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
 }
 /// A map of keyword arguments to their values.
 ///
@@ -211,27 +201,12 @@ impl<T> FromArgs for KwArgs<T>
 where
     T: TryFromObject,
 {
-    fn from_args<I>(
-        vm: &mut VirtualMachine,
-        args: &mut iter::Peekable<I>,
-    ) -> Result<Self, ArgumentError>
-    where
-        I: Iterator<Item = PyArg>,
-    {
+    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = HashMap::new();
-        loop {
-            match args.next() {
-                Some(PyArg::Keyword(name, value)) => {
-                    kwargs.insert(name, T::try_from_object(vm, value)?);
-                }
-                Some(PyArg::Positional(_)) => {
-                    return Err(ArgumentError::TooManyArgs);
-                }
-                None => {
-                    return Ok(KwArgs(kwargs));
-                }
-            }
+        for (name, value) in args.remaining_keyword() {
+            kwargs.insert(name, T::try_from_object(vm, value)?);
         }
+        Ok(KwArgs(kwargs))
     }
 }
 
@@ -249,15 +224,9 @@ impl<T> FromArgs for Args<T>
 where
     T: TryFromObject,
 {
-    fn from_args<I>(
-        vm: &mut VirtualMachine,
-        args: &mut iter::Peekable<I>,
-    ) -> Result<Self, ArgumentError>
-    where
-        I: Iterator<Item = PyArg>,
-    {
+    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
-        while let Some(PyArg::Positional(value)) = args.next() {
+        while let Some(value) = args.next_positional() {
             varargs.push(T::try_from_object(vm, value)?);
         }
         Ok(Args(varargs))
@@ -272,14 +241,8 @@ where
         1..=1
     }
 
-    fn from_args<I>(
-        vm: &mut VirtualMachine,
-        args: &mut iter::Peekable<I>,
-    ) -> Result<Self, ArgumentError>
-    where
-        I: Iterator<Item = PyArg>,
-    {
-        if let Some(PyArg::Positional(value)) = args.next() {
+    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+        if let Some(value) = args.next_positional() {
             Ok(T::try_from_object(vm, value)?)
         } else {
             Err(ArgumentError::TooFewArgs)
@@ -312,36 +275,19 @@ where
         0..=1
     }
 
-    fn from_args<I>(
-        vm: &mut VirtualMachine,
-        args: &mut iter::Peekable<I>,
-    ) -> Result<Self, ArgumentError>
-    where
-        I: Iterator<Item = PyArg>,
-    {
-        Ok(if let Some(PyArg::Positional(_)) = args.peek() {
-            let value = if let Some(PyArg::Positional(value)) = args.next() {
-                value
-            } else {
-                unreachable!()
-            };
-            Present(T::try_from_object(vm, value)?)
+    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+        if let Some(value) = args.next_positional() {
+            Ok(Present(T::try_from_object(vm, value)?))
         } else {
-            Missing
-        })
+            Ok(Missing)
+        }
     }
 }
 
 // For functions that accept no arguments. Implemented explicitly instead of via
 // macro below to avoid unused warnings.
 impl FromArgs for () {
-    fn from_args<I>(
-        _vm: &mut VirtualMachine,
-        _args: &mut iter::Peekable<I>,
-    ) -> Result<Self, ArgumentError>
-    where
-        I: Iterator<Item = PyArg>,
-    {
+    fn from_args(_vm: &mut VirtualMachine, _args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         Ok(())
     }
 }
@@ -369,13 +315,7 @@ macro_rules! tuple_from_py_func_args {
                 min..=max
             }
 
-            fn from_args<I>(
-                vm: &mut VirtualMachine,
-                args: &mut iter::Peekable<I>
-            ) -> Result<Self, ArgumentError>
-            where
-                I: Iterator<Item = PyArg>
-            {
+            fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
                 Ok(($($T::from_args(vm, args)?,)+))
             }
         }
