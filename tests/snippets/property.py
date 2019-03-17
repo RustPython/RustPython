@@ -16,6 +16,8 @@ f = Fubar()
 assert f.foo == 100
 assert f.foo == 101
 
+assert type(Fubar.foo) is property
+
 
 null_property = property()
 assert type(null_property) is property
@@ -45,3 +47,5 @@ assert p1.deleter(3).fdel == 3
 assert p1.getter(None).fget == "a"
 assert p1.setter(None).fset == "b"
 assert p1.deleter(None).fdel == "c"
+
+assert p1.__get__(None, object) is p1
