@@ -108,7 +108,6 @@ matrix:
         # the built-in cargo cacher
         directories:
           - /home/travis/.cargo
-          - target
       script:
         - tests/.travis-runner.sh
       env:
