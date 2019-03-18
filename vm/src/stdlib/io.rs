@@ -20,7 +20,8 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::pyobject::{
-    AttributeProtocol, BufferProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol, PyValue, PyObject, PyRef
+    AttributeProtocol, BufferProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
