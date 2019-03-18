@@ -1,26 +1,36 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
+use std::string::ToString;
 
 use num_traits::ToPrimitive;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySlice;
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Clone, Debug)]
 pub struct PyString {
     // TODO: shouldn't be public
     pub value: String,
+}
+
+impl<T: ToString> From<T> for PyString {
+    fn from(t: T) -> PyString {
+        PyString {
+            value: t.to_string(),
+        }
+    }
 }
 
 pub type PyStringRef = PyRef<PyString>;
@@ -597,14 +607,14 @@ impl PyStringRef {
 }
 
 impl PyValue for PyString {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.str_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.str_type()
     }
 }
 
 impl IntoPyObject for String {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.new_str(self))
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_str(self))
     }
 }
 
@@ -788,16 +798,21 @@ fn perform_format(
 // TODO: should with following format
 // class str(object='')
 // class str(object=b'', encoding='utf-8', errors='strict')
-fn str_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.len() == 1 {
-        return Ok(vm.new_str("".to_string()));
-    }
-
-    if args.args.len() > 2 {
-        panic!("str expects exactly one parameter");
+fn str_new(
+    cls: PyClassRef,
+    object: OptionalArg<PyObjectRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult<PyStringRef> {
+    let string = match object {
+        OptionalArg::Present(ref input) => vm.to_str(input)?,
+        OptionalArg::Missing => vm.new_str("".to_string()),
     };
-
-    vm.to_str(&args.args[1])
+    if string.typ().is(&cls) {
+        TryFromObject::try_from_object(vm, string)
+    } else {
+        let payload = string.payload::<PyString>().unwrap();
+        payload.clone().into_ref_with_type(vm, cls)
+    }
 }
 
 impl PySliceableSequence for String {

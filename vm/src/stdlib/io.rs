@@ -2,7 +2,6 @@
  * I/O core tools.
  */
 
-//library imports
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fs::File;
@@ -10,23 +9,19 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-//3rd party imports
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
-//custom imports
 use super::os;
+use crate::function::PyFuncArgs;
+use crate::import;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
-
 use crate::pyobject::{
-    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, BufferProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol, PyValue, PyObject, PyRef
 };
-
-use crate::import;
 use crate::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {
@@ -47,8 +42,8 @@ struct PyStringIO {
 type PyStringIORef = PyRef<PyStringIO>;
 
 impl PyValue for PyStringIO {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
-        unimplemented!();
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.class("io", "StringIO")
     }
 }
 

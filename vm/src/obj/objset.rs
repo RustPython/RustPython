@@ -3,28 +3,37 @@
  */
 
 use std::cell::{Cell, RefCell};
-use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
+use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use crate::function::PyFuncArgs;
+use crate::pyobject::{
+    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
 use super::objiter;
 use super::objstr;
 use super::objtype;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct PySet {
     elements: RefCell<HashMap<u64, PyObjectRef>>,
 }
 
+impl fmt::Debug for PySet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("set")
+    }
+}
+
 impl PyValue for PySet {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.set_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.set_type()
     }
 }
 

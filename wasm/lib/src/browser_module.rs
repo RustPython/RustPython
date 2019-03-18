@@ -1,16 +1,21 @@
-use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
+use std::path::PathBuf;
+
 use futures::Future;
 use js_sys::Promise;
 use num_traits::cast::ToPrimitive;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::{future_to_promise, JsFuture};
+
+use rustpython_vm::function::PyFuncArgs;
+use rustpython_vm::import::import_module;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue,
-    TypeProtocol,
+    AttributeProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
-use rustpython_vm::{import::import_module, VirtualMachine};
-use std::path::PathBuf;
-use wasm_bindgen::{prelude::*, JsCast};
-use wasm_bindgen_futures::{future_to_promise, JsFuture};
+use rustpython_vm::VirtualMachine;
+
+use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
 
 enum FetchResponseFormat {
     Json,
@@ -158,7 +163,7 @@ pub struct PyPromise {
 }
 
 impl PyValue for PyPromise {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+    fn class(_vm: &mut VirtualMachine) -> PyObjectRef {
         // TODO
         unimplemented!()
     }
@@ -171,7 +176,7 @@ impl PyPromise {
 }
 
 pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
-    if let Some(promise) = obj.payload.downcast_ref::<PyPromise>() {
+    if let Some(promise) = obj.payload::<PyPromise>() {
         return promise.value.clone();
     }
     panic!("Inner error getting promise")

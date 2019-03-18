@@ -1,13 +1,14 @@
-use crate::browser_module;
-use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, Uint8Array};
 use num_traits::cast::ToPrimitive;
-use rustpython_vm::obj::{objbytes, objint, objsequence, objtype};
-use rustpython_vm::pyobject::{
-    self, AttributeProtocol, DictProtocol, PyFuncArgs, PyObjectRef, PyResult,
-};
-use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
+
+use rustpython_vm::function::PyFuncArgs;
+use rustpython_vm::obj::{objbytes, objint, objsequence, objtype};
+use rustpython_vm::pyobject::{AttributeProtocol, DictProtocol, PyObjectRef, PyResult};
+use rustpython_vm::VirtualMachine;
+
+use crate::browser_module;
+use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
 
 pub fn py_err_to_js_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> JsValue {
     macro_rules! map_exceptions {
@@ -47,7 +48,7 @@ pub fn py_err_to_js_err(vm: &mut VirtualMachine, py_err: &PyObjectRef) -> JsValu
                         .ok()
                         .and_then(|lineno| lineno.to_u32())
                     {
-                        Reflect::set(&js_err, &"row".into(), &lineno.into());
+                        let _ = Reflect::set(&js_err, &"row".into(), &lineno.into());
                     }
                 }
             }
@@ -83,7 +84,7 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                     let vm = &mut acc_vm
                         .upgrade()
                         .expect("acc. VM to be invalid when WASM vm is valid");
-                    let mut py_func_args = rustpython_vm::pyobject::PyFuncArgs::default();
+                    let mut py_func_args = PyFuncArgs::default();
                     if let Some(ref args) = args {
                         for arg in args.values() {
                             py_func_args.args.push(js_to_py(vm, arg?));
@@ -132,7 +133,7 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             .expect("Couldn't get json module")
             .get_attr("dumps".into())
             .expect("Couldn't get json dumps");
-        match vm.invoke(dumps, pyobject::PyFuncArgs::new(vec![py_obj], vec![])) {
+        match vm.invoke(dumps, PyFuncArgs::new(vec![py_obj], vec![])) {
             Ok(value) => {
                 let json = vm.to_pystr(&value).unwrap();
                 js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED)
@@ -239,7 +240,7 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
         };
         let py_json = vm.new_str(json);
 
-        vm.invoke(loads, pyobject::PyFuncArgs::new(vec![py_json], vec![]))
+        vm.invoke(loads, PyFuncArgs::new(vec![py_json], vec![]))
             // can safely unwrap because we know it's valid JSON
             .unwrap()
     }

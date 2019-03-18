@@ -1,14 +1,16 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    AttributeProtocol, FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObject,
-    PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objdict;
 use super::objlist::PyList;
+use super::objproperty::PropertyBuilder;
 use super::objstr::{self, PyStringRef};
 use super::objtuple::PyTuple;
 
@@ -21,8 +23,8 @@ pub struct PyClass {
 pub type PyClassRef = PyRef<PyClass>;
 
 impl PyValue for PyClass {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.type_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.type_type()
     }
 }
 
@@ -78,6 +80,10 @@ impl PyClassRef {
         PyTuple::from(elements)
     }
 
+    fn set_mro(self, _value: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+        Err(vm.new_attribute_error("read-only attribute".to_string()))
+    }
+
     fn dir(self, vm: &mut VirtualMachine) -> PyList {
         let attributes = get_attributes(self);
         let attributes: Vec<PyObjectRef> = attributes
@@ -116,7 +122,11 @@ pub fn init(ctx: &PyContext) {
     extend_class!(&ctx, &ctx.type_type, {
         "__call__" => ctx.new_rustfunc(type_call),
         "__new__" => ctx.new_rustfunc(type_new),
-        "__mro__" => ctx.new_property(PyClassRef::mro),
+        "__mro__" =>
+            PropertyBuilder::new(ctx)
+                .add_getter(PyClassRef::mro)
+                .add_setter(PyClassRef::set_mro)
+                .create(),
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
         "__getattribute__" => ctx.new_rustfunc(type_getattribute),

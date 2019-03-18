@@ -1,10 +1,12 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::{Deref, DerefMut};
 
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    PyAttributes, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -14,16 +16,23 @@ use super::objtype;
 
 pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct PyDict {
     // TODO: should be private
     pub entries: RefCell<DictContentType>,
 }
 pub type PyDictRef = PyRef<PyDict>;
 
+impl fmt::Debug for PyDict {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("dict")
+    }
+}
+
 impl PyValue for PyDict {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.dict_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.dict_type()
     }
 }
 

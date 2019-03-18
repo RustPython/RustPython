@@ -2,8 +2,9 @@
  * Dynamic type creation and names for built in types.
  */
 
+use crate::function::PyFuncArgs;
 use crate::obj::objtype;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 
 fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

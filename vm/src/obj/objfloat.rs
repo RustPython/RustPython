@@ -16,14 +16,14 @@ pub struct PyFloat {
 }
 
 impl PyValue for PyFloat {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.float_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.float_type()
     }
 }
 
 impl IntoPyObject for f64 {
-    fn into_pyobject(self, ctx: &PyContext) -> PyResult {
-        Ok(ctx.new_float(self))
+    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_float(self))
     }
 }
 

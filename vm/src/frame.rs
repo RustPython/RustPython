@@ -8,6 +8,7 @@ use rustpython_parser::ast;
 
 use crate::builtins;
 use crate::bytecode;
+use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
@@ -20,8 +21,8 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -76,10 +77,17 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Scope {
     locals: RcList<PyObjectRef>,
     pub globals: PyObjectRef,
+}
+
+impl fmt::Debug for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: have a more informative Debug impl that DOESN'T recurse and cause a stack overflow
+        f.write_str("Scope")
+    }
 }
 
 impl Scope {
@@ -99,10 +107,7 @@ impl Scope {
     }
 
     pub fn get_only_locals(&self) -> Option<PyObjectRef> {
-        match self.locals.iter().next() {
-            Some(dict) => Some(dict.clone()),
-            None => None,
-        }
+        self.locals.iter().next().cloned()
     }
 
     pub fn child_scope_with_locals(&self, locals: PyObjectRef) -> Scope {
@@ -180,8 +185,8 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.frame_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.frame_type()
     }
 }
 
@@ -405,8 +410,8 @@ impl Frame {
                 let stop = out[1].take();
                 let step = if out.len() == 3 { out[2].take() } else { None };
 
-                let obj = PyObject::new(PySlice { start, stop, step }, vm.ctx.slice_type());
-                self.push_value(obj);
+                let obj = PySlice { start, stop, step }.into_ref(vm);
+                self.push_value(obj.into_object());
                 Ok(None)
             }
             bytecode::Instruction::ListAppend { i } => {
@@ -687,22 +692,17 @@ impl Frame {
                 let expr = self.pop_value();
                 if !expr.is(&vm.get_none()) {
                     let repr = vm.to_repr(&expr)?;
-                    builtins::builtin_print(
-                        vm,
-                        PyFuncArgs {
-                            args: vec![repr],
-                            kwargs: vec![],
-                        },
-                    )?;
+                    // TODO: implement sys.displayhook
+                    if let Some(print) = vm.ctx.get_attr(&vm.builtins, "print") {
+                        vm.invoke(print, vec![repr])?;
+                    }
                 }
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                let rustfunc = PyObject::new(
-                    PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_)),
-                    vm.ctx.type_type(),
-                );
-                self.push_value(rustfunc);
+                let rustfunc =
+                    PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_)).into_ref(vm);
+                self.push_value(rustfunc.into_object());
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
@@ -1211,22 +1211,25 @@ impl fmt::Debug for Frame {
             .stack
             .borrow()
             .iter()
-            .map(|elem| format!("\n  > {:?}", elem))
-            .collect::<Vec<_>>()
-            .join("");
+            .map(|elem| {
+                if elem.payload.as_any().is::<Frame>() {
+                    "\n  > {frame}".to_string()
+                } else {
+                    format!("\n  > {:?}", elem)
+                }
+            })
+            .collect::<String>();
         let block_str = self
             .blocks
             .borrow()
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
-            .collect::<Vec<_>>()
-            .join("");
+            .collect::<String>();
         let local_str = match self.scope.get_locals().payload::<PyDict>() {
             Some(dict) => objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
                 .iter()
                 .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-                .collect::<Vec<_>>()
-                .join(""),
+                .collect::<String>(),
             None => panic!("locals unexpectedly not wrapping a dict!",),
         };
         write!(

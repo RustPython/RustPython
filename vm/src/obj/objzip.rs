@@ -1,6 +1,5 @@
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objiter;
@@ -11,8 +10,8 @@ pub struct PyZip {
 }
 
 impl PyValue for PyZip {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.zip_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.zip_type()
     }
 }
 

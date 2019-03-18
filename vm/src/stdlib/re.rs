@@ -5,21 +5,21 @@
  * system.
  */
 
-// extern crate regex;
-use crate::import;
-use regex::{Match, Regex};
 use std::path::PathBuf;
 
+use regex::{Match, Regex};
+
+use crate::function::PyFuncArgs;
+use crate::import;
 use crate::obj::objstr;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::VirtualMachine;
+use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
-        // TODO
-        unimplemented!()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.import("re").unwrap().get_attr("Pattern").unwrap()
     }
 }
 
@@ -111,9 +111,8 @@ struct PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
-        // TODO
-        unimplemented!()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.class("re", "Match")
     }
 }
 
@@ -197,7 +196,7 @@ fn match_end(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 /// Retrieve inner rust regex from python object:
 fn get_regex<'a>(obj: &'a PyObjectRef) -> &'a Regex {
     // TODO: Regex shouldn't be stored in payload directly, create newtype wrapper
-    if let Some(regex) = obj.payload.downcast_ref::<Regex>() {
+    if let Some(regex) = obj.payload::<Regex>() {
         return regex;
     }
     panic!("Inner error getting regex {:?}", obj);
@@ -205,7 +204,7 @@ fn get_regex<'a>(obj: &'a PyObjectRef) -> &'a Regex {
 
 /// Retrieve inner rust match from python object:
 fn get_match<'a>(obj: &'a PyObjectRef) -> &'a PyMatch {
-    if let Some(value) = obj.payload.downcast_ref::<PyMatch>() {
+    if let Some(value) = obj.payload::<PyMatch>() {
         return value;
     }
     panic!("Inner error getting match {:?}", obj);

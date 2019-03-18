@@ -1,9 +1,10 @@
-use super::objint;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
+
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
+
+use super::objint;
 
 #[derive(Debug)]
 pub struct PySlice {
@@ -14,8 +15,8 @@ pub struct PySlice {
 }
 
 impl PyValue for PySlice {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.slice_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.slice_type()
     }
 }
 

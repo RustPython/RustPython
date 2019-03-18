@@ -18,3 +18,5 @@ class C(A, B):
     pass
 
 assert (C, A, B, X, Y, object) == C.__mro__
+
+assert type.__mro__ == (type, object)

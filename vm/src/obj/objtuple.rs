@@ -1,9 +1,10 @@
 use std::cell::{Cell, RefCell};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
+use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue,
+    IdProtocol, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -15,11 +16,18 @@ use super::objsequence::{
 use super::objstr;
 use super::objtype;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct PyTuple {
     // TODO: shouldn't be public
     // TODO: tuples are immutable, remove this RefCell
     pub elements: RefCell<Vec<PyObjectRef>>,
+}
+
+impl fmt::Debug for PyTuple {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more informational, non-recursive Debug formatter
+        f.write_str("tuple")
+    }
 }
 
 impl From<Vec<PyObjectRef>> for PyTuple {
@@ -31,8 +39,8 @@ impl From<Vec<PyObjectRef>> for PyTuple {
 }
 
 impl PyValue for PyTuple {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.tuple_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.tuple_type()
     }
 }
 

@@ -2,14 +2,12 @@
 
 */
 
-use std::marker::PhantomData;
-
+use crate::function::IntoPyNativeFunc;
+use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{
-    IntoPyNativeFunc, OptionalArg, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-};
-use crate::VirtualMachine;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::vm::VirtualMachine;
 
 /// Read-only property, doesn't have __set__ or __delete__
 #[derive(Debug)]
@@ -18,8 +16,8 @@ pub struct PyReadOnlyProperty {
 }
 
 impl PyValue for PyReadOnlyProperty {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.readonly_property_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.readonly_property_type()
     }
 }
 
@@ -40,8 +38,8 @@ pub struct PyProperty {
 }
 
 impl PyValue for PyProperty {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.property_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.property_type()
     }
 }
 
@@ -56,16 +54,15 @@ impl PyPropertyRef {
         _doc: OptionalArg<PyStringRef>,
         vm: &mut VirtualMachine,
     ) -> PyResult<PyPropertyRef> {
-        Self::new_with_type(
-            vm,
-            PyProperty {
-                getter: fget.into_option(),
-                setter: fset.into_option(),
-                deleter: fdel.into_option(),
-            },
-            cls,
-        )
+        PyProperty {
+            getter: fget.into_option(),
+            setter: fset.into_option(),
+            deleter: fdel.into_option(),
+        }
+        .into_ref_with_type(vm, cls)
     }
+
+    // Descriptor methods
 
     fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
@@ -90,42 +87,81 @@ impl PyPropertyRef {
             Err(vm.new_attribute_error("can't delete attribute".to_string()))
         }
     }
+
+    // Access functions
+
+    fn fget(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+        self.getter.clone()
+    }
+
+    fn fset(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+        self.setter.clone()
+    }
+
+    fn fdel(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+        self.deleter.clone()
+    }
+
+    // Python builder functions
+
+    fn getter(self, getter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+        PyProperty {
+            getter: getter.or_else(|| self.getter.clone()),
+            setter: self.setter.clone(),
+            deleter: self.deleter.clone(),
+        }
+        .into_ref_with_type(vm, self.typ())
+    }
+
+    fn setter(self, setter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+        PyProperty {
+            getter: self.getter.clone(),
+            setter: setter.or_else(|| self.setter.clone()),
+            deleter: self.deleter.clone(),
+        }
+        .into_ref_with_type(vm, self.typ())
+    }
+
+    fn deleter(self, deleter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+        PyProperty {
+            getter: self.getter.clone(),
+            setter: self.setter.clone(),
+            deleter: deleter.or_else(|| self.deleter.clone()),
+        }
+        .into_ref_with_type(vm, self.typ())
+    }
 }
 
-pub struct PropertyBuilder<'a, T> {
+pub struct PropertyBuilder<'a> {
     ctx: &'a PyContext,
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
-    _return: PhantomData<T>,
 }
 
-impl<'a, T> PropertyBuilder<'a, T> {
+impl<'a> PropertyBuilder<'a> {
     pub fn new(ctx: &'a PyContext) -> Self {
         Self {
             ctx,
             getter: None,
             setter: None,
-            _return: PhantomData,
         }
     }
 
-    pub fn add_getter<I, F: IntoPyNativeFunc<I, T>>(self, func: F) -> Self {
+    pub fn add_getter<I, V, F: IntoPyNativeFunc<I, V>>(self, func: F) -> Self {
         let func = self.ctx.new_rustfunc(func);
         Self {
             ctx: self.ctx,
             getter: Some(func),
             setter: self.setter,
-            _return: PhantomData,
         }
     }
 
-    pub fn add_setter<I, F: IntoPyNativeFunc<(I, T), PyResult>>(self, func: F) -> Self {
+    pub fn add_setter<I, V, F: IntoPyNativeFunc<(I, V), PyResult>>(self, func: F) -> Self {
         let func = self.ctx.new_rustfunc(func);
         Self {
             ctx: self.ctx,
             getter: self.getter,
             setter: Some(func),
-            _return: PhantomData,
         }
     }
 
@@ -190,5 +226,13 @@ pub fn init(context: &PyContext) {
         "__get__" => context.new_rustfunc(PyPropertyRef::get),
         "__set__" => context.new_rustfunc(PyPropertyRef::set),
         "__delete__" => context.new_rustfunc(PyPropertyRef::delete),
+
+        "fget" => context.new_property(PyPropertyRef::fget),
+        "fset" => context.new_property(PyPropertyRef::fset),
+        "fdel" => context.new_property(PyPropertyRef::fdel),
+
+        "getter" => context.new_rustfunc(PyPropertyRef::getter),
+        "setter" => context.new_rustfunc(PyPropertyRef::setter),
+        "deleter" => context.new_rustfunc(PyPropertyRef::deleter),
     });
 }

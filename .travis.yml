@@ -115,6 +115,26 @@ matrix:
         - TRAVIS_RUST_VERSION=nightly
         - REGULAR_TEST=false
         - CODE_COVERAGE=true
+    - name: test WASM
+      language: python
+      python: 3.6
+      cache:
+        pip: true
+        # Because we're using the Python Travis environment, we can't use
+        # the built-in cargo cacher
+        directories:
+          - /home/travis/.cargo
+          - target
+      addons:
+        firefox: latest
+      install:
+        - nvm install node
+        - pip install pipenv
+      script:
+        - wasm/tests/.travis-runner.sh
+      env:
+        - REGULAR_TEST=true
+        - TRAVIS_RUST_VERSION=stable
   allow_failures:
     - rust: nightly
       env: REGULAR_TEST=true

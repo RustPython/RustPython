@@ -1,7 +1,6 @@
 use crate::frame::Scope;
-use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -23,8 +22,8 @@ impl PyFunction {
 }
 
 impl PyValue for PyFunction {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.function_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.function_type()
     }
 }
 
@@ -42,8 +41,8 @@ impl PyMethod {
 }
 
 impl PyValue for PyMethod {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.bound_method_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.bound_method_type()
     }
 }
 

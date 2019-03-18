@@ -5,8 +5,9 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -24,8 +25,8 @@ pub struct PyRange {
 }
 
 impl PyValue for PyRange {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.range_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.range_type()
     }
 }
 

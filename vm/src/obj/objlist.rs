@@ -1,4 +1,14 @@
 use std::cell::{Cell, RefCell};
+use std::fmt;
+
+use num_traits::ToPrimitive;
+
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{
+    IdProtocol, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
@@ -8,17 +18,18 @@ use super::objsequence::{
 };
 use super::objstr;
 use super::objtype;
-use crate::pyobject::{
-    IdProtocol, OptionalArg, PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
-use num_traits::ToPrimitive;
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct PyList {
     // TODO: shouldn't be public
     pub elements: RefCell<Vec<PyObjectRef>>,
+}
+
+impl fmt::Debug for PyList {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // TODO: implement more detailed, non-recursive Debug formatter
+        f.write_str("list")
+    }
 }
 
 impl From<Vec<PyObjectRef>> for PyList {
@@ -30,8 +41,8 @@ impl From<Vec<PyObjectRef>> for PyList {
 }
 
 impl PyValue for PyList {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.list_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.list_type()
     }
 }
 

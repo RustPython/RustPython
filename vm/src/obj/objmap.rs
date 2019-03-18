@@ -1,6 +1,5 @@
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objiter;
@@ -12,8 +11,8 @@ pub struct PyMap {
 }
 
 impl PyValue for PyMap {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.map_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.map_type()
     }
 }
 

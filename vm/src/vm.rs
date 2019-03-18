@@ -14,6 +14,7 @@ use std::sync::{Mutex, MutexGuard};
 use crate::builtins;
 use crate::bytecode;
 use crate::frame::{ExecutionResult, Frame, Scope};
+use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
@@ -27,12 +28,11 @@ use crate::obj::objstr;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult,
-    TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::stdlib;
 use crate::sysmodule;
-use num_bigint::ToBigInt;
+use num_bigint::BigInt;
 
 // use objects::objects;
 
@@ -103,13 +103,20 @@ impl VirtualMachine {
         &frame.scope
     }
 
+    pub fn class(&mut self, module: &str, class: &str) -> PyObjectRef {
+        self.import(module)
+            .unwrap_or_else(|_| panic!("unable to import {}", module))
+            .get_attr(class)
+            .unwrap_or_else(|| panic!("module {} has no class {}", module, class))
+    }
+
     /// Create a new python string object.
     pub fn new_str(&self, s: String) -> PyObjectRef {
         self.ctx.new_str(s)
     }
 
     /// Create a new python int object.
-    pub fn new_int<T: ToBigInt>(&self, i: T) -> PyObjectRef {
+    pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
         self.ctx.new_int(i)
     }
 

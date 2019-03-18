@@ -1,7 +1,6 @@
-extern crate rustc_version_runtime;
-
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult};
-use crate::VirtualMachine;
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult};
+use crate::vm::VirtualMachine;
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "platform", {

@@ -5,13 +5,12 @@ use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::ops::Deref;
 
+use crate::function::PyFuncArgs;
 use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objsequence::get_elements;
 use crate::obj::objstr;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use num_traits::ToPrimitive;
@@ -119,7 +118,7 @@ pub struct Socket {
 }
 
 impl PyValue for Socket {
-    fn required_type(_ctx: &PyContext) -> PyObjectRef {
+    fn class(_vm: &mut VirtualMachine) -> PyObjectRef {
         // TODO
         unimplemented!()
     }

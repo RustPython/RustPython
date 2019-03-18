@@ -3,9 +3,8 @@
  */
 
 use crate::frame::{ExecutionResult, Frame};
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -14,8 +13,8 @@ pub struct PyGenerator {
 }
 
 impl PyValue for PyGenerator {
-    fn required_type(ctx: &PyContext) -> PyObjectRef {
-        ctx.generator_type()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.ctx.generator_type()
     }
 }
 
