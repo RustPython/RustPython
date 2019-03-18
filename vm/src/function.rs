@@ -106,6 +106,19 @@ impl PyFuncArgs {
         }
     }
 
+    pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
+        // TODO: change kwarg representation so this scan isn't necessary
+        if let Some(index) = self
+            .kwargs
+            .iter()
+            .position(|(arg_name, _)| arg_name == name)
+        {
+            Some(self.kwargs.remove(index).1)
+        } else {
+            None
+        }
+    }
+
     pub fn remaining_keyword<'a>(&'a mut self) -> impl Iterator<Item = (String, PyObjectRef)> + 'a {
         self.kwargs.drain(..)
     }
@@ -136,6 +149,9 @@ impl PyFuncArgs {
                     given_args,
                 )));
             }
+            Err(ArgumentError::InvalidKeywordArgument(name)) => {
+                return Err(vm.new_type_error(format!("{} is an invalid keyword argument", name)));
+            }
             Err(ArgumentError::Exception(ex)) => {
                 return Err(ex);
             }
@@ -162,6 +178,8 @@ pub enum ArgumentError {
     TooFewArgs,
     /// The call provided more positional arguments than the function accepts.
     TooManyArgs,
+    /// The function doesn't accept a keyword argument with the given name.
+    InvalidKeywordArgument(String),
     /// An exception was raised while binding arguments to the function
     /// parameters.
     Exception(PyObjectRef),
@@ -187,14 +205,21 @@ pub trait FromArgs: Sized {
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
 }
+
 /// A map of keyword arguments to their values.
 ///
 /// A built-in function with a `KwArgs` parameter is analagous to a Python
-/// function with `*kwargs`. All remaining keyword arguments are extracted
+/// function with `**kwargs`. All remaining keyword arguments are extracted
 /// (and hence the function will permit an arbitrary number of them).
 ///
 /// `KwArgs` optionally accepts a generic type parameter to allow type checks
 /// or conversions of each argument.
+///
+/// Note:
+///
+/// KwArgs is only for functions that accept arbitrary keyword arguments. For
+/// functions that accept only *specific* named arguments, a rust struct with
+/// an appropriate FromArgs implementation must be created.
 pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
 
 impl<T> FromArgs for KwArgs<T>
@@ -218,7 +243,7 @@ where
 ///
 /// `Args` optionally accepts a generic type parameter to allow type checks
 /// or conversions of each argument.
-pub struct Args<T>(Vec<T>);
+pub struct Args<T = PyObjectRef>(Vec<T>);
 
 impl<T> FromArgs for Args<T>
 where
@@ -230,6 +255,15 @@ where
             varargs.push(T::try_from_object(vm, value)?);
         }
         Ok(Args(varargs))
+    }
+}
+
+impl<T> IntoIterator for Args<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 

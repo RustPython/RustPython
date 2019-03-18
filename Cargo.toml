@@ -5,7 +5,7 @@ authors = ["Windel Bouwman", "Shing Lyu <shing.lyu@gmail.com>"]
 edition = "2018"
 
 [workspace]
-members = [".", "vm", "wasm/lib", "parser"]
+members = [".", "derive", "vm", "wasm/lib", "parser"]
 
 [dependencies]
 log="0.4.1"

@@ -2,7 +2,6 @@
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
 
-// use std::ops::Deref;
 use std::char;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -15,11 +14,11 @@ use crate::obj::objbool;
 use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
-use crate::obj::objstr;
+use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype;
 
 use crate::frame::Scope;
-use crate::function::PyFuncArgs;
+use crate::function::{Args, PyFuncArgs};
 use crate::pyobject::{
     AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
@@ -583,71 +582,45 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("print called with {:?}", args);
+#[derive(Debug, FromArgs)]
+pub struct PrintOptions {
+    sep: Option<PyStringRef>,
+    end: Option<PyStringRef>,
+    flush: bool,
+}
 
-    // Handle 'sep' kwarg:
-    let sep_arg = args
-        .get_optional_kwarg("sep")
-        .filter(|obj| !obj.is(&vm.get_none()));
-    if let Some(ref obj) = sep_arg {
-        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
-            return Err(vm.new_type_error(format!(
-                "sep must be None or a string, not {}",
-                objtype::get_type_name(&obj.typ())
-            )));
-        }
-    }
-    let sep_str = sep_arg.as_ref().map(|obj| objstr::borrow_value(obj));
-
-    // Handle 'end' kwarg:
-    let end_arg = args
-        .get_optional_kwarg("end")
-        .filter(|obj| !obj.is(&vm.get_none()));
-    if let Some(ref obj) = end_arg {
-        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
-            return Err(vm.new_type_error(format!(
-                "end must be None or a string, not {}",
-                objtype::get_type_name(&obj.typ())
-            )));
-        }
-    }
-    let end_str = end_arg.as_ref().map(|obj| objstr::borrow_value(obj));
-
-    // Handle 'flush' kwarg:
-    let flush = if let Some(flush) = &args.get_optional_kwarg("flush") {
-        objbool::boolval(vm, flush.clone()).unwrap()
-    } else {
-        false
-    };
-
+pub fn builtin_print(
+    objects: Args,
+    options: PrintOptions,
+    vm: &mut VirtualMachine,
+) -> PyResult<()> {
     let stdout = io::stdout();
     let mut stdout_lock = stdout.lock();
     let mut first = true;
-    for a in &args.args {
+    for object in objects {
         if first {
             first = false;
-        } else if let Some(ref sep_str) = sep_str {
-            write!(stdout_lock, "{}", sep_str).unwrap();
+        } else if let Some(ref sep) = options.sep {
+            write!(stdout_lock, "{}", sep.value).unwrap();
         } else {
             write!(stdout_lock, " ").unwrap();
         }
-        let v = vm.to_str(&a)?;
+        let v = vm.to_str(&object)?;
         let s = objstr::borrow_value(&v);
         write!(stdout_lock, "{}", s).unwrap();
     }
 
-    if let Some(end_str) = end_str {
-        write!(stdout_lock, "{}", end_str).unwrap();
+    if let Some(end) = options.end {
+        write!(stdout_lock, "{}", end.value).unwrap();
     } else {
         writeln!(stdout_lock).unwrap();
     }
 
-    if flush {
+    if options.flush {
         stdout_lock.flush().unwrap();
     }
 
-    Ok(vm.get_none())
+    Ok(())
 }
 
 fn builtin_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
