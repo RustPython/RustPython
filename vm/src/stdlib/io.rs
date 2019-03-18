@@ -22,8 +22,8 @@ use crate::obj::objint;
 use crate::obj::objstr;
 
 use crate::pyobject::{
-    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult,
-    PyValue, TypeProtocol,
+    AttributeProtocol, BufferProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
 };
 
 use crate::import;
@@ -44,9 +44,22 @@ struct PyStringIO {
     data: RefCell<String>,
 }
 
+type PyStringIORef = PyRef<PyStringIO>;
+
 impl PyValue for PyStringIO {
     fn required_type(_ctx: &PyContext) -> PyObjectRef {
         unimplemented!();
+    }
+}
+
+impl PyStringIORef {
+    fn write(self, data: objstr::PyStringRef, _vm: &mut VirtualMachine) {
+        let data = data.value.clone();
+        self.data.borrow_mut().push_str(&data);
+    }
+
+    fn getvalue(self, _vm: &mut VirtualMachine) -> String {
+        self.data.borrow().clone()
     }
 }
 
@@ -59,25 +72,6 @@ fn string_io_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         },
         cls.clone(),
     ))
-}
-
-fn string_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(instance, None), (data, Some(vm.ctx.str_type()))]
-    );
-    let value = instance.payload::<PyStringIO>().unwrap();
-    let data = objstr::get_value(data);
-    value.data.borrow_mut().push_str(&data);
-    Ok(vm.get_none())
-}
-
-fn string_io_getvalue(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(instance, None)]);
-    let value = instance.payload::<PyStringIO>().unwrap();
-    let text = value.data.borrow().clone();
-    Ok(vm.new_str(text))
 }
 
 fn bytes_io_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
@@ -424,8 +418,8 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     //StringIO: in-memory text
     let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
         "__new__" => ctx.new_rustfunc(string_io_new),
-        "write" => ctx.new_rustfunc(string_io_write),
-        "getvalue" => ctx.new_rustfunc(string_io_getvalue)
+        "write" => ctx.new_rustfunc(PyStringIORef::write),
+        "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue)
     });
 
     //BytesIO: in-memory bytes
