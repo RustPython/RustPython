@@ -4,18 +4,20 @@ use std::ops::AddAssign;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-use super::objint;
+use super::objint::PyIntRef;
 use super::objiter;
+use super::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyEnumerate {
     counter: RefCell<BigInt>,
     iterator: PyObjectRef,
 }
+type PyEnumerateRef = PyRef<PyEnumerate>;
 
 impl PyValue for PyEnumerate {
     fn class(vm: &mut VirtualMachine) -> PyObjectRef {
@@ -23,26 +25,23 @@ impl PyValue for PyEnumerate {
     }
 }
 
-fn enumerate_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, Some(vm.ctx.type_type())), (iterable, None)],
-        optional = [(start, Some(vm.ctx.int_type()))]
-    );
-    let counter = if let Some(x) = start {
-        objint::get_value(x).clone()
-    } else {
-        BigInt::zero()
+fn enumerate_new(
+    cls: PyClassRef,
+    iterable: PyObjectRef,
+    start: OptionalArg<PyIntRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult<PyEnumerateRef> {
+    let counter = match start {
+        OptionalArg::Present(start) => start.value.clone(),
+        OptionalArg::Missing => BigInt::zero(),
     };
-    let iterator = objiter::get_iter(vm, iterable)?;
-    Ok(PyObject::new(
-        PyEnumerate {
-            counter: RefCell::new(counter),
-            iterator,
-        },
-        cls.clone(),
-    ))
+
+    let iterator = objiter::get_iter(vm, &iterable)?;
+    PyEnumerate {
+        counter: RefCell::new(counter.clone()),
+        iterator,
+    }
+    .into_ref_with_type(vm, cls)
 }
 
 fn enumerate_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {

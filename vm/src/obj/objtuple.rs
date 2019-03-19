@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IdProtocol, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    IdProtocol, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -13,7 +13,7 @@ use super::objint;
 use super::objsequence::{
     get_elements, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
 };
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Default)]
 pub struct PyTuple {
@@ -132,14 +132,11 @@ impl PyTupleRef {
         Ok(hasher.finish())
     }
 
-    fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
-        PyObject::new(
-            PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: self.into_object(),
-            },
-            vm.ctx.iter_type(),
-        )
+    fn iter(self, _vm: &mut VirtualMachine) -> PyIteratorValue {
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: self.into_object(),
+        }
     }
 
     fn len(self, _vm: &mut VirtualMachine) -> usize {
@@ -207,10 +204,10 @@ impl PyTupleRef {
 }
 
 fn tuple_new(
-    cls: PyRef<objtype::PyClass>,
+    cls: PyClassRef,
     iterable: OptionalArg<PyObjectRef>,
     vm: &mut VirtualMachine,
-) -> PyResult {
+) -> PyResult<PyTupleRef> {
     if !objtype::issubclass(cls.as_object(), &vm.ctx.tuple_type()) {
         return Err(vm.new_type_error(format!("{} is not a subtype of tuple", cls)));
     }
@@ -221,7 +218,7 @@ fn tuple_new(
         vec![]
     };
 
-    Ok(PyObject::new(PyTuple::from(elements), cls.into_object()))
+    PyTuple::from(elements).into_ref_with_type(vm, cls)
 }
 
 #[rustfmt::skip] // to avoid line splitting
