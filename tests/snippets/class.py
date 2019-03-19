@@ -50,12 +50,30 @@ class Bar2(Bar):
     def __init__(self):
         super().__init__(101)
 
+bar2 = Bar2()
+assert bar2.get_x() == 101
 
-# TODO: make this work:
-# bar2 = Bar2()
-# assert bar2.get_x() == 101
+class A():
+    def test(self):
+        return 100
 
-a = super(int, 2)
+class B():
+    def test1(self):
+        return 200
+
+class C(A,B):
+    def test(self):
+        return super().test()
+
+    def test1(self):
+        return super().test1()
+
+c = C()
+assert c.test() == 100
+assert c.test1() == 200
+
+a = super(bool, True)
 assert isinstance(a, super)
 assert type(a) is super
+assert a.conjugate() == 1
 
