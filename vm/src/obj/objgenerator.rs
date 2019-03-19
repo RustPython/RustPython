@@ -4,13 +4,14 @@
 
 use crate::frame::{ExecutionResult, Frame};
 use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
 pub struct PyGenerator {
     frame: PyObjectRef,
 }
+type PyGeneratorRef = PyRef<PyGenerator>;
 
 impl PyValue for PyGenerator {
     fn class(vm: &mut VirtualMachine) -> PyObjectRef {
@@ -37,11 +38,8 @@ pub fn init(context: &PyContext) {
     );
 }
 
-pub fn new_generator(vm: &mut VirtualMachine, frame: PyObjectRef) -> PyResult {
-    Ok(PyObject::new(
-        PyGenerator { frame },
-        vm.ctx.generator_type.clone(),
-    ))
+pub fn new_generator(frame: PyObjectRef, vm: &mut VirtualMachine) -> PyGeneratorRef {
+    PyGenerator { frame }.into_ref(vm)
 }
 
 fn generator_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
