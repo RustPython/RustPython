@@ -7,21 +7,22 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
 use super::objiter;
-use super::objtype;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Default)]
 pub struct PySet {
     elements: RefCell<HashMap<u64, PyObjectRef>>,
 }
+pub type PySetRef = PyRef<PySet>;
 
 impl fmt::Debug for PySet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -151,23 +152,20 @@ fn set_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 /* Create a new object of sub-type of set */
-fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None)],
-        optional = [(iterable, None)]
-    );
-
-    if !objtype::issubclass(cls, &vm.ctx.set_type()) {
+fn set_new(
+    cls: PyClassRef,
+    iterable: OptionalArg<PyObjectRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult<PySetRef> {
+    if !objtype::issubclass(cls.as_object(), &vm.ctx.set_type()) {
         return Err(vm.new_type_error(format!("{} is not a subtype of set", cls)));
     }
 
     let elements: HashMap<u64, PyObjectRef> = match iterable {
-        None => HashMap::new(),
-        Some(iterable) => {
+        OptionalArg::Missing => HashMap::new(),
+        OptionalArg::Present(iterable) => {
             let mut elements = HashMap::new();
-            let iterator = objiter::get_iter(vm, iterable)?;
+            let iterator = objiter::get_iter(vm, &iterable)?;
             while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
                 insert_into_set(vm, &mut elements, &v)?;
             }
@@ -175,12 +173,10 @@ fn set_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     };
 
-    Ok(PyObject::new(
-        PySet {
-            elements: RefCell::new(elements),
-        },
-        cls.clone(),
-    ))
+    PySet {
+        elements: RefCell::new(elements),
+    }
+    .into_ref_with_type(vm, cls)
 }
 
 fn set_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -190,16 +186,12 @@ fn set_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.context().new_int(elements.len()))
 }
 
-fn set_copy(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("set.copy called with: {:?}", args);
-    arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
-    let elements = get_elements(s);
-    Ok(PyObject::new(
-        PySet {
-            elements: RefCell::new(elements),
-        },
-        vm.ctx.set_type(),
-    ))
+fn set_copy(obj: PySetRef, _vm: &mut VirtualMachine) -> PySet {
+    trace!("set.copy called with: {:?}", obj);
+    let elements = obj.elements.borrow().clone();
+    PySet {
+        elements: RefCell::new(elements),
+    }
 }
 
 fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -335,67 +327,47 @@ fn set_compare_inner(
     Ok(vm.new_bool(true))
 }
 
-fn set_union(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(vm.ctx.set_type())),
-            (other, Some(vm.ctx.set_type()))
-        ]
-    );
+fn set_union(zelf: PySetRef, other: PySetRef, _vm: &mut VirtualMachine) -> PySet {
+    let mut elements = zelf.elements.borrow().clone();
+    elements.extend(other.elements.borrow().clone());
 
-    let mut elements = get_elements(zelf).clone();
-    elements.extend(get_elements(other).clone());
-
-    Ok(PyObject::new(
-        PySet {
-            elements: RefCell::new(elements),
-        },
-        vm.ctx.set_type(),
-    ))
+    PySet {
+        elements: RefCell::new(elements),
+    }
 }
 
-fn set_intersection(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_combine_inner(vm, args, SetCombineOperation::Intersection)
+fn set_intersection(zelf: PySetRef, other: PySetRef, vm: &mut VirtualMachine) -> PyResult<PySet> {
+    set_combine_inner(zelf, other, vm, SetCombineOperation::Intersection)
 }
 
-fn set_difference(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_combine_inner(vm, args, SetCombineOperation::Difference)
+fn set_difference(zelf: PySetRef, other: PySetRef, vm: &mut VirtualMachine) -> PyResult<PySet> {
+    set_combine_inner(zelf, other, vm, SetCombineOperation::Difference)
 }
 
-fn set_symmetric_difference(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(vm.ctx.set_type())),
-            (other, Some(vm.ctx.set_type()))
-        ]
-    );
-
+fn set_symmetric_difference(
+    zelf: PySetRef,
+    other: PySetRef,
+    vm: &mut VirtualMachine,
+) -> PyResult<PySet> {
     let mut elements = HashMap::new();
 
-    for element in get_elements(zelf).iter() {
-        let value = vm.call_method(other, "__contains__", vec![element.1.clone()])?;
+    for element in zelf.elements.borrow().iter() {
+        let value = vm.call_method(other.as_object(), "__contains__", vec![element.1.clone()])?;
         if !objbool::get_value(&value) {
             elements.insert(element.0.clone(), element.1.clone());
         }
     }
 
-    for element in get_elements(other).iter() {
-        let value = vm.call_method(zelf, "__contains__", vec![element.1.clone()])?;
+    for element in other.elements.borrow().iter() {
+        let value = vm.call_method(zelf.as_object(), "__contains__", vec![element.1.clone()])?;
         if !objbool::get_value(&value) {
             elements.insert(element.0.clone(), element.1.clone());
         }
     }
 
-    Ok(PyObject::new(
-        PySet {
-            elements: RefCell::new(elements),
-        },
-        vm.ctx.set_type(),
-    ))
+    Ok(PySet {
+        elements: RefCell::new(elements),
+    })
 }
 
 enum SetCombineOperation {
@@ -404,23 +376,15 @@ enum SetCombineOperation {
 }
 
 fn set_combine_inner(
+    zelf: PySetRef,
+    other: PySetRef,
     vm: &mut VirtualMachine,
-    args: PyFuncArgs,
     op: SetCombineOperation,
-) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(vm.ctx.set_type())),
-            (other, Some(vm.ctx.set_type()))
-        ]
-    );
-
+) -> PyResult<PySet> {
     let mut elements = HashMap::new();
 
-    for element in get_elements(zelf).iter() {
-        let value = vm.call_method(other, "__contains__", vec![element.1.clone()])?;
+    for element in zelf.elements.borrow().iter() {
+        let value = vm.call_method(other.as_object(), "__contains__", vec![element.1.clone()])?;
         let should_add = match op {
             SetCombineOperation::Intersection => objbool::get_value(&value),
             SetCombineOperation::Difference => !objbool::get_value(&value),
@@ -430,12 +394,9 @@ fn set_combine_inner(
         }
     }
 
-    Ok(PyObject::new(
-        PySet {
-            elements: RefCell::new(elements),
-        },
-        vm.ctx.set_type(),
-    ))
+    Ok(PySet {
+        elements: RefCell::new(elements),
+    })
 }
 
 fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -557,20 +518,13 @@ fn set_ixor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(zelf.clone())
 }
 
-fn set_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.set_type()))]);
-
-    let items = get_elements(zelf).values().cloned().collect();
+fn set_iter(zelf: PySetRef, vm: &mut VirtualMachine) -> PyIteratorValue {
+    let items = zelf.elements.borrow().values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
-    let iter_obj = PyObject::new(
-        PyIteratorValue {
-            position: Cell::new(0),
-            iterated_obj: set_list,
-        },
-        vm.ctx.iter_type(),
-    );
-
-    Ok(iter_obj)
+    PyIteratorValue {
+        position: Cell::new(0),
+        iterated_obj: set_list,
+    }
 }
 
 fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
