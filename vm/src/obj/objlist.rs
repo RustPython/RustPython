@@ -119,14 +119,11 @@ impl PyListRef {
         )
     }
 
-    fn iter(self, vm: &mut VirtualMachine) -> PyObjectRef {
-        PyObject::new(
-            PyIteratorValue {
-                position: Cell::new(0),
-                iterated_obj: self.into_object(),
-            },
-            vm.ctx.iter_type(),
-        )
+    fn iter(self, _vm: &mut VirtualMachine) -> PyIteratorValue {
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: self.into_object(),
+        }
     }
 
     fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
