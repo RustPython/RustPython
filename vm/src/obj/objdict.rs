@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    OptionalArg, PyAttributes, PyContext, PyFuncArgs, PyIteratorValue, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    PyAttributes, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -200,7 +200,7 @@ impl PyDictRef {
     }
 
     fn delitem(self, key: PyStringRef, vm: &mut VirtualMachine) -> PyResult<()> {
-        let ref key = key.value;
+        let key = &key.value;
         // Delete the item:
         let mut elements = self.entries.borrow_mut();
         match elements.remove(key) {
@@ -265,7 +265,7 @@ impl PyDictRef {
     }
 
     fn getitem(self, key: PyStringRef, vm: &mut VirtualMachine) -> PyResult {
-        let ref key = key.value;
+        let key = &key.value;
 
         // What we are looking for:
         let elements = self.entries.borrow();
@@ -283,7 +283,7 @@ impl PyDictRef {
         vm: &mut VirtualMachine,
     ) -> PyObjectRef {
         // What we are looking for:
-        let ref key = key.value;
+        let key = &key.value;
 
         let elements = self.entries.borrow();
         if elements.contains_key(key) {

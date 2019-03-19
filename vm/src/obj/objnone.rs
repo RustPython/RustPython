@@ -1,5 +1,6 @@
+use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyFuncArgs, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 

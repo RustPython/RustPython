@@ -9,13 +9,13 @@ use std::path::PathBuf;
 
 use regex::{Match, Regex};
 
+use crate::function::PyFuncArgs;
 use crate::import;
 use crate::obj::objstr;
 use crate::pyobject::{
-    AttributeProtocol, PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue,
-    TypeProtocol,
+    AttributeProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
 };
-use crate::VirtualMachine;
+use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
     fn class(vm: &mut VirtualMachine) -> PyObjectRef {

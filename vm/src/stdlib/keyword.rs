@@ -2,11 +2,12 @@
  * Testing if a string is a keyword.
  */
 
-extern crate rustpython_parser;
-use self::rustpython_parser::lexer;
+use rustpython_parser::lexer;
+
+use crate::function::PyFuncArgs;
 use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::VirtualMachine;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 fn keyword_iskeyword(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.str_type()))]);

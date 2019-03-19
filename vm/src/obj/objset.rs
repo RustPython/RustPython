@@ -7,14 +7,16 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
+use crate::function::PyFuncArgs;
+use crate::pyobject::{
+    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+};
+use crate::vm::{ReprGuard, VirtualMachine};
+
 use super::objbool;
 use super::objint;
 use super::objiter;
 use super::objtype;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::{ReprGuard, VirtualMachine};
 
 #[derive(Default)]
 pub struct PySet {

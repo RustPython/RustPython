@@ -2,10 +2,11 @@
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
 
-// use std::ops::Deref;
 use std::char;
 use std::io::{self, Write};
 use std::path::PathBuf;
+
+use num_traits::{Signed, ToPrimitive};
 
 use crate::compile;
 use crate::import::import_module;
@@ -17,15 +18,14 @@ use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype;
 
 use crate::frame::Scope;
+use crate::function::{Args, PyFuncArgs};
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
+use crate::vm::VirtualMachine;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
-
-use crate::vm::VirtualMachine;
-use num_traits::{Signed, ToPrimitive};
 
 fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
@@ -64,13 +64,19 @@ fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
-    let items = vm.extract_elements(iterable)?;
-    for item in items {
+    let iterator = objiter::get_iter(vm, iterable)?;
+
+    loop {
+        let item = match objiter::get_next_object(vm, &iterator)? {
+            Some(obj) => obj,
+            None => break,
+        };
         let result = objbool::boolval(vm, item)?;
         if result {
             return Ok(vm.new_bool(true));
         }
     }
+
     Ok(vm.new_bool(false))
 }
 
@@ -576,70 +582,44 @@ fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn builtin_print(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("print called with {:?}", args);
+#[derive(Debug, FromArgs)]
+pub struct PrintOptions {
+    sep: Option<PyStringRef>,
+    end: Option<PyStringRef>,
+    flush: bool,
+}
 
-    // Handle 'sep' kwarg:
-    let sep_arg = args
-        .get_optional_kwarg("sep")
-        .filter(|obj| !obj.is(&vm.get_none()));
-    if let Some(ref obj) = sep_arg {
-        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
-            return Err(vm.new_type_error(format!(
-                "sep must be None or a string, not {}",
-                objtype::get_type_name(&obj.typ())
-            )));
-        }
-    }
-    let sep_str = sep_arg.as_ref().map(|obj| objstr::borrow_value(obj));
-
-    // Handle 'end' kwarg:
-    let end_arg = args
-        .get_optional_kwarg("end")
-        .filter(|obj| !obj.is(&vm.get_none()));
-    if let Some(ref obj) = end_arg {
-        if !objtype::isinstance(obj, &vm.ctx.str_type()) {
-            return Err(vm.new_type_error(format!(
-                "end must be None or a string, not {}",
-                objtype::get_type_name(&obj.typ())
-            )));
-        }
-    }
-    let end_str = end_arg.as_ref().map(|obj| objstr::borrow_value(obj));
-
-    // Handle 'flush' kwarg:
-    let flush = if let Some(flush) = &args.get_optional_kwarg("flush") {
-        objbool::boolval(vm, flush.clone()).unwrap()
-    } else {
-        false
-    };
-
+pub fn builtin_print(
+    objects: Args,
+    options: PrintOptions,
+    vm: &mut VirtualMachine,
+) -> PyResult<()> {
     let stdout = io::stdout();
     let mut stdout_lock = stdout.lock();
     let mut first = true;
-    for a in &args.args {
+    for object in objects {
         if first {
             first = false;
-        } else if let Some(ref sep_str) = sep_str {
-            write!(stdout_lock, "{}", sep_str).unwrap();
+        } else if let Some(ref sep) = options.sep {
+            write!(stdout_lock, "{}", sep.value).unwrap();
         } else {
             write!(stdout_lock, " ").unwrap();
         }
-        let ref s = vm.to_str(&a)?.value;
+        let s = &vm.to_str(&object)?.value;
         write!(stdout_lock, "{}", s).unwrap();
     }
 
-    if let Some(end_str) = end_str {
-        write!(stdout_lock, "{}", end_str).unwrap();
+    if let Some(end) = options.end {
+        write!(stdout_lock, "{}", end.value).unwrap();
     } else {
         writeln!(stdout_lock).unwrap();
     }
 
-    if flush {
+    if options.flush {
         stdout_lock.flush().unwrap();
     }
 
-    Ok(vm.get_none())
+    Ok(())
 }
 
 fn builtin_repr(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<PyStringRef> {

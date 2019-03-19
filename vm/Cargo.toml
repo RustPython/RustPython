@@ -13,6 +13,7 @@ num-integer = "0.1.39"
 num-rational = "0.2.1"
 rand = "0.5"
 log = "0.3"
+rustpython_derive = {path = "../derive"}
 rustpython_parser = {path = "../parser"}
 serde = "1.0.66"
 serde_derive = "1.0.66"

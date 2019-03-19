@@ -1,7 +1,6 @@
 use crate::frame::Scope;
-use crate::pyobject::{
-    IdProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]

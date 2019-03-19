@@ -1,10 +1,11 @@
 use super::objlist::PyList;
 use super::objstr::{self, PyStringRef};
 use super::objtype;
+use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyFuncArgs, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 

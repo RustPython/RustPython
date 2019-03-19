@@ -1,7 +1,8 @@
+use crate::function::PyFuncArgs;
 use crate::obj::objsequence;
 use crate::obj::objtype;
 use crate::pyobject::{
-    create_type, AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
+    create_type, AttributeProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 

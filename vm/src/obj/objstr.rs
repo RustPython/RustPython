@@ -1,14 +1,16 @@
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
+use std::string::ToString;
 
 use num_traits::ToPrimitive;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, OptionalArg, PyContext, PyFuncArgs, PyIterable, PyObjectRef, PyRef,
-    PyResult, PyValue, TryFromObject, TypeProtocol,
+    IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -21,6 +23,14 @@ use super::objtype::{self, PyClassRef};
 pub struct PyString {
     // TODO: shouldn't be public
     pub value: String,
+}
+
+impl<T: ToString> From<T> for PyString {
+    fn from(t: T) -> PyString {
+        PyString {
+            value: t.to_string(),
+        }
+    }
 }
 
 pub type PyStringRef = PyRef<PyString>;
@@ -801,7 +811,7 @@ fn str_new(
         TryFromObject::try_from_object(vm, string)
     } else {
         let payload = string.payload::<PyString>().unwrap();
-        PyRef::new_with_type(vm, payload.clone(), cls)
+        payload.clone().into_ref_with_type(vm, cls)
     }
 }
 

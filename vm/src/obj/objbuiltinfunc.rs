@@ -1,6 +1,7 @@
 use std::fmt;
 
-use crate::pyobject::{PyNativeFunc, PyObjectRef, PyValue};
+use crate::function::PyNativeFunc;
+use crate::pyobject::{PyObjectRef, PyValue};
 use crate::vm::VirtualMachine;
 
 pub struct PyBuiltinFunction {

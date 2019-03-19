@@ -1,4 +1,5 @@
-use crate::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {

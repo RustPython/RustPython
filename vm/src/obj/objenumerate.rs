@@ -1,14 +1,15 @@
 use std::cell::RefCell;
 use std::ops::AddAssign;
 
-use super::objint;
-use super::objiter;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 use num_traits::Zero;
+
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
+
+use super::objint;
+use super::objiter;
 
 #[derive(Debug)]
 pub struct PyEnumerate {

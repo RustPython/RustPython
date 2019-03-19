@@ -6,9 +6,11 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use super::objtype;
-use crate::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+
+use super::objtype;
 
 pub fn init(context: &PyContext) {
     let super_type = &context.super_type;
