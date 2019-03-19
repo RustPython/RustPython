@@ -694,7 +694,7 @@ impl Frame {
                     let repr = vm.to_repr(&expr)?;
                     // TODO: implement sys.displayhook
                     if let Some(print) = vm.ctx.get_attr(&vm.builtins, "print") {
-                        vm.invoke(print, vec![repr])?;
+                        vm.invoke(print, vec![repr.into_object()])?;
                     }
                 }
                 Ok(None)
@@ -763,8 +763,8 @@ impl Frame {
             bytecode::Instruction::FormatValue { conversion, spec } => {
                 use ast::ConversionFlag::*;
                 let value = match conversion {
-                    Some(Str) => vm.to_str(&self.pop_value())?,
-                    Some(Repr) => vm.to_repr(&self.pop_value())?,
+                    Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
+                    Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),
                     Some(Ascii) => self.pop_value(), // TODO
                     None => self.pop_value(),
                 };

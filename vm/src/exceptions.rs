@@ -1,6 +1,5 @@
 use crate::function::PyFuncArgs;
 use crate::obj::objsequence;
-use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
     create_type, AttributeProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
@@ -31,19 +30,19 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
                 if objtype::isinstance(&element, &vm.ctx.tuple_type()) {
                     let element = objsequence::get_elements(&element);
                     let filename = if let Ok(x) = vm.to_str(&element[0]) {
-                        objstr::get_value(&x)
+                        x.value.clone()
                     } else {
                         "<error>".to_string()
                     };
 
                     let lineno = if let Ok(x) = vm.to_str(&element[1]) {
-                        objstr::get_value(&x)
+                        x.value.clone()
                     } else {
                         "<error>".to_string()
                     };
 
                     let obj_name = if let Ok(x) = vm.to_str(&element[2]) {
-                        objstr::get_value(&x)
+                        x.value.clone()
                     } else {
                         "<error>".to_string()
                     };
@@ -59,7 +58,7 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
     }
 
     match vm.to_str(exc) {
-        Ok(txt) => println!("{}", objstr::get_value(&txt)),
+        Ok(txt) => println!("{}", txt.value),
         Err(err) => println!("Error during error {:?}", err),
     }
 }

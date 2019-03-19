@@ -804,7 +804,7 @@ fn str_new(
     vm: &mut VirtualMachine,
 ) -> PyResult<PyStringRef> {
     let string = match object {
-        OptionalArg::Present(ref input) => vm.to_str(input)?,
+        OptionalArg::Present(ref input) => vm.to_str(input)?.into_object(),
         OptionalArg::Missing => vm.new_str("".to_string()),
     };
     if string.typ().is(&cls) {

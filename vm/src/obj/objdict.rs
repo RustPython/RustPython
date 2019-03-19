@@ -3,15 +3,14 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    PyAttributes, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    PyAttributes, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objiter;
-use super::objstr;
+use super::objstr::{self, PyStringRef};
 use super::objtype;
 
 pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
@@ -134,7 +133,6 @@ pub fn attributes_to_py_dict(vm: &mut VirtualMachine, attributes: PyAttributes) 
 }
 
 // Python dict methods:
-
 fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -175,231 +173,144 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(dict)
 }
 
-fn dict_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(dict_obj, Some(vm.ctx.dict_type()))]);
-    let elements = get_elements(dict_obj);
-    Ok(vm.ctx.new_int(elements.len()))
-}
+impl PyDictRef {
+    fn len(self, _vm: &mut VirtualMachine) -> usize {
+        self.entries.borrow().len()
+    }
 
-fn dict_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(dict_obj, Some(vm.ctx.dict_type()))]);
+    fn repr(self, vm: &mut VirtualMachine) -> PyResult {
+        let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
+            let elements = get_key_value_pairs(self.as_object());
+            let mut str_parts = vec![];
+            for (key, value) in elements {
+                let key_repr = vm.to_repr(&key)?;
+                let value_repr = vm.to_repr(&value)?;
+                str_parts.push(format!("{}: {}", key_repr.value, value_repr.value));
+            }
 
-    let s = if let Some(_guard) = ReprGuard::enter(dict_obj) {
-        let elements = get_key_value_pairs(dict_obj);
-        let mut str_parts = vec![];
-        for (key, value) in elements {
-            let key_repr = vm.to_repr(&key)?;
-            let value_repr = vm.to_repr(&value)?;
-            let key_str = objstr::get_value(&key_repr);
-            let value_str = objstr::get_value(&value_repr);
-            str_parts.push(format!("{}: {}", key_str, value_str));
-        }
+            format!("{{{}}}", str_parts.join(", "))
+        } else {
+            "{...}".to_string()
+        };
+        Ok(vm.new_str(s))
+    }
 
-        format!("{{{}}}", str_parts.join(", "))
-    } else {
-        "{...}".to_string()
-    };
-    Ok(vm.new_str(s))
-}
+    fn contains(self, key: PyStringRef, _vm: &mut VirtualMachine) -> bool {
+        self.entries.borrow().contains_key(&key.value)
+    }
 
-pub fn dict_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (dict, Some(vm.ctx.dict_type())),
-            (needle, Some(vm.ctx.str_type()))
-        ]
-    );
-
-    let needle = objstr::get_value(&needle);
-    for element in get_elements(dict).iter() {
-        if &needle == element.0 {
-            return Ok(vm.new_bool(true));
+    fn delitem(self, key: PyStringRef, vm: &mut VirtualMachine) -> PyResult<()> {
+        let key = &key.value;
+        // Delete the item:
+        let mut elements = self.entries.borrow_mut();
+        match elements.remove(key) {
+            Some(_) => Ok(()),
+            None => Err(vm.new_value_error(format!("Key not found: {}", key))),
         }
     }
 
-    Ok(vm.new_bool(false))
-}
-
-fn dict_delitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (dict, Some(vm.ctx.dict_type())),
-            (needle, Some(vm.ctx.str_type()))
-        ]
-    );
-
-    // What we are looking for:
-    let needle = objstr::get_value(&needle);
-
-    // Delete the item:
-    let mut elements = get_mut_elements(dict);
-    match elements.remove(&needle) {
-        Some(_) => Ok(vm.get_none()),
-        None => Err(vm.new_value_error(format!("Key not found: {}", needle))),
+    fn clear(self, _vm: &mut VirtualMachine) {
+        self.entries.borrow_mut().clear()
     }
-}
 
-fn dict_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
-    get_mut_elements(dict).clear();
-    Ok(vm.get_none())
-}
+    /// When iterating over a dictionary, we iterate over the keys of it.
+    fn iter(self, vm: &mut VirtualMachine) -> PyIteratorValue {
+        let keys = self
+            .entries
+            .borrow()
+            .values()
+            .map(|(k, _v)| k.clone())
+            .collect();
+        let key_list = vm.ctx.new_list(keys);
 
-/// When iterating over a dictionary, we iterate over the keys of it.
-fn dict_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
-
-    let keys = get_elements(dict)
-        .values()
-        .map(|(k, _v)| k.clone())
-        .collect();
-    let key_list = vm.ctx.new_list(keys);
-
-    let iter_obj = PyObject::new(
         PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: key_list,
-        },
-        vm.ctx.iter_type(),
-    );
+        }
+    }
 
-    Ok(iter_obj)
-}
+    fn values(self, vm: &mut VirtualMachine) -> PyIteratorValue {
+        let values = self
+            .entries
+            .borrow()
+            .values()
+            .map(|(_k, v)| v.clone())
+            .collect();
+        let values_list = vm.ctx.new_list(values);
 
-fn dict_values(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
-
-    let values = get_elements(dict)
-        .values()
-        .map(|(_k, v)| v.clone())
-        .collect();
-    let values_list = vm.ctx.new_list(values);
-
-    let iter_obj = PyObject::new(
         PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: values_list,
-        },
-        vm.ctx.iter_type(),
-    );
+        }
+    }
 
-    Ok(iter_obj)
-}
+    fn items(self, vm: &mut VirtualMachine) -> PyIteratorValue {
+        let items = self
+            .entries
+            .borrow()
+            .values()
+            .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone(), v.clone()]))
+            .collect();
+        let items_list = vm.ctx.new_list(items);
 
-fn dict_items(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(dict, Some(vm.ctx.dict_type()))]);
-
-    let items = get_elements(dict)
-        .values()
-        .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone(), v.clone()]))
-        .collect();
-    let items_list = vm.ctx.new_list(items);
-
-    let iter_obj = PyObject::new(
         PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: items_list,
-        },
-        vm.ctx.iter_type(),
-    );
-
-    Ok(iter_obj)
-}
-
-fn dict_setitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (dict, Some(vm.ctx.dict_type())),
-            (needle, Some(vm.ctx.str_type())),
-            (value, None)
-        ]
-    );
-
-    set_item(dict, vm, needle, value);
-
-    Ok(vm.get_none())
-}
-
-fn dict_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (dict, Some(vm.ctx.dict_type())),
-            (needle, Some(vm.ctx.str_type()))
-        ]
-    );
-
-    // What we are looking for:
-    let needle = objstr::get_value(&needle);
-
-    let elements = get_elements(dict);
-    if elements.contains_key(&needle) {
-        Ok(elements[&needle].1.clone())
-    } else {
-        Err(vm.new_value_error(format!("Key not found: {}", needle)))
+        }
     }
-}
 
-fn dict_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (dict, Some(vm.ctx.dict_type())),
-            (key, Some(vm.ctx.str_type()))
-        ],
-        optional = [(default, None)]
-    );
+    fn setitem(self, needle: PyObjectRef, value: PyObjectRef, _vm: &mut VirtualMachine) {
+        let mut elements = self.entries.borrow_mut();
+        set_item_in_content(&mut elements, &needle, &value)
+    }
 
-    // What we are looking for:
-    let key = objstr::get_value(&key);
+    fn getitem(self, key: PyStringRef, vm: &mut VirtualMachine) -> PyResult {
+        let key = &key.value;
 
-    let elements = get_elements(dict);
-    if elements.contains_key(&key) {
-        Ok(elements[&key].1.clone())
-    } else if let Some(value) = default {
-        Ok(value.clone())
-    } else {
-        Ok(vm.get_none())
+        // What we are looking for:
+        let elements = self.entries.borrow();
+        if elements.contains_key(key) {
+            Ok(elements[key].1.clone())
+        } else {
+            Err(vm.new_value_error(format!("Key not found: {}", key)))
+        }
+    }
+
+    fn get(
+        self,
+        key: PyStringRef,
+        default: OptionalArg<PyObjectRef>,
+        vm: &mut VirtualMachine,
+    ) -> PyObjectRef {
+        // What we are looking for:
+        let key = &key.value;
+
+        let elements = self.entries.borrow();
+        if elements.contains_key(key) {
+            elements[key].1.clone()
+        } else {
+            match default {
+                OptionalArg::Present(value) => value,
+                OptionalArg::Missing => vm.ctx.none(),
+            }
+        }
     }
 }
 
 pub fn init(context: &PyContext) {
-    let dict_type = &context.dict_type;
-    context.set_attr(&dict_type, "__len__", context.new_rustfunc(dict_len));
-    context.set_attr(
-        &dict_type,
-        "__contains__",
-        context.new_rustfunc(dict_contains),
-    );
-    context.set_attr(
-        &dict_type,
-        "__delitem__",
-        context.new_rustfunc(dict_delitem),
-    );
-    context.set_attr(
-        &dict_type,
-        "__getitem__",
-        context.new_rustfunc(dict_getitem),
-    );
-    context.set_attr(&dict_type, "__iter__", context.new_rustfunc(dict_iter));
-    context.set_attr(&dict_type, "__new__", context.new_rustfunc(dict_new));
-    context.set_attr(&dict_type, "__repr__", context.new_rustfunc(dict_repr));
-    context.set_attr(
-        &dict_type,
-        "__setitem__",
-        context.new_rustfunc(dict_setitem),
-    );
-    context.set_attr(&dict_type, "clear", context.new_rustfunc(dict_clear));
-    context.set_attr(&dict_type, "values", context.new_rustfunc(dict_values));
-    context.set_attr(&dict_type, "items", context.new_rustfunc(dict_items));
-    context.set_attr(&dict_type, "keys", context.new_rustfunc(dict_iter));
-    context.set_attr(&dict_type, "get", context.new_rustfunc(dict_get));
+    extend_class!(context, &context.dict_type, {
+        "__len__" => context.new_rustfunc(PyDictRef::len),
+        "__contains__" => context.new_rustfunc(PyDictRef::contains),
+        "__delitem__" => context.new_rustfunc(PyDictRef::delitem),
+        "__getitem__" => context.new_rustfunc(PyDictRef::getitem),
+        "__iter__" => context.new_rustfunc(PyDictRef::iter),
+        "__new__" => context.new_rustfunc(dict_new),
+        "__repr__" => context.new_rustfunc(PyDictRef::repr),
+        "__setitem__" => context.new_rustfunc(PyDictRef::setitem),
+        "clear" => context.new_rustfunc(PyDictRef::clear),
+        "values" => context.new_rustfunc(PyDictRef::values),
+        "items" => context.new_rustfunc(PyDictRef::items),
+        "keys" => context.new_rustfunc(PyDictRef::iter),
+        "get" => context.new_rustfunc(PyDictRef::get),
+    });
 }

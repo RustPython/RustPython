@@ -16,7 +16,6 @@ use crate::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objiter;
-use super::objstr;
 use super::objtype;
 
 #[derive(Default)]
@@ -213,7 +212,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let mut str_parts = vec![];
         for elem in elements.values() {
             let part = vm.to_repr(elem)?;
-            str_parts.push(objstr::get_value(&part));
+            str_parts.push(part.value.clone());
         }
 
         format!("{{{}}}", str_parts.join(", "))
@@ -584,7 +583,7 @@ fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         let mut str_parts = vec![];
         for elem in elements.values() {
             let part = vm.to_repr(elem)?;
-            str_parts.push(objstr::get_value(&part));
+            str_parts.push(part.value.clone());
         }
 
         format!("frozenset({{{}}})", str_parts.join(", "))

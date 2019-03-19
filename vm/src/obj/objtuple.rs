@@ -13,7 +13,6 @@ use super::objint;
 use super::objsequence::{
     get_elements, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
 };
-use super::objstr;
 use super::objtype;
 
 #[derive(Default)]
@@ -152,7 +151,7 @@ impl PyTupleRef {
             let mut str_parts = vec![];
             for elem in self.elements.borrow().iter() {
                 let s = vm.to_repr(elem)?;
-                str_parts.push(objstr::get_value(&s));
+                str_parts.push(s.value.clone());
             }
 
             if str_parts.len() == 1 {
