@@ -268,6 +268,43 @@ pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
     }
 }
 
+fn class_get_item(class: PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+    if let Some(ref dict) = class.as_object().dict {
+        dict.borrow().get(attr_name).cloned()
+    } else {
+        panic!("Only classes should be in MRO!");
+    }
+}
+
+fn class_has_item(class: PyClassRef, attr_name: &str) -> bool {
+    if let Some(ref dict) = class.as_object().dict {
+        dict.borrow().contains_key(attr_name)
+    } else {
+        panic!("All classes are expected to have dicts!");
+    }
+}
+
+// This is the internal get_attr implementation for fast lookup on a class.
+fn class_get_attr(zelf: PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+    let mro = &zelf.mro;
+    if let Some(item) = class_get_item(zelf.clone(), attr_name) {
+        return Some(item);
+    }
+    for class in mro {
+        if let Some(item) = class_get_item(class.clone(), attr_name) {
+            return Some(item);
+        }
+    }
+    None
+}
+
+// This is the internal has_attr implementation for fast lookup on a class.
+fn class_has_attr(zelf: PyClassRef, attr_name: &str) -> bool {
+    let mro = &zelf.mro;
+    return class_has_item(zelf.clone(), attr_name)
+        || mro.iter().any(|d| class_has_item(d.clone(), attr_name));
+}
+
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
     // Gather all members here:
     let mut attributes = PyAttributes::new();
