@@ -206,7 +206,7 @@ impl PyListRef {
                 return Ok(index);
             }
         }
-        let ref needle_str = vm.to_str(&needle)?.value;
+        let needle_str = vm.to_pystr(&needle)?;
         Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
     }
 
@@ -243,7 +243,7 @@ impl PyListRef {
             self.elements.borrow_mut().remove(index);
             Ok(())
         } else {
-            let ref needle_str = vm.to_str(&needle)?.value;
+            let needle_str = vm.to_pystr(&needle)?;
             Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
         }
     }

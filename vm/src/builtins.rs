@@ -66,11 +66,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
     let iterator = objiter::get_iter(vm, iterable)?;
 
-    loop {
-        let item = match objiter::get_next_object(vm, &iterator)? {
-            Some(obj) => obj,
-            None => break,
-        };
+    while let Some(item) = objiter::get_next_object(vm, &iterator)? {
         let result = objbool::boolval(vm, item)?;
         if result {
             return Ok(vm.new_bool(true));
@@ -259,18 +255,16 @@ fn make_scope(
         Some(arg) => {
             if arg.is(&vm.get_none()) {
                 None
+            } else if vm.isinstance(arg, &dict_type)? {
+                Some(arg)
             } else {
-                if vm.isinstance(arg, &dict_type)? {
-                    Some(arg)
-                } else {
-                    let arg_typ = arg.typ();
-                    let actual_type = vm.to_pystr(&arg_typ)?;
-                    let expected_type_name = vm.to_pystr(&dict_type)?;
-                    return Err(vm.new_type_error(format!(
-                        "globals must be a {}, not {}",
-                        expected_type_name, actual_type
-                    )));
-                }
+                let arg_typ = arg.typ();
+                let actual_type = vm.to_pystr(&arg_typ)?;
+                let expected_type_name = vm.to_pystr(&dict_type)?;
+                return Err(vm.new_type_error(format!(
+                    "globals must be a {}, not {}",
+                    expected_type_name, actual_type
+                )));
             }
         }
         None => None,

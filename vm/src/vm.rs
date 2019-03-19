@@ -360,12 +360,7 @@ impl VirtualMachine {
     }
 
     pub fn invoke_with_locals(&mut self, function: PyObjectRef, locals: PyObjectRef) -> PyResult {
-        if let Some(PyFunction {
-            code,
-            scope,
-            defaults: _,
-        }) = &function.payload()
-        {
+        if let Some(PyFunction { code, scope, .. }) = &function.payload() {
             let scope = scope.child_scope_with_locals(locals);
             let frame = self.ctx.new_frame(code.clone(), scope);
             return self.run_frame_full(frame);

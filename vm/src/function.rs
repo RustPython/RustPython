@@ -20,7 +20,7 @@ pub struct PyFuncArgs {
 impl From<Vec<PyObjectRef>> for PyFuncArgs {
     fn from(args: Vec<PyObjectRef>) -> Self {
         PyFuncArgs {
-            args: args,
+            args,
             kwargs: vec![],
         }
     }

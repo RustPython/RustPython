@@ -6,7 +6,7 @@
 //! - Base objects
 
 // for methods like vm.to_str(), not the typical use of 'to' as a method prefix
-#![allow(clippy::wrong_self_convention)]
+#![allow(clippy::wrong_self_convention, clippy::let_and_return)]
 
 #[macro_use]
 extern crate bitflags;
