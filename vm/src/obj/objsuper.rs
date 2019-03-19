@@ -7,6 +7,7 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 */
 
 use crate::function::PyFuncArgs;
+use crate::obj::objstr;
 use crate::obj::objtype::PyClass;
 use crate::pyobject::{
     DictProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
@@ -75,7 +76,11 @@ fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                     return Ok(vm.ctx.new_bound_method(item, inst.clone()));
                 }
             }
-            Err(vm.new_attribute_error(format!("{} has no attribute '{}'", inst, name_str)))
+            Err(vm.new_attribute_error(format!(
+                "{} has no attribute '{}'",
+                inst,
+                objstr::get_value(name_str)
+            )))
         }
         _ => panic!("not Class"),
     }
@@ -94,14 +99,31 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of super", cls)));
     }
 
+    // Get the bound object:
+    let py_obj = if let Some(obj) = py_obj {
+        obj.clone()
+    } else {
+        let frame = vm.current_frame();
+        if let Some(first_arg) = frame.code.arg_names.get(0) {
+            match vm.get_locals().get_item(first_arg) {
+                Some(obj) => obj.clone(),
+                _ => {
+                    return Err(vm
+                        .new_type_error(format!("super arguement {} was not supplied", first_arg)));
+                }
+            }
+        } else {
+            return Err(vm.new_type_error(
+                "super must be called with 1 argument or from inside class method".to_string(),
+            ));
+        }
+    };
+
     // Get the type:
     let py_type = if let Some(ty) = py_type {
         ty.clone()
     } else {
-        match vm.get_locals().get_item("self") {
-            Some(obj) => obj.typ().clone(),
-            _ => panic!("No self"),
-        }
+        py_obj.typ().clone()
     };
 
     // Check type argument:
@@ -112,16 +134,6 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             type_name
         )));
     }
-
-    // Get the bound object:
-    let py_obj = if let Some(obj) = py_obj {
-        obj.clone()
-    } else {
-        match vm.get_locals().get_item("self") {
-            Some(obj) => obj,
-            _ => panic!("No self"),
-        }
-    };
 
     // Check obj type:
     if !(objtype::isinstance(&py_obj, &py_type) || objtype::issubclass(&py_obj, &py_type)) {

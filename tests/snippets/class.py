@@ -75,6 +75,19 @@ c = C()
 assert c.test() == 100
 assert c.test1() == 200
 
+class Me():
+
+    def test(me):
+        return 100
+
+class Me2(Me):
+
+    def test(me):
+        return super().test()
+
+me = Me2()
+assert me.test() == 100
+
 a = super(bool, True)
 assert isinstance(a, super)
 assert type(a) is super
