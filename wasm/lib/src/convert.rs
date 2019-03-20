@@ -111,13 +111,14 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
 
             return func;
         }
-        // the browser module might not be injected
-        if let Ok(promise_type) = browser_module::import_promise_type(vm) {
-            if objtype::isinstance(&py_obj, &promise_type) {
-                return browser_module::get_promise_value(&py_obj).into();
-            }
+    }
+    // the browser module might not be injected
+    if let Ok(promise_type) = browser_module::import_promise_type(vm) {
+        if objtype::isinstance(&py_obj, &promise_type) {
+            return browser_module::get_promise_value(&py_obj).into();
         }
     }
+
     if objtype::isinstance(&py_obj, &vm.ctx.bytes_type())
         || objtype::isinstance(&py_obj, &vm.ctx.bytearray_type())
     {
@@ -129,15 +130,8 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         }
         arr.into()
     } else {
-        let dumps = rustpython_vm::import::import_module(vm, std::path::PathBuf::default(), "json")
-            .expect("Couldn't get json module")
-            .get_attr("dumps".into())
-            .expect("Couldn't get json dumps");
-        match vm.invoke(dumps, PyFuncArgs::new(vec![py_obj], vec![])) {
-            Ok(value) => {
-                let json = vm.to_pystr(&value).unwrap();
-                js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED)
-            }
+        match rustpython_vm::stdlib::json::ser_pyobject(vm, &py_obj) {
+            Ok(json) => js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED),
             Err(_) => JsValue::UNDEFINED,
         }
     }
@@ -229,19 +223,10 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
         // Because `JSON.stringify(undefined)` returns undefined
         vm.get_none()
     } else {
-        let loads = rustpython_vm::import::import_module(vm, std::path::PathBuf::default(), "json")
-            .expect("Couldn't get json module")
-            .get_attr("loads".into())
-            .expect("Couldn't get json dumps");
-
         let json = match js_sys::JSON::stringify(&js_val) {
             Ok(json) => String::from(json),
             Err(_) => return vm.get_none(),
         };
-        let py_json = vm.new_str(json);
-
-        vm.invoke(loads, PyFuncArgs::new(vec![py_json], vec![]))
-            // can safely unwrap because we know it's valid JSON
-            .unwrap()
+        rustpython_vm::stdlib::json::de_pyobject(vm, &json).unwrap_or_else(|_| vm.get_none())
     }
 }

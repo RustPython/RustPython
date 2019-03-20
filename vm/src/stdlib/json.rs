@@ -188,15 +188,22 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     }
 }
 
+pub fn ser_pyobject(vm: &mut VirtualMachine, obj: &PyObjectRef) -> serde_json::Result<String> {
+    let serializer = PyObjectSerializer { pyobject: obj, vm };
+    serde_json::to_string(&serializer)
+}
+
+pub fn de_pyobject(vm: &mut VirtualMachine, s: &str) -> serde_json::Result<PyObjectRef> {
+    let de = PyObjectDeserializer { vm };
+    // TODO: Support deserializing string sub-classes
+    de.deserialize(&mut serde_json::Deserializer::from_str(s))
+}
+
 /// Implement json.dumps
 fn json_dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial serialisation case
     arg_check!(vm, args, required = [(obj, None)]);
-    let res = {
-        let serializer = PyObjectSerializer { pyobject: obj, vm };
-        serde_json::to_string(&serializer)
-    };
-    let string = res.map_err(|err| vm.new_type_error(format!("{}", err)))?;
+    let string = ser_pyobject(vm, obj).map_err(|err| vm.new_type_error(err.to_string()))?;
     Ok(vm.context().new_str(string))
 }
 
@@ -204,15 +211,8 @@ fn json_dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn json_loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial deserialization case
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
-    let res = {
-        let de = PyObjectDeserializer { vm };
-        // TODO: Support deserializing string sub-classes
-        de.deserialize(&mut serde_json::Deserializer::from_str(&objstr::get_value(
-            &string,
-        )))
-    };
 
-    res.map_err(|err| {
+    de_pyobject(vm, &objstr::get_value(&string)).map_err(|err| {
         let json_decode_error = vm
             .sys_module
             .get_item("modules")

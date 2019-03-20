@@ -1,6 +1,6 @@
 mod ast;
 mod dis;
-mod json;
+pub mod json;
 mod keyword;
 mod math;
 mod platform;
