@@ -353,7 +353,7 @@ impl VirtualMachine {
 
         // If we have a generator, create a new generator
         if code_object.is_generator {
-            objgenerator::new_generator(self, frame)
+            Ok(objgenerator::new_generator(frame, self).into_object())
         } else {
             self.run_frame_full(frame)
         }

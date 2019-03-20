@@ -1,14 +1,16 @@
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::function::{Args, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objiter;
+use super::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,
     iterators: Vec<PyObjectRef>,
 }
+type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
     fn class(vm: &mut VirtualMachine) -> PyObjectRef {
@@ -16,26 +18,21 @@ impl PyValue for PyMap {
     }
 }
 
-fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    no_kwargs!(vm, args);
-    let cls = &args.args[0];
-    if args.args.len() < 3 {
-        Err(vm.new_type_error("map() must have at least two arguments.".to_owned()))
-    } else {
-        let function = &args.args[1];
-        let iterables = &args.args[2..];
-        let iterators = iterables
-            .iter()
-            .map(|iterable| objiter::get_iter(vm, iterable))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(PyObject::new(
-            PyMap {
-                mapper: function.clone(),
-                iterators,
-            },
-            cls.clone(),
-        ))
+fn map_new(
+    cls: PyClassRef,
+    function: PyObjectRef,
+    iterables: Args,
+    vm: &mut VirtualMachine,
+) -> PyResult<PyMapRef> {
+    let iterators = iterables
+        .into_iter()
+        .map(|iterable| objiter::get_iter(vm, &iterable))
+        .collect::<Result<Vec<_>, _>>()?;
+    PyMap {
+        mapper: function.clone(),
+        iterators,
     }
+    .into_ref_with_type(vm, cls.clone())
 }
 
 fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
