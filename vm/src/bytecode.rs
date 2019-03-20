@@ -240,8 +240,8 @@ pub enum UnaryOperator {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Varargs {
     None,
-    NoCapture,
-    Capture(String),
+    Unnamed,
+    Named(String),
 }
 
 /*
@@ -413,8 +413,8 @@ impl From<ast::Varargs> for Varargs {
     fn from(varargs: ast::Varargs) -> Varargs {
         match varargs {
             ast::Varargs::None => Varargs::None,
-            ast::Varargs::NoCapture => Varargs::NoCapture,
-            ast::Varargs::Capture(param) => Varargs::Capture(param.arg),
+            ast::Varargs::Unnamed => Varargs::Unnamed,
+            ast::Varargs::Named(param) => Varargs::Named(param.arg),
         }
     }
 }
@@ -423,8 +423,8 @@ impl<'a> From<&'a ast::Varargs> for Varargs {
     fn from(varargs: &'a ast::Varargs) -> Varargs {
         match varargs {
             ast::Varargs::None => Varargs::None,
-            ast::Varargs::NoCapture => Varargs::NoCapture,
-            ast::Varargs::Capture(ref param) => Varargs::Capture(param.arg.clone()),
+            ast::Varargs::Unnamed => Varargs::Unnamed,
+            ast::Varargs::Named(ref param) => Varargs::Named(param.arg.clone()),
         }
     }
 }

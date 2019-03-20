@@ -402,7 +402,7 @@ impl VirtualMachine {
 
         // Pack other positional arguments in to *args:
         match code_object.varargs {
-            bytecode::Varargs::Capture(ref vararg_name) => {
+            bytecode::Varargs::Named(ref vararg_name) => {
                 let mut last_args = vec![];
                 for i in n..nargs {
                     let arg = &args.args[i];
@@ -412,7 +412,7 @@ impl VirtualMachine {
 
                 locals.set_item(&self.ctx, vararg_name, vararg_value);
             }
-            bytecode::Varargs::NoCapture => {
+            bytecode::Varargs::Unnamed => {
                 // just ignore the rest of the args
             }
             bytecode::Varargs::None => {
@@ -428,12 +428,12 @@ impl VirtualMachine {
 
         // Do we support `**kwargs` ?
         let kwargs = match code_object.varkeywords {
-            bytecode::Varargs::Capture(ref kwargs_name) => {
+            bytecode::Varargs::Named(ref kwargs_name) => {
                 let d = self.new_dict();
                 locals.set_item(&self.ctx, kwargs_name, d.clone());
                 Some(d)
             }
-            bytecode::Varargs::NoCapture => Some(self.new_dict()),
+            bytecode::Varargs::Unnamed => Some(self.new_dict()),
             bytecode::Varargs::None => None,
         };
 

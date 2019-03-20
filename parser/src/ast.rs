@@ -395,8 +395,8 @@ pub enum StringGroup {
 #[derive(Debug, PartialEq)]
 pub enum Varargs {
     None,
-    NoCapture,
-    Capture(Parameter),
+    Unnamed,
+    Named(Parameter),
 }
 
 impl Default for Varargs {
@@ -409,8 +409,8 @@ impl From<Option<Option<Parameter>>> for Varargs {
     fn from(opt: Option<Option<Parameter>>) -> Varargs {
         match opt {
             Some(inner_opt) => match inner_opt {
-                Some(param) => Varargs::Capture(param),
-                None => Varargs::NoCapture,
+                Some(param) => Varargs::Named(param),
+                None => Varargs::Unnamed,
             },
             None => Varargs::None,
         }
