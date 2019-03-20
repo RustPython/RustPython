@@ -194,7 +194,7 @@ fn match_end(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 /// Retrieve inner rust regex from python object:
-fn get_regex<'a>(obj: &'a PyObjectRef) -> &'a Regex {
+fn get_regex(obj: &PyObjectRef) -> &Regex {
     // TODO: Regex shouldn't be stored in payload directly, create newtype wrapper
     if let Some(regex) = obj.payload::<Regex>() {
         return regex;
@@ -203,7 +203,7 @@ fn get_regex<'a>(obj: &'a PyObjectRef) -> &'a Regex {
 }
 
 /// Retrieve inner rust match from python object:
-fn get_match<'a>(obj: &'a PyObjectRef) -> &'a PyMatch {
+fn get_match(obj: &PyObjectRef) -> &PyMatch {
     if let Some(value) = obj.payload::<PyMatch>() {
         return value;
     }

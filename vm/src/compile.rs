@@ -5,7 +5,7 @@
 //!   https://github.com/python/cpython/blob/master/Python/compile.c
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
-use crate::bytecode::{self, CallType, CodeObject, Instruction};
+use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use crate::error::CompileError;
 use crate::obj::objcode;
 use crate::pyobject::{PyObject, PyObjectRef};
@@ -82,9 +82,9 @@ impl Compiler {
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             Vec::new(),
-            None,
+            Varargs::None,
             Vec::new(),
-            None,
+            Varargs::None,
             self.source_path.clone().unwrap(),
             line_number,
             obj_name,
@@ -445,13 +445,9 @@ impl Compiler {
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             args.args.iter().map(|a| a.arg.clone()).collect(),
-            args.vararg
-                .as_ref()
-                .map(|x| x.as_ref().map(|a| a.arg.clone())),
+            Varargs::from(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
-            args.kwarg
-                .as_ref()
-                .map(|x| x.as_ref().map(|a| a.arg.clone())),
+            Varargs::from(&args.kwarg),
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
@@ -684,9 +680,9 @@ impl Compiler {
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             vec![],
-            None,
+            Varargs::None,
             vec![],
-            None,
+            Varargs::None,
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
@@ -1297,9 +1293,9 @@ impl Compiler {
         // Create magnificent function <listcomp>:
         self.code_object_stack.push(CodeObject::new(
             vec![".0".to_string()],
-            None,
+            Varargs::None,
             vec![],
-            None,
+            Varargs::None,
             self.source_path.clone().unwrap(),
             line_number,
             name.clone(),

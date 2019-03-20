@@ -908,7 +908,7 @@ impl DictProtocol for PyObjectRef {
     }
 
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        if let Some(_) = self.payload::<PyDict>() {
+        if self.payload_is::<PyDict>() {
             objdict::get_key_value_pairs(self)
         } else if let Some(PyModule { ref dict, .. }) = self.payload::<PyModule>() {
             dict.get_key_value_pairs()
@@ -1039,7 +1039,7 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
         if vm.get_none().is(&obj) {
             Ok(None)
         } else {
-            T::try_from_object(vm, obj).map(|x| Some(x))
+            T::try_from_object(vm, obj).map(Some)
         }
     }
 }
@@ -1127,8 +1127,13 @@ impl PyObject {
     }
 
     #[inline]
-    pub fn payload<T: PyValue>(&self) -> Option<&T> {
+    pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
         self.payload.as_any().downcast_ref()
+    }
+
+    #[inline]
+    pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
+        self.payload.as_any().is::<T>()
     }
 }
 
@@ -1170,7 +1175,7 @@ impl<T: PyValue + 'static> PyObjectPayload for T {
 
 impl FromPyObjectRef for PyRef<PyClass> {
     fn from_pyobj(obj: &PyObjectRef) -> Self {
-        if let Some(_) = obj.payload::<PyClass>() {
+        if obj.payload_is::<PyClass>() {
             PyRef {
                 obj: obj.clone(),
                 _payload: PhantomData,
