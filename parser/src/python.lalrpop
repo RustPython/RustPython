@@ -486,8 +486,8 @@ TypedArgsList<ArgType>: ast::Parameters = {
         ast::Parameters {
             args: names,
             kwonlyargs: kwonlyargs,
-            vararg: vararg,
-            kwarg: kwarg,
+            vararg: vararg.into(),
+            kwarg: kwarg.into(),
             defaults: default_elements,
             kw_defaults: kw_defaults,
         }
@@ -504,8 +504,8 @@ TypedArgsList<ArgType>: ast::Parameters = {
         ast::Parameters {
             args: names,
             kwonlyargs: kwonlyargs,
-            vararg: vararg,
-            kwarg: kwarg,
+            vararg: vararg.into(),
+            kwarg: kwarg.into(),
             defaults: default_elements,
             kw_defaults: kw_defaults,
         }
@@ -515,8 +515,8 @@ TypedArgsList<ArgType>: ast::Parameters = {
         ast::Parameters {
             args: vec![],
             kwonlyargs: kwonlyargs,
-            vararg: vararg,
-            kwarg: kwarg,
+            vararg: vararg.into(),
+            kwarg: kwarg.into(),
             defaults: vec![],
             kw_defaults: kw_defaults,
         }
@@ -525,8 +525,8 @@ TypedArgsList<ArgType>: ast::Parameters = {
         ast::Parameters {
             args: vec![],
             kwonlyargs: vec![],
-            vararg: None,
-            kwarg: Some(kw),
+            vararg: ast::Varargs::None,
+            kwarg: Some(kw).into(),
             defaults: vec![],
             kw_defaults: vec![],
         }

@@ -18,10 +18,10 @@ pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<ast::Location>,
-    pub arg_names: Vec<String>,          // Names of positional arguments
-    pub varargs: Option<Option<String>>, // *args or *
+    pub arg_names: Vec<String>, // Names of positional arguments
+    pub varargs: Varargs,       // *args or *
     pub kwonlyarg_names: Vec<String>,
-    pub varkeywords: Option<Option<String>>, // **kwargs or **
+    pub varkeywords: Varargs, // **kwargs or **
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
@@ -237,6 +237,13 @@ pub enum UnaryOperator {
     Plus,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Varargs {
+    None,
+    NoCapture,
+    Capture(String),
+}
+
 /*
 Maintain a stack of blocks on the VM.
 pub enum BlockType {
@@ -248,9 +255,9 @@ pub enum BlockType {
 impl CodeObject {
     pub fn new(
         arg_names: Vec<String>,
-        varargs: Option<Option<String>>,
+        varargs: Varargs,
         kwonlyarg_names: Vec<String>,
-        varkeywords: Option<Option<String>>,
+        varkeywords: Varargs,
         source_path: String,
         first_line_number: usize,
         obj_name: String,
@@ -399,5 +406,25 @@ impl fmt::Debug for CodeObject {
             "<code object {} at ??? file {:?}, line {}>",
             self.obj_name, self.source_path, self.first_line_number
         )
+    }
+}
+
+impl From<ast::Varargs> for Varargs {
+    fn from(varargs: ast::Varargs) -> Varargs {
+        match varargs {
+            ast::Varargs::None => Varargs::None,
+            ast::Varargs::NoCapture => Varargs::NoCapture,
+            ast::Varargs::Capture(param) => Varargs::Capture(param.arg),
+        }
+    }
+}
+
+impl Varargs {
+    pub fn from_ast_vararg_ref(varargs: &ast::Varargs) -> Varargs {
+        match varargs {
+            ast::Varargs::None => Varargs::None,
+            ast::Varargs::NoCapture => Varargs::NoCapture,
+            ast::Varargs::Capture(ref param) => Varargs::Capture(param.arg.clone()),
+        }
     }
 }

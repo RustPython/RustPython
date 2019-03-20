@@ -274,8 +274,8 @@ impl Expression {
 pub struct Parameters {
     pub args: Vec<Parameter>,
     pub kwonlyargs: Vec<Parameter>,
-    pub vararg: Option<Option<Parameter>>, // Optionally we handle optionally named '*args' or '*'
-    pub kwarg: Option<Option<Parameter>>,
+    pub vararg: Varargs, // Optionally we handle optionally named '*args' or '*'
+    pub kwarg: Varargs,
     pub defaults: Vec<Expression>,
     pub kw_defaults: Vec<Option<Expression>>,
 }
@@ -390,4 +390,29 @@ pub enum StringGroup {
     Joined {
         values: Vec<StringGroup>,
     },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Varargs {
+    None,
+    NoCapture,
+    Capture(Parameter),
+}
+
+impl Default for Varargs {
+    fn default() -> Varargs {
+        Varargs::None
+    }
+}
+
+impl From<Option<Option<Parameter>>> for Varargs {
+    fn from(opt: Option<Option<Parameter>>) -> Varargs {
+        match opt {
+            Some(inner_opt) => match inner_opt {
+                Some(param) => Varargs::Capture(param),
+                None => Varargs::NoCapture,
+            },
+            None => Varargs::None,
+        }
+    }
 }
