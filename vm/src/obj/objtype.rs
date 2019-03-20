@@ -114,10 +114,10 @@ impl PyClassRef {
         trace!("type.__getattribute__({:?}, {:?})", self, name);
         let mcl = self.type_pyref();
 
-        if let Some(attr) = class_get_attr(mcl, &name) {
+        if let Some(attr) = class_get_attr(&mcl, &name) {
             let attr_class = attr.type_pyref();
-            if class_has_attr(attr_class, "__set__") {
-                if let Some(descriptor) = class_get_attr(attr_class, "__get__") {
+            if class_has_attr(&attr_class, "__set__") {
+                if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
                     return vm.invoke(
                         descriptor,
                         vec![attr, self.into_object(), mcl.into_object()],
@@ -126,19 +126,19 @@ impl PyClassRef {
             }
         }
 
-        if let Some(attr) = class_get_attr(self, &name) {
+        if let Some(attr) = class_get_attr(&self, &name) {
             let attr_class = attr.type_pyref();
-            if let Some(descriptor) = class_get_attr(attr_class, "__get__") {
+            if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
                 let none = vm.get_none();
                 return vm.invoke(descriptor, vec![attr, none, self.into_object()]);
             }
         }
 
-        if let Some(cls_attr) = class_get_attr(self, &name) {
+        if let Some(cls_attr) = class_get_attr(&self, &name) {
             Ok(cls_attr)
-        } else if let Some(attr) = class_get_attr(mcl, &name) {
+        } else if let Some(attr) = class_get_attr(&mcl, &name) {
             vm.call_get_descriptor(attr, self.into_object())
-        } else if let Some(getter) = class_get_attr(self, "__getattr__") {
+        } else if let Some(getter) = class_get_attr(&self, "__getattr__") {
             vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
@@ -263,7 +263,7 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(obj)
 }
 
-fn class_get_item(class: PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+fn class_get_item(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
     if let Some(ref dict) = class.as_object().dict {
         dict.borrow().get(attr_name).cloned()
     } else {
@@ -271,7 +271,7 @@ fn class_get_item(class: PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
     }
 }
 
-fn class_has_item(class: PyClassRef, attr_name: &str) -> bool {
+fn class_has_item(class: &PyClassRef, attr_name: &str) -> bool {
     if let Some(ref dict) = class.as_object().dict {
         dict.borrow().contains_key(attr_name)
     } else {
@@ -280,13 +280,13 @@ fn class_has_item(class: PyClassRef, attr_name: &str) -> bool {
 }
 
 // This is the internal get_attr implementation for fast lookup on a class.
-pub fn class_get_attr(zelf: PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
     let mro = &zelf.mro;
-    if let Some(item) = class_get_item(zelf.clone(), attr_name) {
+    if let Some(item) = class_get_item(zelf, attr_name) {
         return Some(item);
     }
     for class in mro {
-        if let Some(item) = class_get_item(class.clone(), attr_name) {
+        if let Some(item) = class_get_item(class, attr_name) {
             return Some(item);
         }
     }
@@ -294,10 +294,9 @@ pub fn class_get_attr(zelf: PyClassRef, attr_name: &str) -> Option<PyObjectRef> 
 }
 
 // This is the internal has_attr implementation for fast lookup on a class.
-pub fn class_has_attr(zelf: PyClassRef, attr_name: &str) -> bool {
+pub fn class_has_attr(zelf: &PyClassRef, attr_name: &str) -> bool {
     let mro = &zelf.mro;
-    return class_has_item(zelf.clone(), attr_name)
-        || mro.iter().any(|d| class_has_item(d.clone(), attr_name));
+    return class_has_item(zelf, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name));
 }
 
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {

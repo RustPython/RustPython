@@ -4,8 +4,8 @@ use super::objtype;
 use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    DictProtocol, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -246,27 +246,27 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("object.__getattribute__({:?}, {:?})", obj, name);
     let cls = obj.type_pyref();
 
-    if let Some(attr) = objtype::class_get_attr(cls.clone(), &name) {
+    if let Some(attr) = objtype::class_get_attr(&cls, &name) {
         let attr_class = attr.type_pyref();
-        if objtype::class_has_attr(attr_class.clone(), "__set__") {
-            if let Some(descriptor) = objtype::class_get_attr(attr_class, "__get__") {
+        if objtype::class_has_attr(&attr_class, "__set__") {
+            if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
                 return vm.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()]);
             }
         }
     }
 
-    if let Some(obj_attr) = object_getattr(obj.clone(), &name) {
+    if let Some(obj_attr) = object_getattr(&obj, &name) {
         Ok(obj_attr)
-    } else if let Some(attr) = objtype::class_get_attr(cls.clone(), &name) {
+    } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
         vm.call_get_descriptor(attr, obj.clone())
-    } else if let Some(getter) = objtype::class_get_attr(cls, "__getattr__") {
+    } else if let Some(getter) = objtype::class_get_attr(&cls, "__getattr__") {
         vm.invoke(getter, vec![obj.clone(), name_str.clone()])
     } else {
         Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
     }
 }
 
-fn object_getattr(obj: PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+fn object_getattr(obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
     if let Some(ref dict) = obj.dict {
         dict.borrow().get(attr_name).cloned()
     } else {
