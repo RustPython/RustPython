@@ -244,25 +244,33 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let name = objstr::get_value(&name_str);
     trace!("object.__getattribute__({:?}, {:?})", obj, name);
-    let cls = obj.typ();
+    let cls = obj.type_pyref();
 
-    if let Some(attr) = cls.get_attr(&name) {
-        let attr_class = attr.typ();
-        if attr_class.has_attr("__set__") {
-            if let Some(descriptor) = attr_class.get_attr("__get__") {
-                return vm.invoke(descriptor, vec![attr, obj.clone(), cls]);
+    if let Some(attr) = objtype::class_get_attr(cls.clone(), &name) {
+        let attr_class = attr.type_pyref();
+        if objtype::class_has_attr(attr_class.clone(), "__set__") {
+            if let Some(descriptor) = objtype::class_get_attr(attr_class, "__get__") {
+                return vm.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()]);
             }
         }
     }
 
-    if let Some(obj_attr) = obj.get_attr(&name) {
+    if let Some(obj_attr) = object_getattr(obj.clone(), &name) {
         Ok(obj_attr)
-    } else if let Some(attr) = cls.get_attr(&name) {
+    } else if let Some(attr) = objtype::class_get_attr(cls.clone(), &name) {
         vm.call_get_descriptor(attr, obj.clone())
-    } else if let Some(getter) = cls.get_attr("__getattr__") {
+    } else if let Some(getter) = objtype::class_get_attr(cls, "__getattr__") {
         vm.invoke(getter, vec![obj.clone(), name_str.clone()])
     } else {
         Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
+    }
+}
+
+fn object_getattr(obj: PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+    if let Some(ref dict) = obj.dict {
+        dict.borrow().get(attr_name).cloned()
+    } else {
+        None
     }
 }
 

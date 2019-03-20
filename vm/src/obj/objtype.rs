@@ -118,7 +118,10 @@ impl PyClassRef {
             let attr_class = attr.type_pyref();
             if class_has_attr(attr_class, "__set__") {
                 if let Some(descriptor) = class_get_attr(attr_class, "__get__") {
-                    return vm.invoke(descriptor, vec![attr, self.into_object(), mcl.into_object()]);
+                    return vm.invoke(
+                        descriptor,
+                        vec![attr, self.into_object(), mcl.into_object()],
+                    );
                 }
             }
         }
@@ -277,7 +280,7 @@ fn class_has_item(class: PyClassRef, attr_name: &str) -> bool {
 }
 
 // This is the internal get_attr implementation for fast lookup on a class.
-fn class_get_attr(zelf: PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+pub fn class_get_attr(zelf: PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
     let mro = &zelf.mro;
     if let Some(item) = class_get_item(zelf.clone(), attr_name) {
         return Some(item);
@@ -291,7 +294,7 @@ fn class_get_attr(zelf: PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
 }
 
 // This is the internal has_attr implementation for fast lookup on a class.
-fn class_has_attr(zelf: PyClassRef, attr_name: &str) -> bool {
+pub fn class_has_attr(zelf: PyClassRef, attr_name: &str) -> bool {
     let mro = &zelf.mro;
     return class_has_item(zelf.clone(), attr_name)
         || mro.iter().any(|d| class_has_item(d.clone(), attr_name));
