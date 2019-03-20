@@ -1,9 +1,9 @@
 use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PyPropertyRef;
 use crate::obj::objstr::PyStringRef;
+use crate::obj::objtype::{class_get_attr, class_has_attr};
 use crate::pyobject::{
-    AttributeProtocol, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -45,7 +45,7 @@ impl PyNoneRef {
 
     fn get_attribute(self, name: PyStringRef, vm: &mut VirtualMachine) -> PyResult {
         trace!("None.__getattribute__({:?}, {:?})", self, name);
-        let cls = self.typ().into_object();
+        let cls = self.typ();
 
         // Properties use a comparision with None to determine if they are either invoked by am
         // instance binding or a class binding. But if the object itself is None then this detection
@@ -69,25 +69,33 @@ impl PyNoneRef {
             }
         }
 
-        if let Some(attr) = cls.get_attr(&name.value) {
-            let attr_class = attr.typ();
-            if attr_class.has_attr("__set__") {
-                if let Some(get_func) = attr_class.get_attr("__get__") {
-                    return call_descriptor(attr, get_func, self.into_object(), cls.clone(), vm);
+        if let Some(attr) = class_get_attr(&cls, &name.value) {
+            let attr_class = attr.type_pyref();
+            if class_has_attr(&attr_class, "__set__") {
+                if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
+                    return call_descriptor(
+                        attr,
+                        get_func,
+                        self.into_object(),
+                        cls.into_object(),
+                        vm,
+                    );
                 }
             }
         }
 
-        if let Some(obj_attr) = self.as_object().get_attr(&name.value) {
-            Ok(obj_attr)
-        } else if let Some(attr) = cls.get_attr(&name.value) {
-            let attr_class = attr.typ();
-            if let Some(get_func) = attr_class.get_attr("__get__") {
-                call_descriptor(attr, get_func, self.into_object(), cls.clone(), vm)
+        // None has no attributes and cannot have attributes set on it.
+        // if let Some(obj_attr) = self.as_object().get_attr(&name.value) {
+        //     Ok(obj_attr)
+        // } else
+        if let Some(attr) = class_get_attr(&cls, &name.value) {
+            let attr_class = attr.type_pyref();
+            if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
+                call_descriptor(attr, get_func, self.into_object(), cls.into_object(), vm)
             } else {
                 Ok(attr)
             }
-        } else if let Some(getter) = cls.get_attr("__getattr__") {
+        } else if let Some(getter) = class_get_attr(&cls, "__getattr__") {
             vm.invoke(getter, vec![self.into_object(), name.into_object()])
         } else {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self.as_object(), name)))
