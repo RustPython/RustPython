@@ -295,8 +295,7 @@ pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef>
 
 // This is the internal has_attr implementation for fast lookup on a class.
 pub fn class_has_attr(zelf: &PyClassRef, attr_name: &str) -> bool {
-    let mro = &zelf.mro;
-    return class_has_item(zelf, attr_name) || mro.iter().any(|d| class_has_item(d, attr_name));
+    class_has_item(zelf, attr_name) || zelf.mro.iter().any(|d| class_has_item(d, attr_name))
 }
 
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
