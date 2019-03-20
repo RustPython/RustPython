@@ -10,7 +10,7 @@ use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -24,6 +24,7 @@ pub struct PyString {
     // TODO: shouldn't be public
     pub value: String,
 }
+pub type PyStringRef = PyRef<PyString>;
 
 impl<T: ToString> From<T> for PyString {
     fn from(t: T) -> PyString {
@@ -33,7 +34,20 @@ impl<T: ToString> From<T> for PyString {
     }
 }
 
-pub type PyStringRef = PyRef<PyString>;
+impl TryIntoRef<PyString> for String {
+    fn try_into_ref(self, vm: &mut VirtualMachine) -> PyResult<PyRef<PyString>> {
+        Ok(PyString { value: self }.into_ref(vm))
+    }
+}
+
+impl TryIntoRef<PyString> for &str {
+    fn try_into_ref(self, vm: &mut VirtualMachine) -> PyResult<PyRef<PyString>> {
+        Ok(PyString {
+            value: self.to_string(),
+        }
+        .into_ref(vm))
+    }
+}
 
 impl PyStringRef {
     fn add(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<String> {

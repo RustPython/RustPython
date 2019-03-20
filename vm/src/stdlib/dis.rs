@@ -7,8 +7,7 @@ fn dis_dis(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
     // Method or function:
-    let code_name = vm.new_str("__code__".to_string());
-    if let Ok(co) = vm.get_attribute(obj.clone(), code_name) {
+    if let Ok(co) = vm.get_attribute(obj.clone(), "__code__") {
         return dis_disassemble(vm, PyFuncArgs::new(vec![co], vec![]));
     }
 
