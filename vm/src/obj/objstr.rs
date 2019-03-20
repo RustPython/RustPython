@@ -24,6 +24,7 @@ pub struct PyString {
     // TODO: shouldn't be public
     pub value: String,
 }
+pub type PyStringRef = PyRef<PyString>;
 
 impl<T: ToString> From<T> for PyString {
     fn from(t: T) -> PyString {
@@ -33,7 +34,36 @@ impl<T: ToString> From<T> for PyString {
     }
 }
 
-pub type PyStringRef = PyRef<PyString>;
+pub trait IntoPyStringRef {
+    fn into_pystringref(self, vm: &mut VirtualMachine) -> PyResult<PyStringRef>;
+}
+
+impl IntoPyStringRef for PyStringRef {
+    fn into_pystringref(self, _vm: &mut VirtualMachine) -> PyResult<PyStringRef> {
+        Ok(self)
+    }
+}
+
+impl IntoPyStringRef for String {
+    fn into_pystringref(self, vm: &mut VirtualMachine) -> PyResult<PyStringRef> {
+        Ok(PyString { value: self }.into_ref(vm))
+    }
+}
+
+impl IntoPyStringRef for PyObjectRef {
+    fn into_pystringref(self, vm: &mut VirtualMachine) -> PyResult<PyStringRef> {
+        TryFromObject::try_from_object(vm, self)
+    }
+}
+
+impl IntoPyStringRef for &str {
+    fn into_pystringref(self, vm: &mut VirtualMachine) -> PyResult<PyStringRef> {
+        Ok(PyString {
+            value: self.to_string(),
+        }
+        .into_ref(vm))
+    }
+}
 
 impl PyStringRef {
     fn add(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<String> {

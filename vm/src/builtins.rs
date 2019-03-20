@@ -310,7 +310,7 @@ fn builtin_getattr(
     default: OptionalArg<PyObjectRef>,
     vm: &mut VirtualMachine,
 ) -> PyResult {
-    let ret = vm.get_attribute(obj.clone(), attr.into_object());
+    let ret = vm.get_attribute(obj.clone(), attr);
     if let OptionalArg::Present(default) = default {
         ret.or_else(|ex| catch_attr_exception(ex, default, vm))
     } else {
@@ -323,7 +323,7 @@ fn builtin_globals(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &mut VirtualMachine) -> PyResult<bool> {
-    if let Err(ex) = vm.get_attribute(obj.clone(), attr.into_object()) {
+    if let Err(ex) = vm.get_attribute(obj.clone(), attr) {
         catch_attr_exception(ex, false, vm)
     } else {
         Ok(true)
@@ -832,8 +832,7 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let bases = vm.context().new_tuple(bases);
 
     // Prepare uses full __getattribute__ resolution chain.
-    let prepare_name = vm.new_str("__prepare__".to_string());
-    let prepare = vm.get_attribute(metaclass.clone(), prepare_name)?;
+    let prepare = vm.get_attribute(metaclass.clone(), "__prepare__")?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
     let cells = vm.new_dict();
