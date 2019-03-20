@@ -908,7 +908,7 @@ impl DictProtocol for PyObjectRef {
     }
 
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        if self.object_is::<PyDict>() {
+        if self.payload_is::<PyDict>() {
             objdict::get_key_value_pairs(self)
         } else if let Some(PyModule { ref dict, .. }) = self.payload::<PyModule>() {
             dict.get_key_value_pairs()
@@ -1123,7 +1123,7 @@ impl PyObject {
     }
 
     #[inline]
-    pub fn object_is<T: PyObjectPayload>(&self) -> bool {
+    pub fn payload_is<T: PyObjectPayload>(&self) -> bool {
         self.payload.as_any().is::<T>()
     }
 }
@@ -1166,7 +1166,7 @@ impl<T: PyValue + 'static> PyObjectPayload for T {
 
 impl FromPyObjectRef for PyRef<PyClass> {
     fn from_pyobj(obj: &PyObjectRef) -> Self {
-        if obj.object_is::<PyClass>() {
+        if obj.payload_is::<PyClass>() {
             PyRef {
                 obj: obj.clone(),
                 _payload: PhantomData,
