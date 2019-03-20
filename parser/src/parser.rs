@@ -255,8 +255,8 @@ mod tests {
                                 }
                             ],
                             kwonlyargs: vec![],
-                            vararg: None,
-                            kwarg: None,
+                            vararg: ast::Varargs::None,
+                            kwarg: ast::Varargs::None,
                             defaults: vec![],
                             kw_defaults: vec![],
                         },
@@ -344,8 +344,8 @@ mod tests {
                                         annotation: None,
                                     }],
                                     kwonlyargs: vec![],
-                                    vararg: None,
-                                    kwarg: None,
+                                    vararg: ast::Varargs::None,
+                                    kwarg: ast::Varargs::None,
                                     defaults: vec![],
                                     kw_defaults: vec![],
                                 },
@@ -373,8 +373,8 @@ mod tests {
                                         }
                                     ],
                                     kwonlyargs: vec![],
-                                    vararg: None,
-                                    kwarg: None,
+                                    vararg: ast::Varargs::None,
+                                    kwarg: ast::Varargs::None,
                                     defaults: vec![ast::Expression::String {
                                         value: ast::StringGroup::Constant {
                                             value: "default".to_string()
