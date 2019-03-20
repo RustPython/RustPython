@@ -20,7 +20,7 @@ use crate::obj::objtype;
 use crate::frame::Scope;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -842,7 +842,10 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let prepare = vm.get_attribute(metaclass.clone(), prepare_name)?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
-    vm.invoke_with_locals(function, namespace.clone())?;
+    let cells = vm.new_dict();
 
-    vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
+    vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
+    let class = vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])?;
+    cells.set_item(&vm.ctx, "__class__", class.clone());
+    Ok(class)
 }

@@ -22,15 +22,18 @@ class Bar:
         self.x = x
 
     def get_x(self):
+        assert __class__ is Bar
         return self.x
 
     @classmethod
     def fubar(cls, x):
+        assert __class__ is cls
         assert cls is Bar
         assert x == 2
 
     @staticmethod
     def kungfu(x):
+        assert __class__ is Bar
         assert x == 3
 
 
