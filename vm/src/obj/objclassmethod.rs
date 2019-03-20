@@ -1,5 +1,6 @@
+use super::objtype::{class_get_attr, PyClassRef};
 use crate::function::PyFuncArgs;
-use crate::pyobject::{AttributeProtocol, PyContext, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
@@ -10,18 +11,14 @@ pub fn init(context: &PyContext) {
     });
 }
 
-fn classmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("classmethod.__get__ {:?}", args.args);
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, Some(vm.ctx.classmethod_type())),
-            (_inst, None),
-            (owner, None)
-        ]
-    );
-    match cls.get_attr("function") {
+fn classmethod_get(
+    class: PyClassRef,
+    _inst: PyObjectRef,
+    owner: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult {
+    trace!("classmethod.__get__ {:?}", class);
+    match class_get_attr(&class, "function") {
         Some(function) => {
             let py_obj = owner.clone();
             let py_method = vm.ctx.new_bound_method(function, py_obj);

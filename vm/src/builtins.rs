@@ -19,9 +19,7 @@ use crate::obj::objtype;
 
 use crate::frame::Scope;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::pyobject::{DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -95,7 +93,7 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_callable(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    let is_callable = obj.typ().has_attr("__call__");
+    let is_callable = objtype::class_has_attr(&obj.type_pyref(), "__call__");
     Ok(vm.new_bool(is_callable))
 }
 
