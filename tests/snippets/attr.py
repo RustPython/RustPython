@@ -41,7 +41,13 @@ with assertRaises(AttributeError):
     object().a = 1
 
 with assertRaises(AttributeError):
+    del object().a
+
+with assertRaises(AttributeError):
     setattr(object(), 'a', 2)
+
+with assertRaises(AttributeError):
+    delattr(object(), 'a')
 
 attrs = {}
 

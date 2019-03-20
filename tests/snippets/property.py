@@ -19,6 +19,33 @@ assert f.foo == 101
 assert type(Fubar.foo) is property
 
 
+class Bar:
+    def __init__(self):
+        self.a = 0
+
+    @property
+    def foo(self):
+        return self.a
+
+    @foo.setter
+    def foo(self, value):
+        self.a += value
+
+    @foo.deleter
+    def foo(self):
+        self.a -= 1
+
+
+bar = Bar()
+assert bar.foo == 0
+bar.foo = 5
+assert bar.a == 5
+del bar.foo
+assert bar.a == 4
+del bar.foo
+assert bar.a == 3
+
+
 null_property = property()
 assert type(null_property) is property
 
