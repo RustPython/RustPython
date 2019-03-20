@@ -445,9 +445,9 @@ impl Compiler {
         let line_number = self.get_source_line_number();
         self.code_object_stack.push(CodeObject::new(
             args.args.iter().map(|a| a.arg.clone()).collect(),
-            Varargs::from_ast_vararg_ref(&args.vararg),
+            Varargs::from(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
-            Varargs::from_ast_vararg_ref(&args.kwarg),
+            Varargs::from(&args.kwarg),
             self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),

@@ -419,8 +419,8 @@ impl From<ast::Varargs> for Varargs {
     }
 }
 
-impl Varargs {
-    pub fn from_ast_vararg_ref(varargs: &ast::Varargs) -> Varargs {
+impl<'a> From<&'a ast::Varargs> for Varargs {
+    fn from(varargs: &'a ast::Varargs) -> Varargs {
         match varargs {
             ast::Varargs::None => Varargs::None,
             ast::Varargs::NoCapture => Varargs::NoCapture,
