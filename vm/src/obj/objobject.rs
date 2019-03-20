@@ -1,4 +1,5 @@
 use super::objlist::PyList;
+use super::objmodule::PyModule;
 use super::objstr::{self, PyStringRef};
 use super::objtype;
 use crate::function::PyFuncArgs;
@@ -267,6 +268,13 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn object_getattr(obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+    // TODO:
+    // This is an all kinds of wrong work-around for the temporary difference in
+    // shape between modules and object. It will disappear once that is fixed.
+    if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
+        return dict.get_item(attr_name);
+    }
+
     if let Some(ref dict) = obj.dict {
         dict.borrow().get(attr_name).cloned()
     } else {
