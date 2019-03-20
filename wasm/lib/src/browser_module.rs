@@ -75,8 +75,8 @@ fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(headers) = headers {
         let h = request.headers();
         for (key, value) in rustpython_vm::obj::objdict::get_key_value_pairs(&headers) {
-            let ref key = vm.to_str(&key)?.value;
-            let ref value = vm.to_str(&value)?.value;
+            let key = &vm.to_str(&key)?.value;
+            let value = &vm.to_str(&value)?.value;
             h.set(key, value)
                 .map_err(|err| convert::js_py_typeerror(vm, err))?;
         }
@@ -163,9 +163,8 @@ pub struct PyPromise {
 }
 
 impl PyValue for PyPromise {
-    fn class(_vm: &mut VirtualMachine) -> PyObjectRef {
-        // TODO
-        unimplemented!()
+    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+        vm.class(BROWSER_NAME, "Promise")
     }
 }
 
@@ -183,7 +182,7 @@ pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
 }
 
 pub fn import_promise_type(vm: &mut VirtualMachine) -> PyResult {
-    match import_module(vm, PathBuf::default(), BROWSER_NAME)?.get_attr("Promise".into()) {
+    match import_module(vm, PathBuf::default(), BROWSER_NAME)?.get_attr("Promise") {
         Some(promise) => Ok(promise),
         None => Err(vm.new_not_implemented_error("No Promise".to_string())),
     }

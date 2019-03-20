@@ -78,6 +78,7 @@ pub trait PySliceableSequence {
                 } else if step.is_positive() {
                     let range = self.get_slice_range(start, stop);
                     if range.start < range.end {
+                        #[allow(clippy::range_plus_one)]
                         match step.to_i32() {
                             Some(1) => Ok(self.do_slice(range)),
                             Some(num) => Ok(self.do_stepped_slice(range, num as usize)),
