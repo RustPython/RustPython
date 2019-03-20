@@ -6,7 +6,7 @@ use crate::function::IntoPyNativeFunc;
 use crate::function::OptionalArg;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 /// Read-only property, doesn't have __set__ or __delete__
@@ -25,7 +25,11 @@ pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 
 impl PyReadOnlyPropertyRef {
     fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
-        vm.invoke(self.getter.clone(), obj)
+        if obj.is(&vm.ctx.none) {
+            Ok(self.into_object())
+        } else {
+            vm.invoke(self.getter.clone(), obj)
+        }
     }
 }
 
@@ -64,9 +68,26 @@ impl PyPropertyRef {
 
     // Descriptor methods
 
-    fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
+    // specialised version that doesn't check for None
+    pub(crate) fn instance_binding_get(
+        self,
+        obj: PyObjectRef,
+        vm: &mut VirtualMachine,
+    ) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
             vm.invoke(getter.clone(), obj)
+        } else {
+            Err(vm.new_attribute_error("unreadable attribute".to_string()))
+        }
+    }
+
+    fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
+        if let Some(getter) = self.getter.as_ref() {
+            if obj.is(&vm.ctx.none) {
+                Ok(self.into_object())
+            } else {
+                vm.invoke(getter.clone(), obj)
+            }
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }

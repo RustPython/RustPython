@@ -1146,7 +1146,7 @@ impl Frame {
     fn store_attr(&self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
-        vm.ctx.set_attr(&parent, attr_name, value);
+        vm.set_attr(&parent, vm.new_str(attr_name.to_string()), value)?;
         Ok(None)
     }
 

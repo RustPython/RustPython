@@ -547,6 +547,15 @@ impl VirtualMachine {
         self.call_method(&obj, "__getattribute__", vec![attr_name])
     }
 
+    pub fn set_attr(
+        &mut self,
+        obj: &PyObjectRef,
+        attr_name: PyObjectRef,
+        attr_value: PyObjectRef,
+    ) -> PyResult {
+        self.call_method(&obj, "__setattr__", vec![attr_name, attr_value])
+    }
+
     pub fn del_attr(&mut self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult {
         self.call_method(&obj, "__delattr__", vec![attr_name])
     }
