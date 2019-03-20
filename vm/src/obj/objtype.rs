@@ -331,7 +331,6 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
     Some(result)
 }
 
-#[allow(clippy::implicit_hasher)]
 pub fn new(
     typ: PyObjectRef,
     name: &str,
