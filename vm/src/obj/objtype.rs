@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use crate::function::PyFuncArgs;
+use crate::function::{Args, PyFuncArgs};
 use crate::pyobject::{
-    AttributeProtocol, FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -247,11 +247,11 @@ pub fn type_new_class(
     )
 }
 
-pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    debug!("type_call: {:?}", args);
-    let cls = args.shift();
-    let new = cls.get_attr("__new__").unwrap();
-    let new_wrapped = vm.call_get_descriptor(new, cls)?;
+pub fn type_call(class: PyClassRef, args: Args, vm: &mut VirtualMachine) -> PyResult {
+    debug!("type_call: {:?}", class);
+    let new = class_get_attr(&class, "__new__").expect("All types should have a __new__.");
+    let new_wrapped = vm.call_get_descriptor(new, class.into_object())?;
+    let args: Vec<PyObjectRef> = args.into_iter().collect();
     let obj = vm.invoke(new_wrapped, args.clone())?;
 
     if let Ok(init) = vm.get_method(obj.clone(), "__init__") {

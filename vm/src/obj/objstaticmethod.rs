@@ -1,5 +1,6 @@
+use super::objtype::{class_get_attr, PyClassRef};
 use crate::function::PyFuncArgs;
-use crate::pyobject::{AttributeProtocol, PyContext, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
@@ -11,18 +12,14 @@ pub fn init(context: &PyContext) {
 }
 
 // `staticmethod` methods.
-fn staticmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("staticmethod.__get__ {:?}", args.args);
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, Some(vm.ctx.staticmethod_type())),
-            (_inst, None),
-            (_owner, None)
-        ]
-    );
-    match cls.get_attr("function") {
+fn staticmethod_get(
+    class: PyClassRef,
+    _inst: PyObjectRef,
+    _owner: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult {
+    trace!("staticmethod.__get__ {:?}", class);
+    match class_get_attr(&class, "function") {
         Some(function) => Ok(function),
         None => Err(vm.new_attribute_error(
             "Attribute Error: staticmethod must have 'function' attribute".to_string(),
