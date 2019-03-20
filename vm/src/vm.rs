@@ -359,9 +359,21 @@ impl VirtualMachine {
         }
     }
 
-    pub fn invoke_with_locals(&mut self, function: PyObjectRef, locals: PyObjectRef) -> PyResult {
-        if let Some(PyFunction { code, scope, .. }) = &function.payload() {
-            let scope = scope.child_scope_with_locals(locals);
+    pub fn invoke_with_locals(
+        &mut self,
+        function: PyObjectRef,
+        cells: PyObjectRef,
+        locals: PyObjectRef,
+    ) -> PyResult {
+        if let Some(PyFunction {
+            code,
+            scope,
+            defaults: _,
+        }) = &function.payload()
+        {
+            let scope = scope
+                .child_scope_with_locals(cells)
+                .child_scope_with_locals(locals);
             let frame = self.ctx.new_frame(code.clone(), scope);
             return self.run_frame_full(frame);
         }
@@ -540,6 +552,15 @@ impl VirtualMachine {
     pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: PyObjectRef) -> PyResult {
         trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
         self.call_method(&obj, "__getattribute__", vec![attr_name])
+    }
+
+    pub fn set_attr(
+        &mut self,
+        obj: &PyObjectRef,
+        attr_name: PyObjectRef,
+        attr_value: PyObjectRef,
+    ) -> PyResult {
+        self.call_method(&obj, "__setattr__", vec![attr_name, attr_value])
     }
 
     pub fn del_attr(&mut self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult {

@@ -29,7 +29,7 @@ class assertRaises:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            failmsg = '{!s} was not raised'.format(self.expected.__name_)
+            failmsg = '{!s} was not raised'.format(self.expected.__name__)
             assert False, failmsg            
         if not issubclass(exc_type, self.expected):
             return False

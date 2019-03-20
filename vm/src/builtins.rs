@@ -18,9 +18,9 @@ use crate::obj::objstr::{self, PyStringRef};
 use crate::obj::objtype;
 
 use crate::frame::Scope;
-use crate::function::{Args, PyFuncArgs};
+use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    AttributeProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -296,30 +296,38 @@ fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.call_method(obj, "__format__", vec![format_spec])
 }
 
-fn builtin_getattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None), (attr, Some(vm.ctx.str_type()))]
-    );
-    vm.get_attribute(obj.clone(), attr.clone())
+fn catch_attr_exception<T>(ex: PyObjectRef, default: T, vm: &mut VirtualMachine) -> PyResult<T> {
+    if objtype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
+        Ok(default)
+    } else {
+        Err(ex)
+    }
+}
+
+fn builtin_getattr(
+    obj: PyObjectRef,
+    attr: PyStringRef,
+    default: OptionalArg<PyObjectRef>,
+    vm: &mut VirtualMachine,
+) -> PyResult {
+    let ret = vm.get_attribute(obj.clone(), attr.into_object());
+    if let OptionalArg::Present(default) = default {
+        ret.or_else(|ex| catch_attr_exception(ex, default, vm))
+    } else {
+        ret
+    }
 }
 
 fn builtin_globals(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.current_scope().globals.clone())
 }
 
-fn builtin_hasattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None), (attr, Some(vm.ctx.str_type()))]
-    );
-    let has_attr = match vm.get_attribute(obj.clone(), attr.clone()) {
-        Ok(..) => true,
-        Err(..) => false,
-    };
-    Ok(vm.context().new_bool(has_attr))
+fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    if let Err(ex) = vm.get_attribute(obj.clone(), attr.into_object()) {
+        catch_attr_exception(ex, false, vm)
+    } else {
+        Ok(true)
+    }
 }
 
 fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -652,15 +660,14 @@ fn builtin_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_setattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None), (attr, Some(vm.ctx.str_type())), (value, None)]
-    );
-    let name = objstr::get_value(attr);
-    vm.ctx.set_attr(obj, &name, value.clone());
-    Ok(vm.get_none())
+fn builtin_setattr(
+    obj: PyObjectRef,
+    attr: PyStringRef,
+    value: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult<()> {
+    vm.set_attr(&obj, attr.into_object(), value)?;
+    Ok(())
 }
 
 // builtin_slice
@@ -829,7 +836,10 @@ pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> Py
     let prepare = vm.get_attribute(metaclass.clone(), prepare_name)?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
-    vm.invoke_with_locals(function, namespace.clone())?;
+    let cells = vm.new_dict();
 
-    vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])
+    vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
+    let class = vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])?;
+    cells.set_item(&vm.ctx, "__class__", class.clone());
+    Ok(class)
 }
