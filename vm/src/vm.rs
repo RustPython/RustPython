@@ -57,11 +57,7 @@ impl VirtualMachine {
 
         // Hard-core modules:
         let builtins = builtins::make_module(&ctx);
-        let sysmod = sysmodule::make_module(&ctx);
-
-        // Add builtins as builtins module:
-        let modules = sysmod.get_attr("modules").unwrap();
-        modules.set_item(&ctx, "builtins", builtins.clone());
+        let sysmod = sysmodule::make_module(&ctx, builtins.clone());
 
         let stdlib_inits = stdlib::get_module_inits();
         VirtualMachine {
@@ -105,10 +101,11 @@ impl VirtualMachine {
     }
 
     pub fn class(&mut self, module: &str, class: &str) -> PyObjectRef {
-        self.import(module)
-            .unwrap_or_else(|_| panic!("unable to import {}", module))
-            .get_attr(class)
-            .unwrap_or_else(|| panic!("module {} has no class {}", module, class))
+        let module = self
+            .import(module)
+            .unwrap_or_else(|_| panic!("unable to import {}", module));
+        self.get_attribute(module.clone(), class)
+            .unwrap_or_else(|_| panic!("module {} has no class {}", module, class))
     }
 
     /// Create a new python string object.
