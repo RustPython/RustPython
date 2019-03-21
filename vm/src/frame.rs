@@ -106,6 +106,20 @@ impl Scope {
         }
     }
 
+    pub fn get(&self, name: &str) -> Option<PyObjectRef> {
+        for dict in self.locals.iter() {
+            if let Some(value) = dict.get_item(name) {
+                return Some(value);
+            }
+        }
+
+        if let Some(value) = self.globals.get_item(name) {
+            return Some(value);
+        }
+
+        None
+    }
+
     pub fn get_only_locals(&self) -> Option<PyObjectRef> {
         self.locals.iter().next().cloned()
     }
@@ -130,17 +144,11 @@ pub trait NameProtocol {
 
 impl NameProtocol for Scope {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
-        for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item(name) {
-                return Some(value);
-            }
+        if let Some(value) = self.get(name) {
+            Some(value)
+        } else {
+            vm.builtins.get_item(name)
         }
-
-        if let Some(value) = self.globals.get_item(name) {
-            return Some(value);
-        }
-
-        vm.builtins.get_item(name)
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {

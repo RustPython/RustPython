@@ -85,6 +85,20 @@ class Me2(Me):
     def test(me):
         return super().test()
 
+class A():
+    def f(self):
+        pass
+
+class B(A):
+    def f(self):
+        super().f()
+
+class C(B):
+    def f(self):
+        super().f()
+
+C().f()
+
 me = Me2()
 assert me.test() == 100
 

@@ -19,6 +19,7 @@ use super::objtype;
 #[derive(Debug)]
 pub struct PySuper {
     obj: PyObjectRef,
+    typ: PyObjectRef,
 }
 
 impl PyValue for PySuper {
@@ -68,8 +69,9 @@ fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let inst = super_obj.payload::<PySuper>().unwrap().obj.clone();
+    let typ = super_obj.payload::<PySuper>().unwrap().typ.clone();
 
-    match inst.typ().payload::<PyClass>() {
+    match typ.payload::<PyClass>() {
         Some(PyClass { ref mro, .. }) => {
             for class in mro {
                 if let Ok(item) = vm.get_attribute(class.as_object().clone(), name_str.clone()) {
@@ -99,6 +101,29 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         return Err(vm.new_type_error(format!("{:?} is not a subtype of super", cls)));
     }
 
+    // Get the type:
+    let py_type = if let Some(ty) = py_type {
+        ty.clone()
+    } else {
+        match vm.current_scope().get("__class__") {
+            Some(obj) => obj.clone(),
+            _ => {
+                return Err(vm.new_type_error(
+                    "super must be called with 1 argument or from inside class method".to_string(),
+                ));
+            }
+        }
+    };
+
+    // Check type argument:
+    if !objtype::isinstance(&py_type, &vm.get_type()) {
+        let type_name = objtype::get_type_name(&py_type.typ());
+        return Err(vm.new_type_error(format!(
+            "super() argument 1 must be type, not {}",
+            type_name
+        )));
+    }
+
     // Get the bound object:
     let py_obj = if let Some(obj) = py_obj {
         obj.clone()
@@ -119,22 +144,6 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     };
 
-    // Get the type:
-    let py_type = if let Some(ty) = py_type {
-        ty.clone()
-    } else {
-        py_obj.typ().clone()
-    };
-
-    // Check type argument:
-    if !objtype::isinstance(&py_type, &vm.get_type()) {
-        let type_name = objtype::get_type_name(&py_type.typ());
-        return Err(vm.new_type_error(format!(
-            "super() argument 1 must be type, not {}",
-            type_name
-        )));
-    }
-
     // Check obj type:
     if !(objtype::isinstance(&py_obj, &py_type) || objtype::issubclass(&py_obj, &py_type)) {
         return Err(vm.new_type_error(
@@ -142,5 +151,11 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         ));
     }
 
-    Ok(PyObject::new(PySuper { obj: py_obj }, cls.clone()))
+    Ok(PyObject::new(
+        PySuper {
+            obj: py_obj,
+            typ: py_type,
+        },
+        cls.clone(),
+    ))
 }
