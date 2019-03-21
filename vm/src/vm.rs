@@ -359,14 +359,21 @@ impl VirtualMachine {
         }
     }
 
-    pub fn invoke_with_locals(&mut self, function: PyObjectRef, locals: PyObjectRef) -> PyResult {
+    pub fn invoke_with_locals(
+        &mut self,
+        function: PyObjectRef,
+        cells: PyObjectRef,
+        locals: PyObjectRef,
+    ) -> PyResult {
         if let Some(PyFunction {
             code,
             scope,
             defaults: _,
         }) = &function.payload()
         {
-            let scope = scope.child_scope_with_locals(locals);
+            let scope = scope
+                .child_scope_with_locals(cells)
+                .child_scope_with_locals(locals);
             let frame = self.ctx.new_frame(code.clone(), scope);
             return self.run_frame_full(frame);
         }
@@ -406,40 +413,40 @@ impl VirtualMachine {
         }
 
         // Pack other positional arguments in to *args:
-        if let Some(vararg) = &code_object.varargs {
-            let mut last_args = vec![];
-            for i in n..nargs {
-                let arg = &args.args[i];
-                last_args.push(arg.clone());
-            }
-            let vararg_value = self.ctx.new_tuple(last_args);
+        match code_object.varargs {
+            bytecode::Varargs::Named(ref vararg_name) => {
+                let mut last_args = vec![];
+                for i in n..nargs {
+                    let arg = &args.args[i];
+                    last_args.push(arg.clone());
+                }
+                let vararg_value = self.ctx.new_tuple(last_args);
 
-            // If we have a name (not '*' only) then store it:
-            if let Some(vararg_name) = vararg {
                 locals.set_item(&self.ctx, vararg_name, vararg_value);
             }
-        } else {
-            // Check the number of positional arguments
-            if nargs > nexpected_args {
-                return Err(self.new_type_error(format!(
-                    "Expected {} arguments (got: {})",
-                    nexpected_args, nargs
-                )));
+            bytecode::Varargs::Unnamed => {
+                // just ignore the rest of the args
+            }
+            bytecode::Varargs::None => {
+                // Check the number of positional arguments
+                if nargs > nexpected_args {
+                    return Err(self.new_type_error(format!(
+                        "Expected {} arguments (got: {})",
+                        nexpected_args, nargs
+                    )));
+                }
             }
         }
 
         // Do we support `**kwargs` ?
-        let kwargs = if let Some(kwargs) = &code_object.varkeywords {
-            let d = self.new_dict();
-
-            // Store when we have a name:
-            if let Some(kwargs_name) = kwargs {
-                locals.set_item(&self.ctx, &kwargs_name, d.clone());
+        let kwargs = match code_object.varkeywords {
+            bytecode::Varargs::Named(ref kwargs_name) => {
+                let d = self.new_dict();
+                locals.set_item(&self.ctx, kwargs_name, d.clone());
+                Some(d)
             }
-
-            Some(d)
-        } else {
-            None
+            bytecode::Varargs::Unnamed => Some(self.new_dict()),
+            bytecode::Varargs::None => None,
         };
 
         // Handle keyword arguments
@@ -545,6 +552,15 @@ impl VirtualMachine {
     pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: PyObjectRef) -> PyResult {
         trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
         self.call_method(&obj, "__getattribute__", vec![attr_name])
+    }
+
+    pub fn set_attr(
+        &mut self,
+        obj: &PyObjectRef,
+        attr_name: PyObjectRef,
+        attr_value: PyObjectRef,
+    ) -> PyResult {
+        self.call_method(&obj, "__setattr__", vec![attr_name, attr_value])
     }
 
     pub fn del_attr(&mut self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult {

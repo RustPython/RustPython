@@ -151,7 +151,7 @@ pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
 pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    let ref mro = subclass.payload::<PyClass>().unwrap().mro;
+    let mro = &subclass.payload::<PyClass>().unwrap().mro;
     subclass.is(cls) || mro.iter().any(|c| c.is(cls))
 }
 

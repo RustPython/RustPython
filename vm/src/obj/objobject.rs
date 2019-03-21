@@ -4,8 +4,8 @@ use super::objtype;
 use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef,
+    PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -22,9 +22,12 @@ pub type PyInstanceRef = PyRef<PyInstance>;
 
 pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
-    let type_ref = args.shift();
-    let obj = vm.ctx.new_instance(type_ref.clone(), None);
-    Ok(obj)
+    let cls = args.shift();
+    Ok(if cls.is(&vm.ctx.object) {
+        PyObject::new_without_dict(PyInstance, cls)
+    } else {
+        PyObject::new(PyInstance, cls)
+    })
 }
 
 fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -93,7 +96,25 @@ fn object_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_type_error("unhashable type".to_string()))
 }
 
-// TODO: is object the right place for delattr?
+fn object_setattr(
+    obj: PyInstanceRef,
+    attr_name: PyStringRef,
+    value: PyObjectRef,
+    vm: &mut VirtualMachine,
+) -> PyResult<()> {
+    trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
+    if let Some(ref dict) = obj.as_object().dict {
+        dict.borrow_mut().insert(attr_name.value.clone(), value);
+        Ok(())
+    } else {
+        let type_name = objtype::get_type_name(&obj.as_object().typ());
+        Err(vm.new_attribute_error(format!(
+            "'{}' object has no attribute '{}'",
+            type_name, &attr_name.value
+        )))
+    }
+}
+
 fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -167,6 +188,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__le__", context.new_rustfunc(object_le));
     context.set_attr(&object, "__gt__", context.new_rustfunc(object_gt));
     context.set_attr(&object, "__ge__", context.new_rustfunc(object_ge));
+    context.set_attr(&object, "__setattr__", context.new_rustfunc(object_setattr));
     context.set_attr(&object, "__delattr__", context.new_rustfunc(object_delattr));
     context.set_attr(&object, "__dict__", context.new_property(object_dict));
     context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));
@@ -238,7 +260,7 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else if let Some(attr) = cls.get_attr(&name) {
         vm.call_get_descriptor(attr, obj.clone())
     } else if let Some(getter) = cls.get_attr("__getattr__") {
-        vm.invoke(getter, vec![cls, name_str.clone()])
+        vm.invoke(getter, vec![obj.clone(), name_str.clone()])
     } else {
         Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
     }

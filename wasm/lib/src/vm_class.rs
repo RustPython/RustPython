@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use js_sys::{Object, Reflect, SyntaxError, TypeError};
-use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen::prelude::*;
 
 use rustpython_vm::compile;
 use rustpython_vm::frame::{NameProtocol, Scope};

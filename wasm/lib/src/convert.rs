@@ -150,7 +150,7 @@ pub fn object_entries(obj: &Object) -> impl Iterator<Item = Result<(JsValue, JsV
 pub fn pyresult_to_jsresult(vm: &mut VirtualMachine, result: PyResult) -> Result<JsValue, JsValue> {
     result
         .map(|value| py_to_js(vm, value))
-        .map_err(|err| py_err_to_js_err(vm, &err).into())
+        .map_err(|err| py_err_to_js_err(vm, &err))
 }
 
 pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {

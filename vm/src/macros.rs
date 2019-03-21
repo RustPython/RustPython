@@ -117,10 +117,10 @@ macro_rules! py_module {
     ( $ctx:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {
             let py_mod = $ctx.new_module($module_name, $ctx.new_dict());
-        $(
-            $ctx.set_attr(&py_mod, $name, $value);
-        )*
-        py_mod
+            $(
+                $ctx.set_attr(&py_mod, $name, $value);
+            )*
+            py_mod
         }
     }
 }

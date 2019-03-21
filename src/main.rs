@@ -186,7 +186,7 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
                 debug!("You entered {:?}", line);
                 input.push_str(&line);
                 input.push_str("\n");
-                repl.add_history_entry(line.trim_end().as_ref());
+                repl.add_history_entry(line.trim_end());
 
                 match shell_exec(vm, &input, vars.clone()) {
                     Err(CompileError::Parse(ParseError::EOF(_))) => {
