@@ -1044,6 +1044,27 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
     }
 }
 
+/// Allows coercion of a types into PyRefs, so that we can write functions that can take
+/// refs, pyobject refs or basic types.
+pub trait TryIntoRef<T> {
+    fn try_into_ref(self, vm: &mut VirtualMachine) -> PyResult<PyRef<T>>;
+}
+
+impl<T> TryIntoRef<T> for PyRef<T> {
+    fn try_into_ref(self, _vm: &mut VirtualMachine) -> PyResult<PyRef<T>> {
+        Ok(self)
+    }
+}
+
+impl<T> TryIntoRef<T> for PyObjectRef
+where
+    T: PyValue,
+{
+    fn try_into_ref(self, vm: &mut VirtualMachine) -> PyResult<PyRef<T>> {
+        TryFromObject::try_from_object(vm, self)
+    }
+}
+
 /// Implemented by any type that can be created from a Python object.
 ///
 /// Any type that implements `TryFromObject` is automatically `FromArgs`, and

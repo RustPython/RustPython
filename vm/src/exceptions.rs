@@ -1,9 +1,7 @@
 use crate::function::PyFuncArgs;
 use crate::obj::objsequence;
 use crate::obj::objtype;
-use crate::pyobject::{
-    create_type, AttributeProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::pyobject::{create_type, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -21,7 +19,7 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // Print exception including traceback:
 pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
-    if let Some(tb) = exc.get_attr("__traceback__") {
+    if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
             let mut elements = objsequence::get_elements(&tb).to_vec();
@@ -70,7 +68,7 @@ fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
     );
     let type_name = objtype::get_type_name(&exc.typ());
-    let msg = if let Some(m) = exc.get_attr("msg") {
+    let msg = if let Ok(m) = vm.get_attribute(exc.clone(), "msg") {
         match vm.to_pystr(&m) {
             Ok(msg) => msg,
             _ => "<exception str() failed>".to_string(),

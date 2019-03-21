@@ -24,12 +24,12 @@ use crate::obj::objgenerator;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objsequence;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::pyobject::{
     AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject,
-    TypeProtocol,
+    TryIntoRef, TypeProtocol,
 };
 use crate::stdlib;
 use crate::sysmodule;
@@ -549,9 +549,13 @@ impl VirtualMachine {
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
-    pub fn get_attribute(&mut self, obj: PyObjectRef, attr_name: PyObjectRef) -> PyResult {
+    pub fn get_attribute<T>(&mut self, obj: PyObjectRef, attr_name: T) -> PyResult
+    where
+        T: TryIntoRef<PyString>,
+    {
+        let attr_name = attr_name.try_into_ref(self)?;
         trace!("vm.__getattribute__: {:?} {:?}", obj, attr_name);
-        self.call_method(&obj, "__getattribute__", vec![attr_name])
+        self.call_method(&obj, "__getattribute__", vec![attr_name.into_object()])
     }
 
     pub fn set_attr(
