@@ -1,3 +1,4 @@
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
@@ -25,11 +26,9 @@ pub struct PyString {
     pub value: String,
 }
 
-impl<T: ToString> From<T> for PyString {
-    fn from(t: T) -> PyString {
-        PyString {
-            value: t.to_string(),
-        }
+impl fmt::Display for PyString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.value, f)
     }
 }
 
