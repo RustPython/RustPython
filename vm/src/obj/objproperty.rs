@@ -24,7 +24,12 @@ impl PyValue for PyReadOnlyProperty {
 pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 
 impl PyReadOnlyPropertyRef {
-    fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
+    fn get(
+        self,
+        obj: PyObjectRef,
+        _owner: OptionalArg<PyClassRef>,
+        vm: &mut VirtualMachine,
+    ) -> PyResult {
         if obj.is(&vm.ctx.none) {
             Ok(self.into_object())
         } else {
@@ -81,7 +86,12 @@ impl PyPropertyRef {
         }
     }
 
-    fn get(self, obj: PyObjectRef, _owner: PyClassRef, vm: &mut VirtualMachine) -> PyResult {
+    fn get(
+        self,
+        obj: PyObjectRef,
+        _owner: OptionalArg<PyClassRef>,
+        vm: &mut VirtualMachine,
+    ) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
             if obj.is(&vm.ctx.none) {
                 Ok(self.into_object())
