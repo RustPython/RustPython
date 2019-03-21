@@ -188,15 +188,36 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     }
 }
 
+pub fn ser_pyobject(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult<String> {
+    let serializer = PyObjectSerializer { pyobject: obj, vm };
+    serde_json::to_string(&serializer).map_err(|err| vm.new_type_error(err.to_string()))
+}
+
+pub fn de_pyobject(vm: &mut VirtualMachine, s: &str) -> PyResult {
+    let de = PyObjectDeserializer { vm };
+    // TODO: Support deserializing string sub-classes
+    de.deserialize(&mut serde_json::Deserializer::from_str(s))
+        .map_err(|err| {
+            let json_decode_error = vm
+                .sys_module
+                .get_item("modules")
+                .unwrap()
+                .get_item("json")
+                .unwrap()
+                .get_item("JSONDecodeError")
+                .unwrap();
+            let exc = vm.new_exception(json_decode_error, format!("{}", err));
+            vm.ctx.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()));
+            vm.ctx.set_attr(&exc, "colno", vm.ctx.new_int(err.column()));
+            exc
+        })
+}
+
 /// Implement json.dumps
 fn json_dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial serialisation case
     arg_check!(vm, args, required = [(obj, None)]);
-    let res = {
-        let serializer = PyObjectSerializer { pyobject: obj, vm };
-        serde_json::to_string(&serializer)
-    };
-    let string = res.map_err(|err| vm.new_type_error(format!("{}", err)))?;
+    let string = ser_pyobject(vm, obj)?;
     Ok(vm.context().new_str(string))
 }
 
@@ -204,28 +225,8 @@ fn json_dumps(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn json_loads(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: Implement non-trivial deserialization case
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
-    let res = {
-        let de = PyObjectDeserializer { vm };
-        // TODO: Support deserializing string sub-classes
-        de.deserialize(&mut serde_json::Deserializer::from_str(&objstr::get_value(
-            &string,
-        )))
-    };
 
-    res.map_err(|err| {
-        let json_decode_error = vm
-            .sys_module
-            .get_item("modules")
-            .unwrap()
-            .get_item("json")
-            .unwrap()
-            .get_item("JSONDecodeError")
-            .unwrap();
-        let exc = vm.new_exception(json_decode_error, format!("{}", err));
-        vm.ctx.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()));
-        vm.ctx.set_attr(&exc, "colno", vm.ctx.new_int(err.column()));
-        exc
-    })
+    de_pyobject(vm, &objstr::get_value(&string))
 }
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {

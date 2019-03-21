@@ -103,6 +103,17 @@ fn object_setattr(
     vm: &mut VirtualMachine,
 ) -> PyResult<()> {
     trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
+    let cls = obj.as_object().typ();
+
+    if let Some(attr) = cls.get_attr(&attr_name.value) {
+        let attr_class = attr.typ();
+        if let Some(descriptor) = attr_class.get_attr("__set__") {
+            return vm
+                .invoke(descriptor, vec![attr, obj.into_object(), value])
+                .map(|_| ());
+        }
+    }
+
     if let Some(ref dict) = obj.as_object().dict {
         dict.borrow_mut().insert(attr_name.value.clone(), value);
         Ok(())
@@ -115,23 +126,31 @@ fn object_setattr(
     }
 }
 
-fn object_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(vm.ctx.object())),
-            (attr, Some(vm.ctx.str_type()))
-        ]
-    );
+fn object_delattr(
+    obj: PyInstanceRef,
+    attr_name: PyStringRef,
+    vm: &mut VirtualMachine,
+) -> PyResult<()> {
+    let cls = obj.as_object().typ();
 
-    match zelf.dict {
-        Some(ref dict) => {
-            let attr_name = objstr::get_value(attr);
-            dict.borrow_mut().remove(&attr_name);
-            Ok(vm.get_none())
+    if let Some(attr) = cls.get_attr(&attr_name.value) {
+        let attr_class = attr.typ();
+        if let Some(descriptor) = attr_class.get_attr("__delete__") {
+            return vm
+                .invoke(descriptor, vec![attr, obj.into_object()])
+                .map(|_| ());
         }
-        None => Err(vm.new_type_error("TypeError: no dictionary.".to_string())),
+    }
+
+    if let Some(ref dict) = obj.as_object().dict {
+        dict.borrow_mut().remove(&attr_name.value);
+        Ok(())
+    } else {
+        let type_name = objtype::get_type_name(&obj.as_object().typ());
+        Err(vm.new_attribute_error(format!(
+            "'{}' object has no attribute '{}'",
+            type_name, &attr_name.value
+        )))
     }
 }
 
