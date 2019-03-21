@@ -130,7 +130,7 @@ pub fn py_to_js(vm: &mut VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         }
         arr.into()
     } else {
-        match rustpython_vm::stdlib::json::ser_pyobject(vm, &py_obj) {
+        match vm.serialize(&py_obj) {
             Ok(json) => js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED),
             Err(_) => JsValue::UNDEFINED,
         }
@@ -227,6 +227,6 @@ pub fn js_to_py(vm: &mut VirtualMachine, js_val: JsValue) -> PyObjectRef {
             Ok(json) => String::from(json),
             Err(_) => return vm.get_none(),
         };
-        rustpython_vm::stdlib::json::de_pyobject(vm, &json).unwrap_or_else(|_| vm.get_none())
+        vm.deserialize(&json).unwrap_or_else(|_| vm.get_none())
     }
 }
