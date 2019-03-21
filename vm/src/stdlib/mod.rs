@@ -1,6 +1,6 @@
 mod ast;
 mod dis;
-pub mod json;
+pub(crate) mod json;
 mod keyword;
 mod math;
 mod platform;

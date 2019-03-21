@@ -626,6 +626,14 @@ impl VirtualMachine {
         })
     }
 
+    pub fn serialize(&mut self, obj: &PyObjectRef) -> PyResult<String> {
+        crate::stdlib::json::ser_pyobject(self, obj)
+    }
+
+    pub fn deserialize(&mut self, s: &str) -> PyResult {
+        crate::stdlib::json::de_pyobject(self, s)
+    }
+
     pub fn _sub(&mut self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "-"))
