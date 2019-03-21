@@ -46,43 +46,47 @@ impl PyValue for PyTuple {
 pub type PyTupleRef = PyRef<PyTuple>;
 
 impl PyTupleRef {
-    fn lt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn lt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
-            Ok(seq_lt(vm, &zelf, &other)?)
+            let res = seq_lt(vm, &zelf, &other)?;
+            Ok(vm.new_bool(res))
         } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {} using '<'", self, other)))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
-    fn gt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn gt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
-            Ok(seq_gt(vm, &zelf, &other)?)
+            let res = seq_gt(vm, &zelf, &other)?;
+            Ok(vm.new_bool(res))
         } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {} using '>'", self, other)))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
-    fn ge(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn ge(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
-            Ok(seq_ge(vm, &zelf, &other)?)
+            let res = seq_ge(vm, &zelf, &other)?;
+            Ok(vm.new_bool(res))
         } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {} using '>='", self, other)))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
-    fn le(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn le(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
-            Ok(seq_le(vm, &zelf, &other)?)
+            let res = seq_le(vm, &zelf, &other)?;
+            Ok(vm.new_bool(res))
         } else {
-            Err(vm.new_type_error(format!("Cannot compare {} and {} using '<='", self, other)))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
@@ -93,7 +97,7 @@ impl PyTupleRef {
             let elements = e1.iter().chain(e2.iter()).cloned().collect();
             Ok(vm.ctx.new_tuple(elements))
         } else {
-            Err(vm.new_type_error(format!("Cannot add {} and {}", self, other)))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
@@ -112,13 +116,14 @@ impl PyTupleRef {
         Ok(count)
     }
 
-    fn eq(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn eq(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = &self.elements.borrow();
             let other = get_elements(&other);
-            seq_equal(vm, &zelf, &other)
+            let res = seq_equal(vm, &zelf, &other)?;
+            Ok(vm.new_bool(res))
         } else {
-            Ok(false)
+            Ok(vm.ctx.not_implemented())
         }
     }
 
