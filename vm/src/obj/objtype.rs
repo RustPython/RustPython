@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt;
 
 use crate::function::PyFuncArgs;
 use crate::pyobject::{
@@ -18,6 +19,12 @@ use super::objtuple::PyTuple;
 pub struct PyClass {
     pub name: String,
     pub mro: Vec<PyClassRef>,
+}
+
+impl fmt::Display for PyClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.name, f)
+    }
 }
 
 pub type PyClassRef = PyRef<PyClass>;

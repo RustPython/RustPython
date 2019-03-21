@@ -768,9 +768,13 @@ impl<T> IntoPyObject for PyRef<T> {
     }
 }
 
-impl<T> fmt::Display for PyRef<T> {
+impl<T: fmt::Display> fmt::Display for PyRef<T>
+where
+    T: PyValue + fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.obj.fmt(f)
+        let value: &T = self.obj.payload().expect("unexpected payload for type");
+        fmt::Display::fmt(value, f)
     }
 }
 
