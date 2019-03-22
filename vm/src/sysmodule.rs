@@ -21,7 +21,7 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
 fn frame_idx(vm: &mut VirtualMachine, offset: Option<&PyObjectRef>) -> Result<usize, PyObjectRef> {
     if let Some(int) = offset {
         if let Some(offset) = objint::get_value(&int).to_usize() {
-            if offset > vm.frames.len() - 1 {
+            if offset > vm.frames.borrow().len() - 1 {
                 return Err(vm.new_value_error("call stack is not deep enough".to_string()));
             }
             return Ok(offset);
@@ -39,8 +39,8 @@ fn getframe(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let idx = frame_idx(vm, offset)?;
-    let idx = vm.frames.len() - idx - 1;
-    let frame = &vm.frames[idx];
+    let idx = vm.frames.borrow().len() - idx - 1;
+    let frame = &vm.frames.borrow()[idx];
     Ok(frame.clone())
 }
 
