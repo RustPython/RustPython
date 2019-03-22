@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::function::PyFuncArgs;
+use crate::function::{Args, KwArgs, PyFuncArgs};
 use crate::pyobject::{
-    AttributeProtocol, FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -115,6 +115,42 @@ impl PyClassRef {
     fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.new_dict()
     }
+
+    fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let name = &name_ref.value;
+        trace!("type.__getattribute__({:?}, {:?})", self, name);
+        let mcl = self.type_pyref();
+
+        if let Some(attr) = class_get_attr(&mcl, &name) {
+            let attr_class = attr.type_pyref();
+            if class_has_attr(&attr_class, "__set__") {
+                if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
+                    return vm.invoke(
+                        descriptor,
+                        vec![attr, self.into_object(), mcl.into_object()],
+                    );
+                }
+            }
+        }
+
+        if let Some(attr) = class_get_attr(&self, &name) {
+            let attr_class = attr.type_pyref();
+            if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
+                let none = vm.get_none();
+                return vm.invoke(descriptor, vec![attr, none, self.into_object()]);
+            }
+        }
+
+        if let Some(cls_attr) = class_get_attr(&self, &name) {
+            Ok(cls_attr)
+        } else if let Some(attr) = class_get_attr(&mcl, &name) {
+            vm.call_get_descriptor(attr, self.into_object())
+        } else if let Some(getter) = class_get_attr(&self, "__getattr__") {
+            vm.invoke(getter, vec![mcl.into_object(), name_ref.into_object()])
+        } else {
+            Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
+        }
+    }
 }
 
 /*
@@ -136,7 +172,7 @@ pub fn init(ctx: &PyContext) {
                 .create(),
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
-        "__getattribute__" => ctx.new_rustfunc(type_getattribute),
+        "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
         "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),
         "__subclasscheck__" => ctx.new_rustfunc(PyClassRef::subclass_check),
         "__doc__" => ctx.new_str(type_doc.to_string()),
@@ -218,15 +254,14 @@ pub fn type_new_class(
     )
 }
 
-pub fn type_call(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    debug!("type_call: {:?}", args);
-    let cls = args.shift();
-    let new = cls.get_attr("__new__").unwrap();
-    let new_wrapped = vm.call_get_descriptor(new, cls)?;
-    let obj = vm.invoke(new_wrapped, args.clone())?;
+pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {
+    debug!("type_call: {:?}", class);
+    let new = class_get_attr(&class, "__new__").expect("All types should have a __new__.");
+    let new_wrapped = vm.call_get_descriptor(new, class.into_object())?;
+    let obj = vm.invoke(new_wrapped, (&args, &kwargs))?;
 
     if let Ok(init) = vm.get_method(obj.clone(), "__init__") {
-        let res = vm.invoke(init, args)?;
+        let res = vm.invoke(init, (&args, &kwargs))?;
         if !res.is(&vm.get_none()) {
             return Err(vm.new_type_error("__init__ must return None".to_string()));
         }
@@ -234,45 +269,45 @@ pub fn type_call(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(obj)
 }
 
-pub fn type_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, Some(vm.ctx.object())),
-            (name_str, Some(vm.ctx.str_type()))
-        ]
-    );
-    let name = objstr::get_value(&name_str);
-    trace!("type.__getattribute__({:?}, {:?})", cls, name);
-    let mcl = cls.typ();
-
-    if let Some(attr) = mcl.get_attr(&name) {
-        let attr_class = attr.typ();
-        if attr_class.has_attr("__set__") {
-            if let Some(descriptor) = attr_class.get_attr("__get__") {
-                return vm.invoke(descriptor, vec![attr, cls.clone(), mcl]);
-            }
-        }
-    }
-
-    if let Some(attr) = cls.get_attr(&name) {
-        let attr_class = attr.typ();
-        if let Some(descriptor) = attr_class.get_attr("__get__") {
-            let none = vm.get_none();
-            return vm.invoke(descriptor, vec![attr, none, cls.clone()]);
-        }
-    }
-
-    if let Some(cls_attr) = cls.get_attr(&name) {
-        Ok(cls_attr)
-    } else if let Some(attr) = mcl.get_attr(&name) {
-        vm.call_get_descriptor(attr, cls.clone())
-    } else if let Some(getter) = cls.get_attr("__getattr__") {
-        vm.invoke(getter, vec![mcl, name_str.clone()])
+// Very private helper function for class_get_attr
+fn class_get_attr_in_dict(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+    if let Some(ref dict) = class.as_object().dict {
+        dict.borrow().get(attr_name).cloned()
     } else {
-        Err(vm.new_attribute_error(format!("{} has no attribute '{}'", cls, name)))
+        panic!("Only classes should be in MRO!");
     }
+}
+
+// Very private helper function for class_has_attr
+fn class_has_attr_in_dict(class: &PyClassRef, attr_name: &str) -> bool {
+    if let Some(ref dict) = class.as_object().dict {
+        dict.borrow().contains_key(attr_name)
+    } else {
+        panic!("All classes are expected to have dicts!");
+    }
+}
+
+// This is the internal get_attr implementation for fast lookup on a class.
+pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+    let mro = &zelf.mro;
+    if let Some(item) = class_get_attr_in_dict(zelf, attr_name) {
+        return Some(item);
+    }
+    for class in mro {
+        if let Some(item) = class_get_attr_in_dict(class, attr_name) {
+            return Some(item);
+        }
+    }
+    None
+}
+
+// This is the internal has_attr implementation for fast lookup on a class.
+pub fn class_has_attr(zelf: &PyClassRef, attr_name: &str) -> bool {
+    class_has_attr_in_dict(zelf, attr_name)
+        || zelf
+            .mro
+            .iter()
+            .any(|d| class_has_attr_in_dict(d, attr_name))
 }
 
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {

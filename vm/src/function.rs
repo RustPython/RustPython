@@ -35,6 +35,17 @@ impl From<PyObjectRef> for PyFuncArgs {
     }
 }
 
+impl From<(&Args, &KwArgs)> for PyFuncArgs {
+    fn from(arg: (&Args, &KwArgs)) -> Self {
+        let Args(args) = arg.0;
+        let KwArgs(kwargs) = arg.1;
+        PyFuncArgs {
+            args: args.clone(),
+            kwargs: kwargs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        }
+    }
+}
+
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
         let mut kwargs = vec![];
