@@ -102,8 +102,8 @@ impl PyNoneRef {
     }
 }
 
-fn none_new(_: PyClassRef, _vm: &VirtualMachine) -> PyNone {
-    PyNone
+fn none_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
+    vm.ctx.none.clone()
 }
 
 pub fn init(context: &PyContext) {
