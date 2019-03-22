@@ -295,7 +295,7 @@ fn builtin_format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn catch_attr_exception<T>(ex: PyObjectRef, default: T, vm: &VirtualMachine) -> PyResult<T> {
-    if objtype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
+    if objtype::isinstance(&ex, vm.ctx.exceptions.attribute_error.as_object()) {
         Ok(default)
     } else {
         Err(ex)
@@ -510,7 +510,7 @@ fn builtin_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     match vm.call_method(iterator, "__next__", vec![]) {
         Ok(value) => Ok(value),
         Err(value) => {
-            if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
+            if objtype::isinstance(&value, vm.ctx.exceptions.stop_iteration.as_object()) {
                 match default_value {
                     None => Err(value),
                     Some(value) => Ok(value.clone()),
@@ -780,27 +780,27 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "__import__" => ctx.new_rustfunc(builtin_import),
 
         // Constants
-        "NotImplemented" => ctx.not_implemented.clone(),
+        "NotImplemented" => ctx.not_implemented(),
 
         // Exceptions:
-        "BaseException" => ctx.exceptions.base_exception_type.clone(),
-        "Exception" => ctx.exceptions.exception_type.clone(),
-        "ArithmeticError" => ctx.exceptions.arithmetic_error.clone(),
-        "AssertionError" => ctx.exceptions.assertion_error.clone(),
-        "AttributeError" => ctx.exceptions.attribute_error.clone(),
-        "NameError" => ctx.exceptions.name_error.clone(),
-        "OverflowError" => ctx.exceptions.overflow_error.clone(),
-        "RuntimeError" => ctx.exceptions.runtime_error.clone(),
-        "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
-        "TypeError" => ctx.exceptions.type_error.clone(),
-        "ValueError" => ctx.exceptions.value_error.clone(),
-        "IndexError" => ctx.exceptions.index_error.clone(),
-        "ImportError" => ctx.exceptions.import_error.clone(),
-        "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
-        "StopIteration" => ctx.exceptions.stop_iteration.clone(),
-        "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
-        "KeyError" => ctx.exceptions.key_error.clone(),
-        "OSError" => ctx.exceptions.os_error.clone(),
+        "BaseException" => ctx.exceptions.base_exception_type.clone().into_object(),
+        "Exception" => ctx.exceptions.exception_type.clone().into_object(),
+        "ArithmeticError" => ctx.exceptions.arithmetic_error.clone().into_object(),
+        "AssertionError" => ctx.exceptions.assertion_error.clone().into_object(),
+        "AttributeError" => ctx.exceptions.attribute_error.clone().into_object(),
+        "NameError" => ctx.exceptions.name_error.clone().into_object(),
+        "OverflowError" => ctx.exceptions.overflow_error.clone().into_object(),
+        "RuntimeError" => ctx.exceptions.runtime_error.clone().into_object(),
+        "NotImplementedError" => ctx.exceptions.not_implemented_error.clone().into_object(),
+        "TypeError" => ctx.exceptions.type_error.clone().into_object(),
+        "ValueError" => ctx.exceptions.value_error.clone().into_object(),
+        "IndexError" => ctx.exceptions.index_error.clone().into_object(),
+        "ImportError" => ctx.exceptions.import_error.clone().into_object(),
+        "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone().into_object(),
+        "StopIteration" => ctx.exceptions.stop_iteration.clone().into_object(),
+        "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone().into_object(),
+        "KeyError" => ctx.exceptions.key_error.clone().into_object(),
+        "OSError" => ctx.exceptions.os_error.clone().into_object(),
     });
 
     #[cfg(not(target_arch = "wasm32"))]

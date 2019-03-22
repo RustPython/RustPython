@@ -34,30 +34,22 @@ pub fn init(context: &PyContext) {
         "Create a complex number from a real part and an optional imaginary part.\n\n\
          This is equivalent to (real + imag*1j) where imag defaults to 0.";
 
-    context.set_attr(&complex_type, "__abs__", context.new_rustfunc(complex_abs));
-    context.set_attr(&complex_type, "__add__", context.new_rustfunc(complex_add));
+    context.set_attr(complex_type, "__abs__", context.new_rustfunc(complex_abs));
+    context.set_attr(complex_type, "__add__", context.new_rustfunc(complex_add));
+    context.set_attr(complex_type, "__radd__", context.new_rustfunc(complex_radd));
+    context.set_attr(complex_type, "__eq__", context.new_rustfunc(complex_eq));
+    context.set_attr(complex_type, "__neg__", context.new_rustfunc(complex_neg));
+    context.set_attr(complex_type, "__new__", context.new_rustfunc(complex_new));
+    context.set_attr(complex_type, "real", context.new_property(complex_real));
+    context.set_attr(complex_type, "imag", context.new_property(complex_imag));
     context.set_attr(
-        &complex_type,
-        "__radd__",
-        context.new_rustfunc(complex_radd),
-    );
-    context.set_attr(&complex_type, "__eq__", context.new_rustfunc(complex_eq));
-    context.set_attr(&complex_type, "__neg__", context.new_rustfunc(complex_neg));
-    context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
-    context.set_attr(&complex_type, "real", context.new_property(complex_real));
-    context.set_attr(&complex_type, "imag", context.new_property(complex_imag));
-    context.set_attr(
-        &complex_type,
+        complex_type,
         "__doc__",
         context.new_str(complex_doc.to_string()),
     );
+    context.set_attr(complex_type, "__repr__", context.new_rustfunc(complex_repr));
     context.set_attr(
-        &complex_type,
-        "__repr__",
-        context.new_rustfunc(complex_repr),
-    );
-    context.set_attr(
-        &complex_type,
+        complex_type,
         "conjugate",
         context.new_rustfunc(complex_conjugate),
     );

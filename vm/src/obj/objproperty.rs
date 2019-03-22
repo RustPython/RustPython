@@ -30,7 +30,7 @@ impl PyReadOnlyPropertyRef {
         _owner: OptionalArg<PyClassRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if obj.is(&vm.ctx.none) {
+        if obj.is(vm.ctx.none.as_object()) {
             Ok(self.into_object())
         } else {
             vm.invoke(self.getter.clone(), obj)
@@ -89,7 +89,7 @@ impl PyPropertyRef {
         vm: &VirtualMachine,
     ) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
-            if obj.is(&vm.ctx.none) {
+            if obj.is(vm.ctx.none.as_object()) {
                 Ok(self.into_object())
             } else {
                 vm.invoke(getter.clone(), obj)

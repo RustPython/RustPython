@@ -28,6 +28,7 @@ use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TryIntoRef,
     TypeProtocol,
@@ -137,7 +138,7 @@ impl VirtualMachine {
         self.invoke(exc_type, args)
     }
 
-    pub fn new_exception(&self, exc_type: PyObjectRef, msg: String) -> PyObjectRef {
+    pub fn new_exception(&self, exc_type: PyClassRef, msg: String) -> PyObjectRef {
         // TODO: exc_type may be user-defined exception, so we should return PyResult
         // TODO: maybe there is a clearer way to create an instance:
         info!("New exception created: {}", msg);
@@ -145,7 +146,7 @@ impl VirtualMachine {
         let args: Vec<PyObjectRef> = vec![pymsg];
 
         // Call function:
-        self.invoke(exc_type, args).unwrap()
+        self.invoke(exc_type.into_object(), args).unwrap()
     }
 
     pub fn new_attribute_error(&self, msg: String) -> PyObjectRef {

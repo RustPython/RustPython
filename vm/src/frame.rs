@@ -253,7 +253,7 @@ impl Frame {
                     // Add an entry in the traceback:
                     assert!(objtype::isinstance(
                         &exception,
-                        &vm.ctx.exceptions.base_exception_type
+                        vm.ctx.exceptions.base_exception_type.as_object()
                     ));
                     let traceback = vm
                         .get_attribute(exception.clone(), "__traceback__")
@@ -656,11 +656,17 @@ impl Frame {
                     0 | 2 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
+                if objtype::isinstance(
+                    &exception,
+                    vm.ctx.exceptions.base_exception_type.as_object(),
+                ) {
                     info!("Exception raised: {:?}", exception);
                     Err(exception)
                 } else if objtype::isinstance(&exception, &vm.ctx.type_type())
-                    && objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type)
+                    && objtype::issubclass(
+                        &exception,
+                        vm.ctx.exceptions.base_exception_type.as_object(),
+                    )
                 {
                     let exception = vm.new_empty_exception(exception)?;
                     info!("Exception raised: {:?}", exception);

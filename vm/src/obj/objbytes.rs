@@ -43,7 +43,7 @@ impl PyValue for PyBytes {
 
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
-    let bytes_type = &context.bytes_type;
+    let bytes_type = context.bytes_type.as_object();
 
     let bytes_doc =
         "bytes(iterable_of_ints) -> bytes\n\
