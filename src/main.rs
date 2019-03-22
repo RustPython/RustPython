@@ -184,14 +184,14 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
         println!("No previous history.");
     }
 
-    let mut prompt = get_prompt(vm, "ps1");
-
     let mut continuing = false;
 
     loop {
-        if !continuing {
-            prompt = get_prompt(vm, "ps1");
-        }
+        let prompt = if continuing {
+            get_prompt(vm, "ps2")
+        } else {
+            get_prompt(vm, "ps1")
+        };
         match repl.readline(&prompt) {
             Ok(line) => {
                 debug!("You entered {:?}", line);
@@ -209,7 +209,6 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
 
                 match shell_exec(vm, &input, vars.clone()) {
                     Err(CompileError::Parse(ParseError::EOF(_))) => {
-                        prompt = get_prompt(vm, "ps2");
                         continuing = true;
                         continue;
                     }
