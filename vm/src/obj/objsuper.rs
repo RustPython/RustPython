@@ -6,6 +6,7 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
+use crate::frame::NameProtocol;
 use crate::function::PyFuncArgs;
 use crate::obj::objstr;
 use crate::obj::objtype::PyClass;
@@ -105,7 +106,7 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_type = if let Some(ty) = py_type {
         ty.clone()
     } else {
-        match vm.current_scope().get("__class__") {
+        match vm.current_scope().load_cell(vm, "__class__") {
             Some(obj) => obj.clone(),
             _ => {
                 return Err(vm.new_type_error(
