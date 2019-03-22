@@ -56,7 +56,7 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
 }
 
 fn find_source(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     current_path: PathBuf,
     name: &str,
 ) -> Result<PathBuf, String> {
