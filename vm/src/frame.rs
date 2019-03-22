@@ -21,8 +21,8 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -805,13 +805,10 @@ impl Frame {
         // If we're importing a symbol, look it up and use it, otherwise construct a module and return
         // that
         let obj = match symbol {
-            Some(symbol) => module.get_attr(symbol).map_or_else(
-                || {
-                    let import_error = vm.context().exceptions.import_error.clone();
-                    Err(vm.new_exception(import_error, format!("cannot import name '{}'", symbol)))
-                },
-                Ok,
-            ),
+            Some(symbol) => vm.get_attribute(module, symbol.as_str()).map_err(|_| {
+                let import_error = vm.context().exceptions.import_error.clone();
+                vm.new_exception(import_error, format!("cannot import name '{}'", symbol))
+            }),
             None => Ok(module),
         };
 

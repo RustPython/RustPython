@@ -20,8 +20,7 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::pyobject::{
-    AttributeProtocol, BufferProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    BufferProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -165,7 +164,7 @@ fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn file_io_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(file_io, None)]);
-    let py_name = file_io.get_attr("name").unwrap();
+    let py_name = vm.get_attribute(file_io.clone(), "name")?;
     let f = match File::open(objstr::get_value(&py_name)) {
         Ok(v) => Ok(v),
         Err(_) => Err(vm.new_type_error("Error opening file".to_string())),
@@ -200,7 +199,7 @@ fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_length = vm.call_method(obj, "__len__", PyFuncArgs::default())?;
     let length = objint::get_value(&py_length).to_u64().unwrap();
 
-    let file_no = file_io.get_attr("fileno").unwrap();
+    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
 
     //extract unix file descriptor.
@@ -230,7 +229,7 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(file_io, None), (obj, Some(vm.ctx.bytes_type()))]
     );
 
-    let file_no = file_io.get_attr("fileno").unwrap();
+    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
 
     //unsafe block - creates file handle from the UNIX file descriptor

@@ -12,14 +12,12 @@ use regex::{Match, Regex};
 use crate::function::PyFuncArgs;
 use crate::import;
 use crate::obj::objstr;
-use crate::pyobject::{
-    AttributeProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
     fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.import("re").unwrap().get_attr("Pattern").unwrap()
+        vm.class("re", "Pattern")
     }
 }
 

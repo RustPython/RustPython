@@ -10,14 +10,8 @@ extern crate rustyline;
 use clap::{App, Arg};
 use rustpython_parser::error::ParseError;
 use rustpython_vm::{
-    compile,
-    error::CompileError,
-    frame::Scope,
-    import,
-    obj::objstr,
-    print_exception,
-    pyobject::{AttributeProtocol, PyResult},
-    util, VirtualMachine,
+    compile, error::CompileError, frame::Scope, import, obj::objstr, print_exception,
+    pyobject::PyResult, util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};
 use std::path::{Path, PathBuf};
@@ -176,8 +170,8 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
         println!("No previous history.");
     }
 
-    let ps1 = &objstr::get_value(&vm.sys_module.get_attr("ps1").unwrap());
-    let ps2 = &objstr::get_value(&vm.sys_module.get_attr("ps2").unwrap());
+    let ps1 = &objstr::get_value(&vm.get_attribute(vm.sys_module.clone(), "ps1").unwrap());
+    let ps2 = &objstr::get_value(&vm.get_attribute(vm.sys_module.clone(), "ps2").unwrap());
     let mut prompt = ps1;
 
     loop {
