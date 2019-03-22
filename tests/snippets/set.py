@@ -203,3 +203,28 @@ assert frozenset([1,2,3]) ^ frozenset([4,5]) == frozenset([1,2,3,4,5])
 assert frozenset([1,2,3]) ^ frozenset([1,2,3,4,5]) == frozenset([4,5])
 
 assert_raises(TypeError, lambda: frozenset([[]]))
+
+# set and frozen set
+assert frozenset([1,2,3]).union(set([4,5])) == frozenset([1,2,3,4,5])
+assert set([1,2,3]).union(frozenset([4,5])) == set([1,2,3,4,5])
+
+assert frozenset([1,2,3]) | set([4,5]) == frozenset([1,2,3,4,5])
+assert set([1,2,3]) | frozenset([4,5]) == set([1,2,3,4,5])
+
+assert frozenset([1,2,3]).intersection(set([5,6])) == frozenset([])
+assert set([1,2,3]).intersection(frozenset([5,6])) == set([])
+
+assert frozenset([1,2,3]) & set([1,2,3,4,5]) == frozenset([1,2,3])
+assert set([1,2,3]) & frozenset([1,2,3,4,5]) == set([1,2,3])
+
+assert frozenset([1,2,3]).difference(set([5,6])) == frozenset([1,2,3])
+assert set([1,2,3]).difference(frozenset([5,6])) == set([1,2,3])
+
+assert frozenset([1,2,3]) - set([4,5]) == frozenset([1,2,3])
+assert set([1,2,3]) - frozenset([4,5]) == frozenset([1,2,3])
+
+assert frozenset([1,2,3]).symmetric_difference(set([1,2])) == frozenset([3])
+assert set([1,2,3]).symmetric_difference(frozenset([1,2])) == set([3])
+
+assert frozenset([1,2,3]) ^ set([4,5]) == frozenset([1,2,3,4,5])
+assert set([1,2,3]) ^ frozenset([4,5]) == set([1,2,3,4,5])
