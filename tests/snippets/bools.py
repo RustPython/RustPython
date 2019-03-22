@@ -16,6 +16,9 @@ assert bool() == False
 assert bool(1) == True
 assert bool({}) == False
 
+assert bool(NotImplemented) == True
+assert bool(...) == True
+
 if not 1:
     raise BaseException
 

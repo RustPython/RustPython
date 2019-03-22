@@ -8,6 +8,19 @@ except BaseException as ex:
     # print(ex.__traceback__)
     # print(type(ex.__traceback__))
 
+try:
+    raise ZeroDivisionError
+except ZeroDivisionError as ex:
+    pass
+
+class E(Exception):
+    def __init__(self):
+        asdf
+
+try:
+    raise E
+except NameError as ex:
+    pass
 
 l = []
 try:

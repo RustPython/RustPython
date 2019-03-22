@@ -1,36 +1,47 @@
-use super::objiter;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
+use crate::function::{Args, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
 
-fn map_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    no_kwargs!(vm, args);
-    let cls = &args.args[0];
-    if args.args.len() < 3 {
-        Err(vm.new_type_error("map() must have at least two arguments.".to_owned()))
-    } else {
-        let function = &args.args[1];
-        let iterables = &args.args[2..];
-        let iterators = iterables
-            .iter()
-            .map(|iterable| objiter::get_iter(vm, iterable))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(PyObject::new(
-            PyObjectPayload::MapIterator {
-                mapper: function.clone(),
-                iterators,
-            },
-            cls.clone(),
-        ))
+use super::objiter;
+use super::objtype::PyClassRef;
+
+#[derive(Debug)]
+pub struct PyMap {
+    mapper: PyObjectRef,
+    iterators: Vec<PyObjectRef>,
+}
+type PyMapRef = PyRef<PyMap>;
+
+impl PyValue for PyMap {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.map_type()
     }
 }
 
-fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn map_new(
+    cls: PyClassRef,
+    function: PyObjectRef,
+    iterables: Args,
+    vm: &VirtualMachine,
+) -> PyResult<PyMapRef> {
+    let iterators = iterables
+        .into_iter()
+        .map(|iterable| objiter::get_iter(vm, &iterable))
+        .collect::<Result<Vec<_>, _>>()?;
+    PyMap {
+        mapper: function.clone(),
+        iterators,
+    }
+    .into_ref_with_type(vm, cls.clone())
+}
+
+fn map_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(map, Some(vm.ctx.map_type()))]);
 
-    if let PyObjectPayload::MapIterator {
-        ref mut mapper,
-        ref mut iterators,
-    } = map.borrow_mut().payload
+    if let Some(PyMap {
+        ref mapper,
+        ref iterators,
+    }) = map.payload()
     {
         let next_objs = iterators
             .iter()
@@ -38,13 +49,7 @@ fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             .collect::<Result<Vec<_>, _>>()?;
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        vm.invoke(
-            mapper.clone(),
-            PyFuncArgs {
-                args: next_objs,
-                kwargs: vec![],
-            },
-        )
+        vm.invoke(mapper.clone(), next_objs)
     } else {
         panic!("map doesn't have correct payload");
     }

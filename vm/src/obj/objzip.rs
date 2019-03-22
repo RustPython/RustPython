@@ -1,8 +1,21 @@
-use super::objiter;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
 
-fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+use super::objiter;
+
+#[derive(Debug)]
+pub struct PyZip {
+    iterators: Vec<PyObjectRef>,
+}
+
+impl PyValue for PyZip {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.zip_type()
+    }
+}
+
+fn zip_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);
     let cls = &args.args[0];
     let iterables = &args.args[1..];
@@ -10,16 +23,13 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         .iter()
         .map(|iterable| objiter::get_iter(vm, iterable))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(PyObject::new(
-        PyObjectPayload::ZipIterator { iterators },
-        cls.clone(),
-    ))
+    Ok(PyObject::new(PyZip { iterators }, cls.clone()))
 }
 
-fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn zip_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zip, Some(vm.ctx.zip_type()))]);
 
-    if let PyObjectPayload::ZipIterator { ref mut iterators } = zip.borrow_mut().payload {
+    if let Some(PyZip { ref iterators }) = zip.payload() {
         if iterators.is_empty() {
             Err(objiter::new_stop_iteration(vm))
         } else {
@@ -38,6 +48,8 @@ fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let zip_type = &context.zip_type;
     objiter::iter_type_init(context, zip_type);
-    context.set_attr(zip_type, "__new__", context.new_rustfunc(zip_new));
-    context.set_attr(zip_type, "__next__", context.new_rustfunc(zip_next));
+    extend_class!(context, zip_type, {
+        "__new__" => context.new_rustfunc(zip_new),
+        "__next__" => context.new_rustfunc(zip_next)
+    });
 }

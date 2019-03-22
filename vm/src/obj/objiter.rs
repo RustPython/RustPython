@@ -2,27 +2,30 @@
  * Various types to support iteration.
  */
 
-use super::objbool;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
-// use super::objstr;
-use super::objtype; // Required for arg_check! to use isinstance
+
+use super::objbool;
+use super::objbytearray::PyByteArray;
+use super::objbytes::PyBytes;
+use super::objrange::PyRange;
+use super::objsequence;
+use super::objtype;
 
 /*
  * This helper function is called at multiple places. First, it is called
  * in the vm when a for loop is entered. Next, it is used when the builtin
  * function 'iter' is called.
  */
-pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
+pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     vm.call_method(iter_target, "__iter__", vec![])
     // let type_str = objstr::get_value(&vm.to_str(iter_target.typ()).unwrap());
     // let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
     // return Err(type_error);
 }
 
-pub fn call_next(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
+pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
     vm.call_method(iter_obj, "__next__", vec![])
 }
 
@@ -30,9 +33,9 @@ pub fn call_next(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
  * Helper function to retrieve the next object (or none) from an iterator.
  */
 pub fn get_next_object(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     iter_obj: &PyObjectRef,
-) -> Result<Option<PyObjectRef>, PyObjectRef> {
+) -> PyResult<Option<PyObjectRef>> {
     let next_obj: PyResult = call_next(vm, iter_obj);
 
     match next_obj {
@@ -49,10 +52,7 @@ pub fn get_next_object(
 }
 
 /* Retrieve all elements from an iterator */
-pub fn get_all(
-    vm: &mut VirtualMachine,
-    iter_obj: &PyObjectRef,
-) -> Result<Vec<PyObjectRef>, PyObjectRef> {
+pub fn get_all(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
     let mut elements = vec![];
     loop {
         let element = get_next_object(vm, iter_obj)?;
@@ -64,12 +64,12 @@ pub fn get_all(
     Ok(elements)
 }
 
-pub fn new_stop_iteration(vm: &mut VirtualMachine) -> PyObjectRef {
+pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
 }
 
-fn contains(vm: &mut VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> PyResult {
+fn contains(vm: &VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -93,9 +93,7 @@ fn contains(vm: &mut VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -
 pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
     let contains_func = {
         let cloned_iter_type = iter_type.clone();
-        move |vm: &mut VirtualMachine, args: PyFuncArgs| {
-            contains(vm, args, cloned_iter_type.clone())
-        }
+        move |vm: &VirtualMachine, args: PyFuncArgs| contains(vm, args, cloned_iter_type.clone())
     };
     context.set_attr(
         &iter_type,
@@ -104,7 +102,7 @@ pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
     );
     let iter_func = {
         let cloned_iter_type = iter_type.clone();
-        move |vm: &mut VirtualMachine, args: PyFuncArgs| {
+        move |vm: &VirtualMachine, args: PyFuncArgs| {
             arg_check!(
                 vm,
                 args,
@@ -118,53 +116,51 @@ pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
 }
 
 // Sequence iterator:
-fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn iter_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter_target, None)]);
 
     get_iter(vm, iter_target)
 }
 
-fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn iter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
-    if let PyObjectPayload::Iterator {
-        ref mut position,
-        iterated_obj: ref mut iterated_obj_ref,
-    } = iter.borrow_mut().payload
+    if let Some(PyIteratorValue {
+        ref position,
+        iterated_obj: ref iterated_obj_ref,
+    }) = iter.payload()
     {
-        let iterated_obj = iterated_obj_ref.borrow_mut();
-        match iterated_obj.payload {
-            PyObjectPayload::Sequence { ref elements } => {
-                if *position < elements.len() {
-                    let obj_ref = elements[*position].clone();
-                    *position += 1;
-                    Ok(obj_ref)
-                } else {
-                    Err(new_stop_iteration(vm))
-                }
+        if let Some(range) = iterated_obj_ref.payload::<PyRange>() {
+            if let Some(int) = range.get(position.get()) {
+                position.set(position.get() + 1);
+                Ok(vm.ctx.new_int(int))
+            } else {
+                Err(new_stop_iteration(vm))
             }
-
-            PyObjectPayload::Range { ref range } => {
-                if let Some(int) = range.get(*position) {
-                    *position += 1;
-                    Ok(vm.ctx.new_int(int))
-                } else {
-                    Err(new_stop_iteration(vm))
-                }
+        } else if let Some(bytes) = iterated_obj_ref.payload::<PyBytes>() {
+            if position.get() < bytes.len() {
+                let obj_ref = vm.ctx.new_int(bytes[position.get()]);
+                position.set(position.get() + 1);
+                Ok(obj_ref)
+            } else {
+                Err(new_stop_iteration(vm))
             }
-
-            PyObjectPayload::Bytes { ref value } => {
-                if *position < value.len() {
-                    let obj_ref = vm.ctx.new_int(value[*position]);
-                    *position += 1;
-                    Ok(obj_ref)
-                } else {
-                    Err(new_stop_iteration(vm))
-                }
+        } else if let Some(bytes) = iterated_obj_ref.payload::<PyByteArray>() {
+            if position.get() < bytes.value.borrow().len() {
+                let obj_ref = vm.ctx.new_int(bytes.value.borrow()[position.get()]);
+                position.set(position.get() + 1);
+                Ok(obj_ref)
+            } else {
+                Err(new_stop_iteration(vm))
             }
-
-            _ => {
-                panic!("NOT IMPL");
+        } else {
+            let elements = objsequence::get_elements(iterated_obj_ref);
+            if position.get() < elements.len() {
+                let obj_ref = elements[position.get()].clone();
+                position.set(position.get() + 1);
+                Ok(obj_ref)
+            } else {
+                Err(new_stop_iteration(vm))
             }
         }
     } else {

@@ -33,10 +33,10 @@ impl Dict {
     /// Store a key
     pub fn insert(
         &mut self,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
         key: &PyObjectRef,
         value: PyObjectRef,
-    ) -> Result<(), PyObjectRef> {
+    ) -> PyResult<()> {
         match self.lookup(vm, key)? {
             LookupResult::Existing(index) => {
                 // Update existing key
@@ -66,11 +66,7 @@ impl Dict {
         }
     }
 
-    pub fn contains(
-        &self,
-        vm: &mut VirtualMachine,
-        key: &PyObjectRef,
-    ) -> Result<bool, PyObjectRef> {
+    pub fn contains(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<bool> {
         if let LookupResult::Existing(_index) = self.lookup(vm, key)? {
             Ok(true)
         } else {
@@ -79,7 +75,7 @@ impl Dict {
     }
 
     /// Retrieve a key
-    pub fn get(&self, vm: &mut VirtualMachine, key: &PyObjectRef) -> PyResult {
+    pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             if let Some(entry) = &self.entries[index] {
                 Ok(entry.value.clone())
@@ -93,11 +89,7 @@ impl Dict {
     }
 
     /// Delete a key
-    pub fn delete(
-        &mut self,
-        vm: &mut VirtualMachine,
-        key: &PyObjectRef,
-    ) -> Result<(), PyObjectRef> {
+    pub fn delete(&mut self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<()> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             self.entries[index] = None;
             self.size -= 1;
@@ -126,11 +118,7 @@ impl Dict {
     }
 
     /// Lookup the index for the given key.
-    fn lookup(
-        &self,
-        vm: &mut VirtualMachine,
-        key: &PyObjectRef,
-    ) -> Result<LookupResult, PyObjectRef> {
+    fn lookup(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<LookupResult> {
         let hash_value = calc_hash(vm, key)?;
         let perturb = hash_value;
         let mut hash_index: usize = hash_value;
@@ -181,14 +169,14 @@ enum LookupResult {
     Existing(usize), // Existing record, index into entries
 }
 
-fn calc_hash(vm: &mut VirtualMachine, key: &PyObjectRef) -> Result<usize, PyObjectRef> {
+fn calc_hash(vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<usize> {
     let hash = vm.call_method(key, "__hash__", vec![])?;
     Ok(objint::get_value(&hash).to_usize().unwrap())
 }
 
 /// Invoke __eq__ on two keys
 fn do_eq(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     key1: &PyObjectRef,
     key2: &PyObjectRef,
 ) -> Result<bool, PyObjectRef> {

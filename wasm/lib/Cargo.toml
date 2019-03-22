@@ -1,6 +1,6 @@
 [package]
 name = "rustpython_wasm"
-version = "0.1.0"
+version = "0.1.0-pre-alpha.1"
 authors = ["Ryan Liddle <ryan@rmliddle.com>"]
 license = "MIT"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"
@@ -18,7 +18,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.3"
 js-sys = "0.3"
 futures = "0.1"
-console_error_panic_hook = "0.1"
+num-traits = "0.2"
 
 [dependencies.web-sys]
 version = "0.3"
@@ -26,7 +26,6 @@ features = [
     "console",
     "Document",
     "Element",
-    "HtmlTextAreaElement",
     "Window",
     "Headers",
     "Request",

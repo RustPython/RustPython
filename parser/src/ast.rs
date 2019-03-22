@@ -122,6 +122,7 @@ pub enum Statement {
         // docstring: String,
         body: Vec<LocatedStatement>,
         decorator_list: Vec<Expression>,
+        returns: Option<Expression>,
     },
 }
 
@@ -217,6 +218,7 @@ pub enum Expression {
     True,
     False,
     None,
+    Ellipsis,
 }
 
 impl Expression {
@@ -259,6 +261,7 @@ impl Expression {
             Lambda { .. } => "lambda",
             IfExpression { .. } => "conditional expression",
             True | False | None => "keyword",
+            Ellipsis => "ellipsis",
         }
     }
 }
@@ -269,12 +272,18 @@ impl Expression {
  */
 #[derive(Debug, PartialEq, Default)]
 pub struct Parameters {
-    pub args: Vec<String>,
-    pub kwonlyargs: Vec<String>,
-    pub vararg: Option<Option<String>>, // Optionally we handle optionally named '*args' or '*'
-    pub kwarg: Option<Option<String>>,
+    pub args: Vec<Parameter>,
+    pub kwonlyargs: Vec<Parameter>,
+    pub vararg: Varargs, // Optionally we handle optionally named '*args' or '*'
+    pub kwarg: Varargs,
     pub defaults: Vec<Expression>,
     pub kw_defaults: Vec<Option<Expression>>,
+}
+
+#[derive(Debug, PartialEq, Default)]
+pub struct Parameter {
+    pub arg: String,
+    pub annotation: Option<Box<Expression>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -357,6 +366,17 @@ pub enum Number {
     Complex { real: f64, imag: f64 },
 }
 
+/// Transforms a value prior to formatting it.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ConversionFlag {
+    /// Converts by calling `str(<value>)`.
+    Str,
+    /// Converts by calling `ascii(<value>)`.
+    Ascii,
+    /// Converts by calling `repr(<value>)`.
+    Repr,
+}
+
 #[derive(Debug, PartialEq)]
 pub enum StringGroup {
     Constant {
@@ -364,9 +384,35 @@ pub enum StringGroup {
     },
     FormattedValue {
         value: Box<Expression>,
+        conversion: Option<ConversionFlag>,
         spec: String,
     },
     Joined {
         values: Vec<StringGroup>,
     },
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Varargs {
+    None,
+    Unnamed,
+    Named(Parameter),
+}
+
+impl Default for Varargs {
+    fn default() -> Varargs {
+        Varargs::None
+    }
+}
+
+impl From<Option<Option<Parameter>>> for Varargs {
+    fn from(opt: Option<Option<Parameter>>) -> Varargs {
+        match opt {
+            Some(inner_opt) => match inner_opt {
+                Some(param) => Varargs::Named(param),
+                None => Varargs::Unnamed,
+            },
+            None => Varargs::None,
+        }
+    }
 }

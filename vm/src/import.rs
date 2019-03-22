@@ -6,18 +6,15 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use crate::compile;
+use crate::frame::Scope;
 use crate::obj::{objsequence, objstr};
-use crate::pyobject::{AttributeProtocol, DictProtocol, PyResult};
+use crate::pyobject::{DictProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
-fn import_uncached_module(
-    vm: &mut VirtualMachine,
-    current_path: PathBuf,
-    module: &str,
-) -> PyResult {
+fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &str) -> PyResult {
     // Check for Rust-native modules
-    if let Some(module) = vm.stdlib_inits.get(module) {
+    if let Some(module) = vm.stdlib_inits.borrow().get(module) {
         return Ok(module(&vm.ctx).clone());
     }
 
@@ -41,53 +38,25 @@ fn import_uncached_module(
     })?;
     // trace!("Code object: {:?}", code_obj);
 
-    let builtins = vm.get_builtin_scope();
-    let scope = vm.ctx.new_scope(Some(builtins));
-    vm.ctx
-        .set_attr(&scope, "__name__", vm.new_str(module.to_string()));
-    vm.run_code_obj(code_obj, scope.clone())?;
-    Ok(vm.ctx.new_module(module, scope))
+    let attrs = vm.ctx.new_dict();
+    attrs.set_item(&vm.ctx, "__name__", vm.new_str(module.to_string()));
+    vm.run_code_obj(code_obj, Scope::new(None, attrs.clone()))?;
+    Ok(vm.ctx.new_module(module, attrs))
 }
 
-pub fn import_module(
-    vm: &mut VirtualMachine,
-    current_path: PathBuf,
-    module_name: &str,
-) -> PyResult {
+pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
     // First, see if we already loaded the module:
-    let sys_modules = vm.sys_module.get_attr("modules").unwrap();
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
     if let Some(module) = sys_modules.get_item(module_name) {
         return Ok(module);
     }
     let module = import_uncached_module(vm, current_path, module_name)?;
-    vm.ctx.set_item(&sys_modules, module_name, module.clone());
+    sys_modules.set_item(&vm.ctx, module_name, module.clone());
     Ok(module)
 }
 
-pub fn import(
-    vm: &mut VirtualMachine,
-    current_path: PathBuf,
-    module_name: &str,
-    symbol: &Option<String>,
-) -> PyResult {
-    let module = import_module(vm, current_path, module_name)?;
-    // If we're importing a symbol, look it up and use it, otherwise construct a module and return
-    // that
-    if let Some(symbol) = symbol {
-        module.get_attr(symbol).map_or_else(
-            || {
-                let import_error = vm.context().exceptions.import_error.clone();
-                Err(vm.new_exception(import_error, format!("cannot import name '{}'", symbol)))
-            },
-            Ok,
-        )
-    } else {
-        Ok(module)
-    }
-}
-
 fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
-    let sys_path = vm.sys_module.get_attr("path").unwrap();
+    let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
     let mut paths: Vec<PathBuf> = objsequence::get_elements(&sys_path)
         .iter()
         .map(|item| PathBuf::from(objstr::get_value(item)))
@@ -105,7 +74,7 @@ fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result
         }
     }
 
-    match file_paths.iter().filter(|p| p.exists()).next() {
+    match file_paths.iter().find(|p| p.exists()) {
         Some(path) => Ok(path.to_path_buf()),
         None => Err(format!("No module named '{}'", name)),
     }

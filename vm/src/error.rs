@@ -19,6 +19,8 @@ pub enum CompileError {
     InvalidBreak,
     /// Continue statement outside of loop.
     InvalidContinue,
+    InvalidReturn,
+    InvalidYield,
 }
 
 impl fmt::Display for CompileError {
@@ -29,8 +31,10 @@ impl fmt::Display for CompileError {
             CompileError::ExpectExpr => write!(f, "Expecting expression, got statement"),
             CompileError::Parse(err) => write!(f, "{}", err),
             CompileError::StarArgs => write!(f, "Two starred expressions in assignment"),
-            CompileError::InvalidBreak => write!(f, "break outside loop"),
-            CompileError::InvalidContinue => write!(f, "continue outside loop"),
+            CompileError::InvalidBreak => write!(f, "'break' outside loop"),
+            CompileError::InvalidContinue => write!(f, "'continue' outside loop"),
+            CompileError::InvalidReturn => write!(f, "'return' outside function"),
+            CompileError::InvalidYield => write!(f, "'yield' outside function"),
         }
     }
 }

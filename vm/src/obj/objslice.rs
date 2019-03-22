@@ -1,11 +1,26 @@
-use super::objint;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 use num_bigint::BigInt;
 
-fn slice_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
+
+use super::objint;
+
+#[derive(Debug)]
+pub struct PySlice {
+    // TODO: should be private
+    pub start: Option<BigInt>,
+    pub stop: Option<BigInt>,
+    pub step: Option<BigInt>,
+}
+
+impl PyValue for PySlice {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.slice_type()
+    }
+}
+
+fn slice_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);
     let (cls, start, stop, step): (
         &PyObjectRef,
@@ -40,16 +55,16 @@ fn slice_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     }?;
     Ok(PyObject::new(
-        PyObjectPayload::Slice {
-            start: start.map(|x| objint::get_value(x)),
-            stop: stop.map(|x| objint::get_value(x)),
-            step: step.map(|x| objint::get_value(x)),
+        PySlice {
+            start: start.map(|x| objint::get_value(x).clone()),
+            stop: stop.map(|x| objint::get_value(x).clone()),
+            step: step.map(|x| objint::get_value(x).clone()),
         },
         cls.clone(),
     ))
 }
 
-fn get_property_value(vm: &mut VirtualMachine, value: &Option<BigInt>) -> PyResult {
+fn get_property_value(vm: &VirtualMachine, value: &Option<BigInt>) -> PyResult {
     if let Some(value) = value {
         Ok(vm.ctx.new_int(value.clone()))
     } else {
@@ -57,27 +72,27 @@ fn get_property_value(vm: &mut VirtualMachine, value: &Option<BigInt>) -> PyResu
     }
 }
 
-fn slice_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn slice_start(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let PyObjectPayload::Slice { start, .. } = &slice.borrow().payload {
+    if let Some(PySlice { start, .. }) = &slice.payload() {
         get_property_value(vm, start)
     } else {
         panic!("Slice has incorrect payload.");
     }
 }
 
-fn slice_stop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn slice_stop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let PyObjectPayload::Slice { stop, .. } = &slice.borrow().payload {
+    if let Some(PySlice { stop, .. }) = &slice.payload() {
         get_property_value(vm, stop)
     } else {
         panic!("Slice has incorrect payload.");
     }
 }
 
-fn slice_step(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn slice_step(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let PyObjectPayload::Slice { step, .. } = &slice.borrow().payload {
+    if let Some(PySlice { step, .. }) = &slice.payload() {
         get_property_value(vm, step)
     } else {
         panic!("Slice has incorrect payload.");

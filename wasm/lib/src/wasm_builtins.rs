@@ -2,42 +2,21 @@
 //!
 //! This is required because some feature like I/O works differently in the browser comparing to
 //! desktop.
-//! Implements functions listed here: https://docs.python.org/3/library/builtins.html and some
-//! others.
+//! Implements functions listed here: https://docs.python.org/3/library/builtins.html.
 
-extern crate futures;
-extern crate js_sys;
-extern crate wasm_bindgen;
-extern crate web_sys;
+use js_sys::{self, Array};
+use web_sys::{self, console};
 
-use crate::convert;
-use js_sys::Array;
+use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::obj::{objstr, objtype};
-use rustpython_vm::pyobject::{IdProtocol, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
+use rustpython_vm::pyobject::{IdProtocol, PyObjectRef, PyResult, TypeProtocol};
 use rustpython_vm::VirtualMachine;
-use wasm_bindgen::{prelude::*, JsCast};
-use web_sys::{console, HtmlTextAreaElement};
 
-fn window() -> web_sys::Window {
+pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("Window to be available")
 }
 
-// The HTML id of the textarea element that act as our STDOUT
-
-pub fn print_to_html(text: &str, selector: &str) -> Result<(), JsValue> {
-    let document = window().document().expect("Document to be available");
-    let element = document
-        .query_selector(selector)?
-        .ok_or_else(|| js_sys::TypeError::new("Couldn't get element"))?;
-    let textarea = element
-        .dyn_ref::<HtmlTextAreaElement>()
-        .ok_or_else(|| js_sys::TypeError::new("Element must be a textarea"))?;
-    let value = textarea.value();
-    textarea.set_value(&format!("{}{}", value, text));
-    Ok(())
-}
-
-pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
+pub fn format_print_args(vm: &VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
     // Handle 'sep' kwarg:
     let sep_arg = args
         .get_optional_kwarg("sep")
@@ -89,22 +68,11 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
     Ok(output)
 }
 
-pub fn builtin_print_html(vm: &mut VirtualMachine, args: PyFuncArgs, selector: &str) -> PyResult {
-    let output = format_print_args(vm, args)?;
-    print_to_html(&output, selector).map_err(|err| convert::js_to_py(vm, err))?;
-    Ok(vm.get_none())
-}
-
-pub fn builtin_print_console(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn builtin_print_console(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let arr = Array::new();
     for arg in args.args {
         arr.push(&vm.to_pystr(&arg)?.into());
     }
     console::log(&arr);
     Ok(vm.get_none())
-}
-
-pub fn setup_wasm_builtins(vm: &mut VirtualMachine, scope: &PyObjectRef) {
-    let ctx = vm.context();
-    ctx.set_attr(scope, "print", ctx.new_rustfunc(builtin_print_console));
 }

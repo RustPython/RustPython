@@ -97,7 +97,7 @@ $ pipenv install
 $ pipenv run pytest -v
 ```
 
-There also are some unit tests, you can run those will cargo:
+There also are some unit tests, you can run those with cargo:
 
 ```shell
 $ cargo test --all
@@ -200,6 +200,10 @@ The code style used is the default rustfmt codestyle. Please format your code ac
 # Community
 
 Chat with us on [gitter][gitter].
+
+# Code of conduct
+
+Our code of conduct [can be found here](code-of-conduct.md).
 
 # Credit
 

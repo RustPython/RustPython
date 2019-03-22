@@ -20,7 +20,7 @@
             <select id="snippets">
                 <% for (const name of snippets) { %>
                     <option
-                        <% if (name == defaultSnippetName) %> selected
+                        <% if (name == defaultSnippetName) { %> selected <% } %>
                     ><%= name %></option>
                 <% } %>
             </select>
@@ -29,6 +29,9 @@
         <div id="error"></div>
         <h3>Standard Output</h3>
         <textarea id="console" readonly>Loading...</textarea>
+
+        <h3>Interactive shell</h3>
+         <div id="terminal"></div>
 
         <p>Here's some info regarding the <code>rp.pyEval()</code> function</p>
         <ul>

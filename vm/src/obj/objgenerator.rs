@@ -3,10 +3,21 @@
  */
 
 use crate::frame::{ExecutionResult, Frame};
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
+
+#[derive(Debug)]
+pub struct PyGenerator {
+    frame: PyObjectRef,
+}
+type PyGeneratorRef = PyRef<PyGenerator>;
+
+impl PyValue for PyGenerator {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.generator_type()
+    }
+}
 
 pub fn init(context: &PyContext) {
     let generator_type = &context.generator_type;
@@ -27,26 +38,22 @@ pub fn init(context: &PyContext) {
     );
 }
 
-pub fn new_generator(vm: &mut VirtualMachine, frame: Frame) -> PyResult {
-    let g = PyObject::new(
-        PyObjectPayload::Generator { frame },
-        vm.ctx.generator_type.clone(),
-    );
-    Ok(g)
+pub fn new_generator(frame: PyObjectRef, vm: &VirtualMachine) -> PyGeneratorRef {
+    PyGenerator { frame }.into_ref(vm)
 }
 
-fn generator_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn generator_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.generator_type()))]);
     Ok(o.clone())
 }
 
-fn generator_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn generator_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.generator_type()))]);
     let value = vm.get_none();
     send(vm, o, &value)
 }
 
-fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn generator_send(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -55,10 +62,15 @@ fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     send(vm, o, value)
 }
 
-fn send(vm: &mut VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
-    if let PyObjectPayload::Generator { ref mut frame } = gen.borrow_mut().payload {
-        frame.push_value(value.clone());
-        match frame.run_frame(vm)? {
+fn send(vm: &VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
+    if let Some(PyGenerator { ref frame }) = gen.payload() {
+        if let Some(frame) = frame.payload::<Frame>() {
+            frame.push_value(value.clone());
+        } else {
+            panic!("Generator frame isn't a frame.");
+        }
+
+        match vm.run_frame(frame.clone())? {
             ExecutionResult::Yield(value) => Ok(value),
             ExecutionResult::Return(_value) => {
                 // Stop iteration!

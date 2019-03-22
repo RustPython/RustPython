@@ -1,16 +1,22 @@
-use super::objint;
-use super::objtype;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
+use std::cell::Cell;
+use std::ops::Mul;
+
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use std::ops::Mul;
+
+use crate::function::PyFuncArgs;
+use crate::pyobject::{
+    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+};
+use crate::vm::VirtualMachine;
+
+use super::objint::{self, PyInt};
+use super::objslice::PySlice;
+use super::objtype;
 
 #[derive(Debug, Clone)]
-pub struct RangeType {
+pub struct PyRange {
     // Unfortunately Rust's built in range type doesn't support things like indexing
     // or ranges where start > end so we need to roll our own.
     pub start: BigInt,
@@ -18,7 +24,13 @@ pub struct RangeType {
     pub step: BigInt,
 }
 
-impl RangeType {
+impl PyValue for PyRange {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.range_type()
+    }
+}
+
+impl PyRange {
     #[inline]
     pub fn try_len(&self) -> Option<usize> {
         match self.step.sign() {
@@ -114,12 +126,12 @@ impl RangeType {
         };
 
         match self.step.sign() {
-            Sign::Plus => RangeType {
+            Sign::Plus => PyRange {
                 start,
                 end: &self.start - 1,
                 step: -&self.step,
             },
-            Sign::Minus => RangeType {
+            Sign::Minus => PyRange {
                 start,
                 end: &self.start + 1,
                 step: -&self.step,
@@ -137,12 +149,8 @@ impl RangeType {
     }
 }
 
-pub fn get_value(obj: &PyObjectRef) -> RangeType {
-    if let PyObjectPayload::Range { range } = &obj.borrow().payload {
-        range.clone()
-    } else {
-        panic!("Inner error getting range {:?}", obj);
-    }
+pub fn get_value(obj: &PyObjectRef) -> PyRange {
+    obj.payload::<PyRange>().unwrap().clone()
 }
 
 pub fn init(context: &PyContext) {
@@ -188,7 +196,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&range_type, "step", context.new_property(range_step));
 }
 
-fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -200,19 +208,19 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let start = if second.is_some() {
-        objint::get_value(first)
+        objint::get_value(first).clone()
     } else {
         BigInt::zero()
     };
 
     let end = if let Some(pyint) = second {
-        objint::get_value(pyint)
+        objint::get_value(pyint).clone()
     } else {
-        objint::get_value(first)
+        objint::get_value(first).clone()
     };
 
     let step = if let Some(pyint) = step {
-        objint::get_value(pyint)
+        objint::get_value(pyint).clone()
     } else {
         BigInt::one()
     };
@@ -220,42 +228,37 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     if step.is_zero() {
         Err(vm.new_value_error("range with 0 step size".to_string()))
     } else {
-        Ok(PyObject::new(
-            PyObjectPayload::Range {
-                range: RangeType { start, end, step },
-            },
-            cls.clone(),
-        ))
+        Ok(PyObject::new(PyRange { start, end, step }, cls.clone()))
     }
 }
 
-fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(range, Some(vm.ctx.range_type()))]);
 
     Ok(PyObject::new(
-        PyObjectPayload::Iterator {
-            position: 0,
+        PyIteratorValue {
+            position: Cell::new(0),
             iterated_obj: range.clone(),
         },
         vm.ctx.iter_type(),
     ))
 }
 
-fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
     let range = get_value(zelf).reversed();
 
     Ok(PyObject::new(
-        PyObjectPayload::Iterator {
-            position: 0,
-            iterated_obj: PyObject::new(PyObjectPayload::Range { range }, vm.ctx.range_type()),
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: PyObject::new(range, vm.ctx.range_type()),
         },
         vm.ctx.iter_type(),
     ))
 }
 
-fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
     if let Some(len) = get_value(zelf).try_len() {
@@ -265,7 +268,7 @@ fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_getitem(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -274,62 +277,58 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let range = get_value(zelf);
 
-    match subscript.borrow().payload {
-        PyObjectPayload::Integer { ref value } => {
-            if let Some(int) = range.get(value) {
-                Ok(vm.ctx.new_int(int))
-            } else {
-                Err(vm.new_index_error("range object index out of range".to_string()))
-            }
+    if let Some(i) = subscript.payload::<PyInt>() {
+        if let Some(int) = range.get(i.value.clone()) {
+            Ok(vm.ctx.new_int(int))
+        } else {
+            Err(vm.new_index_error("range object index out of range".to_string()))
         }
-        PyObjectPayload::Slice {
-            ref start,
-            ref stop,
-            ref step,
-        } => {
-            let new_start = if let Some(int) = start {
-                if let Some(i) = range.get(int) {
-                    i
-                } else {
-                    range.start.clone()
-                }
+    } else if let Some(PySlice {
+        ref start,
+        ref stop,
+        ref step,
+    }) = subscript.payload()
+    {
+        let new_start = if let Some(int) = start {
+            if let Some(i) = range.get(int) {
+                i
             } else {
                 range.start.clone()
-            };
+            }
+        } else {
+            range.start.clone()
+        };
 
-            let new_end = if let Some(int) = stop {
-                if let Some(i) = range.get(int) {
-                    i
-                } else {
-                    range.end
-                }
+        let new_end = if let Some(int) = stop {
+            if let Some(i) = range.get(int) {
+                i
             } else {
                 range.end
-            };
+            }
+        } else {
+            range.end
+        };
 
-            let new_step = if let Some(int) = step {
-                int * range.step
-            } else {
-                range.step
-            };
+        let new_step = if let Some(int) = step {
+            int * range.step
+        } else {
+            range.step
+        };
 
-            Ok(PyObject::new(
-                PyObjectPayload::Range {
-                    range: RangeType {
-                        start: new_start,
-                        end: new_end,
-                        step: new_step,
-                    },
-                },
-                vm.ctx.range_type(),
-            ))
-        }
-
-        _ => Err(vm.new_type_error("range indices must be integer or slice".to_string())),
+        Ok(PyObject::new(
+            PyRange {
+                start: new_start,
+                end: new_end,
+                step: new_step,
+            },
+            vm.ctx.range_type(),
+        ))
+    } else {
+        Err(vm.new_type_error("range indices must be integer or slice".to_string()))
     }
 }
 
-fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
     let repr = get_value(zelf).repr();
@@ -337,7 +336,7 @@ fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_str(repr))
 }
 
-fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_bool(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
     let len = get_value(zelf).len();
@@ -345,7 +344,7 @@ fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(len > 0))
 }
 
-fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_contains(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -363,7 +362,7 @@ fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_index(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -384,7 +383,7 @@ fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_count(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -400,17 +399,17 @@ fn range_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_start(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
     Ok(vm.ctx.new_int(get_value(zelf).start))
 }
 
-fn range_stop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_stop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
     Ok(vm.ctx.new_int(get_value(zelf).end))
 }
 
-fn range_step(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_step(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
     Ok(vm.ctx.new_int(get_value(zelf).step))
 }

@@ -1,12 +1,31 @@
-use super::objfloat;
-use super::objint;
-use super::objtype;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObject, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
+
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::vm::VirtualMachine;
+
+use super::objfloat;
+use super::objint;
+use super::objtype::{self, PyClassRef};
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct PyComplex {
+    value: Complex64,
+}
+type PyComplexRef = PyRef<PyComplex>;
+
+impl PyValue for PyComplex {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.complex_type()
+    }
+}
+
+impl From<Complex64> for PyComplex {
+    fn from(value: Complex64) -> Self {
+        PyComplex { value }
+    }
+}
 
 pub fn init(context: &PyContext) {
     let complex_type = &context.complex_type;
@@ -45,63 +64,49 @@ pub fn init(context: &PyContext) {
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
-    if let PyObjectPayload::Complex { value } = &obj.borrow().payload {
-        *value
-    } else {
-        panic!("Inner error getting complex");
-    }
+    obj.payload::<PyComplex>().unwrap().value
 }
 
-fn complex_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None)],
-        optional = [(real, None), (imag, None)]
-    );
-
-    if !objtype::issubclass(cls, &vm.ctx.complex_type()) {
-        return Err(vm.new_type_error(format!("{:?} is not a subtype of complex", cls)));
-    }
-
+fn complex_new(
+    cls: PyClassRef,
+    real: OptionalArg<PyObjectRef>,
+    imag: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyComplexRef> {
     let real = match real {
-        None => 0.0,
-        Some(value) => objfloat::make_float(vm, value)?,
+        OptionalArg::Missing => 0.0,
+        OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
     };
 
     let imag = match imag {
-        None => 0.0,
-        Some(value) => objfloat::make_float(vm, value)?,
+        OptionalArg::Missing => 0.0,
+        OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
     };
 
     let value = Complex64::new(real, imag);
-
-    Ok(PyObject::new(
-        PyObjectPayload::Complex { value },
-        cls.clone(),
-    ))
+    PyComplex { value }.into_ref_with_type(vm, cls)
 }
 
-fn complex_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_real(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    let Complex64 { re, im: _ } = get_value(zelf);
+    let Complex64 { re, .. } = get_value(zelf);
     Ok(vm.ctx.new_float(re))
 }
 
-fn complex_imag(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_imag(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    let Complex64 { re: _, im } = get_value(zelf);
+    let Complex64 { im, .. } = get_value(zelf);
     Ok(vm.ctx.new_float(im))
 }
 
-fn complex_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_abs(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
 
     let Complex64 { re, im } = get_value(zelf);
     Ok(vm.ctx.new_float(re.hypot(im)))
 }
 
-fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_add(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -117,11 +122,11 @@ fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             v1.im,
         )))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", i, i2)))
     }
 }
 
-fn complex_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_radd(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -136,18 +141,18 @@ fn complex_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
             v1.im,
         )))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i.borrow(), i2.borrow())))
+        Err(vm.new_type_error(format!("Cannot add {} and {}", i, i2)))
     }
 }
 
-fn complex_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_conjugate(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.complex_type()))]);
 
     let v1 = get_value(i);
     Ok(vm.ctx.new_complex(v1.conj()))
 }
 
-fn complex_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -172,12 +177,12 @@ fn complex_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn complex_neg(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_neg(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
     Ok(vm.ctx.new_complex(-get_value(zelf)))
 }
 
-fn complex_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.complex_type()))]);
     let v = get_value(obj);
     let repr = if v.re == 0. {

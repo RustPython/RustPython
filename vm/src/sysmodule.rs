@@ -1,7 +1,12 @@
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::vm::VirtualMachine;
 use std::rc::Rc;
 use std::{env, mem};
+
+use num_traits::ToPrimitive;
+
+use crate::function::PyFuncArgs;
+use crate::obj::objint;
+use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 /*
  * The magic sys module.
@@ -13,28 +18,46 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
     ctx.new_list(argv)
 }
 
-fn getframe(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    if let Some(frame) = &vm.current_frame {
-        Ok(frame.clone())
-    } else {
-        panic!("Current frame is undefined!")
+fn frame_idx(vm: &VirtualMachine, offset: Option<&PyObjectRef>) -> Result<usize, PyObjectRef> {
+    if let Some(int) = offset {
+        if let Some(offset) = objint::get_value(&int).to_usize() {
+            if offset > vm.frames.borrow().len() - 1 {
+                return Err(vm.new_value_error("call stack is not deep enough".to_string()));
+            }
+            return Ok(offset);
+        }
     }
+    Ok(0)
 }
 
-fn sys_getrefcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn getframe(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [],
+        optional = [(offset, Some(vm.ctx.int_type()))]
+    );
+
+    let idx = frame_idx(vm, offset)?;
+    let idx = vm.frames.borrow().len() - idx - 1;
+    let frame = &vm.frames.borrow()[idx];
+    Ok(frame.clone())
+}
+
+fn sys_getrefcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     let size = Rc::strong_count(&object);
     Ok(vm.ctx.new_int(size))
 }
 
-fn sys_getsizeof(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn sys_getsizeof(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     // TODO: implement default optional argument.
-    let size = mem::size_of_val(&object.borrow());
+    let size = mem::size_of_val(&object);
     Ok(vm.ctx.new_int(size))
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext, builtins: PyObjectRef) -> PyObjectRef {
     let path_list = match env::var_os("PYTHONPATH") {
         Some(paths) => env::split_paths(&paths)
             .map(|path| {
@@ -132,7 +155,8 @@ settrace() -- set the global debug tracing function
       "_getframe" => ctx.new_rustfunc(getframe),
     });
 
-    ctx.set_item(&modules, sys_name, sys_mod.clone());
+    modules.set_item(&ctx, sys_name, sys_mod.clone());
+    modules.set_item(&ctx, "builtins", builtins);
     ctx.set_attr(&sys_mod, "modules", modules);
 
     sys_mod

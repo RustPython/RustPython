@@ -18,6 +18,7 @@ macro_rules! type_check {
         // None indicates that we have no type requirement (i.e. we accept any type)
         if let Some(expected_type) = $arg_type {
             let arg = &$args.args[$arg_count];
+
             if !$crate::obj::objtype::isinstance(arg, &expected_type) {
                 let arg_typ = arg.typ();
                 let expected_type_name = $vm.to_pystr(&expected_type)?;
@@ -111,14 +112,38 @@ macro_rules! no_kwargs {
     };
 }
 
+#[macro_export]
 macro_rules! py_module {
     ( $ctx:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {
-            let py_mod = $ctx.new_module($module_name, $ctx.new_scope(None));
-        $(
-            $ctx.set_attr(&py_mod, $name, $value);
-        )*
-        py_mod
+            let py_mod = $ctx.new_module($module_name, $ctx.new_dict());
+            $(
+                $ctx.set_attr(&py_mod, $name, $value);
+            )*
+            py_mod
         }
+    }
+}
+
+#[macro_export]
+macro_rules! py_class {
+    ( $ctx:expr, $class_name:expr, $class_base:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        {
+            let py_class = $ctx.new_class($class_name, $class_base);
+            $(
+                $ctx.set_attr(&py_class, $name, $value);
+            )*
+            py_class
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! extend_class {
+    ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        let class = $class;
+        $(
+            $ctx.set_attr(&class, $name, $value);
+        )*
     }
 }

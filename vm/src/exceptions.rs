@@ -1,12 +1,10 @@
+use crate::function::PyFuncArgs;
 use crate::obj::objsequence;
-use crate::obj::objstr;
 use crate::obj::objtype;
-use crate::pyobject::{
-    create_type, AttributeProtocol, PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::pyobject::{create_type, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let zelf = args.args[0].clone();
     let msg = if args.args.len() > 1 {
         args.args[1].clone()
@@ -20,8 +18,8 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // Print exception including traceback:
-pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
-    if let Some(tb) = exc.get_attr("__traceback__") {
+pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
+    if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
             let mut elements = objsequence::get_elements(&tb).to_vec();
@@ -30,19 +28,19 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
                 if objtype::isinstance(&element, &vm.ctx.tuple_type()) {
                     let element = objsequence::get_elements(&element);
                     let filename = if let Ok(x) = vm.to_str(&element[0]) {
-                        objstr::get_value(&x)
+                        x.value.clone()
                     } else {
                         "<error>".to_string()
                     };
 
                     let lineno = if let Ok(x) = vm.to_str(&element[1]) {
-                        objstr::get_value(&x)
+                        x.value.clone()
                     } else {
                         "<error>".to_string()
                     };
 
                     let obj_name = if let Ok(x) = vm.to_str(&element[2]) {
-                        objstr::get_value(&x)
+                        x.value.clone()
                     } else {
                         "<error>".to_string()
                     };
@@ -58,19 +56,19 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
     }
 
     match vm.to_str(exc) {
-        Ok(txt) => println!("{}", objstr::get_value(&txt)),
+        Ok(txt) => println!("{}", txt.value),
         Err(err) => println!("Error during error {:?}", err),
     }
 }
 
-fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
         required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
     );
     let type_name = objtype::get_type_name(&exc.typ());
-    let msg = if let Some(m) = exc.get_attr("msg") {
+    let msg = if let Ok(m) = vm.get_attribute(exc.clone(), "msg") {
         match vm.to_pystr(&m) {
             Ok(msg) => msg,
             _ => "<exception str() failed>".to_string(),
@@ -108,56 +106,29 @@ pub struct ExceptionZoo {
 }
 
 impl ExceptionZoo {
-    pub fn new(
-        type_type: &PyObjectRef,
-        object_type: &PyObjectRef,
-        dict_type: &PyObjectRef,
-    ) -> Self {
+    pub fn new(type_type: &PyObjectRef, object_type: &PyObjectRef) -> Self {
         // Sorted By Hierarchy then alphabetized.
-        let base_exception_type =
-            create_type("BaseException", &type_type, &object_type, &dict_type);
-
-        let exception_type = create_type("Exception", &type_type, &base_exception_type, &dict_type);
-
-        let arithmetic_error =
-            create_type("ArithmeticError", &type_type, &exception_type, &dict_type);
-        let assertion_error =
-            create_type("AssertionError", &type_type, &exception_type, &dict_type);
-        let attribute_error =
-            create_type("AttributeError", &type_type, &exception_type, &dict_type);
-        let import_error = create_type("ImportError", &type_type, &exception_type, &dict_type);
-        let index_error = create_type("IndexError", &type_type, &exception_type, &dict_type);
-        let key_error = create_type("KeyError", &type_type, &exception_type, &dict_type);
-        let name_error = create_type("NameError", &type_type, &exception_type, &dict_type);
-        let os_error = create_type("OSError", &type_type, &exception_type, &dict_type);
-        let runtime_error = create_type("RuntimeError", &type_type, &exception_type, &dict_type);
-        let stop_iteration = create_type("StopIteration", &type_type, &exception_type, &dict_type);
-        let syntax_error = create_type("SyntaxError", &type_type, &exception_type, &dict_type);
-        let type_error = create_type("TypeError", &type_type, &exception_type, &dict_type);
-        let value_error = create_type("ValueError", &type_type, &exception_type, &dict_type);
-
-        let overflow_error =
-            create_type("OverflowError", &type_type, &arithmetic_error, &dict_type);
-        let zero_division_error = create_type(
-            "ZeroDivisionError",
-            &type_type,
-            &arithmetic_error,
-            &dict_type,
-        );
-
-        let module_not_found_error =
-            create_type("ModuleNotFoundError", &type_type, &import_error, &dict_type);
-
-        let not_implemented_error = create_type(
-            "NotImplementedError",
-            &type_type,
-            &runtime_error,
-            &dict_type,
-        );
-
-        let file_not_found_error =
-            create_type("FileNotFoundError", &type_type, &os_error, &dict_type);
-        let permission_error = create_type("PermissionError", &type_type, &os_error, &dict_type);
+        let base_exception_type = create_type("BaseException", &type_type, &object_type);
+        let exception_type = create_type("Exception", &type_type, &base_exception_type);
+        let arithmetic_error = create_type("ArithmeticError", &type_type, &exception_type);
+        let assertion_error = create_type("AssertionError", &type_type, &exception_type);
+        let attribute_error = create_type("AttributeError", &type_type, &exception_type);
+        let import_error = create_type("ImportError", &type_type, &exception_type);
+        let index_error = create_type("IndexError", &type_type, &exception_type);
+        let key_error = create_type("KeyError", &type_type, &exception_type);
+        let name_error = create_type("NameError", &type_type, &exception_type);
+        let os_error = create_type("OSError", &type_type, &exception_type);
+        let runtime_error = create_type("RuntimeError", &type_type, &exception_type);
+        let stop_iteration = create_type("StopIteration", &type_type, &exception_type);
+        let syntax_error = create_type("SyntaxError", &type_type, &exception_type);
+        let type_error = create_type("TypeError", &type_type, &exception_type);
+        let value_error = create_type("ValueError", &type_type, &exception_type);
+        let overflow_error = create_type("OverflowError", &type_type, &arithmetic_error);
+        let zero_division_error = create_type("ZeroDivisionError", &type_type, &arithmetic_error);
+        let module_not_found_error = create_type("ModuleNotFoundError", &type_type, &import_error);
+        let not_implemented_error = create_type("NotImplementedError", &type_type, &runtime_error);
+        let file_not_found_error = create_type("FileNotFoundError", &type_type, &os_error);
+        let permission_error = create_type("PermissionError", &type_type, &os_error);
 
         ExceptionZoo {
             arithmetic_error,

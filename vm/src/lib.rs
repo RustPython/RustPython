@@ -5,6 +5,13 @@
 //! - Import mechanics
 //! - Base objects
 
+// for methods like vm.to_str(), not the typical use of 'to' as a method prefix
+#![allow(
+    clippy::wrong_self_convention,
+    clippy::let_and_return,
+    clippy::implicit_hasher
+)]
+
 #[macro_use]
 extern crate bitflags;
 #[macro_use]
@@ -22,6 +29,8 @@ extern crate serde_json;
 extern crate statrs;
 
 extern crate rustpython_parser;
+#[macro_use]
+extern crate rustpython_derive;
 
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
@@ -37,7 +46,8 @@ pub mod error;
 pub mod eval;
 mod exceptions;
 pub mod format;
-mod frame;
+pub mod frame;
+pub mod function;
 pub mod import;
 pub mod obj;
 pub mod pyobject;

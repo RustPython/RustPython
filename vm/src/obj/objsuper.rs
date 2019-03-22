@@ -6,9 +6,28 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
-use super::objtype;
-use crate::pyobject::{PyContext, PyFuncArgs, PyResult, TypeProtocol};
+use crate::frame::NameProtocol;
+use crate::function::PyFuncArgs;
+use crate::obj::objstr;
+use crate::obj::objtype::PyClass;
+use crate::pyobject::{
+    DictProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
+
+use super::objtype;
+
+#[derive(Debug)]
+pub struct PySuper {
+    obj: PyObjectRef,
+    typ: PyObjectRef,
+}
+
+impl PyValue for PySuper {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.super_type()
+    }
+}
 
 pub fn init(context: &PyContext) {
     let super_type = &context.super_type;
@@ -27,7 +46,12 @@ pub fn init(context: &PyContext) {
                      def cmeth(cls, arg):\n        \
                      super().cmeth(arg)\n";
 
-    context.set_attr(&super_type, "__init__", context.new_rustfunc(super_init));
+    context.set_attr(&super_type, "__new__", context.new_rustfunc(super_new));
+    context.set_attr(
+        &super_type,
+        "__getattribute__",
+        context.new_rustfunc(super_getattribute),
+    );
     context.set_attr(
         &super_type,
         "__doc__",
@@ -35,24 +59,61 @@ pub fn init(context: &PyContext) {
     );
 }
 
-fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("super.__init__ {:?}", args.args);
+fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(inst, None)],
+        required = [
+            (super_obj, Some(vm.ctx.super_type())),
+            (name_str, Some(vm.ctx.str_type()))
+        ]
+    );
+
+    let inst = super_obj.payload::<PySuper>().unwrap().obj.clone();
+    let typ = super_obj.payload::<PySuper>().unwrap().typ.clone();
+
+    match typ.payload::<PyClass>() {
+        Some(PyClass { ref mro, .. }) => {
+            for class in mro {
+                if let Ok(item) = vm.get_attribute(class.as_object().clone(), name_str.clone()) {
+                    return Ok(vm.ctx.new_bound_method(item, inst.clone()));
+                }
+            }
+            Err(vm.new_attribute_error(format!(
+                "{} has no attribute '{}'",
+                inst,
+                objstr::get_value(name_str)
+            )))
+        }
+        _ => panic!("not Class"),
+    }
+}
+
+fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    trace!("super.__new__ {:?}", args.args);
+    arg_check!(
+        vm,
+        args,
+        required = [(cls, None)],
         optional = [(py_type, None), (py_obj, None)]
     );
+
+    if !objtype::issubclass(cls, &vm.ctx.super_type()) {
+        return Err(vm.new_type_error(format!("{:?} is not a subtype of super", cls)));
+    }
 
     // Get the type:
     let py_type = if let Some(ty) = py_type {
         ty.clone()
     } else {
-        // TODO: implement complex logic here....
-        unimplemented!("TODO: get frame and determine instance and class?");
-        // let frame = vm.get_current_frame();
-        //
-        // vm.get_none()
+        match vm.current_scope().load_cell(vm, "__class__") {
+            Some(obj) => obj.clone(),
+            _ => {
+                return Err(vm.new_type_error(
+                    "super must be called with 1 argument or from inside class method".to_string(),
+                ));
+            }
+        }
     };
 
     // Check type argument:
@@ -68,7 +129,20 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_obj = if let Some(obj) = py_obj {
         obj.clone()
     } else {
-        vm.get_none()
+        let frame = vm.current_frame();
+        if let Some(first_arg) = frame.code.arg_names.get(0) {
+            match vm.get_locals().get_item(first_arg) {
+                Some(obj) => obj.clone(),
+                _ => {
+                    return Err(vm
+                        .new_type_error(format!("super arguement {} was not supplied", first_arg)));
+                }
+            }
+        } else {
+            return Err(vm.new_type_error(
+                "super must be called with 1 argument or from inside class method".to_string(),
+            ));
+        }
     };
 
     // Check obj type:
@@ -78,9 +152,11 @@ fn super_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         ));
     }
 
-    // TODO: how to store those types?
-    vm.ctx.set_attr(inst, "type", py_type);
-    vm.ctx.set_attr(inst, "obj", py_obj);
-
-    Ok(vm.get_none())
+    Ok(PyObject::new(
+        PySuper {
+            obj: py_obj,
+            typ: py_type,
+        },
+        cls.clone(),
+    ))
 }

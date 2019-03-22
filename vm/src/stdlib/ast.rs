@@ -3,14 +3,16 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
-extern crate rustpython_parser;
-
-use self::rustpython_parser::{ast, parser};
-use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::VirtualMachine;
-use num_complex::Complex64;
 use std::ops::Deref;
+
+use num_complex::Complex64;
+
+use rustpython_parser::{ast, parser};
+
+use crate::function::PyFuncArgs;
+use crate::obj::objstr;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
 /*
  * Idea: maybe we can create a sort of struct with some helper functions?
@@ -82,6 +84,7 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             args,
             body,
             decorator_list,
+            returns,
         } => {
             let node = create_node(ctx, "FunctionDef");
 
@@ -96,6 +99,13 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
 
             let py_decorator_list = expressions_to_ast(ctx, decorator_list);
             ctx.set_attr(&node, "decorator_list", py_decorator_list);
+
+            let py_returns = if let Some(hint) = returns {
+                expression_to_ast(ctx, hint)
+            } else {
+                ctx.none()
+            };
+            ctx.set_attr(&node, "returns", py_returns);
             node
         }
         ast::Statement::Continue => create_node(ctx, "Continue"),
@@ -395,6 +405,7 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
 
             node
         }
+        ast::Expression::Ellipsis => create_node(ctx, "Ellipsis"),
         ast::Expression::List { elements } => {
             let node = create_node(ctx, "List");
 
@@ -537,13 +548,24 @@ fn parameters_to_ast(ctx: &PyContext, args: &ast::Parameters) -> PyObjectRef {
     ctx.set_attr(
         &node,
         "args",
-        ctx.new_list(
-            args.args
-                .iter()
-                .map(|a| ctx.new_str(a.to_string()))
-                .collect(),
-        ),
+        ctx.new_list(args.args.iter().map(|a| parameter_to_ast(ctx, a)).collect()),
     );
+
+    node
+}
+
+fn parameter_to_ast(ctx: &PyContext, parameter: &ast::Parameter) -> PyObjectRef {
+    let node = create_node(ctx, "arg");
+
+    let py_arg = ctx.new_str(parameter.arg.to_string());
+    ctx.set_attr(&node, "arg", py_arg);
+
+    let py_annotation = if let Some(annotation) = &parameter.annotation {
+        expression_to_ast(ctx, annotation)
+    } else {
+        ctx.none()
+    };
+    ctx.set_attr(&node, "annotation", py_annotation);
 
     node
 }
@@ -590,7 +612,7 @@ fn string_to_ast(ctx: &PyContext, string: &ast::StringGroup) -> PyObjectRef {
     }
 }
 
-fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn ast_parse(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(source, Some(vm.ctx.str_type()))]);
 
     let source_string = objstr::get_value(source);
@@ -601,24 +623,11 @@ fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(ast_node)
 }
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    // TODO: maybe we can use some clever macro to generate this?
-    let ast_mod = ctx.new_module("ast", ctx.new_scope(None));
-
-    ctx.set_attr(&ast_mod, "parse", ctx.new_rustfunc(ast_parse));
-
-    ctx.set_attr(
-        &ast_mod,
-        "Module",
-        ctx.new_class("_ast.Module", ctx.object()),
-    );
-
-    ctx.set_attr(
-        &ast_mod,
-        "FunctionDef",
-        ctx.new_class("_ast.FunctionDef", ctx.object()),
-    );
-    ctx.set_attr(&ast_mod, "Call", ctx.new_class("_ast.Call", ctx.object()));
-
-    ast_mod
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+    py_module!(ctx, "ast", {
+        "parse" => ctx.new_rustfunc(ast_parse),
+        "Module" => py_class!(ctx, "_ast.Module", ctx.object(), {}),
+        "FunctionDef" => py_class!(ctx, "_ast.FunctionDef", ctx.object(), {}),
+        "Call" => py_class!(ctx, "_ast.Call", ctx.object(), {})
+    })
 }

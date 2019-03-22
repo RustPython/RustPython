@@ -1,13 +1,13 @@
 //! Random module.
 
-extern crate rand;
+use rand::distributions::{Distribution, Normal};
 
+use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::stdlib::random::rand::distributions::{Distribution, Normal};
-use crate::VirtualMachine;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "random", {
         "guass" => ctx.new_rustfunc(random_gauss),
         "normalvariate" => ctx.new_rustfunc(random_normalvariate),
@@ -16,12 +16,12 @@ pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
     })
 }
 
-fn random_gauss(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn random_gauss(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     // TODO: is this the same?
     random_normalvariate(vm, args)
 }
 
-fn random_normalvariate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn random_normalvariate(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -38,7 +38,7 @@ fn random_normalvariate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(py_value)
 }
 
-fn random_random(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn random_random(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
     let value = rand::random::<f64>();
     let py_value = vm.ctx.new_float(value);
@@ -47,7 +47,7 @@ fn random_random(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /*
  * TODO: enable this function:
-fn random_weibullvariate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn random_weibullvariate(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(alpha, Some(vm.ctx.float_type())), (beta, Some(vm.ctx.float_type()))]);
     let alpha = objfloat::get_value(alpha);
     let beta = objfloat::get_value(beta);

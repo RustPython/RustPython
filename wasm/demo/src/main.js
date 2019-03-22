@@ -2,6 +2,7 @@ import * as rp from '../../lib/pkg';
 import CodeMirror from 'codemirror';
 import 'codemirror/mode/python/python';
 import 'codemirror/addon/comment/comment';
+import { Terminal } from 'xterm';
 
 // so people can play around with it
 window.rp = rp;
@@ -12,7 +13,11 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
         'Cmd-Enter': runCodeFromTextarea,
         'Shift-Tab': 'indentLess',
         'Ctrl-/': 'toggleComment',
-        'Cmd-/': 'toggleComment'
+        'Cmd-/': 'toggleComment',
+        Tab: editor => {
+            var spaces = Array(editor.getOption('indentUnit') + 1).join(' ');
+            editor.replaceSelection(spaces);
+        }
     },
     lineNumbers: true,
     mode: 'text/x-python',
@@ -20,10 +25,10 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
     autofocus: true
 });
 
-function runCodeFromTextarea() {
-    const consoleElement = document.getElementById('console');
-    const errorElement = document.getElementById('error');
+const consoleElement = document.getElementById('console');
+const errorElement = document.getElementById('error');
 
+function runCodeFromTextarea() {
     // Clean the console and errors
     consoleElement.value = '';
     errorElement.textContent = '';
@@ -31,14 +36,25 @@ function runCodeFromTextarea() {
     const code = editor.getValue();
     try {
         const result = rp.pyEval(code, {
-            stdout: '#console'
+            stdout: output => {
+                const shouldScroll =
+                    consoleElement.scrollHeight - consoleElement.scrollTop ===
+                    consoleElement.clientHeight;
+                consoleElement.value += output;
+                if (shouldScroll) {
+                    consoleElement.scrollTop = consoleElement.scrollHeight;
+                }
+            }
         });
         if (result !== null) {
             consoleElement.value += `\n${result}\n`;
         }
-    } catch (e) {
-        errorElement.textContent = e;
-        console.error(e);
+    } catch (err) {
+        if (err instanceof WebAssembly.RuntimeError) {
+            err = window.__RUSTPYTHON_ERROR || err;
+        }
+        errorElement.textContent = err;
+        console.error(err);
     }
 }
 
@@ -48,7 +64,7 @@ document
 
 const snippets = document.getElementById('snippets');
 
-snippets.addEventListener('change', () => {
+const updateSnippet = () => {
     const selected = snippets.value;
 
     // the require here creates a webpack context; it's fine to use it
@@ -57,8 +73,67 @@ snippets.addEventListener('change', () => {
     const snippet = require(`raw-loader!../snippets/${selected}.py`);
 
     editor.setValue(snippet);
-
     runCodeFromTextarea();
-});
+};
 
-runCodeFromTextarea(); // Run once for demo
+snippets.addEventListener('change', updateSnippet);
+
+// Run once for demo (updateSnippet b/c the browser might try to keep the same
+// option selected for the `select`, but the textarea won't be updated)
+updateSnippet();
+
+const prompt = '>>>>> ';
+
+const term = new Terminal();
+term.open(document.getElementById('terminal'));
+term.write(prompt);
+
+function removeNonAscii(str) {
+    if (str === null || str === '') return false;
+    else str = str.toString();
+
+    return str.replace(/[^\x20-\x7E]/g, '');
+}
+
+function printToConsole(data) {
+    term.write(removeNonAscii(data) + '\r\n');
+}
+
+const terminalVM = rp.vmStore.init('term_vm');
+terminalVM.setStdout(printToConsole);
+
+var input = '';
+term.on('data', data => {
+    const code = data.charCodeAt(0);
+    if (code == 13) {
+        // CR
+        if (input[input.length - 1] == ':') {
+            input += data;
+            term.write('\r\n.....');
+        } else {
+            term.write('\r\n');
+            try {
+                terminalVM.execSingle(input);
+            } catch (err) {
+                if (err instanceof WebAssembly.RuntimeError) {
+                    err = window.__RUSTPYTHON_ERROR || err;
+                }
+                printToConsole(err);
+            }
+            term.write(prompt);
+            input = '';
+        }
+    } else if (code == 127) {
+        if (input.length > 0) {
+            term.write('\b \b');
+            input = input.slice(0, -1);
+        }
+    } else if (code < 32 || code == 127) {
+        // Control
+        return;
+    } else {
+        // Visible
+        term.write(data);
+        input += data;
+    }
+});

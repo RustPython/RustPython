@@ -16,37 +16,24 @@ assert foo.x == 5
 assert foo.square() == 25
 
 
-class Fubar:
-    def __init__(self):
-        self.x = 100
-
-    @property
-    def foo(self):
-        value = self.x
-        self.x += 1
-        return value
-
-
-f = Fubar()
-assert f.foo == 100
-assert f.foo == 101
-
-
 class Bar:
     """ W00t """
     def __init__(self, x):
         self.x = x
 
     def get_x(self):
+        assert __class__ is Bar
         return self.x
 
     @classmethod
     def fubar(cls, x):
+        assert __class__ is cls
         assert cls is Bar
         assert x == 2
 
     @staticmethod
     def kungfu(x):
+        assert __class__ is Bar
         assert x == 3
 
 
@@ -66,12 +53,57 @@ class Bar2(Bar):
     def __init__(self):
         super().__init__(101)
 
+bar2 = Bar2()
+assert bar2.get_x() == 101
 
-# TODO: make this work:
-# bar2 = Bar2()
-# assert bar2.get_x() == 101
+class A():
+    def test(self):
+        return 100
 
-a = super(int, 2)
+class B():
+    def test1(self):
+        return 200
+
+class C(A,B):
+    def test(self):
+        return super().test()
+
+    def test1(self):
+        return super().test1()
+
+c = C()
+assert c.test() == 100
+assert c.test1() == 200
+
+class Me():
+
+    def test(me):
+        return 100
+
+class Me2(Me):
+
+    def test(me):
+        return super().test()
+
+class A():
+    def f(self):
+        pass
+
+class B(A):
+    def f(self):
+        super().f()
+
+class C(B):
+    def f(self):
+        super().f()
+
+C().f()
+
+me = Me2()
+assert me.test() == 100
+
+a = super(bool, True)
 assert isinstance(a, super)
 assert type(a) is super
+assert a.conjugate() == 1
 

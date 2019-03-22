@@ -18,10 +18,10 @@ pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<ast::Location>,
-    pub arg_names: Vec<String>,          // Names of positional arguments
-    pub varargs: Option<Option<String>>, // *args or *
+    pub arg_names: Vec<String>, // Names of positional arguments
+    pub varargs: Varargs,       // *args or *
     pub kwonlyarg_names: Vec<String>,
-    pub varkeywords: Option<Option<String>>, // **kwargs or **
+    pub varkeywords: Varargs, // **kwargs or **
     pub source_path: String,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
@@ -31,6 +31,7 @@ pub struct CodeObject {
 bitflags! {
     pub struct FunctionOpArg: u8 {
         const HAS_DEFAULTS = 0x01;
+        const HAS_ANNOTATIONS = 0x04;
     }
 }
 
@@ -159,7 +160,6 @@ pub enum Instruction {
     },
     PrintExpr,
     LoadBuildClass,
-    StoreLocals,
     UnpackSequence {
         size: usize,
     },
@@ -169,6 +169,7 @@ pub enum Instruction {
     },
     Unpack,
     FormatValue {
+        conversion: Option<ast::ConversionFlag>,
         spec: String,
     },
 }
@@ -190,9 +191,10 @@ pub enum Constant {
     Boolean { value: bool },
     String { value: String },
     Bytes { value: Vec<u8> },
-    Code { code: CodeObject },
+    Code { code: Box<CodeObject> },
     Tuple { elements: Vec<Constant> },
     None,
+    Ellipsis,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -235,6 +237,13 @@ pub enum UnaryOperator {
     Plus,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Varargs {
+    None,
+    Unnamed,
+    Named(String),
+}
+
 /*
 Maintain a stack of blocks on the VM.
 pub enum BlockType {
@@ -246,9 +255,9 @@ pub enum BlockType {
 impl CodeObject {
     pub fn new(
         arg_names: Vec<String>,
-        varargs: Option<Option<String>>,
+        varargs: Varargs,
         kwonlyarg_names: Vec<String>,
-        varkeywords: Option<Option<String>>,
+        varkeywords: Varargs,
         source_path: String,
         first_line_number: usize,
         obj_name: String,
@@ -268,7 +277,7 @@ impl CodeObject {
         }
     }
 
-    pub fn get_constants<'a>(&'a self) -> impl Iterator<Item = &'a Constant> {
+    pub fn get_constants(&self) -> impl Iterator<Item = &Constant> {
         self.instructions.iter().filter_map(|x| {
             if let Instruction::LoadConst { value } = x {
                 Some(value)
@@ -357,11 +366,10 @@ impl Instruction {
             MapAdd { i } => w!(MapAdd, i),
             PrintExpr => w!(PrintExpr),
             LoadBuildClass => w!(LoadBuildClass),
-            StoreLocals => w!(StoreLocals),
             UnpackSequence { size } => w!(UnpackSequence, size),
             UnpackEx { before, after } => w!(UnpackEx, before, after),
             Unpack => w!(Unpack),
-            FormatValue { spec } => w!(FormatValue, spec),
+            FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
         }
     }
 }
@@ -386,6 +394,7 @@ impl fmt::Display for Constant {
                     .join(", ")
             ),
             Constant::None => write!(f, "None"),
+            Constant::Ellipsis => write!(f, "Ellipsis"),
         }
     }
 }
@@ -397,5 +406,25 @@ impl fmt::Debug for CodeObject {
             "<code object {} at ??? file {:?}, line {}>",
             self.obj_name, self.source_path, self.first_line_number
         )
+    }
+}
+
+impl From<ast::Varargs> for Varargs {
+    fn from(varargs: ast::Varargs) -> Varargs {
+        match varargs {
+            ast::Varargs::None => Varargs::None,
+            ast::Varargs::Unnamed => Varargs::Unnamed,
+            ast::Varargs::Named(param) => Varargs::Named(param.arg),
+        }
+    }
+}
+
+impl<'a> From<&'a ast::Varargs> for Varargs {
+    fn from(varargs: &'a ast::Varargs) -> Varargs {
+        match varargs {
+            ast::Varargs::None => Varargs::None,
+            ast::Varargs::Unnamed => Varargs::Unnamed,
+            ast::Varargs::Named(ref param) => Varargs::Named(param.arg.clone()),
+        }
     }
 }

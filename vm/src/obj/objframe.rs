@@ -3,9 +3,8 @@
 */
 
 use crate::frame::Frame;
-use crate::pyobject::{
-    PyContext, PyFuncArgs, PyObjectPayload, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::function::PyFuncArgs;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
@@ -16,39 +15,28 @@ pub fn init(context: &PyContext) {
     context.set_attr(&frame_type, "f_code", context.new_property(frame_fcode));
 }
 
-fn frame_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn frame_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_cls, None)]);
     Err(vm.new_type_error("Cannot directly create frame object".to_string()))
 }
 
-fn frame_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn frame_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_frame, Some(vm.ctx.frame_type()))]);
     let repr = "<frame object at .. >".to_string();
     Ok(vm.new_str(repr))
 }
 
-fn frame_flocals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn frame_flocals(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
     let frame = get_value(frame);
-    let py_scope = frame.locals.clone();
-    let py_scope = py_scope.borrow();
-
-    if let PyObjectPayload::Scope { scope } = &py_scope.payload {
-        Ok(scope.locals.clone())
-    } else {
-        panic!("The scope isn't a scope!");
-    }
+    Ok(frame.scope.get_locals().clone())
 }
 
-fn frame_fcode(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn frame_fcode(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(frame, Some(vm.ctx.frame_type()))]);
-    Ok(vm.ctx.new_code_object(get_value(frame).code))
+    Ok(vm.ctx.new_code_object(get_value(frame).code.clone()))
 }
 
-pub fn get_value(obj: &PyObjectRef) -> Frame {
-    if let PyObjectPayload::Frame { frame } = &obj.borrow().payload {
-        frame.clone()
-    } else {
-        panic!("Inner error getting int {:?}", obj);
-    }
+pub fn get_value(obj: &PyObjectRef) -> &Frame {
+    &obj.payload::<Frame>().unwrap()
 }

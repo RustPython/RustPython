@@ -29,8 +29,22 @@ y = [1, 10, 29]
 assert x > y, "list __gt__ failed"
 
 
-assert [1,2,'a'].pop() == 'a', "list pop failed"
+x = [0, 1, 2]
+assert x.pop() == 2
+assert x == [0, 1]
+
+def test_pop(lst, idx, value, new_lst):
+    assert lst.pop(idx) == value
+    assert lst == new_lst
+test_pop([0, 1, 2], -1, 2, [0, 1])
+test_pop([0, 1, 2], 0, 0, [1, 2])
+test_pop([0, 1, 2], 1, 1, [0, 2])
+test_pop([0, 1, 2], 2, 2, [0, 1])
 assert_raises(IndexError, lambda: [].pop())
+assert_raises(IndexError, lambda: [].pop(0))
+assert_raises(IndexError, lambda: [].pop(-1))
+assert_raises(IndexError, lambda: [0].pop(1))
+assert_raises(IndexError, lambda: [0].pop(-2))
 
 recursive = []
 recursive.append(recursive)
@@ -117,3 +131,42 @@ b.append(c)
 assert a == b
 
 assert [foo] == [foo]
+
+for size in [1, 2, 3, 4, 5, 8, 10, 100, 1000]:
+   lst = list(range(size))
+   orig = lst[:]
+   lst.sort()
+   assert lst == orig
+   assert sorted(lst) == orig
+   assert_raises(ZeroDivisionError, lambda: sorted(lst, key=lambda x: 1/x))
+   lst.reverse()
+   assert sorted(lst) == orig
+   assert sorted(lst, reverse=True) == lst
+   assert sorted(lst, key=lambda x: -x) == lst
+   assert sorted(lst, key=lambda x: -x, reverse=True) == orig
+
+assert sorted([(1, 2, 3), (0, 3, 6)]) == [(0, 3, 6), (1, 2, 3)]
+assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[0]) == [(0, 3, 6), (1, 2, 3)]
+assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[1]) == [(1, 2, 3), (0, 3, 6)]
+assert sorted([(1, 2), (), (5,)], key=len) == [(), (5,), (1, 2)]
+
+lst = [3, 1, 5, 2, 4]
+class C:
+  def __init__(self, x): self.x = x
+  def __lt__(self, other): return self.x < other.x
+lst.sort(key=C)
+assert lst == [1, 2, 3, 4, 5]
+
+lst = [3, 1, 5, 2, 4]
+class C:
+  def __init__(self, x): self.x = x
+  def __gt__(self, other): return self.x > other.x
+lst.sort(key=C)
+assert lst == [1, 2, 3, 4, 5]
+
+lst = [5, 1, 2, 3, 4]
+def f(x):
+    lst.append(1)
+    return x
+assert_raises(ValueError, lambda: lst.sort(key=f)) # "list modified during sort"
+assert lst == [1, 2, 3, 4, 5]

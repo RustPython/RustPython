@@ -2,16 +2,16 @@
  * python tokenize module.
  */
 
-extern crate rustpython_parser;
 use std::iter::FromIterator;
 
-use self::rustpython_parser::lexer;
+use rustpython_parser::lexer;
 
+use crate::function::PyFuncArgs;
 use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyFuncArgs, PyObjectRef, PyResult, TypeProtocol};
-use crate::VirtualMachine;
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::vm::VirtualMachine;
 
-fn tokenize_tokenize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn tokenize_tokenize(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(readline, Some(vm.ctx.str_type()))]);
     let source = objstr::get_value(readline);
 
@@ -25,11 +25,8 @@ fn tokenize_tokenize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // TODO: create main function when called with -m
 
-pub fn mk_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = ctx.new_module("tokenize", ctx.new_scope(None));
-
-    // Number theory functions:
-    ctx.set_attr(&py_mod, "tokenize", ctx.new_rustfunc(tokenize_tokenize));
-
-    py_mod
+pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+    py_module!(ctx, "tokenize", {
+        "tokenize" => ctx.new_rustfunc(tokenize_tokenize)
+    })
 }
