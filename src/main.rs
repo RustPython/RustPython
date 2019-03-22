@@ -10,14 +10,8 @@ extern crate rustyline;
 use clap::{App, Arg};
 use rustpython_parser::error::ParseError;
 use rustpython_vm::{
-    compile,
-    error::CompileError,
-    frame::Scope,
-    import,
-    obj::objstr,
-    print_exception,
-    pyobject::{AttributeProtocol, PyResult},
-    util, VirtualMachine,
+    compile, error::CompileError, frame::Scope, import, obj::objstr, print_exception,
+    pyobject::PyResult, util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};
 use std::path::{Path, PathBuf};
@@ -160,8 +154,8 @@ fn get_history_path() -> PathBuf {
 }
 
 fn get_prompt(vm: &mut VirtualMachine, prompt_name: &str) -> String {
-    vm.sys_module
-        .get_attr(prompt_name)
+    vm.get_attribute(vm.sys_module.clone(), prompt_name)
+        .ok()
         .as_ref()
         .map(objstr::get_value)
         .unwrap_or_else(String::new)
