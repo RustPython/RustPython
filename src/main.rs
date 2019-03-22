@@ -153,6 +153,14 @@ fn get_history_path() -> PathBuf {
     xdg_dirs.place_cache_file("repl_history.txt").unwrap()
 }
 
+fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
+    vm.get_attribute(vm.sys_module.clone(), prompt_name)
+        .ok()
+        .as_ref()
+        .map(objstr::get_value)
+        .unwrap_or_else(String::new)
+}
+
 fn run_shell(vm: &VirtualMachine) -> PyResult {
     println!(
         "Welcome to the magnificent Rust Python {} interpreter",
@@ -170,25 +178,35 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
         println!("No previous history.");
     }
 
-    let ps1 = &objstr::get_value(&vm.get_attribute(vm.sys_module.clone(), "ps1").unwrap());
-    let ps2 = &objstr::get_value(&vm.get_attribute(vm.sys_module.clone(), "ps2").unwrap());
-    let mut prompt = ps1;
+    let mut continuing = false;
 
     loop {
-        match repl.readline(prompt) {
+        let prompt = if continuing {
+            get_prompt(vm, "ps2")
+        } else {
+            get_prompt(vm, "ps1")
+        };
+        match repl.readline(&prompt) {
             Ok(line) => {
                 debug!("You entered {:?}", line);
                 input.push_str(&line);
-                input.push_str("\n");
+                input.push('\n');
                 repl.add_history_entry(line.trim_end());
+
+                if continuing {
+                    if line.is_empty() {
+                        continuing = false;
+                    } else {
+                        continue;
+                    }
+                }
 
                 match shell_exec(vm, &input, vars.clone()) {
                     Err(CompileError::Parse(ParseError::EOF(_))) => {
-                        prompt = ps2;
+                        continuing = true;
                         continue;
                     }
                     _ => {
-                        prompt = ps1;
                         input = String::new();
                     }
                 }
@@ -196,7 +214,8 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
             Err(ReadlineError::Interrupted) => {
                 // TODO: Raise a real KeyboardInterrupt exception
                 println!("^C");
-                break;
+                continuing = false;
+                continue;
             }
             Err(ReadlineError::Eof) => {
                 break;
