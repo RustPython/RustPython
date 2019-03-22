@@ -16,7 +16,7 @@ use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
 use crate::obj::objdict::PyDictRef;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyClass {
     pub name: String,
     pub mro: Vec<PyClassRef>,

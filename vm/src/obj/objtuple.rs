@@ -15,7 +15,6 @@ use super::objsequence::{
 };
 use super::objtype::{self, PyClassRef};
 
-#[derive(Default)]
 pub struct PyTuple {
     // TODO: shouldn't be public
     // TODO: tuples are immutable, remove this RefCell
