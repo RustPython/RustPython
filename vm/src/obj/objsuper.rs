@@ -6,7 +6,9 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 */
 
+use crate::frame::NameProtocol;
 use crate::function::PyFuncArgs;
+use crate::obj::objstr;
 use crate::obj::objtype::PyClass;
 use crate::pyobject::{
     DictProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
@@ -18,6 +20,7 @@ use super::objtype;
 #[derive(Debug)]
 pub struct PySuper {
     obj: PyObjectRef,
+    typ: PyObjectRef,
 }
 
 impl PyValue for PySuper {
@@ -67,15 +70,20 @@ fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let inst = super_obj.payload::<PySuper>().unwrap().obj.clone();
+    let typ = super_obj.payload::<PySuper>().unwrap().typ.clone();
 
-    match inst.typ().payload::<PyClass>() {
+    match typ.payload::<PyClass>() {
         Some(PyClass { ref mro, .. }) => {
             for class in mro {
                 if let Ok(item) = vm.get_attribute(class.as_object().clone(), name_str.clone()) {
                     return Ok(vm.ctx.new_bound_method(item, inst.clone()));
                 }
             }
-            Err(vm.new_attribute_error(format!("{} has no attribute '{}'", inst, name_str)))
+            Err(vm.new_attribute_error(format!(
+                "{} has no attribute '{}'",
+                inst,
+                objstr::get_value(name_str)
+            )))
         }
         _ => panic!("not Class"),
     }
@@ -98,9 +106,13 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_type = if let Some(ty) = py_type {
         ty.clone()
     } else {
-        match vm.get_locals().get_item("self") {
-            Some(obj) => obj.typ().clone(),
-            _ => panic!("No self"),
+        match vm.current_scope().load_cell(vm, "__class__") {
+            Some(obj) => obj.clone(),
+            _ => {
+                return Err(vm.new_type_error(
+                    "super must be called with 1 argument or from inside class method".to_string(),
+                ));
+            }
         }
     };
 
@@ -117,9 +129,19 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let py_obj = if let Some(obj) = py_obj {
         obj.clone()
     } else {
-        match vm.get_locals().get_item("self") {
-            Some(obj) => obj,
-            _ => panic!("No self"),
+        let frame = vm.current_frame();
+        if let Some(first_arg) = frame.code.arg_names.get(0) {
+            match vm.get_locals().get_item(first_arg) {
+                Some(obj) => obj.clone(),
+                _ => {
+                    return Err(vm
+                        .new_type_error(format!("super arguement {} was not supplied", first_arg)));
+                }
+            }
+        } else {
+            return Err(vm.new_type_error(
+                "super must be called with 1 argument or from inside class method".to_string(),
+            ));
         }
     };
 
@@ -130,5 +152,11 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         ));
     }
 
-    Ok(PyObject::new(PySuper { obj: py_obj }, cls.clone()))
+    Ok(PyObject::new(
+        PySuper {
+            obj: py_obj,
+            typ: py_type,
+        },
+        cls.clone(),
+    ))
 }

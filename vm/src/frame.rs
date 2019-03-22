@@ -126,6 +126,7 @@ pub trait NameProtocol {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn delete_name(&self, vm: &VirtualMachine, name: &str);
+    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
 }
 
 impl NameProtocol for Scope {
@@ -141,6 +142,15 @@ impl NameProtocol for Scope {
         }
 
         vm.builtins.get_item(name)
+    }
+
+    fn load_cell(&self, _vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+        for dict in self.locals.iter().skip(1) {
+            if let Some(value) = dict.get_item(name) {
+                return Some(value);
+            }
+        }
+        None
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
