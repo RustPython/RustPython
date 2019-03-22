@@ -13,7 +13,7 @@ pub struct PyMap {
 type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.map_type()
     }
 }
@@ -22,7 +22,7 @@ fn map_new(
     cls: PyClassRef,
     function: PyObjectRef,
     iterables: Args,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyMapRef> {
     let iterators = iterables
         .into_iter()
@@ -35,7 +35,7 @@ fn map_new(
     .into_ref_with_type(vm, cls.clone())
 }
 
-fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn map_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(map, Some(vm.ctx.map_type()))]);
 
     if let Some(PyMap {

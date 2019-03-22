@@ -34,7 +34,7 @@ impl Deref for PyBytes {
 }
 
 impl PyValue for PyBytes {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.bytes_type()
     }
 }
@@ -76,7 +76,7 @@ pub fn init(context: &PyContext) {
 fn bytes_new(
     cls: PyClassRef,
     val_option: OptionalArg<PyObjectRef>,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyBytesRef> {
     // Create bytes data:
     let value = if let OptionalArg::Present(ival) = val_option {
@@ -95,7 +95,7 @@ fn bytes_new(
     PyBytes::new(value).into_ref_with_type(vm, cls)
 }
 
-fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -110,7 +110,7 @@ fn bytes_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn bytes_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -125,7 +125,7 @@ fn bytes_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn bytes_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -140,7 +140,7 @@ fn bytes_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn bytes_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -155,7 +155,7 @@ fn bytes_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn bytes_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -170,14 +170,14 @@ fn bytes_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn bytes_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(a, Some(vm.ctx.bytes_type()))]);
 
     let byte_vec = get_value(a).to_vec();
     Ok(vm.ctx.new_int(byte_vec.len()))
 }
 
-fn bytes_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);
     let data = get_value(zelf);
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -190,14 +190,14 @@ pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a 
     &obj.payload::<PyBytes>().unwrap().value
 }
 
-fn bytes_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
     let value = get_value(obj);
     let data = String::from_utf8(value.to_vec()).unwrap();
     Ok(vm.new_str(format!("b'{}'", data)))
 }
 
-fn bytes_iter(obj: PyBytesRef, _vm: &mut VirtualMachine) -> PyIteratorValue {
+fn bytes_iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
     PyIteratorValue {
         position: Cell::new(0),
         iterated_obj: obj.into_object(),

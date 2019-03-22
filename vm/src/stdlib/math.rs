@@ -14,7 +14,7 @@ use crate::vm::VirtualMachine;
 // Helper macro:
 macro_rules! make_math_func {
     ( $fname:ident, $fun:ident ) => {
-        fn $fname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+        fn $fname(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             arg_check!(vm, args, required = [(value, None)]);
             let value = objfloat::make_float(vm, value)?;
             let value = value.$fun();
@@ -27,19 +27,19 @@ macro_rules! make_math_func {
 // Number theory functions:
 make_math_func!(math_fabs, abs);
 
-fn math_isfinite(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_isfinite(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let value = objfloat::make_float(vm, value)?.is_finite();
     Ok(vm.ctx.new_bool(value))
 }
 
-fn math_isinf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_isinf(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let value = objfloat::make_float(vm, value)?.is_infinite();
     Ok(vm.ctx.new_bool(value))
 }
 
-fn math_isnan(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_isnan(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let value = objfloat::make_float(vm, value)?.is_nan();
     Ok(vm.ctx.new_bool(value))
@@ -49,7 +49,7 @@ fn math_isnan(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 make_math_func!(math_exp, exp);
 make_math_func!(math_expm1, exp_m1);
 
-fn math_log(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_log(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None)], optional = [(base, None)]);
     let x = objfloat::make_float(vm, x)?;
     match base {
@@ -61,7 +61,7 @@ fn math_log(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn math_log1p(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_log1p(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None)]);
     let x = objfloat::make_float(vm, x)?;
     Ok(vm.ctx.new_float((x + 1.0).ln()))
@@ -70,7 +70,7 @@ fn math_log1p(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 make_math_func!(math_log2, log2);
 make_math_func!(math_log10, log10);
 
-fn math_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None), (y, None)]);
     let x = objfloat::make_float(vm, x)?;
     let y = objfloat::make_float(vm, y)?;
@@ -84,7 +84,7 @@ make_math_func!(math_acos, acos);
 make_math_func!(math_asin, asin);
 make_math_func!(math_atan, atan);
 
-fn math_atan2(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_atan2(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(y, None), (x, None)]);
     let y = objfloat::make_float(vm, y)?;
     let x = objfloat::make_float(vm, x)?;
@@ -93,7 +93,7 @@ fn math_atan2(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 make_math_func!(math_cos, cos);
 
-fn math_hypot(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_hypot(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None), (y, None)]);
     let x = objfloat::make_float(vm, x)?;
     let y = objfloat::make_float(vm, y)?;
@@ -103,13 +103,13 @@ fn math_hypot(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 make_math_func!(math_sin, sin);
 make_math_func!(math_tan, tan);
 
-fn math_degrees(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_degrees(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let x = objfloat::make_float(vm, value)?;
     Ok(vm.ctx.new_float(x * (180.0 / std::f64::consts::PI)))
 }
 
-fn math_radians(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_radians(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let x = objfloat::make_float(vm, value)?;
     Ok(vm.ctx.new_float(x * (std::f64::consts::PI / 180.0)))
@@ -124,7 +124,7 @@ make_math_func!(math_sinh, sinh);
 make_math_func!(math_tanh, tanh);
 
 // Special functions:
-fn math_erf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_erf(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let x = objfloat::make_float(vm, value)?;
 
@@ -135,7 +135,7 @@ fn math_erf(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn math_erfc(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_erfc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let x = objfloat::make_float(vm, value)?;
 
@@ -146,7 +146,7 @@ fn math_erfc(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn math_gamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_gamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let x = objfloat::make_float(vm, value)?;
 
@@ -159,7 +159,7 @@ fn math_gamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn math_lgamma(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn math_lgamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(value, None)]);
     let x = objfloat::make_float(vm, value)?;
 

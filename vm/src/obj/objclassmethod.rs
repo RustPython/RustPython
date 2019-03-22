@@ -9,7 +9,7 @@ pub struct PyClassMethod {
 pub type PyClassMethodRef = PyRef<PyClassMethod>;
 
 impl PyValue for PyClassMethod {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.classmethod_type()
     }
 }
@@ -18,7 +18,7 @@ impl PyClassMethodRef {
     fn new(
         cls: PyClassRef,
         callable: PyObjectRef,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<PyClassMethodRef> {
         PyClassMethod {
             callable: callable.clone(),
@@ -26,7 +26,7 @@ impl PyClassMethodRef {
         .into_ref_with_type(vm, cls)
     }
 
-    fn get(self, _inst: PyObjectRef, owner: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn get(self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Ok(vm
             .ctx
             .new_bound_method(self.callable.clone(), owner.clone()))

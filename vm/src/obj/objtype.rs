@@ -30,7 +30,7 @@ impl fmt::Display for PyClass {
 pub type PyClassRef = PyRef<PyClass>;
 
 impl PyValue for PyClass {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.type_type()
     }
 }
@@ -81,17 +81,17 @@ impl PyClassRef {
         }
     }
 
-    fn mro(self, _vm: &mut VirtualMachine) -> PyTuple {
+    fn mro(self, _vm: &VirtualMachine) -> PyTuple {
         let elements: Vec<PyObjectRef> =
             _mro(&self).iter().map(|x| x.as_object().clone()).collect();
         PyTuple::from(elements)
     }
 
-    fn set_mro(self, _value: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn set_mro(self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_attribute_error("read-only attribute".to_string()))
     }
 
-    fn dir(self, vm: &mut VirtualMachine) -> PyList {
+    fn dir(self, vm: &VirtualMachine) -> PyList {
         let attributes = get_attributes(self);
         let attributes: Vec<PyObjectRef> = attributes
             .keys()
@@ -100,19 +100,19 @@ impl PyClassRef {
         PyList::from(attributes)
     }
 
-    fn instance_check(self, obj: PyObjectRef, _vm: &mut VirtualMachine) -> bool {
+    fn instance_check(self, obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
         isinstance(&obj, self.as_object())
     }
 
-    fn subclass_check(self, subclass: PyObjectRef, _vm: &mut VirtualMachine) -> bool {
+    fn subclass_check(self, subclass: PyObjectRef, _vm: &VirtualMachine) -> bool {
         issubclass(&subclass, self.as_object())
     }
 
-    fn repr(self, _vm: &mut VirtualMachine) -> String {
+    fn repr(self, _vm: &VirtualMachine) -> String {
         format!("<class '{}'>", self.name)
     }
 
-    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.new_dict()
     }
 }
@@ -170,7 +170,7 @@ pub fn get_type_name(typ: &PyObjectRef) -> String {
     }
 }
 
-pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     debug!("type.__new__ {:?}", args);
     if args.args.len() == 2 {
         arg_check!(
@@ -197,7 +197,7 @@ pub fn type_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn type_new_class(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     typ: &PyObjectRef,
     name: &PyObjectRef,
     bases: &PyObjectRef,
@@ -218,7 +218,7 @@ pub fn type_new_class(
     )
 }
 
-pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+pub fn type_call(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     debug!("type_call: {:?}", args);
     let cls = args.shift();
     let new = cls.get_attr("__new__").unwrap();
@@ -234,7 +234,7 @@ pub fn type_call(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(obj)
 }
 
-pub fn type_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn type_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

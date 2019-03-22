@@ -30,7 +30,7 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyValue for PyDict {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.dict_type()
     }
 }
@@ -45,7 +45,7 @@ pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Dict
 
 pub fn set_item(
     dict: &PyObjectRef,
-    _vm: &mut VirtualMachine,
+    _vm: &VirtualMachine,
     needle: &PyObjectRef,
     value: &PyObjectRef,
 ) {
@@ -123,7 +123,7 @@ pub fn py_dict_to_attributes(dict: &PyObjectRef) -> PyAttributes {
     attrs
 }
 
-pub fn attributes_to_py_dict(vm: &mut VirtualMachine, attributes: PyAttributes) -> PyResult {
+pub fn attributes_to_py_dict(vm: &VirtualMachine, attributes: PyAttributes) -> PyResult {
     let dict = vm.ctx.new_dict();
     for (key, value) in attributes {
         let key = vm.ctx.new_str(key);
@@ -133,7 +133,7 @@ pub fn attributes_to_py_dict(vm: &mut VirtualMachine, attributes: PyAttributes) 
 }
 
 // Python dict methods:
-fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn dict_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -149,7 +149,7 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
         } else {
             let iter = objiter::get_iter(vm, dict_obj)?;
             loop {
-                fn err(vm: &mut VirtualMachine) -> PyObjectRef {
+                fn err(vm: &VirtualMachine) -> PyObjectRef {
                     vm.new_type_error("Iterator must have exactly two elements".to_string())
                 }
                 let element = match objiter::get_next_object(vm, &iter)? {
@@ -174,11 +174,11 @@ fn dict_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 impl PyDictRef {
-    fn len(self, _vm: &mut VirtualMachine) -> usize {
+    fn len(self, _vm: &VirtualMachine) -> usize {
         self.entries.borrow().len()
     }
 
-    fn repr(self, vm: &mut VirtualMachine) -> PyResult {
+    fn repr(self, vm: &VirtualMachine) -> PyResult {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             let elements = get_key_value_pairs(self.as_object());
             let mut str_parts = vec![];
@@ -195,11 +195,11 @@ impl PyDictRef {
         Ok(vm.new_str(s))
     }
 
-    fn contains(self, key: PyStringRef, _vm: &mut VirtualMachine) -> bool {
+    fn contains(self, key: PyStringRef, _vm: &VirtualMachine) -> bool {
         self.entries.borrow().contains_key(&key.value)
     }
 
-    fn delitem(self, key: PyStringRef, vm: &mut VirtualMachine) -> PyResult<()> {
+    fn delitem(self, key: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
         let key = &key.value;
         // Delete the item:
         let mut elements = self.entries.borrow_mut();
@@ -209,12 +209,12 @@ impl PyDictRef {
         }
     }
 
-    fn clear(self, _vm: &mut VirtualMachine) {
+    fn clear(self, _vm: &VirtualMachine) {
         self.entries.borrow_mut().clear()
     }
 
     /// When iterating over a dictionary, we iterate over the keys of it.
-    fn iter(self, vm: &mut VirtualMachine) -> PyIteratorValue {
+    fn iter(self, vm: &VirtualMachine) -> PyIteratorValue {
         let keys = self
             .entries
             .borrow()
@@ -229,7 +229,7 @@ impl PyDictRef {
         }
     }
 
-    fn values(self, vm: &mut VirtualMachine) -> PyIteratorValue {
+    fn values(self, vm: &VirtualMachine) -> PyIteratorValue {
         let values = self
             .entries
             .borrow()
@@ -244,7 +244,7 @@ impl PyDictRef {
         }
     }
 
-    fn items(self, vm: &mut VirtualMachine) -> PyIteratorValue {
+    fn items(self, vm: &VirtualMachine) -> PyIteratorValue {
         let items = self
             .entries
             .borrow()
@@ -259,12 +259,12 @@ impl PyDictRef {
         }
     }
 
-    fn setitem(self, needle: PyObjectRef, value: PyObjectRef, _vm: &mut VirtualMachine) {
+    fn setitem(self, needle: PyObjectRef, value: PyObjectRef, _vm: &VirtualMachine) {
         let mut elements = self.entries.borrow_mut();
         set_item_in_content(&mut elements, &needle, &value)
     }
 
-    fn getitem(self, key: PyStringRef, vm: &mut VirtualMachine) -> PyResult {
+    fn getitem(self, key: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let key = &key.value;
 
         // What we are looking for:
@@ -280,7 +280,7 @@ impl PyDictRef {
         self,
         key: PyStringRef,
         default: OptionalArg<PyObjectRef>,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyObjectRef {
         // What we are looking for:
         let key = &key.value;

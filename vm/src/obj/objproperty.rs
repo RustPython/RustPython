@@ -16,7 +16,7 @@ pub struct PyReadOnlyProperty {
 }
 
 impl PyValue for PyReadOnlyProperty {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.readonly_property_type()
     }
 }
@@ -28,7 +28,7 @@ impl PyReadOnlyPropertyRef {
         self,
         obj: PyObjectRef,
         _owner: OptionalArg<PyClassRef>,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult {
         if obj.is(&vm.ctx.none) {
             Ok(self.into_object())
@@ -47,7 +47,7 @@ pub struct PyProperty {
 }
 
 impl PyValue for PyProperty {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.property_type()
     }
 }
@@ -61,7 +61,7 @@ impl PyPropertyRef {
         fset: OptionalArg<PyObjectRef>,
         fdel: OptionalArg<PyObjectRef>,
         _doc: OptionalArg<PyStringRef>,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<PyPropertyRef> {
         PyProperty {
             getter: fget.into_option(),
@@ -74,11 +74,7 @@ impl PyPropertyRef {
     // Descriptor methods
 
     // specialised version that doesn't check for None
-    pub(crate) fn instance_binding_get(
-        self,
-        obj: PyObjectRef,
-        vm: &mut VirtualMachine,
-    ) -> PyResult {
+    pub(crate) fn instance_binding_get(self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
             vm.invoke(getter.clone(), obj)
         } else {
@@ -90,7 +86,7 @@ impl PyPropertyRef {
         self,
         obj: PyObjectRef,
         _owner: OptionalArg<PyClassRef>,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
             if obj.is(&vm.ctx.none) {
@@ -103,7 +99,7 @@ impl PyPropertyRef {
         }
     }
 
-    fn set(self, obj: PyObjectRef, value: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn set(self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(setter) = self.setter.as_ref() {
             vm.invoke(setter.clone(), vec![obj, value])
         } else {
@@ -111,7 +107,7 @@ impl PyPropertyRef {
         }
     }
 
-    fn delete(self, obj: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn delete(self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(deleter) = self.deleter.as_ref() {
             vm.invoke(deleter.clone(), obj)
         } else {
@@ -121,21 +117,21 @@ impl PyPropertyRef {
 
     // Access functions
 
-    fn fget(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+    fn fget(self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.getter.clone()
     }
 
-    fn fset(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+    fn fset(self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.setter.clone()
     }
 
-    fn fdel(self, _vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+    fn fdel(self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.deleter.clone()
     }
 
     // Python builder functions
 
-    fn getter(self, getter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+    fn getter(self, getter: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Self> {
         PyProperty {
             getter: getter.or_else(|| self.getter.clone()),
             setter: self.setter.clone(),
@@ -144,7 +140,7 @@ impl PyPropertyRef {
         .into_ref_with_type(vm, self.typ())
     }
 
-    fn setter(self, setter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+    fn setter(self, setter: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Self> {
         PyProperty {
             getter: self.getter.clone(),
             setter: setter.or_else(|| self.setter.clone()),
@@ -153,7 +149,7 @@ impl PyPropertyRef {
         .into_ref_with_type(vm, self.typ())
     }
 
-    fn deleter(self, deleter: Option<PyObjectRef>, vm: &mut VirtualMachine) -> PyResult<Self> {
+    fn deleter(self, deleter: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Self> {
         PyProperty {
             getter: self.getter.clone(),
             setter: self.setter.clone(),

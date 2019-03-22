@@ -9,7 +9,7 @@ pub struct PyStaticMethod {
 pub type PyStaticMethodRef = PyRef<PyStaticMethod>;
 
 impl PyValue for PyStaticMethod {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.staticmethod_type()
     }
 }
@@ -18,7 +18,7 @@ impl PyStaticMethodRef {
     fn new(
         cls: PyClassRef,
         callable: PyObjectRef,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<PyStaticMethodRef> {
         PyStaticMethod {
             callable: callable.clone(),
@@ -26,7 +26,7 @@ impl PyStaticMethodRef {
         .into_ref_with_type(vm, cls)
     }
 
-    fn get(self, _inst: PyObjectRef, _owner: PyObjectRef, _vm: &mut VirtualMachine) -> PyResult {
+    fn get(self, _inst: PyObjectRef, _owner: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
         Ok(self.callable.clone())
     }
 }

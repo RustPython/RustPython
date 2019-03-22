@@ -15,12 +15,12 @@ pub struct PySlice {
 }
 
 impl PyValue for PySlice {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.slice_type()
     }
 }
 
-fn slice_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn slice_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);
     let (cls, start, stop, step): (
         &PyObjectRef,
@@ -64,7 +64,7 @@ fn slice_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-fn get_property_value(vm: &mut VirtualMachine, value: &Option<BigInt>) -> PyResult {
+fn get_property_value(vm: &VirtualMachine, value: &Option<BigInt>) -> PyResult {
     if let Some(value) = value {
         Ok(vm.ctx.new_int(value.clone()))
     } else {
@@ -72,7 +72,7 @@ fn get_property_value(vm: &mut VirtualMachine, value: &Option<BigInt>) -> PyResu
     }
 }
 
-fn slice_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn slice_start(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
     if let Some(PySlice { start, .. }) = &slice.payload() {
         get_property_value(vm, start)
@@ -81,7 +81,7 @@ fn slice_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn slice_stop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn slice_stop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
     if let Some(PySlice { stop, .. }) = &slice.payload() {
         get_property_value(vm, stop)
@@ -90,7 +90,7 @@ fn slice_stop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn slice_step(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn slice_step(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
     if let Some(PySlice { step, .. }) = &slice.payload() {
         get_property_value(vm, step)

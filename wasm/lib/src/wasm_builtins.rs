@@ -16,7 +16,7 @@ pub(crate) fn window() -> web_sys::Window {
     web_sys::window().expect("Window to be available")
 }
 
-pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
+pub fn format_print_args(vm: &VirtualMachine, args: PyFuncArgs) -> Result<String, PyObjectRef> {
     // Handle 'sep' kwarg:
     let sep_arg = args
         .get_optional_kwarg("sep")
@@ -68,7 +68,7 @@ pub fn format_print_args(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<St
     Ok(output)
 }
 
-pub fn builtin_print_console(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn builtin_print_console(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let arr = Array::new();
     for arg in args.args {
         arr.push(&vm.to_pystr(&arg)?.into());

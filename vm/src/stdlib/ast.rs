@@ -612,7 +612,7 @@ fn string_to_ast(ctx: &PyContext, string: &ast::StringGroup) -> PyObjectRef {
     }
 }
 
-fn ast_parse(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn ast_parse(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(source, Some(vm.ctx.str_type()))]);
 
     let source_string = objstr::get_value(source);

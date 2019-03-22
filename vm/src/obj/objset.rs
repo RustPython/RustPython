@@ -32,7 +32,7 @@ impl fmt::Debug for PySet {
 }
 
 impl PyValue for PySet {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.set_type()
     }
 }
@@ -42,10 +42,10 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
 }
 
 fn perform_action_with_hash(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     elements: &mut HashMap<u64, PyObjectRef>,
     item: &PyObjectRef,
-    f: &Fn(&mut VirtualMachine, &mut HashMap<u64, PyObjectRef>, u64, &PyObjectRef) -> PyResult,
+    f: &Fn(&VirtualMachine, &mut HashMap<u64, PyObjectRef>, u64, &PyObjectRef) -> PyResult,
 ) -> PyResult {
     let hash: PyObjectRef = vm.call_method(item, "__hash__", vec![])?;
 
@@ -57,12 +57,12 @@ fn perform_action_with_hash(
 }
 
 fn insert_into_set(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     elements: &mut HashMap<u64, PyObjectRef>,
     item: &PyObjectRef,
 ) -> PyResult {
     fn insert(
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
         elements: &mut HashMap<u64, PyObjectRef>,
         key: u64,
         value: &PyObjectRef,
@@ -73,7 +73,7 @@ fn insert_into_set(
     perform_action_with_hash(vm, elements, item, &insert)
 }
 
-fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_add(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.add called with: {:?}", args);
     arg_check!(
         vm,
@@ -86,7 +86,7 @@ fn set_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_remove(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.remove called with: {:?}", args);
     arg_check!(
         vm,
@@ -96,7 +96,7 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match s.payload::<PySet>() {
         Some(set) => {
             fn remove(
-                vm: &mut VirtualMachine,
+                vm: &VirtualMachine,
                 elements: &mut HashMap<u64, PyObjectRef>,
                 key: u64,
                 value: &PyObjectRef,
@@ -115,7 +115,7 @@ fn set_remove(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn set_discard(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_discard(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.discard called with: {:?}", args);
     arg_check!(
         vm,
@@ -125,7 +125,7 @@ fn set_discard(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     match s.payload::<PySet>() {
         Some(set) => {
             fn discard(
-                vm: &mut VirtualMachine,
+                vm: &VirtualMachine,
                 elements: &mut HashMap<u64, PyObjectRef>,
                 key: u64,
                 _value: &PyObjectRef,
@@ -139,7 +139,7 @@ fn set_discard(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn set_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_clear(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.clear called");
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     match s.payload::<PySet>() {
@@ -155,7 +155,7 @@ fn set_clear(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn set_new(
     cls: PyClassRef,
     iterable: OptionalArg<PyObjectRef>,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PySetRef> {
     if !objtype::issubclass(cls.as_object(), &vm.ctx.set_type()) {
         return Err(vm.new_type_error(format!("{} is not a subtype of set", cls)));
@@ -179,14 +179,14 @@ fn set_new(
     .into_ref_with_type(vm, cls)
 }
 
-fn set_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.len called with: {:?}", args);
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
     let elements = get_elements(s);
     Ok(vm.context().new_int(elements.len()))
 }
 
-fn set_copy(obj: PySetRef, _vm: &mut VirtualMachine) -> PySet {
+fn set_copy(obj: PySetRef, _vm: &VirtualMachine) -> PySet {
     trace!("set.copy called with: {:?}", obj);
     let elements = obj.elements.borrow().clone();
     PySet {
@@ -194,7 +194,7 @@ fn set_copy(obj: PySetRef, _vm: &mut VirtualMachine) -> PySet {
     }
 }
 
-fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.set_type()))]);
 
     let elements = get_elements(o);
@@ -214,7 +214,7 @@ fn set_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn set_contains(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -234,7 +234,7 @@ pub fn set_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(false))
 }
 
-fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_compare_inner(
         vm,
         args,
@@ -243,7 +243,7 @@ fn set_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     )
 }
 
-fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_compare_inner(
         vm,
         args,
@@ -252,7 +252,7 @@ fn set_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     )
 }
 
-fn set_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_compare_inner(
         vm,
         args,
@@ -261,7 +261,7 @@ fn set_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     )
 }
 
-fn set_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_compare_inner(
         vm,
         args,
@@ -270,7 +270,7 @@ fn set_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     )
 }
 
-fn set_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_compare_inner(
         vm,
         args,
@@ -280,7 +280,7 @@ fn set_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn set_compare_inner(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     args: PyFuncArgs,
     size_func: &Fn(usize, usize) -> bool,
     swap: bool,
@@ -327,7 +327,7 @@ fn set_compare_inner(
     Ok(vm.new_bool(true))
 }
 
-fn set_union(zelf: PySetRef, other: PySetRef, _vm: &mut VirtualMachine) -> PySet {
+fn set_union(zelf: PySetRef, other: PySetRef, _vm: &VirtualMachine) -> PySet {
     let mut elements = zelf.elements.borrow().clone();
     elements.extend(other.elements.borrow().clone());
 
@@ -336,18 +336,18 @@ fn set_union(zelf: PySetRef, other: PySetRef, _vm: &mut VirtualMachine) -> PySet
     }
 }
 
-fn set_intersection(zelf: PySetRef, other: PySetRef, vm: &mut VirtualMachine) -> PyResult<PySet> {
+fn set_intersection(zelf: PySetRef, other: PySetRef, vm: &VirtualMachine) -> PyResult<PySet> {
     set_combine_inner(zelf, other, vm, SetCombineOperation::Intersection)
 }
 
-fn set_difference(zelf: PySetRef, other: PySetRef, vm: &mut VirtualMachine) -> PyResult<PySet> {
+fn set_difference(zelf: PySetRef, other: PySetRef, vm: &VirtualMachine) -> PyResult<PySet> {
     set_combine_inner(zelf, other, vm, SetCombineOperation::Difference)
 }
 
 fn set_symmetric_difference(
     zelf: PySetRef,
     other: PySetRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PySet> {
     let mut elements = HashMap::new();
 
@@ -378,7 +378,7 @@ enum SetCombineOperation {
 fn set_combine_inner(
     zelf: PySetRef,
     other: PySetRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     op: SetCombineOperation,
 ) -> PyResult<PySet> {
     let mut elements = HashMap::new();
@@ -399,7 +399,7 @@ fn set_combine_inner(
     })
 }
 
-fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_pop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
 
     match s.payload::<PySet>() {
@@ -414,12 +414,12 @@ fn set_pop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn set_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_update(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_ior(vm, args)?;
     Ok(vm.get_none())
 }
 
-fn set_ior(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_ior(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -438,26 +438,26 @@ fn set_ior(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(zelf.clone())
 }
 
-fn set_intersection_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_intersection_update(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_combine_update_inner(vm, args, SetCombineOperation::Intersection)?;
     Ok(vm.get_none())
 }
 
-fn set_iand(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_iand(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_combine_update_inner(vm, args, SetCombineOperation::Intersection)
 }
 
-fn set_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_difference_update(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_combine_update_inner(vm, args, SetCombineOperation::Difference)?;
     Ok(vm.get_none())
 }
 
-fn set_isub(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_isub(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_combine_update_inner(vm, args, SetCombineOperation::Difference)
 }
 
 fn set_combine_update_inner(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     args: PyFuncArgs,
     op: SetCombineOperation,
 ) -> PyResult {
@@ -486,12 +486,12 @@ fn set_combine_update_inner(
     Ok(zelf.clone())
 }
 
-fn set_symmetric_difference_update(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_symmetric_difference_update(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     set_ixor(vm, args)?;
     Ok(vm.get_none())
 }
 
-fn set_ixor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn set_ixor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -518,7 +518,7 @@ fn set_ixor(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(zelf.clone())
 }
 
-fn set_iter(zelf: PySetRef, vm: &mut VirtualMachine) -> PyIteratorValue {
+fn set_iter(zelf: PySetRef, vm: &VirtualMachine) -> PyIteratorValue {
     let items = zelf.elements.borrow().values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
     PyIteratorValue {
@@ -527,7 +527,7 @@ fn set_iter(zelf: PySetRef, vm: &mut VirtualMachine) -> PyIteratorValue {
     }
 }
 
-fn frozenset_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn frozenset_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
     let elements = get_elements(o);

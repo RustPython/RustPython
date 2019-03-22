@@ -27,7 +27,7 @@ use crate::vm::VirtualMachine;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
-fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
+fn get_locals(vm: &VirtualMachine) -> PyObjectRef {
     let d = vm.new_dict();
     // TODO: implement dict_iter_items?
     let locals = vm.get_locals();
@@ -38,11 +38,11 @@ fn get_locals(vm: &mut VirtualMachine) -> PyObjectRef {
     d
 }
 
-fn dir_locals(vm: &mut VirtualMachine) -> PyObjectRef {
+fn dir_locals(vm: &VirtualMachine) -> PyObjectRef {
     get_locals(vm)
 }
 
-fn builtin_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_abs(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None)]);
     match vm.get_method(x.clone(), "__abs__") {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![], vec![])),
@@ -50,7 +50,7 @@ fn builtin_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_all(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
     let items = vm.extract_elements(iterable)?;
     for item in items {
@@ -62,7 +62,7 @@ fn builtin_all(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(true))
 }
 
-fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_any(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
     let iterator = objiter::get_iter(vm, iterable)?;
 
@@ -78,7 +78,7 @@ fn builtin_any(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_ascii
 
-fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_bin(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
     let n = objint::get_value(number);
@@ -93,13 +93,13 @@ fn builtin_bin(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_breakpoint
 
-fn builtin_callable(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_callable(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
     let is_callable = obj.typ().has_attr("__call__");
     Ok(vm.new_bool(is_callable))
 }
 
-fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_chr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
 
     let code_point = objint::get_value(i).to_u32().unwrap();
@@ -112,7 +112,7 @@ fn builtin_chr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(txt))
 }
 
-fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_compile(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -149,7 +149,7 @@ fn builtin_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     })
 }
 
-fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_delattr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -158,7 +158,7 @@ fn builtin_delattr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.del_attr(obj, attr.clone())
 }
 
-fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_dir(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.is_empty() {
         Ok(dir_locals(vm))
     } else {
@@ -169,7 +169,7 @@ fn builtin_dir(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None), (y, None)]);
     match vm.get_method(x.clone(), "__divmod__") {
         Ok(attrib) => vm.invoke(attrib, vec![y.clone()]),
@@ -179,7 +179,7 @@ fn builtin_divmod(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implements `eval`.
 /// See also: https://docs.python.org/3/library/functions.html#eval
-fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -213,7 +213,7 @@ fn builtin_eval(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Implements `exec`
 /// https://docs.python.org/3/library/functions.html#exec
-fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -246,7 +246,7 @@ fn builtin_exec(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn make_scope(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     globals: Option<&PyObjectRef>,
     locals: Option<&PyObjectRef>,
 ) -> PyResult<Scope> {
@@ -283,7 +283,7 @@ fn make_scope(
     Ok(Scope::new(locals, globals))
 }
 
-fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -296,7 +296,7 @@ fn builtin_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     vm.call_method(obj, "__format__", vec![format_spec])
 }
 
-fn catch_attr_exception<T>(ex: PyObjectRef, default: T, vm: &mut VirtualMachine) -> PyResult<T> {
+fn catch_attr_exception<T>(ex: PyObjectRef, default: T, vm: &VirtualMachine) -> PyResult<T> {
     if objtype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
         Ok(default)
     } else {
@@ -308,7 +308,7 @@ fn builtin_getattr(
     obj: PyObjectRef,
     attr: PyStringRef,
     default: OptionalArg<PyObjectRef>,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult {
     let ret = vm.get_attribute(obj.clone(), attr);
     if let OptionalArg::Present(default) = default {
@@ -318,11 +318,11 @@ fn builtin_getattr(
     }
 }
 
-fn builtin_globals(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+fn builtin_globals(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.current_scope().globals.clone())
 }
 
-fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<bool> {
     if let Err(ex) = vm.get_attribute(obj.clone(), attr) {
         catch_attr_exception(ex, false, vm)
     } else {
@@ -330,7 +330,7 @@ fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &mut VirtualMachine)
     }
 }
 
-fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
     vm.call_method(obj, "__hash__", vec![])
@@ -338,7 +338,7 @@ fn builtin_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_help
 
-fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_hex(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
     let n = objint::get_value(number);
@@ -351,7 +351,7 @@ fn builtin_hex(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
     Ok(vm.context().new_int(obj.get_id()))
@@ -359,7 +359,7 @@ fn builtin_id(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 
-fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_isinstance(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -370,7 +370,7 @@ fn builtin_isinstance(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(isinstance))
 }
 
-fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_issubclass(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -381,12 +381,12 @@ fn builtin_issubclass(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.context().new_bool(issubclass))
 }
 
-fn builtin_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter_target, None)]);
     objiter::get_iter(vm, iter_target)
 }
 
-fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
     let len_method_name = "__len__";
     match vm.get_method(obj.clone(), len_method_name) {
@@ -399,12 +399,12 @@ fn builtin_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_locals(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_locals(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
     Ok(vm.get_locals())
 }
 
-fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let candidates = if args.args.len() > 1 {
         args.args.clone()
     } else if args.args.len() == 1 {
@@ -453,7 +453,7 @@ fn builtin_max(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(x)
 }
 
-fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_min(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let candidates = if args.args.len() > 1 {
         args.args.clone()
     } else if args.args.len() == 1 {
@@ -501,7 +501,7 @@ fn builtin_min(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(x)
 }
 
-fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -524,7 +524,7 @@ fn builtin_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_oct(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_oct(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
 
     let n = objint::get_value(number);
@@ -537,7 +537,7 @@ fn builtin_oct(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_ord(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
     let string = objstr::get_value(string);
     let string_len = string.chars().count();
@@ -555,7 +555,7 @@ fn builtin_ord(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_pow(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -591,11 +591,7 @@ pub struct PrintOptions {
     flush: bool,
 }
 
-pub fn builtin_print(
-    objects: Args,
-    options: PrintOptions,
-    vm: &mut VirtualMachine,
-) -> PyResult<()> {
+pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
     let stdout = io::stdout();
     let mut stdout_lock = stdout.lock();
     let mut first = true;
@@ -624,11 +620,11 @@ pub fn builtin_print(
     Ok(())
 }
 
-fn builtin_repr(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<PyStringRef> {
+fn builtin_repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStringRef> {
     vm.to_repr(&obj)
 }
 
-fn builtin_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
     match vm.get_method(obj.clone(), "__reversed__") {
@@ -642,7 +638,7 @@ fn builtin_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 // builtin_reversed
 
-fn builtin_round(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_round(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -664,7 +660,7 @@ fn builtin_setattr(
     obj: PyObjectRef,
     attr: PyStringRef,
     value: PyObjectRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<()> {
     vm.set_attr(&obj, attr.into_object(), value)?;
     Ok(())
@@ -672,7 +668,7 @@ fn builtin_setattr(
 
 // builtin_slice
 
-fn builtin_sorted(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+fn builtin_sorted(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
     let items = vm.extract_elements(iterable)?;
     let lst = vm.ctx.new_list(items);
@@ -682,7 +678,7 @@ fn builtin_sorted(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(lst)
 }
 
-fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_sum(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iterable, None)]);
     let items = vm.extract_elements(iterable)?;
 
@@ -695,7 +691,7 @@ fn builtin_sum(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // Should be renamed to builtin___import__?
-fn builtin_import(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -815,7 +811,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_mod
 }
 
-pub fn builtin_build_class_(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let function = args.shift();
     let name_arg = args.shift();
     let bases = args.args.clone();

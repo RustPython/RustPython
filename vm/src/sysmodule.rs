@@ -18,7 +18,7 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
     ctx.new_list(argv)
 }
 
-fn frame_idx(vm: &mut VirtualMachine, offset: Option<&PyObjectRef>) -> Result<usize, PyObjectRef> {
+fn frame_idx(vm: &VirtualMachine, offset: Option<&PyObjectRef>) -> Result<usize, PyObjectRef> {
     if let Some(int) = offset {
         if let Some(offset) = objint::get_value(&int).to_usize() {
             if offset > vm.frames.borrow().len() - 1 {
@@ -30,7 +30,7 @@ fn frame_idx(vm: &mut VirtualMachine, offset: Option<&PyObjectRef>) -> Result<us
     Ok(0)
 }
 
-fn getframe(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn getframe(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -44,13 +44,13 @@ fn getframe(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(frame.clone())
 }
 
-fn sys_getrefcount(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn sys_getrefcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     let size = Rc::strong_count(&object);
     Ok(vm.ctx.new_int(size))
 }
 
-fn sys_getsizeof(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn sys_getsizeof(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     // TODO: implement default optional argument.
     let size = mem::size_of_val(&object);

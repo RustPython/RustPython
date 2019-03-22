@@ -11,7 +11,7 @@ use crate::obj::objstr;
 use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-fn tokenize_tokenize(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn tokenize_tokenize(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(readline, Some(vm.ctx.str_type()))]);
     let source = objstr::get_value(readline);
 
