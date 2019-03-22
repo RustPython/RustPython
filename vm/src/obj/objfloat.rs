@@ -356,29 +356,31 @@ pub fn init(context: &PyContext) {
 
     let float_doc = "Convert a string or number to a floating point number, if possible.";
 
-    context.set_attr(&float_type, "__eq__", context.new_rustfunc(PyFloatRef::eq));
-    context.set_attr(&float_type, "__lt__", context.new_rustfunc(PyFloatRef::lt));
-    context.set_attr(&float_type, "__le__", context.new_rustfunc(PyFloatRef::le));
-    context.set_attr(&float_type, "__gt__", context.new_rustfunc(PyFloatRef::gt));
-    context.set_attr(&float_type, "__ge__", context.new_rustfunc(PyFloatRef::ge));
-    context.set_attr(&float_type, "__abs__", context.new_rustfunc(PyFloatRef::abs));
-    context.set_attr(&float_type, "__add__", context.new_rustfunc(PyFloatRef::add));
-    context.set_attr(&float_type, "__radd__", context.new_rustfunc(PyFloatRef::add));
-    context.set_attr(&float_type, "__divmod__", context.new_rustfunc(PyFloatRef::divmod));
-    context.set_attr(&float_type, "__floordiv__", context.new_rustfunc(PyFloatRef::floordiv));
-    context.set_attr(&float_type, "__new__", context.new_rustfunc(PyFloatRef::new_float));
-    context.set_attr(&float_type, "__mod__", context.new_rustfunc(PyFloatRef::mod_));
-    context.set_attr(&float_type, "__neg__", context.new_rustfunc(PyFloatRef::neg));
-    context.set_attr(&float_type, "__pow__", context.new_rustfunc(PyFloatRef::pow));
-    context.set_attr(&float_type, "__sub__", context.new_rustfunc(PyFloatRef::sub));
-    context.set_attr(&float_type, "__rsub__", context.new_rustfunc(PyFloatRef::rsub));
-    context.set_attr(&float_type, "__repr__", context.new_rustfunc(PyFloatRef::repr));
-    context.set_attr(&float_type, "__doc__", context.new_str(float_doc.to_string()));
-    context.set_attr(&float_type, "__truediv__", context.new_rustfunc(PyFloatRef::truediv));
-    context.set_attr(&float_type, "__rtruediv__", context.new_rustfunc(PyFloatRef::rtruediv));
-    context.set_attr(&float_type, "__mul__", context.new_rustfunc(PyFloatRef::mul));
-    context.set_attr(&float_type, "__rmul__", context.new_rustfunc(PyFloatRef::mul));
-    context.set_attr(&float_type, "real", context.new_property(PyFloatRef::real));
-    context.set_attr(&float_type, "is_integer", context.new_rustfunc(PyFloatRef::is_integer));
-    context.set_attr(&float_type, "as_integer_ratio", context.new_rustfunc(PyFloatRef::as_integer_ratio));
+    extend_class!(context, float_type, {
+        "__eq__" => context.new_rustfunc(PyFloatRef::eq),
+        "__lt__" => context.new_rustfunc(PyFloatRef::lt),
+        "__le__" => context.new_rustfunc(PyFloatRef::le),
+        "__gt__" => context.new_rustfunc(PyFloatRef::gt),
+        "__ge__" => context.new_rustfunc(PyFloatRef::ge),
+        "__abs__" => context.new_rustfunc(PyFloatRef::abs),
+        "__add__" => context.new_rustfunc(PyFloatRef::add),
+        "__radd__" => context.new_rustfunc(PyFloatRef::add),
+        "__divmod__" => context.new_rustfunc(PyFloatRef::divmod),
+        "__floordiv__" => context.new_rustfunc(PyFloatRef::floordiv),
+        "__new__" => context.new_rustfunc(PyFloatRef::new_float),
+        "__mod__" => context.new_rustfunc(PyFloatRef::mod_),
+        "__neg__" => context.new_rustfunc(PyFloatRef::neg),
+        "__pow__" => context.new_rustfunc(PyFloatRef::pow),
+        "__sub__" => context.new_rustfunc(PyFloatRef::sub),
+        "__rsub__" => context.new_rustfunc(PyFloatRef::rsub),
+        "__repr__" => context.new_rustfunc(PyFloatRef::repr),
+        "__doc__" => context.new_str(float_doc.to_string()),
+        "__truediv__" => context.new_rustfunc(PyFloatRef::truediv),
+        "__rtruediv__" => context.new_rustfunc(PyFloatRef::rtruediv),
+        "__mul__" => context.new_rustfunc(PyFloatRef::mul),
+        "__rmul__" => context.new_rustfunc(PyFloatRef::mul),
+        "real" => context.new_property(PyFloatRef::real),
+        "is_integer" => context.new_rustfunc(PyFloatRef::is_integer),
+        "as_integer_ratio" => context.new_rustfunc(PyFloatRef::as_integer_ratio)
+    });
 }
