@@ -32,7 +32,7 @@ impl StoredVirtualMachine {
         let mut vm = VirtualMachine::new();
         let scope = vm.ctx.new_scope();
         if inject_browser_module {
-            setup_browser_module(&mut vm);
+            setup_browser_module(&vm);
         }
         vm.wasm_id = Some(id);
         StoredVirtualMachine {
