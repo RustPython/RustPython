@@ -10,12 +10,12 @@ pub struct PyZip {
 }
 
 impl PyValue for PyZip {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.zip_type()
     }
 }
 
-fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn zip_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);
     let cls = &args.args[0];
     let iterables = &args.args[1..];
@@ -26,7 +26,7 @@ fn zip_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(PyObject::new(PyZip { iterators }, cls.clone()))
 }
 
-fn zip_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn zip_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zip, Some(vm.ctx.zip_type()))]);
 
     if let Some(PyZip { ref iterators }) = zip.payload() {

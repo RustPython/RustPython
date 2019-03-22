@@ -12,13 +12,9 @@ use crate::pyobject::{AttributeProtocol, DictProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
-fn import_uncached_module(
-    vm: &mut VirtualMachine,
-    current_path: PathBuf,
-    module: &str,
-) -> PyResult {
+fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &str) -> PyResult {
     // Check for Rust-native modules
-    if let Some(module) = vm.stdlib_inits.get(module) {
+    if let Some(module) = vm.stdlib_inits.borrow().get(module) {
         return Ok(module(&vm.ctx).clone());
     }
 
@@ -48,11 +44,7 @@ fn import_uncached_module(
     Ok(vm.ctx.new_module(module, attrs))
 }
 
-pub fn import_module(
-    vm: &mut VirtualMachine,
-    current_path: PathBuf,
-    module_name: &str,
-) -> PyResult {
+pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
     // First, see if we already loaded the module:
     let sys_modules = vm.sys_module.get_attr("modules").unwrap();
     if let Some(module) = sys_modules.get_item(module_name) {

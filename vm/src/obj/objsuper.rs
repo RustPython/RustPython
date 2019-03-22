@@ -21,7 +21,7 @@ pub struct PySuper {
 }
 
 impl PyValue for PySuper {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.super_type()
     }
 }
@@ -56,7 +56,7 @@ pub fn init(context: &PyContext) {
     );
 }
 
-fn super_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -81,7 +81,7 @@ fn super_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn super_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("super.__new__ {:?}", args.args);
     arg_check!(
         vm,

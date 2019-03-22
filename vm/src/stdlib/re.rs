@@ -18,7 +18,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.import("re").unwrap().get_attr("Pattern").unwrap()
     }
 }
@@ -47,7 +47,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 /// Implement re.match
 /// See also:
 /// https://docs.python.org/3/library/re.html#re.match
-fn re_match(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn re_match(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -65,7 +65,7 @@ fn re_match(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 /// Implement re.search
 /// See also:
 /// https://docs.python.org/3/library/re.html#re.search
-fn re_search(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn re_search(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -82,19 +82,19 @@ fn re_search(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     do_search(vm, &regex, search_text)
 }
 
-fn do_match(vm: &mut VirtualMachine, regex: &Regex, search_text: String) -> PyResult {
+fn do_match(vm: &VirtualMachine, regex: &Regex, search_text: String) -> PyResult {
     // TODO: implement match!
     do_search(vm, regex, search_text)
 }
 
-fn do_search(vm: &mut VirtualMachine, regex: &Regex, search_text: String) -> PyResult {
+fn do_search(vm: &VirtualMachine, regex: &Regex, search_text: String) -> PyResult {
     match regex.find(&search_text) {
         None => Ok(vm.get_none()),
         Some(result) => create_match(vm, &result),
     }
 }
 
-fn make_regex(vm: &mut VirtualMachine, pattern: &PyObjectRef) -> PyResult<Regex> {
+fn make_regex(vm: &VirtualMachine, pattern: &PyObjectRef) -> PyResult<Regex> {
     let pattern_str = objstr::get_value(pattern);
 
     match Regex::new(&pattern_str) {
@@ -111,13 +111,13 @@ struct PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.class("re", "Match")
     }
 }
 
 /// Take a found regular expression and convert it to proper match object.
-fn create_match(vm: &mut VirtualMachine, match_value: &Match) -> PyResult {
+fn create_match(vm: &VirtualMachine, match_value: &Match) -> PyResult {
     // Return match object:
     // TODO: implement match object
     // TODO: how to refer to match object defined in this
@@ -138,7 +138,7 @@ fn create_match(vm: &mut VirtualMachine, match_value: &Match) -> PyResult {
 /// Compile a regular expression into a Pattern object.
 /// See also:
 /// https://docs.python.org/3/library/re.html#re.compile
-fn re_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn re_compile(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -153,7 +153,7 @@ fn re_compile(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(PyObject::new(regex, pattern_class.clone()))
 }
 
-fn pattern_match(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn pattern_match(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -165,7 +165,7 @@ fn pattern_match(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     do_match(vm, &regex, search_text)
 }
 
-fn pattern_search(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn pattern_search(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -179,14 +179,14 @@ fn pattern_search(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /// Returns start of match
 /// see: https://docs.python.org/3/library/re.html#re.Match.start
-fn match_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn match_start(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None)]);
     // TODO: implement groups
     let m = get_match(zelf);
     Ok(vm.new_int(m.start))
 }
 
-fn match_end(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn match_end(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None)]);
     // TODO: implement groups
     let m = get_match(zelf);

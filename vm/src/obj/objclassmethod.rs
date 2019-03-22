@@ -10,7 +10,7 @@ pub fn init(context: &PyContext) {
     });
 }
 
-fn classmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn classmethod_get(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("classmethod.__get__ {:?}", args.args);
     arg_check!(
         vm,
@@ -33,7 +33,7 @@ fn classmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn classmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn classmethod_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("classmethod.__new__ {:?}", args.args);
     arg_check!(vm, args, required = [(cls, None), (callable, None)]);
 

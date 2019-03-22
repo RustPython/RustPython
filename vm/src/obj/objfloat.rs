@@ -16,13 +16,13 @@ pub struct PyFloat {
 }
 
 impl PyValue for PyFloat {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.float_type()
     }
 }
 
 impl IntoPyObject for f64 {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_float(self))
     }
 }
@@ -36,7 +36,7 @@ impl From<f64> for PyFloat {
 pub type PyFloatRef = PyRef<PyFloat>;
 
 impl PyFloatRef {
-    fn eq(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let value = self.value;
         let result = if objtype::isinstance(&other, &vm.ctx.float_type()) {
             let other = get_value(&other);
@@ -55,7 +55,7 @@ impl PyFloatRef {
         vm.ctx.new_bool(result)
     }
 
-    fn lt(self, i2: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn lt(self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 < get_value(&i2))
@@ -67,7 +67,7 @@ impl PyFloatRef {
         }
     }
 
-    fn le(self, i2: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn le(self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 <= get_value(&i2))
@@ -79,7 +79,7 @@ impl PyFloatRef {
         }
     }
 
-    fn gt(self, i2: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn gt(self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 > get_value(&i2))
@@ -91,7 +91,7 @@ impl PyFloatRef {
         }
     }
 
-    fn ge(self, i2: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn ge(self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 >= get_value(&i2))
@@ -103,11 +103,11 @@ impl PyFloatRef {
         }
     }
 
-    fn abs(self, _vm: &mut VirtualMachine) -> f64 {
+    fn abs(self, _vm: &VirtualMachine) -> f64 {
         self.value.abs()
     }
 
-    fn add(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type()) {
             vm.ctx.new_float(v1 + get_value(&other))
@@ -119,7 +119,7 @@ impl PyFloatRef {
         }
     }
 
-    fn divmod(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn divmod(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.float_type())
             || objtype::isinstance(&other, &vm.ctx.int_type())
         {
@@ -131,7 +131,7 @@ impl PyFloatRef {
         }
     }
 
-    fn floordiv(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn floordiv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
@@ -150,7 +150,7 @@ impl PyFloatRef {
         }
     }
 
-    fn new_float(cls: PyObjectRef, arg: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn new_float(cls: PyObjectRef, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let value = if objtype::isinstance(&arg, &vm.ctx.float_type()) {
             get_value(&arg)
         } else if objtype::isinstance(&arg, &vm.ctx.int_type()) {
@@ -191,7 +191,7 @@ impl PyFloatRef {
         Ok(PyObject::new(PyFloat { value }, cls.clone()))
     }
 
-    fn mod_(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn mod_(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
@@ -210,11 +210,11 @@ impl PyFloatRef {
         }
     }
 
-    fn neg(self, _vm: &mut VirtualMachine) -> f64 {
+    fn neg(self, _vm: &VirtualMachine) -> f64 {
         -self.value
     }
 
-    fn pow(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn pow(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type()) {
             vm.ctx.new_float(v1.powf(get_value(&other)))
@@ -226,7 +226,7 @@ impl PyFloatRef {
         }
     }
 
-    fn sub(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn sub(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type()) {
             Ok(vm.ctx.new_float(v1 - get_value(&other)))
@@ -239,7 +239,7 @@ impl PyFloatRef {
         }
     }
 
-    fn rsub(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn rsub(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type()) {
             Ok(vm.ctx.new_float(get_value(&other) - v1))
@@ -252,11 +252,11 @@ impl PyFloatRef {
         }
     }
 
-    fn repr(self, _vm: &mut VirtualMachine) -> String {
+    fn repr(self, _vm: &VirtualMachine) -> String {
         self.value.to_string()
     }
 
-    fn truediv(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn truediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
@@ -275,7 +275,7 @@ impl PyFloatRef {
         }
     }
 
-    fn rtruediv(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn rtruediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
@@ -294,7 +294,7 @@ impl PyFloatRef {
         }
     }
 
-    fn mul(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn mul(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type) {
             Ok(vm.ctx.new_float(v1 * get_value(&other)))
@@ -307,16 +307,16 @@ impl PyFloatRef {
         }
     }
 
-    fn is_integer(self, _vm: &mut VirtualMachine) -> bool {
+    fn is_integer(self, _vm: &VirtualMachine) -> bool {
         let v = self.value;
         (v - v.round()).abs() < std::f64::EPSILON
     }
 
-    fn real(self, _vm: &mut VirtualMachine) -> Self {
+    fn real(self, _vm: &VirtualMachine) -> Self {
         self
     }
 
-    fn as_integer_ratio(self, vm: &mut VirtualMachine) -> PyResult {
+    fn as_integer_ratio(self, vm: &VirtualMachine) -> PyResult {
         let value = self.value;
         if value.is_infinite() {
             return Err(
@@ -339,7 +339,7 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }
 
-pub fn make_float(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
+pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else if let Ok(method) = vm.get_method(obj.clone(), "__float__") {

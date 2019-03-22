@@ -11,7 +11,7 @@ pub fn init(context: &PyContext) {
 }
 
 // `staticmethod` methods.
-fn staticmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn staticmethod_get(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("staticmethod.__get__ {:?}", args.args);
     arg_check!(
         vm,
@@ -30,7 +30,7 @@ fn staticmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn staticmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn staticmethod_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("staticmethod.__new__ {:?}", args.args);
     arg_check!(vm, args, required = [(cls, None), (callable, None)]);
 

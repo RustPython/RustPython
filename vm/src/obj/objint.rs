@@ -31,13 +31,13 @@ impl PyInt {
 }
 
 impl IntoPyObject for BigInt {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_int(self))
     }
 }
 
 impl PyValue for PyInt {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.int_type()
     }
 }
@@ -45,7 +45,7 @@ impl PyValue for PyInt {
 macro_rules! impl_into_pyobject_int {
     ($($t:ty)*) => {$(
         impl IntoPyObject for $t {
-            fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+            fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
                 Ok(vm.ctx.new_int(self))
             }
         }
@@ -57,7 +57,7 @@ impl_into_pyobject_int!(isize i8 i16 i32 i64 usize u8 u16 u32 u64) ;
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
         impl TryFromObject for $t {
-            fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                 match PyRef::<PyInt>::try_from_object(vm, obj)?.value.$to_prim() {
                     Some(value) => Ok(value),
                     None => Err(
@@ -86,11 +86,11 @@ impl_try_from_object_int!(
 );
 
 impl PyIntRef {
-    fn pass_value(self, _vm: &mut VirtualMachine) -> Self {
+    fn pass_value(self, _vm: &VirtualMachine) -> Self {
         self
     }
 
-    fn eq(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value == *get_value(&other))
         } else {
@@ -98,7 +98,7 @@ impl PyIntRef {
         }
     }
 
-    fn ne(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value != *get_value(&other))
         } else {
@@ -106,7 +106,7 @@ impl PyIntRef {
         }
     }
 
-    fn lt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value < *get_value(&other))
         } else {
@@ -114,7 +114,7 @@ impl PyIntRef {
         }
     }
 
-    fn le(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value <= *get_value(&other))
         } else {
@@ -122,7 +122,7 @@ impl PyIntRef {
         }
     }
 
-    fn gt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value > *get_value(&other))
         } else {
@@ -130,7 +130,7 @@ impl PyIntRef {
         }
     }
 
-    fn ge(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value >= *get_value(&other))
         } else {
@@ -138,7 +138,7 @@ impl PyIntRef {
         }
     }
 
-    fn add(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) + get_value(&other))
         } else {
@@ -146,7 +146,7 @@ impl PyIntRef {
         }
     }
 
-    fn sub(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn sub(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) - get_value(&other))
         } else {
@@ -154,7 +154,7 @@ impl PyIntRef {
         }
     }
 
-    fn rsub(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn rsub(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int(get_value(&other) - (&self.value))
         } else {
@@ -162,7 +162,7 @@ impl PyIntRef {
         }
     }
 
-    fn mul(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn mul(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) * get_value(&other))
         } else {
@@ -170,7 +170,7 @@ impl PyIntRef {
         }
     }
 
-    fn truediv(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn truediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             div_ints(vm, &self.value, &get_value(&other))
         } else {
@@ -178,7 +178,7 @@ impl PyIntRef {
         }
     }
 
-    fn rtruediv(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn rtruediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             div_ints(vm, &get_value(&other), &self.value)
         } else {
@@ -186,7 +186,7 @@ impl PyIntRef {
         }
     }
 
-    fn floordiv(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn floordiv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             if *v2 != BigInt::zero() {
@@ -199,7 +199,7 @@ impl PyIntRef {
         }
     }
 
-    fn lshift(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn lshift(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
             return Err(vm.new_type_error(format!(
                 "unsupported operand type(s) for << '{}' and '{}'",
@@ -222,7 +222,7 @@ impl PyIntRef {
         }
     }
 
-    fn rshift(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn rshift(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
             return Err(vm.new_type_error(format!(
                 "unsupported operand type(s) for >> '{}' and '{}'",
@@ -245,7 +245,7 @@ impl PyIntRef {
         }
     }
 
-    fn xor(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn xor(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) ^ get_value(&other))
         } else {
@@ -253,7 +253,7 @@ impl PyIntRef {
         }
     }
 
-    fn rxor(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn rxor(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int(get_value(&other) ^ (&self.value))
         } else {
@@ -261,7 +261,7 @@ impl PyIntRef {
         }
     }
 
-    fn or(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn or(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) | get_value(&other))
         } else {
@@ -269,7 +269,7 @@ impl PyIntRef {
         }
     }
 
-    fn and(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn and(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             vm.ctx.new_int((&self.value) & v2)
@@ -278,7 +278,7 @@ impl PyIntRef {
         }
     }
 
-    fn pow(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn pow(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other).to_u32().unwrap();
             vm.ctx.new_int(self.value.pow(v2))
@@ -290,7 +290,7 @@ impl PyIntRef {
         }
     }
 
-    fn mod_(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn mod_(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             if *v2 != BigInt::zero() {
@@ -303,7 +303,7 @@ impl PyIntRef {
         }
     }
 
-    fn divmod(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn divmod(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             if *v2 != BigInt::zero() {
@@ -319,37 +319,37 @@ impl PyIntRef {
         }
     }
 
-    fn neg(self, _vm: &mut VirtualMachine) -> BigInt {
+    fn neg(self, _vm: &VirtualMachine) -> BigInt {
         -(&self.value)
     }
 
-    fn hash(self, _vm: &mut VirtualMachine) -> u64 {
+    fn hash(self, _vm: &VirtualMachine) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.value.hash(&mut hasher);
         hasher.finish()
     }
 
-    fn abs(self, _vm: &mut VirtualMachine) -> BigInt {
+    fn abs(self, _vm: &VirtualMachine) -> BigInt {
         self.value.abs()
     }
 
-    fn round(self, _precision: OptionalArg<PyObjectRef>, _vm: &mut VirtualMachine) -> Self {
+    fn round(self, _precision: OptionalArg<PyObjectRef>, _vm: &VirtualMachine) -> Self {
         self
     }
 
-    fn float(self, _vm: &mut VirtualMachine) -> f64 {
+    fn float(self, _vm: &VirtualMachine) -> f64 {
         self.value.to_f64().unwrap()
     }
 
-    fn invert(self, _vm: &mut VirtualMachine) -> BigInt {
+    fn invert(self, _vm: &VirtualMachine) -> BigInt {
         !(&self.value)
     }
 
-    fn repr(self, _vm: &mut VirtualMachine) -> String {
+    fn repr(self, _vm: &VirtualMachine) -> String {
         self.value.to_string()
     }
 
-    fn format(self, spec: PyRef<objstr::PyString>, vm: &mut VirtualMachine) -> PyResult<String> {
+    fn format(self, spec: PyRef<objstr::PyString>, vm: &VirtualMachine) -> PyResult<String> {
         let format_spec = FormatSpec::parse(&spec.value);
         match format_spec.format_int(&self.value) {
             Ok(string) => Ok(string),
@@ -357,20 +357,20 @@ impl PyIntRef {
         }
     }
 
-    fn bool(self, _vm: &mut VirtualMachine) -> bool {
+    fn bool(self, _vm: &VirtualMachine) -> bool {
         !self.value.is_zero()
     }
 
-    fn bit_length(self, _vm: &mut VirtualMachine) -> usize {
+    fn bit_length(self, _vm: &VirtualMachine) -> usize {
         self.value.bits()
     }
 
-    fn imag(self, _vm: &mut VirtualMachine) -> usize {
+    fn imag(self, _vm: &VirtualMachine) -> usize {
         0
     }
 }
 
-fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn int_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -393,7 +393,7 @@ fn int_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // Casting function:
-pub fn to_int(vm: &mut VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
+pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
     let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
         get_value(obj).clone()
     } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
@@ -426,7 +426,7 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
 }
 
 #[inline]
-fn div_ints(vm: &mut VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
+fn div_ints(vm: &VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
     if i2.is_zero() {
         return Err(vm.new_zero_division_error("integer division by zero".to_string()));
     }

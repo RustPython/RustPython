@@ -38,7 +38,7 @@ fn impl_from_args(input: &DeriveInput) -> TokenStream2 {
     quote! {
         impl crate::function::FromArgs for #name {
             fn from_args(
-                vm: &mut crate::vm::VirtualMachine,
+                vm: &crate::vm::VirtualMachine,
                 args: &mut crate::function::PyFuncArgs
             ) -> Result<Self, crate::function::ArgumentError> {
                 Ok(#name { #(#fields)* })

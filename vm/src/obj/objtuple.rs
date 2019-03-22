@@ -38,7 +38,7 @@ impl From<Vec<PyObjectRef>> for PyTuple {
 }
 
 impl PyValue for PyTuple {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.tuple_type()
     }
 }
@@ -46,7 +46,7 @@ impl PyValue for PyTuple {
 pub type PyTupleRef = PyRef<PyTuple>;
 
 impl PyTupleRef {
-    fn lt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
@@ -57,7 +57,7 @@ impl PyTupleRef {
         }
     }
 
-    fn gt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
@@ -68,7 +68,7 @@ impl PyTupleRef {
         }
     }
 
-    fn ge(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
@@ -79,7 +79,7 @@ impl PyTupleRef {
         }
     }
 
-    fn le(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
@@ -90,7 +90,7 @@ impl PyTupleRef {
         }
     }
 
-    fn add(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let e1 = self.elements.borrow();
             let e2 = get_elements(&other);
@@ -101,7 +101,7 @@ impl PyTupleRef {
         }
     }
 
-    fn count(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<usize> {
+    fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self.elements.borrow().iter() {
             if element.is(&needle) {
@@ -116,7 +116,7 @@ impl PyTupleRef {
         Ok(count)
     }
 
-    fn eq(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let zelf = &self.elements.borrow();
             let other = get_elements(&other);
@@ -127,7 +127,7 @@ impl PyTupleRef {
         }
     }
 
-    fn hash(self, vm: &mut VirtualMachine) -> PyResult<u64> {
+    fn hash(self, vm: &VirtualMachine) -> PyResult<u64> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         for element in self.elements.borrow().iter() {
             let hash_result = vm.call_method(element, "__hash__", vec![])?;
@@ -137,18 +137,18 @@ impl PyTupleRef {
         Ok(hasher.finish())
     }
 
-    fn iter(self, _vm: &mut VirtualMachine) -> PyIteratorValue {
+    fn iter(self, _vm: &VirtualMachine) -> PyIteratorValue {
         PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: self.into_object(),
         }
     }
 
-    fn len(self, _vm: &mut VirtualMachine) -> usize {
+    fn len(self, _vm: &VirtualMachine) -> usize {
         self.elements.borrow().len()
     }
 
-    fn repr(self, vm: &mut VirtualMachine) -> PyResult<String> {
+    fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             let mut str_parts = vec![];
             for elem in self.elements.borrow().iter() {
@@ -167,12 +167,12 @@ impl PyTupleRef {
         Ok(s)
     }
 
-    fn mul(self, counter: isize, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
         let new_elements = seq_mul(&self.elements.borrow(), counter);
         vm.ctx.new_tuple(new_elements)
     }
 
-    fn getitem(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         get_item(
             vm,
             self.as_object(),
@@ -181,7 +181,7 @@ impl PyTupleRef {
         )
     }
 
-    fn index(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<usize> {
+    fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         for (index, element) in self.elements.borrow().iter().enumerate() {
             if element.is(&needle) {
                 return Ok(index);
@@ -194,7 +194,7 @@ impl PyTupleRef {
         Err(vm.new_value_error("tuple.index(x): x not in tuple".to_string()))
     }
 
-    fn contains(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.elements.borrow().iter() {
             if element.is(&needle) {
                 return Ok(true);
@@ -211,7 +211,7 @@ impl PyTupleRef {
 fn tuple_new(
     cls: PyClassRef,
     iterable: OptionalArg<PyObjectRef>,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyTupleRef> {
     if !objtype::issubclass(cls.as_object(), &vm.ctx.tuple_type()) {
         return Err(vm.new_type_error(format!("{} is not a subtype of tuple", cls)));

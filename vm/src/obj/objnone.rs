@@ -12,7 +12,7 @@ pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none().typ()
     }
 }
@@ -20,13 +20,13 @@ impl PyValue for PyNone {
 // This allows a built-in function to not return a value, mapping to
 // Python's behavior of returning `None` in this situation.
 impl IntoPyObject for () {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.none())
     }
 }
 
 impl<T: IntoPyObject> IntoPyObject for Option<T> {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         match self {
             Some(x) => x.into_pyobject(vm),
             None => Ok(vm.ctx.none()),
@@ -35,15 +35,15 @@ impl<T: IntoPyObject> IntoPyObject for Option<T> {
 }
 
 impl PyNoneRef {
-    fn repr(self, _vm: &mut VirtualMachine) -> PyResult<String> {
+    fn repr(self, _vm: &VirtualMachine) -> PyResult<String> {
         Ok("None".to_string())
     }
 
-    fn bool(self, _vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn bool(self, _vm: &VirtualMachine) -> PyResult<bool> {
         Ok(false)
     }
 
-    fn get_attribute(self, name: PyStringRef, vm: &mut VirtualMachine) -> PyResult {
+    fn get_attribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         trace!("None.__getattribute__({:?}, {:?})", self, name);
         let cls = self.typ().into_object();
 
@@ -60,7 +60,7 @@ impl PyNoneRef {
             get_func: PyObjectRef,
             obj: PyObjectRef,
             cls: PyObjectRef,
-            vm: &mut VirtualMachine,
+            vm: &VirtualMachine,
         ) -> PyResult {
             if let Ok(property) = PyPropertyRef::try_from_object(vm, descriptor.clone()) {
                 property.instance_binding_get(obj, vm)
@@ -95,7 +95,7 @@ impl PyNoneRef {
     }
 }
 
-fn none_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn none_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

@@ -34,13 +34,13 @@ impl fmt::Display for PyString {
 }
 
 impl TryIntoRef<PyString> for String {
-    fn try_into_ref(self, vm: &mut VirtualMachine) -> PyResult<PyRef<PyString>> {
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
         Ok(PyString { value: self }.into_ref(vm))
     }
 }
 
 impl TryIntoRef<PyString> for &str {
-    fn try_into_ref(self, vm: &mut VirtualMachine) -> PyResult<PyRef<PyString>> {
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<PyString>> {
         Ok(PyString {
             value: self.to_string(),
         }
@@ -49,7 +49,7 @@ impl TryIntoRef<PyString> for &str {
 }
 
 impl PyStringRef {
-    fn add(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<String> {
+    fn add(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
             Ok(format!("{}{}", self.value, get_value(&rhs)))
         } else {
@@ -57,7 +57,7 @@ impl PyStringRef {
         }
     }
 
-    fn eq(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> bool {
+    fn eq(self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
             self.value == get_value(&rhs)
         } else {
@@ -65,15 +65,15 @@ impl PyStringRef {
         }
     }
 
-    fn contains(self, needle: PyStringRef, _vm: &mut VirtualMachine) -> bool {
+    fn contains(self, needle: PyStringRef, _vm: &VirtualMachine) -> bool {
         self.value.contains(&needle.value)
     }
 
-    fn getitem(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         subscript(vm, &self.value, needle)
     }
 
-    fn gt(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn gt(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
             Ok(self.value > get_value(&rhs))
         } else {
@@ -81,7 +81,7 @@ impl PyStringRef {
         }
     }
 
-    fn ge(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn ge(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
             Ok(self.value >= get_value(&rhs))
         } else {
@@ -89,7 +89,7 @@ impl PyStringRef {
         }
     }
 
-    fn lt(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn lt(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
             Ok(self.value < get_value(&rhs))
         } else {
@@ -97,7 +97,7 @@ impl PyStringRef {
         }
     }
 
-    fn le(self, rhs: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn le(self, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
             Ok(self.value <= get_value(&rhs))
         } else {
@@ -105,17 +105,17 @@ impl PyStringRef {
         }
     }
 
-    fn hash(self, _vm: &mut VirtualMachine) -> usize {
+    fn hash(self, _vm: &VirtualMachine) -> usize {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.value.hash(&mut hasher);
         hasher.finish() as usize
     }
 
-    fn len(self, _vm: &mut VirtualMachine) -> usize {
+    fn len(self, _vm: &VirtualMachine) -> usize {
         self.value.chars().count()
     }
 
-    fn mul(self, val: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<String> {
+    fn mul(self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         if objtype::isinstance(&val, &vm.ctx.int_type()) {
             let value = &self.value;
             let multiplier = objint::get_value(&val).to_i32().unwrap();
@@ -129,11 +129,11 @@ impl PyStringRef {
         }
     }
 
-    fn str(self, _vm: &mut VirtualMachine) -> PyStringRef {
+    fn str(self, _vm: &VirtualMachine) -> PyStringRef {
         self
     }
 
-    fn repr(self, _vm: &mut VirtualMachine) -> String {
+    fn repr(self, _vm: &VirtualMachine) -> String {
         let value = &self.value;
         let quote_char = if count_char(value, '\'') > count_char(value, '"') {
             '"'
@@ -163,20 +163,20 @@ impl PyStringRef {
         formatted
     }
 
-    fn lower(self, _vm: &mut VirtualMachine) -> String {
+    fn lower(self, _vm: &VirtualMachine) -> String {
         self.value.to_lowercase()
     }
 
     // casefold is much more aggressive than lower
-    fn casefold(self, _vm: &mut VirtualMachine) -> String {
+    fn casefold(self, _vm: &VirtualMachine) -> String {
         caseless::default_case_fold_str(&self.value)
     }
 
-    fn upper(self, _vm: &mut VirtualMachine) -> String {
+    fn upper(self, _vm: &VirtualMachine) -> String {
         self.value.to_uppercase()
     }
 
-    fn capitalize(self, _vm: &mut VirtualMachine) -> String {
+    fn capitalize(self, _vm: &VirtualMachine) -> String {
         let (first_part, lower_str) = self.value.split_at(1);
         format!("{}{}", first_part.to_uppercase(), lower_str)
     }
@@ -185,7 +185,7 @@ impl PyStringRef {
         self,
         pattern: OptionalArg<Self>,
         num: OptionalArg<usize>,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyObjectRef {
         let value = &self.value;
         let pattern = match pattern {
@@ -206,7 +206,7 @@ impl PyStringRef {
         self,
         pattern: OptionalArg<Self>,
         num: OptionalArg<usize>,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyObjectRef {
         let value = &self.value;
         let pattern = match pattern {
@@ -223,15 +223,15 @@ impl PyStringRef {
         vm.ctx.new_list(elements)
     }
 
-    fn strip(self, _vm: &mut VirtualMachine) -> String {
+    fn strip(self, _vm: &VirtualMachine) -> String {
         self.value.trim().to_string()
     }
 
-    fn lstrip(self, _vm: &mut VirtualMachine) -> String {
+    fn lstrip(self, _vm: &VirtualMachine) -> String {
         self.value.trim_start().to_string()
     }
 
-    fn rstrip(self, _vm: &mut VirtualMachine) -> String {
+    fn rstrip(self, _vm: &VirtualMachine) -> String {
         self.value.trim_end().to_string()
     }
 
@@ -240,7 +240,7 @@ impl PyStringRef {
         suffix: PyStringRef,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        _vm: &mut VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> bool {
         if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
             self.value[start..end].ends_with(&suffix.value)
@@ -254,7 +254,7 @@ impl PyStringRef {
         prefix: PyStringRef,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        _vm: &mut VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> bool {
         if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
             self.value[start..end].starts_with(&prefix.value)
@@ -263,15 +263,15 @@ impl PyStringRef {
         }
     }
 
-    fn isalnum(self, _vm: &mut VirtualMachine) -> bool {
+    fn isalnum(self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
     }
 
-    fn isnumeric(self, _vm: &mut VirtualMachine) -> bool {
+    fn isnumeric(self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty() && self.value.chars().all(char::is_numeric)
     }
 
-    fn isdigit(self, _vm: &mut VirtualMachine) -> bool {
+    fn isdigit(self, _vm: &VirtualMachine) -> bool {
         // python's isdigit also checks if exponents are digits, these are the unicodes for exponents
         let valid_unicodes: [u16; 10] = [
             0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
@@ -287,7 +287,7 @@ impl PyStringRef {
         }
     }
 
-    fn isdecimal(self, _vm: &mut VirtualMachine) -> bool {
+    fn isdecimal(self, _vm: &VirtualMachine) -> bool {
         if self.value.is_empty() {
             false
         } else {
@@ -295,11 +295,11 @@ impl PyStringRef {
         }
     }
 
-    fn title(self, _vm: &mut VirtualMachine) -> String {
+    fn title(self, _vm: &VirtualMachine) -> String {
         make_title(&self.value)
     }
 
-    fn swapcase(self, _vm: &mut VirtualMachine) -> String {
+    fn swapcase(self, _vm: &VirtualMachine) -> String {
         let mut swapped_str = String::with_capacity(self.value.len());
         for c in self.value.chars() {
             // to_uppercase returns an iterator, to_ascii_uppercase returns the char
@@ -314,7 +314,7 @@ impl PyStringRef {
         swapped_str
     }
 
-    fn isalpha(self, _vm: &mut VirtualMachine) -> bool {
+    fn isalpha(self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty() && self.value.chars().all(char::is_alphanumeric)
     }
 
@@ -323,7 +323,7 @@ impl PyStringRef {
         old: Self,
         new: Self,
         num: OptionalArg<usize>,
-        _vm: &mut VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> String {
         match num.into_option() {
             Some(num) => self.value.replacen(&old.value, &new.value, num),
@@ -333,11 +333,11 @@ impl PyStringRef {
 
     // cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty
     // which is why isspace is using is_ascii_whitespace. Same for isupper & islower
-    fn isspace(self, _vm: &mut VirtualMachine) -> bool {
+    fn isspace(self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii_whitespace())
     }
 
-    fn isupper(self, _vm: &mut VirtualMachine) -> bool {
+    fn isupper(self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty()
             && self
                 .value
@@ -346,7 +346,7 @@ impl PyStringRef {
                 .all(char::is_uppercase)
     }
 
-    fn islower(self, _vm: &mut VirtualMachine) -> bool {
+    fn islower(self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty()
             && self
                 .value
@@ -355,12 +355,12 @@ impl PyStringRef {
                 .all(char::is_lowercase)
     }
 
-    fn isascii(self, _vm: &mut VirtualMachine) -> bool {
+    fn isascii(self, _vm: &VirtualMachine) -> bool {
         !self.value.is_empty() && self.value.chars().all(|c| c.is_ascii())
     }
 
     // doesn't implement keep new line delimiter just yet
-    fn splitlines(self, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn splitlines(self, vm: &VirtualMachine) -> PyObjectRef {
         let elements = self
             .value
             .split('\n')
@@ -369,7 +369,7 @@ impl PyStringRef {
         vm.ctx.new_list(elements)
     }
 
-    fn join(self, iterable: PyIterable<PyStringRef>, vm: &mut VirtualMachine) -> PyResult<String> {
+    fn join(self, iterable: PyIterable<PyStringRef>, vm: &VirtualMachine) -> PyResult<String> {
         let mut joined = String::new();
 
         for (idx, elem) in iterable.iter(vm)?.enumerate() {
@@ -388,7 +388,7 @@ impl PyStringRef {
         sub: Self,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        _vm: &mut VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> isize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
@@ -406,7 +406,7 @@ impl PyStringRef {
         sub: Self,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        _vm: &mut VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> isize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
@@ -424,7 +424,7 @@ impl PyStringRef {
         sub: Self,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
@@ -442,7 +442,7 @@ impl PyStringRef {
         sub: Self,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
@@ -455,7 +455,7 @@ impl PyStringRef {
         }
     }
 
-    fn partition(self, sub: PyStringRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn partition(self, sub: PyStringRef, vm: &VirtualMachine) -> PyObjectRef {
         let value = &self.value;
         let sub = &sub.value;
         let mut new_tup = Vec::new();
@@ -473,7 +473,7 @@ impl PyStringRef {
         vm.ctx.new_tuple(new_tup)
     }
 
-    fn rpartition(self, sub: PyStringRef, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn rpartition(self, sub: PyStringRef, vm: &VirtualMachine) -> PyObjectRef {
         let value = &self.value;
         let sub = &sub.value;
         let mut new_tup = Vec::new();
@@ -492,7 +492,7 @@ impl PyStringRef {
         vm.ctx.new_tuple(new_tup)
     }
 
-    fn istitle(self, _vm: &mut VirtualMachine) -> bool {
+    fn istitle(self, _vm: &VirtualMachine) -> bool {
         if self.value.is_empty() {
             false
         } else {
@@ -505,7 +505,7 @@ impl PyStringRef {
         sub: Self,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        _vm: &mut VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> usize {
         let value = &self.value;
         if let Some((start, end)) = adjust_indices(start, end, value.len()) {
@@ -515,7 +515,7 @@ impl PyStringRef {
         }
     }
 
-    fn zfill(self, len: usize, _vm: &mut VirtualMachine) -> String {
+    fn zfill(self, len: usize, _vm: &VirtualMachine) -> String {
         let value = &self.value;
         if len <= value.len() {
             value.to_string()
@@ -524,7 +524,7 @@ impl PyStringRef {
         }
     }
 
-    fn get_fill_char<'a>(rep: &'a OptionalArg<Self>, vm: &mut VirtualMachine) -> PyResult<&'a str> {
+    fn get_fill_char<'a>(rep: &'a OptionalArg<Self>, vm: &VirtualMachine) -> PyResult<&'a str> {
         let rep_str = match rep {
             OptionalArg::Present(ref st) => &st.value,
             OptionalArg::Missing => " ",
@@ -538,34 +538,19 @@ impl PyStringRef {
         }
     }
 
-    fn ljust(
-        self,
-        len: usize,
-        rep: OptionalArg<Self>,
-        vm: &mut VirtualMachine,
-    ) -> PyResult<String> {
+    fn ljust(self, len: usize, rep: OptionalArg<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let value = &self.value;
         let rep_char = PyStringRef::get_fill_char(&rep, vm)?;
         Ok(format!("{}{}", value, rep_char.repeat(len)))
     }
 
-    fn rjust(
-        self,
-        len: usize,
-        rep: OptionalArg<Self>,
-        vm: &mut VirtualMachine,
-    ) -> PyResult<String> {
+    fn rjust(self, len: usize, rep: OptionalArg<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let value = &self.value;
         let rep_char = PyStringRef::get_fill_char(&rep, vm)?;
         Ok(format!("{}{}", rep_char.repeat(len), value))
     }
 
-    fn center(
-        self,
-        len: usize,
-        rep: OptionalArg<Self>,
-        vm: &mut VirtualMachine,
-    ) -> PyResult<String> {
+    fn center(self, len: usize, rep: OptionalArg<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let value = &self.value;
         let rep_char = PyStringRef::get_fill_char(&rep, vm)?;
         let left_buff: usize = (len - value.len()) / 2;
@@ -578,7 +563,7 @@ impl PyStringRef {
         ))
     }
 
-    fn expandtabs(self, tab_stop: OptionalArg<usize>, _vm: &mut VirtualMachine) -> String {
+    fn expandtabs(self, tab_stop: OptionalArg<usize>, _vm: &VirtualMachine) -> String {
         let tab_stop = tab_stop.into_option().unwrap_or(8 as usize);
         let mut expanded_str = String::new();
         let mut tab_size = tab_stop;
@@ -601,7 +586,7 @@ impl PyStringRef {
         expanded_str
     }
 
-    fn isidentifier(self, _vm: &mut VirtualMachine) -> bool {
+    fn isidentifier(self, _vm: &VirtualMachine) -> bool {
         let value = &self.value;
         // a string is not an identifier if it has whitespace or starts with a number
         if !value.chars().any(|c| c.is_ascii_whitespace())
@@ -620,13 +605,13 @@ impl PyStringRef {
 }
 
 impl PyValue for PyString {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.str_type()
     }
 }
 
 impl IntoPyObject for String {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_str(self))
     }
 }
@@ -713,7 +698,7 @@ fn count_char(s: &str, c: char) -> usize {
     s.chars().filter(|x| *x == c).count()
 }
 
-fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn str_format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.is_empty() {
         return Err(
             vm.new_type_error("descriptor 'format' of 'str' object needs an argument".to_string())
@@ -741,11 +726,7 @@ fn str_format(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn call_object_format(
-    vm: &mut VirtualMachine,
-    argument: PyObjectRef,
-    format_spec: &str,
-) -> PyResult {
+fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &str) -> PyResult {
     let returned_type = vm.ctx.new_str(format_spec.to_string());
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
@@ -757,7 +738,7 @@ fn call_object_format(
 }
 
 fn perform_format(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     format_string: &FormatString,
     arguments: &PyFuncArgs,
 ) -> PyResult {
@@ -814,7 +795,7 @@ fn perform_format(
 fn str_new(
     cls: PyClassRef,
     object: OptionalArg<PyObjectRef>,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyStringRef> {
     let string = match object {
         OptionalArg::Present(ref input) => vm.to_str(input)?.into_object(),
@@ -890,7 +871,7 @@ fn to_graphemes<S: AsRef<str>>(value: S) -> Vec<String> {
         .collect()
 }
 
-pub fn subscript(vm: &mut VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
+pub fn subscript(vm: &VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
     if objtype::isinstance(&b, &vm.ctx.int_type()) {
         match objint::get_value(&b).to_i32() {
             Some(pos) => {

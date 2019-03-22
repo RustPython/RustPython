@@ -7,7 +7,7 @@ use crate::obj::objtype;
 use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 
-fn types_new_class(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn types_new_class(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

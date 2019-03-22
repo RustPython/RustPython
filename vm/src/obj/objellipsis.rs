@@ -12,12 +12,12 @@ pub fn init(context: &PyContext) {
     );
 }
 
-fn ellipsis_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn ellipsis_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_cls, None)]);
     Ok(vm.ctx.ellipsis())
 }
 
-fn ellipsis_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn ellipsis_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_cls, None)]);
     Ok(vm.new_str("Ellipsis".to_string()))
 }

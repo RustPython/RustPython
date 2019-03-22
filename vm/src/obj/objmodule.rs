@@ -10,13 +10,13 @@ pub struct PyModule {
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.module_type()
     }
 }
 
 impl PyModuleRef {
-    fn dir(self: PyModuleRef, vm: &mut VirtualMachine) -> PyResult {
+    fn dir(self: PyModuleRef, vm: &VirtualMachine) -> PyResult {
         let keys = self
             .dict
             .get_key_value_pairs()
@@ -26,7 +26,7 @@ impl PyModuleRef {
         Ok(vm.ctx.new_list(keys))
     }
 
-    fn set_attr(self, attr: PyStringRef, value: PyObjectRef, vm: &mut VirtualMachine) {
+    fn set_attr(self, attr: PyStringRef, value: PyObjectRef, vm: &VirtualMachine) {
         self.dict.set_item(&vm.ctx, &attr.value, value)
     }
 }

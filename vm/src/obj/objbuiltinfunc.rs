@@ -10,7 +10,7 @@ pub struct PyBuiltinFunction {
 }
 
 impl PyValue for PyBuiltinFunction {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.builtin_function_or_method_type()
     }
 }

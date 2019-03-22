@@ -24,7 +24,7 @@ enum FetchResponseFormat {
 }
 
 impl FetchResponseFormat {
-    fn from_str(vm: &mut VirtualMachine, s: &str) -> Result<Self, PyObjectRef> {
+    fn from_str(vm: &VirtualMachine, s: &str) -> Result<Self, PyObjectRef> {
         match s {
             "json" => Ok(FetchResponseFormat::Json),
             "text" => Ok(FetchResponseFormat::Text),
@@ -41,7 +41,7 @@ impl FetchResponseFormat {
     }
 }
 
-fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(url, Some(vm.ctx.str_type()))]);
 
     let promise_type = import_promise_type(vm)?;
@@ -104,7 +104,7 @@ fn browser_fetch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(PyPromise::new_obj(promise_type, future_to_promise(future)))
 }
 
-fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn browser_request_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(func, Some(vm.ctx.function_type()))]);
 
     use std::{cell::RefCell, rc::Rc};
@@ -117,12 +117,13 @@ fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) ->
 
     let func = func.clone();
 
-    let acc_vm = AccessibleVM::from_vm(vm);
+    let acc_vm = AccessibleVM::from(vm);
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move |time: f64| {
-        let vm = &mut acc_vm
+        let stored_vm = acc_vm
             .upgrade()
             .expect("that the vm is valid from inside of request_animation_frame");
+        let vm = &stored_vm.vm;
         let func = func.clone();
         let args = vec![vm.ctx.new_float(time)];
         let _ = vm.invoke(func, args);
@@ -140,7 +141,7 @@ fn browser_request_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) ->
     Ok(vm.ctx.new_int(id))
 }
 
-fn browser_cancel_animation_frame(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn browser_cancel_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(id, Some(vm.ctx.int_type()))]);
 
     let id = objint::get_value(id).to_i32().ok_or_else(|| {
@@ -163,7 +164,7 @@ pub struct PyPromise {
 }
 
 impl PyValue for PyPromise {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.class(BROWSER_NAME, "Promise")
     }
 }
@@ -181,14 +182,14 @@ pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
     panic!("Inner error getting promise")
 }
 
-pub fn import_promise_type(vm: &mut VirtualMachine) -> PyResult {
+pub fn import_promise_type(vm: &VirtualMachine) -> PyResult {
     match import_module(vm, PathBuf::default(), BROWSER_NAME)?.get_attr("Promise") {
         Some(promise) => Ok(promise),
         None => Err(vm.new_not_implemented_error("No Promise".to_string())),
     }
 }
 
-fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn promise_then(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let promise_type = import_promise_type(vm)?;
     arg_check!(
         vm,
@@ -203,14 +204,15 @@ fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     let on_fulfill = on_fulfill.clone();
     let on_reject = on_reject.cloned();
 
-    let acc_vm = AccessibleVM::from_vm(vm);
+    let acc_vm = AccessibleVM::from(vm);
 
     let promise = get_promise_value(zelf);
 
     let ret_future = JsFuture::from(promise).then(move |res| {
-        let vm = &mut acc_vm
+        let stored_vm = &acc_vm
             .upgrade()
             .expect("that the vm is valid when the promise resolves");
+        let vm = &stored_vm.vm;
         let ret = match res {
             Ok(val) => {
                 let val = convert::js_to_py(vm, val);
@@ -233,7 +235,7 @@ fn promise_then(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(PyPromise::new_obj(promise_type, ret_promise))
 }
 
-fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn promise_catch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let promise_type = import_promise_type(vm)?;
     arg_check!(
         vm,
@@ -246,16 +248,17 @@ fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let on_reject = on_reject.clone();
 
-    let acc_vm = AccessibleVM::from_vm(vm);
+    let acc_vm = AccessibleVM::from(vm);
 
     let promise = get_promise_value(zelf);
 
     let ret_future = JsFuture::from(promise).then(move |res| match res {
         Ok(val) => Ok(val),
         Err(err) => {
-            let vm = &mut acc_vm
+            let stored_vm = acc_vm
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
+            let vm = &stored_vm.vm;
             let err = convert::js_to_py(vm, err);
             let res = vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]));
             convert::pyresult_to_jsresult(vm, res)
@@ -267,7 +270,7 @@ fn promise_catch(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(PyPromise::new_obj(promise_type, ret_promise))
 }
 
-fn browser_alert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn browser_alert(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(message, Some(vm.ctx.str_type()))]);
 
     window()
@@ -277,7 +280,7 @@ fn browser_alert(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn browser_confirm(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn browser_confirm(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(message, Some(vm.ctx.str_type()))]);
 
     let result = window()
@@ -287,7 +290,7 @@ fn browser_confirm(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_bool(result))
 }
 
-fn browser_prompt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn browser_prompt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -331,7 +334,8 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     })
 }
 
-pub fn setup_browser_module(vm: &mut VirtualMachine) {
+pub fn setup_browser_module(vm: &VirtualMachine) {
     vm.stdlib_inits
+        .borrow_mut()
         .insert(BROWSER_NAME.to_string(), Box::new(make_module));
 }

@@ -40,7 +40,7 @@ impl From<Vec<PyObjectRef>> for PyList {
 }
 
 impl PyValue for PyList {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.list_type()
     }
 }
@@ -48,17 +48,17 @@ impl PyValue for PyList {
 pub type PyListRef = PyRef<PyList>;
 
 impl PyListRef {
-    pub fn append(self, x: PyObjectRef, _vm: &mut VirtualMachine) {
+    pub fn append(self, x: PyObjectRef, _vm: &VirtualMachine) {
         self.elements.borrow_mut().push(x);
     }
 
-    fn extend(self, x: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<()> {
+    fn extend(self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut new_elements = vm.extract_elements(&x)?;
         self.elements.borrow_mut().append(&mut new_elements);
         Ok(())
     }
 
-    fn insert(self, position: isize, element: PyObjectRef, _vm: &mut VirtualMachine) {
+    fn insert(self, position: isize, element: PyObjectRef, _vm: &VirtualMachine) {
         let mut vec = self.elements.borrow_mut();
         let vec_len = vec.len().to_isize().unwrap();
         // This unbounded position can be < 0 or > vec.len()
@@ -72,7 +72,7 @@ impl PyListRef {
         vec.insert(position, element.clone());
     }
 
-    fn add(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let e1 = self.elements.borrow();
             let e2 = get_elements(&other);
@@ -83,7 +83,7 @@ impl PyListRef {
         }
     }
 
-    fn iadd(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn iadd(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             self.elements
                 .borrow_mut()
@@ -94,23 +94,23 @@ impl PyListRef {
         }
     }
 
-    fn clear(self, _vm: &mut VirtualMachine) {
+    fn clear(self, _vm: &VirtualMachine) {
         self.elements.borrow_mut().clear();
     }
 
-    fn copy(self, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn copy(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_list(self.elements.borrow().clone())
     }
 
-    fn len(self, _vm: &mut VirtualMachine) -> usize {
+    fn len(self, _vm: &VirtualMachine) -> usize {
         self.elements.borrow().len()
     }
 
-    fn reverse(self, _vm: &mut VirtualMachine) {
+    fn reverse(self, _vm: &VirtualMachine) {
         self.elements.borrow_mut().reverse();
     }
 
-    fn getitem(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         get_item(
             vm,
             self.as_object(),
@@ -119,14 +119,14 @@ impl PyListRef {
         )
     }
 
-    fn iter(self, _vm: &mut VirtualMachine) -> PyIteratorValue {
+    fn iter(self, _vm: &VirtualMachine) -> PyIteratorValue {
         PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: self.into_object(),
         }
     }
 
-    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let mut elements = self.elements.borrow_mut();
 
         if objtype::isinstance(&key, &vm.ctx.int_type()) {
@@ -145,7 +145,7 @@ impl PyListRef {
         }
     }
 
-    fn repr(self, vm: &mut VirtualMachine) -> PyResult<String> {
+    fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             let mut str_parts = vec![];
             for elem in self.elements.borrow().iter() {
@@ -159,12 +159,12 @@ impl PyListRef {
         Ok(s)
     }
 
-    fn mul(self, counter: isize, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
         let new_elements = seq_mul(&self.elements.borrow(), counter);
         vm.ctx.new_list(new_elements)
     }
 
-    fn count(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<usize> {
+    fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self.elements.borrow().iter() {
             if needle.is(element) {
@@ -179,7 +179,7 @@ impl PyListRef {
         Ok(count)
     }
 
-    fn contains(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<bool> {
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.elements.borrow().iter() {
             if needle.is(element) {
                 return Ok(true);
@@ -193,7 +193,7 @@ impl PyListRef {
         Ok(false)
     }
 
-    fn index(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<usize> {
+    fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         for (index, element) in self.elements.borrow().iter().enumerate() {
             if needle.is(element) {
                 return Ok(index);
@@ -207,7 +207,7 @@ impl PyListRef {
         Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
     }
 
-    fn pop(self, i: OptionalArg<isize>, vm: &mut VirtualMachine) -> PyResult {
+    fn pop(self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
         let mut i = i.into_option().unwrap_or(-1);
         let mut elements = self.elements.borrow_mut();
         if i < 0 {
@@ -222,7 +222,7 @@ impl PyListRef {
         }
     }
 
-    fn remove(self, needle: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<()> {
+    fn remove(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let mut ri: Option<usize> = None;
         for (index, element) in self.elements.borrow().iter().enumerate() {
             if needle.is(element) {
@@ -245,7 +245,7 @@ impl PyListRef {
         }
     }
 
-    fn eq(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if self.as_object().is(&other) {
             return Ok(vm.new_bool(true));
         }
@@ -260,7 +260,7 @@ impl PyListRef {
         }
     }
 
-    fn lt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
@@ -271,7 +271,7 @@ impl PyListRef {
         }
     }
 
-    fn gt(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
@@ -282,7 +282,7 @@ impl PyListRef {
         }
     }
 
-    fn ge(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
@@ -293,7 +293,7 @@ impl PyListRef {
         }
     }
 
-    fn le(self, other: PyObjectRef, vm: &mut VirtualMachine) -> PyResult {
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
             let other = get_elements(&other);
@@ -308,7 +308,7 @@ impl PyListRef {
 fn list_new(
     cls: PyRef<objtype::PyClass>,
     iterable: OptionalArg<PyObjectRef>,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult {
     if !objtype::issubclass(cls.as_object(), &vm.ctx.list_type()) {
         return Err(vm.new_type_error(format!("{} is not a subtype of list", cls)));
@@ -324,7 +324,7 @@ fn list_new(
 }
 
 fn quicksort(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     keys: &mut [PyObjectRef],
     values: &mut [PyObjectRef],
 ) -> PyResult<()> {
@@ -338,7 +338,7 @@ fn quicksort(
 }
 
 fn partition(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     keys: &mut [PyObjectRef],
     values: &mut [PyObjectRef],
 ) -> PyResult<usize> {
@@ -365,7 +365,7 @@ fn partition(
 }
 
 fn do_sort(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
     key_func: Option<PyObjectRef>,
     reverse: bool,
@@ -388,7 +388,7 @@ fn do_sort(
     Ok(())
 }
 
-fn list_sort(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn list_sort(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(list, Some(vm.ctx.list_type()))]);
     let key_func = args.get_optional_kwarg("key");
     let reverse = args.get_optional_kwarg("reverse");

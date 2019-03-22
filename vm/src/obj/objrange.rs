@@ -25,7 +25,7 @@ pub struct PyRange {
 }
 
 impl PyValue for PyRange {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.range_type()
     }
 }
@@ -196,7 +196,7 @@ pub fn init(context: &PyContext) {
     context.set_attr(&range_type, "step", context.new_property(range_step));
 }
 
-fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -232,7 +232,7 @@ fn range_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(range, Some(vm.ctx.range_type()))]);
 
     Ok(PyObject::new(
@@ -244,7 +244,7 @@ fn range_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
     let range = get_value(zelf).reversed();
@@ -258,7 +258,7 @@ fn range_reversed(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
     if let Some(len) = get_value(zelf).try_len() {
@@ -268,7 +268,7 @@ fn range_len(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_getitem(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -328,7 +328,7 @@ fn range_getitem(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
     let repr = get_value(zelf).repr();
@@ -336,7 +336,7 @@ fn range_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_str(repr))
 }
 
-fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_bool(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
 
     let len = get_value(zelf).len();
@@ -344,7 +344,7 @@ fn range_bool(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(len > 0))
 }
 
-fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_contains(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -362,7 +362,7 @@ fn range_contains(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_index(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -383,7 +383,7 @@ fn range_index(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_count(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -399,17 +399,17 @@ fn range_count(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_start(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_start(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
     Ok(vm.ctx.new_int(get_value(zelf).start))
 }
 
-fn range_stop(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_stop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
     Ok(vm.ctx.new_int(get_value(zelf).end))
 }
 
-fn range_step(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn range_step(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
     Ok(vm.ctx.new_int(get_value(zelf).step))
 }

@@ -43,23 +43,23 @@ struct PyStringIO {
 type PyStringIORef = PyRef<PyStringIO>;
 
 impl PyValue for PyStringIO {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.class("io", "StringIO")
     }
 }
 
 impl PyStringIORef {
-    fn write(self, data: objstr::PyStringRef, _vm: &mut VirtualMachine) {
+    fn write(self, data: objstr::PyStringRef, _vm: &VirtualMachine) {
         let data = data.value.clone();
         self.data.borrow_mut().push_str(&data);
     }
 
-    fn getvalue(self, _vm: &mut VirtualMachine) -> String {
+    fn getvalue(self, _vm: &VirtualMachine) -> String {
         self.data.borrow().clone()
     }
 }
 
-fn string_io_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn string_io_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None)]);
 
     Ok(PyObject::new(
@@ -70,23 +70,23 @@ fn string_io_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-fn bytes_io_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+fn bytes_io_init(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     // TODO
     Ok(vm.get_none())
 }
 
-fn bytes_io_getvalue(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bytes_io_getvalue(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args);
     // TODO
     Ok(vm.get_none())
 }
 
-fn io_base_cm_enter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn io_base_cm_enter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(instance, None)]);
     Ok(instance.clone())
 }
 
-fn io_base_cm_exit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -101,13 +101,13 @@ fn io_base_cm_exit(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn buffered_io_base_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
     vm.ctx.set_attr(&buffered, "raw", raw.clone());
     Ok(vm.get_none())
 }
 
-fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None)]);
     let buff_size = 8 * 1024;
     let buffer = vm.ctx.new_bytearray(vec![0; buff_size]);
@@ -137,7 +137,7 @@ fn buffered_reader_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(result))
 }
 
-fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -163,7 +163,7 @@ fn file_io_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn file_io_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn file_io_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(file_io, None)]);
     let py_name = file_io.get_attr("name").unwrap();
     let f = match File::open(objstr::get_value(&py_name)) {
@@ -187,7 +187,7 @@ fn file_io_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(bytes))
 }
 
-fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(file_io, None), (obj, None)]);
 
     if !obj.readonly() {
@@ -223,7 +223,7 @@ fn file_io_readinto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -257,7 +257,7 @@ fn file_io_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn buffered_writer_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn buffered_writer_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -270,7 +270,7 @@ fn buffered_writer_write(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult 
     vm.call_method(&raw, "write", vec![obj.clone()])
 }
 
-fn text_io_wrapper_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -281,7 +281,7 @@ fn text_io_wrapper_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn text_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(text_io_base, None)]);
 
     let raw = vm.ctx.get_attr(&text_io_base, "buffer").unwrap();
@@ -297,7 +297,7 @@ fn text_io_base_read(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn io_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

@@ -13,14 +13,14 @@ use crate::vm::VirtualMachine;
 pub struct PyInstance;
 
 impl PyValue for PyInstance {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.object()
     }
 }
 
 pub type PyInstanceRef = PyRef<PyInstance>;
 
-pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+pub fn new_instance(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
     let cls = args.shift();
     Ok(if cls.is(&vm.ctx.object) {
@@ -30,7 +30,7 @@ pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     })
 }
 
-fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -39,17 +39,7 @@ fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
-    );
-
-    Ok(vm.ctx.not_implemented())
-}
-
-fn object_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_ne(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -59,7 +49,7 @@ fn object_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -69,7 +59,7 @@ fn object_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -79,7 +69,7 @@ fn object_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -89,7 +79,17 @@ fn object_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
+    );
+
+    Ok(vm.ctx.not_implemented())
+}
+
+fn object_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_zelf, Some(vm.ctx.object()))]);
 
     // For now default to non hashable
@@ -100,7 +100,7 @@ fn object_setattr(
     obj: PyInstanceRef,
     attr_name: PyStringRef,
     value: PyObjectRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<()> {
     trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
     let cls = obj.as_object().typ();
@@ -126,11 +126,7 @@ fn object_setattr(
     }
 }
 
-fn object_delattr(
-    obj: PyInstanceRef,
-    attr_name: PyStringRef,
-    vm: &mut VirtualMachine,
-) -> PyResult<()> {
+fn object_delattr(obj: PyInstanceRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     let cls = obj.as_object().typ();
 
     if let Some(attr) = cls.get_attr(&attr_name.value) {
@@ -154,19 +150,19 @@ fn object_delattr(
     }
 }
 
-fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.object()))]);
     vm.call_method(zelf, "__repr__", vec![])
 }
 
-fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.object()))]);
     let type_name = objtype::get_type_name(&obj.typ());
     let address = obj.get_id();
     Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
 }
 
-pub fn object_dir(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyList {
+pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyList {
     let attributes = get_attributes(&obj);
     let attributes: Vec<PyObjectRef> = attributes
         .keys()
@@ -178,7 +174,7 @@ pub fn object_dir(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyList {
 fn object_format(
     obj: PyObjectRef,
     format_spec: PyStringRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyStringRef> {
     if format_spec.value.is_empty() {
         vm.to_str(&obj)
@@ -223,24 +219,24 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__doc__", context.new_str(object_doc.to_string()));
 }
 
-fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+fn object_init(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.none())
 }
 
-fn object_class(obj: PyObjectRef, _vm: &mut VirtualMachine) -> PyObjectRef {
+fn object_class(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
     obj.typ()
 }
 
 fn object_class_setter(
     instance: PyObjectRef,
     _value: PyObjectRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult {
     let type_repr = vm.to_pystr(&instance.typ())?;
     Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
 }
 
-fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_dict(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(ref dict) = args.args[0].dict {
         let new_dict = vm.new_dict();
         for (attr, value) in dict.borrow().iter() {
@@ -252,7 +248,7 @@ fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

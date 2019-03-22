@@ -7,7 +7,7 @@ use crate::frame::Scope;
 use crate::pyobject::PyResult;
 use crate::vm::VirtualMachine;
 
-pub fn eval(vm: &mut VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
+pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
     match compile::compile(
         source,
         &compile::Mode::Eval,

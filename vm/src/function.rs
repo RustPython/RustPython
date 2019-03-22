@@ -79,7 +79,7 @@ impl PyFuncArgs {
         &self,
         key: &str,
         ty: PyObjectRef,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
     ) -> Result<Option<PyObjectRef>, PyObjectRef> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
@@ -131,7 +131,7 @@ impl PyFuncArgs {
     ///
     /// If the given `FromArgs` includes any conversions, exceptions raised
     /// during the conversion will halt the binding and return the error.
-    fn bind<T: FromArgs>(mut self, vm: &mut VirtualMachine) -> PyResult<T> {
+    fn bind<T: FromArgs>(mut self, vm: &VirtualMachine) -> PyResult<T> {
         let given_args = self.args.len();
         let bound = match T::from_args(vm, &mut self) {
             Ok(args) => args,
@@ -203,7 +203,7 @@ pub trait FromArgs: Sized {
     }
 
     /// Extracts this item from the next argument(s).
-    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
+    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
 }
 
 /// A map of keyword arguments to their values.
@@ -226,7 +226,7 @@ impl<T> FromArgs for KwArgs<T>
 where
     T: TryFromObject,
 {
-    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = HashMap::new();
         for (name, value) in args.remaining_keyword() {
             kwargs.insert(name, T::try_from_object(vm, value)?);
@@ -249,7 +249,7 @@ impl<T> FromArgs for Args<T>
 where
     T: TryFromObject,
 {
-    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
         while let Some(value) = args.next_positional() {
             varargs.push(T::try_from_object(vm, value)?);
@@ -275,7 +275,7 @@ where
         1..=1
     }
 
-    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         if let Some(value) = args.next_positional() {
             Ok(T::try_from_object(vm, value)?)
         } else {
@@ -309,7 +309,7 @@ where
         0..=1
     }
 
-    fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         if let Some(value) = args.next_positional() {
             Ok(Present(T::try_from_object(vm, value)?))
         } else {
@@ -321,7 +321,7 @@ where
 // For functions that accept no arguments. Implemented explicitly instead of via
 // macro below to avoid unused warnings.
 impl FromArgs for () {
-    fn from_args(_vm: &mut VirtualMachine, _args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+    fn from_args(_vm: &VirtualMachine, _args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         Ok(())
     }
 }
@@ -349,7 +349,7 @@ macro_rules! tuple_from_py_func_args {
                 min..=max
             }
 
-            fn from_args(vm: &mut VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+            fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
                 Ok(($($T::from_args(vm, args)?,)+))
             }
         }
@@ -366,14 +366,14 @@ tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
 
 /// A built-in Python function.
-pub type PyNativeFunc = Box<dyn Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
+pub type PyNativeFunc = Box<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
 
 /// Implemented by types that are or can generate built-in functions.
 ///
 /// For example, any function that:
 ///
 /// - Accepts a sequence of types that implement `FromArgs`, followed by a
-///   `&mut VirtualMachine`
+///   `&VirtualMachine`
 /// - Returns some type that implements `IntoPyObject`
 ///
 /// will generate a `PyNativeFunc` that performs the appropriate type and arity
@@ -388,7 +388,7 @@ pub trait IntoPyNativeFunc<T, R> {
 
 impl<F> IntoPyNativeFunc<PyFuncArgs, PyResult> for F
 where
-    F: Fn(&mut VirtualMachine, PyFuncArgs) -> PyResult + 'static,
+    F: Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static,
 {
     fn into_func(self) -> PyNativeFunc {
         Box::new(self)
@@ -409,7 +409,7 @@ macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
         impl<F, $($T,)* R> IntoPyNativeFunc<($($T,)*), R> for F
         where
-            F: Fn($($T,)* &mut VirtualMachine) -> R + 'static,
+            F: Fn($($T,)* &VirtualMachine) -> R + 'static,
             $($T: FromArgs,)*
             ($($T,)*): FromArgs,
             R: IntoPyObject,

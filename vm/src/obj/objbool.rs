@@ -15,18 +15,18 @@ use super::objtuple::PyTuple;
 use super::objtype;
 
 impl IntoPyObject for bool {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bool(self))
     }
 }
 
 impl TryFromObject for bool {
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
         boolval(vm, obj)
     }
 }
 
-pub fn boolval(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
+pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
     if let Some(s) = obj.payload::<PyString>() {
         return Ok(!s.value.is_empty());
     }
@@ -70,7 +70,7 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
     context.set_attr(&bool_type, "__doc__", context.new_str(bool_doc.to_string()));
 }
 
-pub fn not(vm: &mut VirtualMachine, obj: &PyObjectRef) -> PyResult {
+pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult {
     if objtype::isinstance(obj, &vm.ctx.bool_type()) {
         let value = get_value(obj);
         Ok(vm.ctx.new_bool(!value))
@@ -84,7 +84,7 @@ pub fn get_value(obj: &PyObjectRef) -> bool {
     !obj.payload::<PyInt>().unwrap().value.is_zero()
 }
 
-fn bool_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.bool_type()))]);
     let v = get_value(obj);
     let s = if v {
@@ -95,7 +95,7 @@ fn bool_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, P
     Ok(vm.new_str(s))
 }
 
-fn bool_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

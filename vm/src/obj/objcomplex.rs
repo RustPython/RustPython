@@ -16,7 +16,7 @@ pub struct PyComplex {
 type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.complex_type()
     }
 }
@@ -71,7 +71,7 @@ fn complex_new(
     cls: PyClassRef,
     real: OptionalArg<PyObjectRef>,
     imag: OptionalArg<PyObjectRef>,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyComplexRef> {
     let real = match real {
         OptionalArg::Missing => 0.0,
@@ -87,26 +87,26 @@ fn complex_new(
     PyComplex { value }.into_ref_with_type(vm, cls)
 }
 
-fn complex_real(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_real(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
     let Complex64 { re, .. } = get_value(zelf);
     Ok(vm.ctx.new_float(re))
 }
 
-fn complex_imag(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_imag(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
     let Complex64 { im, .. } = get_value(zelf);
     Ok(vm.ctx.new_float(im))
 }
 
-fn complex_abs(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_abs(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
 
     let Complex64 { re, im } = get_value(zelf);
     Ok(vm.ctx.new_float(re.hypot(im)))
 }
 
-fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_add(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -126,7 +126,7 @@ fn complex_add(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn complex_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_radd(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -145,14 +145,14 @@ fn complex_radd(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn complex_conjugate(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_conjugate(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(i, Some(vm.ctx.complex_type()))]);
 
     let v1 = get_value(i);
     Ok(vm.ctx.new_complex(v1.conj()))
 }
 
-fn complex_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -177,12 +177,12 @@ fn complex_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bool(result))
 }
 
-fn complex_neg(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_neg(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
     Ok(vm.ctx.new_complex(-get_value(zelf)))
 }
 
-fn complex_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn complex_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.complex_type()))]);
     let v = get_value(obj);
     let repr = if v.re == 0. {

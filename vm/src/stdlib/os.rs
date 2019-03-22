@@ -50,7 +50,7 @@ pub fn raw_file_number(handle: File) -> i64 {
     unimplemented!();
 }
 
-pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(fileno, Some(vm.ctx.int_type()))]);
 
     let raw_fileno = objint::get_value(&fileno);
@@ -63,7 +63,7 @@ pub fn os_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -96,7 +96,7 @@ pub fn os_open(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(raw_file_number(handle)))
 }
 
-fn os_error(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

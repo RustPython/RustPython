@@ -23,7 +23,7 @@ impl PyWeak {
 }
 
 impl PyValue for PyWeak {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.weakref_type()
     }
 }
@@ -32,11 +32,11 @@ pub type PyWeakRef = PyRef<PyWeak>;
 
 impl PyWeakRef {
     // TODO callbacks
-    fn create(cls: PyClassRef, referent: PyObjectRef, vm: &mut VirtualMachine) -> PyResult<Self> {
+    fn create(cls: PyClassRef, referent: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         PyWeak::downgrade(referent).into_ref_with_type(vm, cls)
     }
 
-    fn call(self, vm: &mut VirtualMachine) -> PyObjectRef {
+    fn call(self, vm: &VirtualMachine) -> PyObjectRef {
         self.referent.upgrade().unwrap_or_else(|| vm.get_none())
     }
 }
