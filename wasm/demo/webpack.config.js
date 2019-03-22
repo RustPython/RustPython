@@ -4,6 +4,8 @@ const WasmPackPlugin = require('@wasm-tool/wasm-pack-plugin');
 const path = require('path');
 const fs = require('fs');
 
+const interval = setInterval(() => console.log('keepalive'), 1000 * 60 * 5);
+
 module.exports = {
     entry: './src/index.js',
     output: {
@@ -40,6 +42,13 @@ module.exports = {
         }),
         new WasmPackPlugin({
             crateDirectory: path.join(__dirname, '../lib')
-        })
+        }),
+        {
+            apply(compiler) {
+                compiler.hooks.done.tap('clearInterval', () => {
+                    clearInterval(interval);
+                });
+            }
+        }
     ]
 };
