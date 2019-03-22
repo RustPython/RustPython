@@ -269,7 +269,8 @@ pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMach
     Ok(obj)
 }
 
-fn class_get_item(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+// Very private helper function for class_get_attr
+fn class_get_attr_in_dict(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
     if let Some(ref dict) = class.as_object().dict {
         dict.borrow().get(attr_name).cloned()
     } else {
@@ -277,7 +278,8 @@ fn class_get_item(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
     }
 }
 
-fn class_has_item(class: &PyClassRef, attr_name: &str) -> bool {
+// Very private helper function for class_has_attr
+fn class_has_attr_in_dict(class: &PyClassRef, attr_name: &str) -> bool {
     if let Some(ref dict) = class.as_object().dict {
         dict.borrow().contains_key(attr_name)
     } else {
@@ -288,11 +290,11 @@ fn class_has_item(class: &PyClassRef, attr_name: &str) -> bool {
 // This is the internal get_attr implementation for fast lookup on a class.
 pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
     let mro = &zelf.mro;
-    if let Some(item) = class_get_item(zelf, attr_name) {
+    if let Some(item) = class_get_attr_in_dict(zelf, attr_name) {
         return Some(item);
     }
     for class in mro {
-        if let Some(item) = class_get_item(class, attr_name) {
+        if let Some(item) = class_get_attr_in_dict(class, attr_name) {
             return Some(item);
         }
     }
@@ -301,7 +303,11 @@ pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef>
 
 // This is the internal has_attr implementation for fast lookup on a class.
 pub fn class_has_attr(zelf: &PyClassRef, attr_name: &str) -> bool {
-    class_has_item(zelf, attr_name) || zelf.mro.iter().any(|d| class_has_item(d, attr_name))
+    class_has_attr_in_dict(zelf, attr_name)
+        || zelf
+            .mro
+            .iter()
+            .any(|d| class_has_attr_in_dict(d, attr_name))
 }
 
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
