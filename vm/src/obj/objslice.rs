@@ -100,10 +100,12 @@ fn slice_step(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 pub fn init(context: &PyContext) {
-    let zip_type = &context.slice_type;
+    let slice_type = &context.slice_type;
 
-    context.set_attr(zip_type, "__new__", context.new_rustfunc(slice_new));
-    context.set_attr(zip_type, "start", context.new_property(slice_start));
-    context.set_attr(zip_type, "stop", context.new_property(slice_stop));
-    context.set_attr(zip_type, "step", context.new_property(slice_step));
+    extend_class!(context, slice_type, {
+        "__new__" => context.new_rustfunc(slice_new),
+        "start" => context.new_property(slice_start),
+        "stop" => context.new_property(slice_stop),
+        "step" => context.new_property(slice_step)
+    });
 }
