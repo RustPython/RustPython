@@ -30,8 +30,8 @@ impl fmt::Display for PyClass {
 pub type PyClassRef = PyRef<PyClass>;
 
 impl PyValue for PyClass {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.type_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.type_type()]
     }
 }
 

@@ -9,8 +9,8 @@ pub struct PyClassMethod {
 pub type PyClassMethodRef = PyRef<PyClassMethod>;
 
 impl PyValue for PyClassMethod {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.classmethod_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.classmethod_type()]
     }
 }
 

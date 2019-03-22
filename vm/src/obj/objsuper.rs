@@ -21,8 +21,8 @@ pub struct PySuper {
 }
 
 impl PyValue for PySuper {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.super_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.super_type()]
     }
 }
 

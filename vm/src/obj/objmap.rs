@@ -13,8 +13,8 @@ pub struct PyMap {
 type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.map_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.map_type()]
     }
 }
 

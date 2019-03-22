@@ -10,8 +10,8 @@ pub struct PyBuiltinFunction {
 }
 
 impl PyValue for PyBuiltinFunction {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.builtin_function_or_method_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.builtin_function_or_method_type()]
     }
 }
 

@@ -25,8 +25,8 @@ pub struct PyRange {
 }
 
 impl PyValue for PyRange {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.range_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.range_type()]
     }
 }
 

@@ -15,8 +15,8 @@ pub struct PySlice {
 }
 
 impl PyValue for PySlice {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.slice_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.slice_type()]
     }
 }
 

@@ -185,8 +185,8 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.frame_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.frame_type()]
     }
 }
 

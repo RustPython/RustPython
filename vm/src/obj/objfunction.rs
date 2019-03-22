@@ -22,8 +22,8 @@ impl PyFunction {
 }
 
 impl PyValue for PyFunction {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.function_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.function_type()]
     }
 }
 
@@ -41,8 +41,8 @@ impl PyMethod {
 }
 
 impl PyValue for PyMethod {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.bound_method_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.bound_method_type()]
     }
 }
 

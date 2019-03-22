@@ -34,8 +34,8 @@ impl Deref for PyBytes {
 }
 
 impl PyValue for PyBytes {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.bytes_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.bytes_type()]
     }
 }
 

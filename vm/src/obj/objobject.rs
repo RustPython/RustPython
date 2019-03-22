@@ -13,8 +13,8 @@ use crate::vm::VirtualMachine;
 pub struct PyInstance;
 
 impl PyValue for PyInstance {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.object()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.object()]
     }
 }
 

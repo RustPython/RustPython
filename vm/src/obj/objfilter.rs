@@ -14,8 +14,8 @@ pub struct PyFilter {
 }
 
 impl PyValue for PyFilter {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.filter_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.filter_type()]
     }
 }
 

@@ -38,8 +38,8 @@ impl From<Vec<PyObjectRef>> for PyTuple {
 }
 
 impl PyValue for PyTuple {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.tuple_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.tuple_type()]
     }
 }
 

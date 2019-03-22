@@ -32,8 +32,8 @@ impl fmt::Debug for PySet {
 }
 
 impl PyValue for PySet {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.set_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.set_type()]
     }
 }
 

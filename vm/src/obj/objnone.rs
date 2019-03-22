@@ -12,8 +12,8 @@ pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.none().typ()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.none().typ()]
     }
 }
 

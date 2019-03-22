@@ -16,8 +16,8 @@ use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeP
 use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.class("re", "Pattern")
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.class("re", "Pattern")]
     }
 }
 
@@ -109,8 +109,8 @@ struct PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.class("re", "Match")
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.class("re", "Match")]
     }
 }
 

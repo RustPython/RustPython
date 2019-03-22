@@ -10,8 +10,8 @@ pub struct PyZip {
 }
 
 impl PyValue for PyZip {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.zip_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.zip_type()]
     }
 }
 

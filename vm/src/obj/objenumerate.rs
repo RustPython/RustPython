@@ -20,8 +20,8 @@ pub struct PyEnumerate {
 type PyEnumerateRef = PyRef<PyEnumerate>;
 
 impl PyValue for PyEnumerate {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.enumerate_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.enumerate_type()]
     }
 }
 

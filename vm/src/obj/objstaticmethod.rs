@@ -9,8 +9,8 @@ pub struct PyStaticMethod {
 pub type PyStaticMethodRef = PyRef<PyStaticMethod>;
 
 impl PyValue for PyStaticMethod {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.staticmethod_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.staticmethod_type()]
     }
 }
 

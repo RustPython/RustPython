@@ -14,8 +14,8 @@ pub struct PyGenerator {
 type PyGeneratorRef = PyRef<PyGenerator>;
 
 impl PyValue for PyGenerator {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.generator_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.generator_type()]
     }
 }
 

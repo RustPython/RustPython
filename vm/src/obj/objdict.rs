@@ -30,8 +30,8 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyValue for PyDict {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.dict_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.dict_type()]
     }
 }
 

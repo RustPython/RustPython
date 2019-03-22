@@ -37,8 +37,8 @@ impl IntoPyObject for BigInt {
 }
 
 impl PyValue for PyInt {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.int_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.int_type()]
     }
 }
 

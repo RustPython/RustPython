@@ -26,8 +26,8 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyValue for PyCode {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.code_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.code_type()]
     }
 }
 

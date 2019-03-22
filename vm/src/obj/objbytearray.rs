@@ -29,8 +29,8 @@ impl PyByteArray {
 }
 
 impl PyValue for PyByteArray {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.bytearray_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.bytearray_type()]
     }
 }
 

@@ -40,8 +40,8 @@ impl From<Vec<PyObjectRef>> for PyList {
 }
 
 impl PyValue for PyList {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.list_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.list_type()]
     }
 }
 

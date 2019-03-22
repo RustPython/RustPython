@@ -42,8 +42,8 @@ struct PyStringIO {
 type PyStringIORef = PyRef<PyStringIO>;
 
 impl PyValue for PyStringIO {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.class("io", "StringIO")
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.class("io", "StringIO")]
     }
 }
 

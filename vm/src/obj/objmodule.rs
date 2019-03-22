@@ -10,8 +10,8 @@ pub struct PyModule {
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.module_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.module_type()]
     }
 }
 

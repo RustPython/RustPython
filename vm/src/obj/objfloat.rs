@@ -16,8 +16,8 @@ pub struct PyFloat {
 }
 
 impl PyValue for PyFloat {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.float_type()
+    fn class(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vec![vm.ctx.float_type()]
     }
 }
 

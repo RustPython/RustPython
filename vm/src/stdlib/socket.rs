@@ -118,7 +118,7 @@ pub struct Socket {
 }
 
 impl PyValue for Socket {
-    fn class(_vm: &VirtualMachine) -> PyObjectRef {
+    fn class(_vm: &VirtualMachine) -> Vec<PyObjectRef> {
         // TODO
         unimplemented!()
     }
