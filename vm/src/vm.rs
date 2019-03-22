@@ -6,6 +6,7 @@
 
 extern crate rustpython_parser;
 
+use std::cell::{Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
 use std::rc::Rc;
@@ -46,7 +47,7 @@ pub struct VirtualMachine {
     pub sys_module: PyObjectRef,
     pub stdlib_inits: HashMap<String, stdlib::StdlibInitFunc>,
     pub ctx: PyContext,
-    pub frames: Vec<PyObjectRef>,
+    pub frames: RefCell<Vec<PyObjectRef>>,
     pub wasm_id: Option<String>,
 }
 
@@ -69,7 +70,7 @@ impl VirtualMachine {
             sys_module: sysmod,
             stdlib_inits,
             ctx,
-            frames: vec![],
+            frames: RefCell::new(vec![]),
             wasm_id: None,
         }
     }
@@ -87,21 +88,24 @@ impl VirtualMachine {
     }
 
     pub fn run_frame(&mut self, frame: PyObjectRef) -> PyResult<ExecutionResult> {
-        self.frames.push(frame.clone());
+        self.frames.borrow_mut().push(frame.clone());
         let frame = objframe::get_value(&frame);
         let result = frame.run(self);
-        self.frames.pop();
+        self.frames.borrow_mut().pop();
         result
     }
 
-    pub fn current_frame(&self) -> &Frame {
-        let current_frame = &self.frames[self.frames.len() - 1];
-        objframe::get_value(current_frame)
+    pub fn current_frame(&self) -> Ref<Frame> {
+        Ref::map(self.frames.borrow(), |frames| {
+            let index = frames.len() - 1;
+            let current_frame = &frames[index];
+            objframe::get_value(current_frame)
+        })
     }
 
-    pub fn current_scope(&self) -> &Scope {
+    pub fn current_scope(&self) -> Ref<Scope> {
         let frame = self.current_frame();
-        &frame.scope
+        Ref::map(frame, |f| &f.scope)
     }
 
     pub fn class(&mut self, module: &str, class: &str) -> PyObjectRef {
