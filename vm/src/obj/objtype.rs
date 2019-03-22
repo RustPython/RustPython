@@ -10,16 +10,18 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use super::objdict;
+use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
-use crate::obj::objdict::PyDictRef;
+use super::objweakref::PyWeak;
 
 #[derive(Debug)]
 pub struct PyClass {
     pub name: String,
     pub mro: Vec<PyClassRef>,
+    pub subclasses: RefCell<Vec<PyWeak>>,
 }
 
 impl fmt::Display for PyClass {
@@ -146,6 +148,17 @@ impl PyClassRef {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
         }
     }
+
+    fn subclasses(self, _vm: &VirtualMachine) -> PyList {
+        let mut subclasses = self.subclasses.borrow_mut();
+        subclasses.retain(|x| x.upgrade().is_some());
+        PyList::from(
+            subclasses
+                .iter()
+                .map(|x| x.upgrade().unwrap())
+                .collect::<Vec<_>>(),
+        )
+    }
 }
 
 /*
@@ -167,6 +180,8 @@ pub fn init(ctx: &PyContext) {
                 .create(),
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
+        "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
+        "__subclasses__" => ctx.new_rustfunc(PyClassRef::subclasses),
         "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
         "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),
         "__subclasscheck__" => ctx.new_rustfunc(PyClassRef::subclass_check),
@@ -352,17 +367,24 @@ pub fn new(
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
 ) -> PyResult<PyClassRef> {
-    let mros = bases.into_iter().map(|x| _mro(&x)).collect();
+    let mros = bases.iter().map(|x| _mro(&x)).collect();
     let mro = linearise_mro(mros).unwrap();
     let new_type = PyObject {
         payload: PyClass {
             name: String::from(name),
             mro,
+            subclasses: RefCell::new(vec![]),
         },
         dict: Some(RefCell::new(dict)),
         typ,
     }
     .into_ref();
+    for base in bases {
+        base.subclasses
+            .borrow_mut()
+            .push(PyWeak::downgrade(&new_type));
+    }
+
     Ok(new_type.downcast().unwrap())
 }
 

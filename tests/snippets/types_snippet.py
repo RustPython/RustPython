@@ -26,3 +26,26 @@ assert None.__class__ is type(None)
 
 assert isinstance(type, type)
 assert issubclass(type, type)
+
+class A: pass
+class B(A): pass
+class C(A): pass
+class D(B, C): pass
+
+assert A.__subclasses__() == [B, C]
+assert B.__subclasses__() == [D]
+assert C.__subclasses__() == [D]
+assert D.__subclasses__() == []
+
+del D
+
+try: # gc sweep is needed here for CPython...
+    import gc; gc.collect()
+except: # ...while RustPython doesn't have `gc` yet.
+    pass
+
+assert B.__subclasses__() == []
+assert C.__subclasses__() == []
+
+assert type in object.__subclasses__()
+

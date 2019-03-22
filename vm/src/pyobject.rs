@@ -183,13 +183,14 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // and both `type` and `object are instances of `type`.
     // to produce this circular dependency, we need an unsafe block.
     // (and yes, this will never get dropped. TODO?)
-    unsafe {
+    let (type_type, object_type) = unsafe {
         let object_type = PyObject {
             typ: mem::uninitialized(), // !
             dict: Some(RefCell::new(PyAttributes::new())),
             payload: PyClass {
                 name: String::from("object"),
                 mro: vec![],
+                subclasses: RefCell::new(vec![]),
             },
         }
         .into_ref();
@@ -200,6 +201,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             payload: PyClass {
                 name: String::from("type"),
                 mro: vec![object_type.clone().downcast().unwrap()],
+                subclasses: RefCell::new(vec![]),
             },
         }
         .into_ref();
@@ -214,7 +216,14 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
 
         (type_type, object_type)
-    }
+    };
+
+    object_type
+        .subclasses
+        .borrow_mut()
+        .push(objweakref::PyWeak::downgrade(&type_type.as_object()));
+
+    (type_type, object_type)
 }
 
 // Basic objects:
