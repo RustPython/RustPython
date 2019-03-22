@@ -234,8 +234,8 @@ impl PyContext {
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
-        let set_type = create_type("set", &type_type, &object_type);
         let frozenset_type = create_type("frozenset", &type_type, &object_type);
+        let set_type = create_type("set", &type_type, &frozenset_type);
         let int_type = create_type("int", &type_type, &object_type);
         let float_type = create_type("float", &type_type, &object_type);
         let frame_type = create_type("frame", &type_type, &object_type);

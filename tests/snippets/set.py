@@ -144,3 +144,62 @@ a ^= set([3,4,5])
 assert a == set([1,2,4,5])
 with assertRaises(TypeError):
 	a ^= 1
+
+
+# frozen set
+
+assert frozenset([1,2]) == frozenset([1,2])
+assert not frozenset([1,2,3]) == frozenset([1,2])
+
+assert frozenset([1,2,3]) >= frozenset([1,2])
+assert frozenset([1,2]) >= frozenset([1,2])
+assert not frozenset([1,3]) >= frozenset([1,2])
+
+assert frozenset([1,2,3]).issuperset(frozenset([1,2]))
+assert frozenset([1,2]).issuperset(frozenset([1,2]))
+assert not frozenset([1,3]).issuperset(frozenset([1,2]))
+
+assert frozenset([1,2,3]) > frozenset([1,2])
+assert not frozenset([1,2]) > frozenset([1,2])
+assert not frozenset([1,3]) > frozenset([1,2])
+
+assert frozenset([1,2]) <= frozenset([1,2,3])
+assert frozenset([1,2]) <= frozenset([1,2])
+assert not frozenset([1,3]) <= frozenset([1,2])
+
+assert frozenset([1,2]).issubset(frozenset([1,2,3]))
+assert frozenset([1,2]).issubset(frozenset([1,2]))
+assert not frozenset([1,3]).issubset(frozenset([1,2]))
+
+assert frozenset([1,2]) < frozenset([1,2,3])
+assert not frozenset([1,2]) < frozenset([1,2])
+assert not frozenset([1,3]) < frozenset([1,2])
+
+a = frozenset([1, 2, 3])
+assert len(a) == 3
+
+assert frozenset([1,2,3]).union(frozenset([4,5])) == frozenset([1,2,3,4,5])
+assert frozenset([1,2,3]).union(frozenset([1,2,3,4,5])) == frozenset([1,2,3,4,5])
+
+assert frozenset([1,2,3]) | frozenset([4,5]) == frozenset([1,2,3,4,5])
+assert frozenset([1,2,3]) | frozenset([1,2,3,4,5]) == frozenset([1,2,3,4,5])
+
+assert frozenset([1,2,3]).intersection(frozenset([1,2])) == frozenset([1,2])
+assert frozenset([1,2,3]).intersection(frozenset([5,6])) == frozenset([])
+
+assert frozenset([1,2,3]) & frozenset([4,5]) == frozenset([])
+assert frozenset([1,2,3]) & frozenset([1,2,3,4,5]) == frozenset([1,2,3])
+
+assert frozenset([1,2,3]).difference(frozenset([1,2])) == frozenset([3])
+assert frozenset([1,2,3]).difference(frozenset([5,6])) == frozenset([1,2,3])
+
+assert frozenset([1,2,3]) - frozenset([4,5]) == frozenset([1,2,3])
+assert frozenset([1,2,3]) - frozenset([1,2,3,4,5]) == frozenset([])
+
+assert frozenset([1,2,3]).symmetric_difference(frozenset([1,2])) == frozenset([3])
+assert frozenset([1,2,3]).symmetric_difference(frozenset([5,6])) == frozenset([1,2,3,5,6])
+
+assert frozenset([1,2,3]) ^ frozenset([4,5]) == frozenset([1,2,3,4,5])
+assert frozenset([1,2,3]) ^ frozenset([1,2,3,4,5]) == frozenset([4,5])
+
+assert_raises(TypeError, lambda: frozenset([[]]))
