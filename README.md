@@ -9,6 +9,8 @@ A Python-3 (CPython >= 3.5.0) Interpreter written in Rust :snake: :scream: :meta
 [![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
 [![Gitter](https://badges.gitter.im/RustPython/Lobby.svg)](https://gitter.im/rustpython/Lobby)
 
+<img src="./logo.png" style="float: right;" />
+
 # Usage
 
 ### Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.
