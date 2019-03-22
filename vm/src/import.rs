@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use crate::compile;
 use crate::frame::Scope;
 use crate::obj::{objsequence, objstr};
-use crate::pyobject::{AttributeProtocol, DictProtocol, PyResult};
+use crate::pyobject::{DictProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
@@ -54,7 +54,7 @@ pub fn import_module(
     module_name: &str,
 ) -> PyResult {
     // First, see if we already loaded the module:
-    let sys_modules = vm.sys_module.get_attr("modules").unwrap();
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
     if let Some(module) = sys_modules.get_item(module_name) {
         return Ok(module);
     }
@@ -63,8 +63,12 @@ pub fn import_module(
     Ok(module)
 }
 
-fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
-    let sys_path = vm.sys_module.get_attr("path").unwrap();
+fn find_source(
+    vm: &mut VirtualMachine,
+    current_path: PathBuf,
+    name: &str,
+) -> Result<PathBuf, String> {
+    let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
     let mut paths: Vec<PathBuf> = objsequence::get_elements(&sys_path)
         .iter()
         .map(|item| PathBuf::from(objstr::get_value(item)))

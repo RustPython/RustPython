@@ -57,7 +57,7 @@ fn sys_getsizeof(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(size))
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(ctx: &PyContext, builtins: PyObjectRef) -> PyObjectRef {
     let path_list = match env::var_os("PYTHONPATH") {
         Some(paths) => env::split_paths(&paths)
             .map(|path| {
@@ -156,6 +156,7 @@ settrace() -- set the global debug tracing function
     });
 
     modules.set_item(&ctx, sys_name, sys_mod.clone());
+    modules.set_item(&ctx, "builtins", builtins);
     ctx.set_attr(&sys_mod, "modules", modules);
 
     sys_mod
