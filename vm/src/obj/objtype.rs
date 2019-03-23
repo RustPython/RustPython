@@ -241,7 +241,7 @@ pub fn type_new_class(
     bases.push(vm.ctx.object());
     let name = objstr::get_value(name);
     new(
-        PyClassRef::from_pyobj(typ),
+        typ.clone().downcast().unwrap(),
         &name,
         bases,
         objdict::py_dict_to_attributes(dict),
@@ -382,7 +382,7 @@ pub fn new(
         typ,
     }
     .into_ref();
-    Ok(PyClassRef::from_pyobj(&new_type))
+    Ok(new_type.downcast().unwrap())
 }
 
 #[cfg(test)]

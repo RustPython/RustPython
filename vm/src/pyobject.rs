@@ -206,8 +206,8 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         let object_type_ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject<PyClass>;
         let type_type_ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject<PyClass>;
 
-        let type_type = PyClassRef::from_pyobj(&type_type);
-        let object_type = PyClassRef::from_pyobj(&object_type);
+        let type_type: PyClassRef = type_type.downcast().unwrap();
+        let object_type: PyClassRef = object_type.downcast().unwrap();
 
         ptr::write(&mut (*object_type_ptr).typ, type_type.clone());
         ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
