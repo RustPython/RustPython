@@ -111,7 +111,10 @@ impl VirtualMachine {
     }
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyClassRef> {
-        let class = self.get_attribute(self.import(module)?, class)?.downcast().expect("not a class");
+        let class = self
+            .get_attribute(self.import(module)?, class)?
+            .downcast()
+            .expect("not a class");
         Ok(class)
     }
 
@@ -122,7 +125,7 @@ impl VirtualMachine {
         let class = self
             .get_attribute(module.clone(), class)
             .unwrap_or_else(|_| panic!("module {} has no class {}", module, class));
-        class.downcast().expect("not a class");
+        class.downcast().expect("not a class")
     }
 
     /// Create a new python string object.
