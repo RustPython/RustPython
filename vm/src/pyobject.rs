@@ -671,17 +671,18 @@ impl PyContext {
         obj.get_attr(attr_name)
     }
 
-    pub fn set_attr<'a, T: Into<&'a PyObjectRef>>(
+    pub fn set_attr<'a, T: Into<&'a PyObjectRef>, V: Into<PyObjectRef>>(
         &'a self,
         obj: T,
         attr_name: &str,
-        value: PyObjectRef,
+        value: V,
     ) {
         let obj = obj.into();
         if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
-            dict.set_item(self, attr_name, value)
+            dict.set_item(self, attr_name, value.into())
         } else if let Some(ref dict) = obj.dict {
-            dict.borrow_mut().insert(attr_name.to_string(), value);
+            dict.borrow_mut()
+                .insert(attr_name.to_string(), value.into());
         } else {
             unimplemented!("set_attr unimplemented for: {:?}", obj);
         };
@@ -810,6 +811,12 @@ impl<T> IntoPyObject for PyRef<T> {
 impl<'a, T: PyValue> From<&'a PyRef<T>> for &'a PyObjectRef {
     fn from(obj: &'a PyRef<T>) -> Self {
         obj.as_object()
+    }
+}
+
+impl<T: PyValue> From<PyRef<T>> for PyObjectRef {
+    fn from(obj: PyRef<T>) -> Self {
+        obj.into_object()
     }
 }
 

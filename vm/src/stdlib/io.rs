@@ -392,7 +392,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     // TODO Fix name?
     let file_io = py_class!(ctx, "FileIO", raw_io_base.clone(), {
         "__init__" => ctx.new_rustfunc(file_io_init),
-        "name" => ctx.str_type().into_object(),
+        "name" => ctx.str_type(),
         "read" => ctx.new_rustfunc(file_io_read),
         "readinto" => ctx.new_rustfunc(file_io_readinto),
         "write" => ctx.new_rustfunc(file_io_write)
@@ -427,15 +427,15 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 
     py_module!(ctx, "io", {
         "open" => ctx.new_rustfunc(io_open),
-        "IOBase" => io_base.into_object(),
-        "RawIOBase" => raw_io_base.into_object(),
-        "BufferedIOBase" => buffered_io_base.into_object(),
-        "TextIOBase" => text_io_base.into_object(),
-        "FileIO" => file_io.into_object(),
-        "BufferedReader" => buffered_reader.into_object(),
-        "BufferedWriter" => buffered_writer.into_object(),
-        "TextIOWrapper" => text_io_wrapper.into_object(),
-        "StringIO" => string_io.into_object(),
-        "BytesIO" => bytes_io.into_object(),
+        "IOBase" => io_base,
+        "RawIOBase" => raw_io_base,
+        "BufferedIOBase" => buffered_io_base,
+        "TextIOBase" => text_io_base,
+        "FileIO" => file_io,
+        "BufferedReader" => buffered_reader,
+        "BufferedWriter" => buffered_writer,
+        "TextIOWrapper" => text_io_wrapper,
+        "StringIO" => string_io,
+        "BytesIO" => bytes_io,
     })
 }

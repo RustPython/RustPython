@@ -327,7 +327,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "fetch" => ctx.new_rustfunc(browser_fetch),
         "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
-        "Promise" => promise.into_object(),
+        "Promise" => promise,
         "alert" => ctx.new_rustfunc(browser_alert),
         "confirm" => ctx.new_rustfunc(browser_confirm),
         "prompt" => ctx.new_rustfunc(browser_prompt),

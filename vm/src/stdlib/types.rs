@@ -26,9 +26,9 @@ fn types_new_class(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "types", {
         "new_class" => ctx.new_rustfunc(types_new_class),
-        "FunctionType" => ctx.function_type().into_object(),
-        "LambdaType" => ctx.function_type().into_object(),
-        "CodeType" => ctx.code_type().into_object(),
-        "FrameType" => ctx.frame_type().into_object()
+        "FunctionType" => ctx.function_type(),
+        "LambdaType" => ctx.function_type(),
+        "CodeType" => ctx.code_type(),
+        "FrameType" => ctx.frame_type()
     })
 }

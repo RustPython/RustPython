@@ -36,9 +36,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 
     py_module!(ctx, "re", {
         "compile" => ctx.new_rustfunc(re_compile),
-        "Match" => match_type.into_object(),
+        "Match" => match_type,
         "match" => ctx.new_rustfunc(re_match),
-        "Pattern" => pattern_type.into_object(),
+        "Pattern" => pattern_type,
         "search" => ctx.new_rustfunc(re_search)
     })
 }

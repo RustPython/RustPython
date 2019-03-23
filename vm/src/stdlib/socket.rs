@@ -440,6 +440,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
          "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
-         "socket" => socket.into_object(),
+         "socket" => socket,
     })
 }
