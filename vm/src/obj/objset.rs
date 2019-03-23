@@ -66,17 +66,13 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
     panic!("Not frozenset or set");
 }
 
-macro_rules! validate_set_or_frozenset {
-    ( $vm:ident, $obj:expr ) => {
-        if !(objtype::issubclass(&$obj, &$vm.ctx.set_type())
-            || objtype::issubclass(&$obj, &$vm.ctx.frozenset_type()))
-        {
-            return Err($vm.new_type_error(format!(
-                "{} is not a subtype of set or frozenset a",
-                $obj.typ()
-            )));
-        }
-    };
+fn validate_set_or_frozenset(vm: &VirtualMachine, cls: PyClassRef) -> PyResult<()> {
+    if !(objtype::issubclass(&cls, &vm.ctx.set_type())
+        || objtype::issubclass(&cls, &vm.ctx.frozenset_type()))
+    {
+        return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", cls)));
+    }
+    Ok(())
 }
 
 fn create_set(
@@ -213,7 +209,7 @@ fn set_clear(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 /* Create a new object of sub-type of set */
 fn set_new(cls: PyClassRef, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-    validate_set_or_frozenset!(vm, cls);
+    validate_set_or_frozenset(vm, cls.clone())?;
 
     let elements: HashMap<u64, PyObjectRef> = match iterable {
         OptionalArg::Missing => HashMap::new(),
@@ -227,20 +223,20 @@ fn set_new(cls: PyClassRef, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMach
         }
     };
 
-    create_set(vm, elements, cls)
+    create_set(vm, elements, cls.clone())
 }
 
 fn set_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.len called with: {:?}", args);
     arg_check!(vm, args, required = [(s, None)]);
-    validate_set_or_frozenset!(vm, s.type_pyref());
+    validate_set_or_frozenset(vm, s.type_pyref())?;
     let elements = get_elements(s);
     Ok(vm.context().new_int(elements.len()))
 }
 
 fn set_copy(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     trace!("set.copy called with: {:?}", obj);
-    validate_set_or_frozenset!(vm, obj.type_pyref());
+    validate_set_or_frozenset(vm, obj.type_pyref())?;
     let elements = get_elements(&obj).clone();
     create_set(vm, elements, obj.type_pyref())
 }
@@ -267,7 +263,7 @@ fn set_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn set_contains(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(set, None), (needle, None)]);
-    validate_set_or_frozenset!(vm, &set.type_pyref());
+    validate_set_or_frozenset(vm, set.type_pyref())?;
     for element in get_elements(set).iter() {
         match vm._eq(needle.clone(), element.1.clone()) {
             Ok(value) => {
@@ -335,8 +331,8 @@ fn set_compare_inner(
 ) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None), (other, None)]);
 
-    validate_set_or_frozenset!(vm, zelf.type_pyref());
-    validate_set_or_frozenset!(vm, other.type_pyref());
+    validate_set_or_frozenset(vm, zelf.type_pyref())?;
+    validate_set_or_frozenset(vm, other.type_pyref())?;
 
     let get_zelf = |swap: bool| -> &PyObjectRef {
         if swap {
@@ -372,8 +368,8 @@ fn set_compare_inner(
 }
 
 fn set_union(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    validate_set_or_frozenset!(vm, zelf.type_pyref());
-    validate_set_or_frozenset!(vm, other.type_pyref());
+    validate_set_or_frozenset(vm, zelf.type_pyref())?;
+    validate_set_or_frozenset(vm, other.type_pyref())?;
 
     let mut elements = get_elements(&zelf).clone();
     elements.extend(get_elements(&other).clone());
@@ -394,8 +390,8 @@ fn set_symmetric_difference(
     other: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult {
-    validate_set_or_frozenset!(vm, zelf.type_pyref());
-    validate_set_or_frozenset!(vm, other.type_pyref());
+    validate_set_or_frozenset(vm, zelf.type_pyref())?;
+    validate_set_or_frozenset(vm, other.type_pyref())?;
     let mut elements = HashMap::new();
 
     for element in get_elements(&zelf).iter() {
@@ -426,8 +422,8 @@ fn set_combine_inner(
     vm: &VirtualMachine,
     op: SetCombineOperation,
 ) -> PyResult {
-    validate_set_or_frozenset!(vm, zelf.type_pyref());
-    validate_set_or_frozenset!(vm, other.type_pyref());
+    validate_set_or_frozenset(vm, zelf.type_pyref())?;
+    validate_set_or_frozenset(vm, other.type_pyref())?;
     let mut elements = HashMap::new();
 
     for element in get_elements(&zelf).iter() {
