@@ -4,7 +4,7 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::obj::{objbytes, objint, objsequence, objtype};
-use rustpython_vm::pyobject::{DictProtocol, PyObjectRef, PyResult};
+use rustpython_vm::pyobject::{DictProtocol, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module;
@@ -159,8 +159,10 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     if js_val.is_object() {
         if let Some(promise) = js_val.dyn_ref::<Promise>() {
             // the browser module might not be injected
-            if let Ok(promise_type) = browser_module::import_promise_type(vm) {
-                return browser_module::PyPromise::new_obj(promise_type, promise.clone());
+            if let Ok(_) = browser_module::import_promise_type(vm) {
+                return browser_module::PyPromise::new(promise.clone())
+                    .into_ref(vm)
+                    .into_object();
             }
         }
         if Array::is_array(&js_val) {
