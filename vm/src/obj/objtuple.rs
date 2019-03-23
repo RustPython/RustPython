@@ -101,6 +101,10 @@ impl PyTupleRef {
         }
     }
 
+    fn bool(self, _vm: &VirtualMachine) -> bool {
+        !self.elements.borrow().is_empty()
+    }
+
     fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self.elements.borrow().iter() {
@@ -230,6 +234,7 @@ tuple(iterable) -> tuple initialized from iterable's items
 
 If the argument is a tuple, the return value is the same object.";
     context.set_attr(tuple_type, "__add__", context.new_rustfunc(PyTupleRef::add));
+    context.set_attr(tuple_type, "__bool__", context.new_rustfunc(PyTupleRef::bool));
     context.set_attr(tuple_type, "__eq__", context.new_rustfunc(PyTupleRef::eq));
     context.set_attr(tuple_type,"__contains__",context.new_rustfunc(PyTupleRef::contains));
     context.set_attr(tuple_type,"__getitem__",context.new_rustfunc(PyTupleRef::getitem));

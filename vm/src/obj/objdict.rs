@@ -175,6 +175,10 @@ fn dict_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 impl PyDictRef {
+    fn bool(self, _vm: &VirtualMachine) -> bool {
+        !self.entries.borrow().is_empty()
+    }
+
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.entries.borrow().len()
     }
@@ -300,6 +304,7 @@ impl PyDictRef {
 
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.dict_type, {
+        "__bool__" => context.new_rustfunc(PyDictRef::bool),
         "__len__" => context.new_rustfunc(PyDictRef::len),
         "__contains__" => context.new_rustfunc(PyDictRef::contains),
         "__delitem__" => context.new_rustfunc(PyDictRef::delitem),

@@ -6,12 +6,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objdict::PyDict;
-use super::objfloat::PyFloat;
 use super::objint::PyInt;
-use super::objlist::PyList;
-use super::objstr::PyString;
-use super::objtuple::PyTuple;
 use super::objtype;
 
 impl IntoPyObject for bool {
@@ -27,25 +22,6 @@ impl TryFromObject for bool {
 }
 
 pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
-    if let Some(s) = obj.payload::<PyString>() {
-        return Ok(!s.value.is_empty());
-    }
-    if let Some(value) = obj.payload::<PyFloat>() {
-        return Ok(*value != PyFloat::from(0.0));
-    }
-    if let Some(dict) = obj.payload::<PyDict>() {
-        return Ok(!dict.entries.borrow().is_empty());
-    }
-    if let Some(i) = obj.payload::<PyInt>() {
-        return Ok(!i.value.is_zero());
-    }
-    if let Some(list) = obj.payload::<PyList>() {
-        return Ok(!list.elements.borrow().is_empty());
-    }
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return Ok(!tuple.elements.borrow().is_empty());
-    }
-
     Ok(if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
         let bool_res = vm.invoke(f, PyFuncArgs::default())?;
         match bool_res.payload::<PyInt>() {

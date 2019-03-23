@@ -120,6 +120,10 @@ impl PyFloatRef {
         }
     }
 
+    fn bool(self, _vm: &VirtualMachine) -> bool {
+        self.value != 0.0
+    }
+
     fn divmod(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.float_type())
             || objtype::isinstance(&other, &vm.ctx.int_type())
@@ -366,6 +370,7 @@ pub fn init(context: &PyContext) {
         "__abs__" => context.new_rustfunc(PyFloatRef::abs),
         "__add__" => context.new_rustfunc(PyFloatRef::add),
         "__radd__" => context.new_rustfunc(PyFloatRef::add),
+        "__bool__" => context.new_rustfunc(PyFloatRef::bool),
         "__divmod__" => context.new_rustfunc(PyFloatRef::divmod),
         "__floordiv__" => context.new_rustfunc(PyFloatRef::floordiv),
         "__new__" => context.new_rustfunc(PyFloatRef::new_float),

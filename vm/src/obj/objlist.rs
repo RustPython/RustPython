@@ -94,6 +94,10 @@ impl PyListRef {
         }
     }
 
+    fn bool(self, _vm: &VirtualMachine) -> bool {
+        !self.elements.borrow().is_empty()
+    }
+
     fn clear(self, _vm: &VirtualMachine) {
         self.elements.borrow_mut().clear();
     }
@@ -419,6 +423,7 @@ pub fn init(context: &PyContext) {
     extend_class!(context, list_type, {
         "__add__" => context.new_rustfunc(PyListRef::add),
         "__iadd__" => context.new_rustfunc(PyListRef::iadd),
+        "__bool__" => context.new_rustfunc(PyListRef::bool),
         "__contains__" => context.new_rustfunc(PyListRef::contains),
         "__eq__" => context.new_rustfunc(PyListRef::eq),
         "__lt__" => context.new_rustfunc(PyListRef::lt),
