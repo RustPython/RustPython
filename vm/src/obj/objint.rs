@@ -7,8 +7,7 @@ use num_traits::{Pow, Signed, ToPrimitive, Zero};
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    FromPyObjectRef, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -388,7 +387,7 @@ fn int_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => Zero::zero(),
     };
     Ok(PyInt::new(val)
-        .into_ref_with_type(vm, PyClassRef::from_pyobj(cls))?
+        .into_ref_with_type(vm, cls.clone().downcast().unwrap())?
         .into_object())
 }
 

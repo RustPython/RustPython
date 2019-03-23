@@ -159,7 +159,7 @@ pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyC
         dict,
     )
     .unwrap();
-    FromPyObjectRef::from_pyobj(&new_type)
+    new_type.downcast().unwrap()
 }
 
 pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
@@ -205,7 +205,7 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
             dict: Some(RefCell::new(PyAttributes::new())),
             payload: PyClass {
                 name: String::from("type"),
-                mro: vec![FromPyObjectRef::from_pyobj(&object_type)],
+                mro: vec![object_type.clone().downcast().unwrap()],
             },
         }
         .into_ref();
@@ -216,8 +216,8 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
         ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
 
         (
-            PyClassRef::from_pyobj(&type_type),
-            PyClassRef::from_pyobj(&object_type),
+            type_type.downcast().unwrap(),
+            object_type.downcast().unwrap(),
         )
     }
 }
@@ -583,7 +583,7 @@ impl PyContext {
             PyAttributes::new(),
         )
         .unwrap();
-        PyClassRef::from_pyobj(&typ)
+        typ.downcast().unwrap()
     }
 
     pub fn new_scope(&self) -> Scope {
@@ -719,6 +719,21 @@ where
     pub typ: PyObjectRef,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
     pub payload: T,
+}
+
+impl PyObject<dyn PyObjectPayload> {
+    pub fn downcast<T: PyObjectPayload>(self: Rc<Self>) -> Option<PyRef<T>> {
+        if self.payload_is::<T>() {
+            Some({
+                PyRef {
+                    obj: self,
+                    _payload: PhantomData,
+                }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 /// A reference to a Python object.
@@ -860,16 +875,12 @@ impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
     }
 }
 
-pub trait FromPyObjectRef {
-    fn from_pyobj(obj: &PyObjectRef) -> Self;
-}
-
 pub trait TypeProtocol {
     fn typ(&self) -> PyObjectRef {
         self.type_ref().clone()
     }
     fn type_pyref(&self) -> PyClassRef {
-        FromPyObjectRef::from_pyobj(self.type_ref())
+        self.typ().downcast().unwrap()
     }
     fn type_ref(&self) -> &PyObjectRef;
 }
@@ -1204,19 +1215,6 @@ impl<T: PyValue + 'static> PyObjectPayload for T {
     #[inline]
     fn as_any(&self) -> &dyn Any {
         self
-    }
-}
-
-impl FromPyObjectRef for PyRef<PyClass> {
-    fn from_pyobj(obj: &PyObjectRef) -> Self {
-        if obj.payload_is::<PyClass>() {
-            PyRef {
-                obj: obj.clone(),
-                _payload: PhantomData,
-            }
-        } else {
-            panic!("Error getting inner type: {:?}", obj.typ)
-        }
     }
 }
 

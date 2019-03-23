@@ -30,8 +30,8 @@ use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, FromPyObjectRef, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject,
-    TryIntoRef, TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TryIntoRef,
+    TypeProtocol,
 };
 use crate::stdlib;
 use crate::sysmodule;
@@ -112,7 +112,7 @@ impl VirtualMachine {
         let class = self
             .get_attribute(module.clone(), class)
             .unwrap_or_else(|_| panic!("module {} has no class {}", module, class));
-        PyClassRef::from_pyobj(&class)
+        class.downcast().unwrap()
     }
 
     /// Create a new python string object.

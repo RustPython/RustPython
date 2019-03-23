@@ -4,8 +4,8 @@ use std::fmt;
 
 use crate::function::{Args, KwArgs, PyFuncArgs};
 use crate::pyobject::{
-    FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -236,7 +236,7 @@ pub fn type_new_class(
     let mut bases: Vec<PyClassRef> = vm
         .extract_elements(bases)?
         .iter()
-        .map(|x| FromPyObjectRef::from_pyobj(x))
+        .map(|x| x.clone().downcast().unwrap())
         .collect();
     bases.push(vm.ctx.object());
     let name = objstr::get_value(name);
@@ -385,7 +385,6 @@ pub fn new(
 
 #[cfg(test)]
 mod tests {
-    use super::FromPyObjectRef;
     use super::{linearise_mro, new};
     use super::{HashMap, IdProtocol, PyClassRef, PyContext};
 
@@ -417,8 +416,8 @@ mod tests {
         )
         .unwrap();
 
-        let a: PyClassRef = FromPyObjectRef::from_pyobj(&a);
-        let b: PyClassRef = FromPyObjectRef::from_pyobj(&b);
+        let a: PyClassRef = a.downcast().unwrap();
+        let b: PyClassRef = b.downcast().unwrap();
 
         assert_eq!(
             map_ids(linearise_mro(vec![
