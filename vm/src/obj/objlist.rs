@@ -416,31 +416,33 @@ pub fn init(context: &PyContext) {
                     If no argument is given, the constructor creates a new empty list.\n\
                     The argument must be an iterable if specified.";
 
-    context.set_attr(list_type, "__add__", context.new_rustfunc(PyListRef::add));
-    context.set_attr(list_type, "__iadd__", context.new_rustfunc(PyListRef::iadd));
-    context.set_attr(list_type, "__contains__", context.new_rustfunc(PyListRef::contains));
-    context.set_attr(list_type, "__eq__", context.new_rustfunc(PyListRef::eq));
-    context.set_attr(list_type, "__lt__", context.new_rustfunc(PyListRef::lt));
-    context.set_attr(list_type, "__gt__", context.new_rustfunc(PyListRef::gt));
-    context.set_attr(list_type, "__le__", context.new_rustfunc(PyListRef::le));
-    context.set_attr(list_type, "__ge__", context.new_rustfunc(PyListRef::ge));
-    context.set_attr(list_type, "__getitem__", context.new_rustfunc(PyListRef::getitem));
-    context.set_attr(list_type, "__iter__", context.new_rustfunc(PyListRef::iter));
-    context.set_attr(list_type, "__setitem__", context.new_rustfunc(PyListRef::setitem));
-    context.set_attr(list_type, "__mul__", context.new_rustfunc(PyListRef::mul));
-    context.set_attr(list_type, "__len__", context.new_rustfunc(PyListRef::len));
-    context.set_attr(list_type, "__new__", context.new_rustfunc(list_new));
-    context.set_attr(list_type, "__repr__", context.new_rustfunc(PyListRef::repr));
-    context.set_attr(list_type, "__doc__", context.new_str(list_doc.to_string()));
-    context.set_attr(list_type, "append", context.new_rustfunc(PyListRef::append));
-    context.set_attr(list_type, "clear", context.new_rustfunc(PyListRef::clear));
-    context.set_attr(list_type, "copy", context.new_rustfunc(PyListRef::copy));
-    context.set_attr(list_type, "count", context.new_rustfunc(PyListRef::count));
-    context.set_attr(list_type, "extend", context.new_rustfunc(PyListRef::extend));
-    context.set_attr(list_type, "index", context.new_rustfunc(PyListRef::index));
-    context.set_attr(list_type, "insert", context.new_rustfunc(PyListRef::insert));
-    context.set_attr(list_type, "reverse", context.new_rustfunc(PyListRef::reverse));
-    context.set_attr(list_type, "sort", context.new_rustfunc(list_sort));
-    context.set_attr(list_type, "pop", context.new_rustfunc(PyListRef::pop));
-    context.set_attr(list_type, "remove", context.new_rustfunc(PyListRef::remove));
+    extend_class!(context, list_type, {
+        "__add__" => context.new_rustfunc(PyListRef::add),
+        "__iadd__" => context.new_rustfunc(PyListRef::iadd),
+        "__contains__" => context.new_rustfunc(PyListRef::contains),
+        "__eq__" => context.new_rustfunc(PyListRef::eq),
+        "__lt__" => context.new_rustfunc(PyListRef::lt),
+        "__gt__" => context.new_rustfunc(PyListRef::gt),
+        "__le__" => context.new_rustfunc(PyListRef::le),
+        "__ge__" => context.new_rustfunc(PyListRef::ge),
+        "__getitem__" => context.new_rustfunc(PyListRef::getitem),
+        "__iter__" => context.new_rustfunc(PyListRef::iter),
+        "__setitem__" => context.new_rustfunc(PyListRef::setitem),
+        "__mul__" => context.new_rustfunc(PyListRef::mul),
+        "__len__" => context.new_rustfunc(PyListRef::len),
+        "__new__" => context.new_rustfunc(list_new),
+        "__repr__" => context.new_rustfunc(PyListRef::repr),
+        "__doc__" => context.new_str(list_doc.to_string()),
+        "append" => context.new_rustfunc(PyListRef::append),
+        "clear" => context.new_rustfunc(PyListRef::clear),
+        "copy" => context.new_rustfunc(PyListRef::copy),
+        "count" => context.new_rustfunc(PyListRef::count),
+        "extend" => context.new_rustfunc(PyListRef::extend),
+        "index" => context.new_rustfunc(PyListRef::index),
+        "insert" => context.new_rustfunc(PyListRef::insert),
+        "reverse" => context.new_rustfunc(PyListRef::reverse),
+        "sort" => context.new_rustfunc(list_sort),
+        "pop" => context.new_rustfunc(PyListRef::pop),
+        "remove" => context.new_rustfunc(PyListRef::remove)
+    });
 }

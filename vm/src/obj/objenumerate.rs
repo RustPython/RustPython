@@ -72,14 +72,8 @@ fn enumerate_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(context: &PyContext) {
     let enumerate_type = &context.enumerate_type;
     objiter::iter_type_init(context, enumerate_type);
-    context.set_attr(
-        enumerate_type,
-        "__new__",
-        context.new_rustfunc(enumerate_new),
-    );
-    context.set_attr(
-        enumerate_type,
-        "__next__",
-        context.new_rustfunc(enumerate_next),
-    );
+    extend_class!(context, enumerate_type, {
+        "__new__" => context.new_rustfunc(enumerate_new),
+        "__next__" => context.new_rustfunc(enumerate_next)
+    });
 }
