@@ -67,7 +67,8 @@ pub fn init(context: &PyContext) {
         "__repr__" => context.new_rustfunc(bytes_repr),
         "__len__" => context.new_rustfunc(bytes_len),
         "__iter__" => context.new_rustfunc(bytes_iter),
-        "__doc__" => context.new_str(bytes_doc.to_string())
+        "__doc__" => context.new_str(bytes_doc.to_string()),
+        "__add__" => context.new_rustfunc(PyBytesRef::add),
     });
 }
 
@@ -199,5 +200,17 @@ fn bytes_iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
     PyIteratorValue {
         position: Cell::new(0),
         iterated_obj: obj.into_object(),
+    }
+}
+
+impl PyBytesRef {
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.bytes_type()) {
+            let rhs = get_value(&other);
+            let elements: Vec<u8> = self.value.iter().chain(rhs.iter()).cloned().collect();
+            Ok(vm.ctx.new_bytes(elements))
+        } else {
+            Err(vm.new_type_error(format!("Cannot add {} and {}", self.as_object(), other)))
+        }
     }
 }
