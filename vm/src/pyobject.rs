@@ -1229,6 +1229,10 @@ pub enum Either2<A, B> {
 /// # Example
 ///
 /// ```
+/// use rustpython_vm::VirtualMachine;
+/// use rustpython_vm::obj::{objstr::PyStringRef, objint::PyIntRef};
+/// use rustpython_vm::pyobject::Either2;
+///
 /// fn do_something(arg: Either2<PyIntRef, PyStringRef>, vm: &VirtualMachine) {
 ///     match arg {
 ///         Either2::A(int)=> {
