@@ -79,7 +79,7 @@ fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(PyClass { ref mro, .. }) => {
             for class in mro {
                 if let Ok(item) = vm.get_attribute(class.as_object().clone(), name_str.clone()) {
-                    if let Some(PyMethod { .. }) = item.payload() {
+                    if item.payload_is::<PyMethod>() {
                         // This is a classmethod
                         return Ok(item);
                     }
