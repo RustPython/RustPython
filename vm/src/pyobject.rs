@@ -664,13 +664,6 @@ impl PyContext {
         };
     }
 
-    pub fn get_attr(&self, obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-        // This does not need to be on the PyContext.
-        // We do not require to make a new key as string for this function
-        // (yet)...
-        obj.get_attr(attr_name)
-    }
-
     pub fn set_attr<'a, T: Into<&'a PyObjectRef>, V: Into<PyObjectRef>>(
         &'a self,
         obj: T,
