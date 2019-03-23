@@ -233,22 +233,24 @@ pub fn init(context: &PyContext) {
 tuple(iterable) -> tuple initialized from iterable's items
 
 If the argument is a tuple, the return value is the same object.";
-    context.set_attr(tuple_type, "__add__", context.new_rustfunc(PyTupleRef::add));
-    context.set_attr(tuple_type, "__bool__", context.new_rustfunc(PyTupleRef::bool));
-    context.set_attr(tuple_type, "__eq__", context.new_rustfunc(PyTupleRef::eq));
-    context.set_attr(tuple_type,"__contains__",context.new_rustfunc(PyTupleRef::contains));
-    context.set_attr(tuple_type,"__getitem__",context.new_rustfunc(PyTupleRef::getitem));
-    context.set_attr(tuple_type, "__hash__", context.new_rustfunc(PyTupleRef::hash));
-    context.set_attr(tuple_type, "__iter__", context.new_rustfunc(PyTupleRef::iter));
-    context.set_attr(tuple_type, "__len__", context.new_rustfunc(PyTupleRef::len));
-    context.set_attr(tuple_type, "__new__", context.new_rustfunc(tuple_new));
-    context.set_attr(tuple_type, "__mul__", context.new_rustfunc(PyTupleRef::mul));
-    context.set_attr(tuple_type, "__repr__", context.new_rustfunc(PyTupleRef::repr));
-    context.set_attr(tuple_type, "count", context.new_rustfunc(PyTupleRef::count));
-    context.set_attr(tuple_type, "__lt__", context.new_rustfunc(PyTupleRef::lt));
-    context.set_attr(tuple_type, "__le__", context.new_rustfunc(PyTupleRef::le));
-    context.set_attr(tuple_type, "__gt__", context.new_rustfunc(PyTupleRef::gt));
-    context.set_attr(tuple_type, "__ge__", context.new_rustfunc(PyTupleRef::ge));
-    context.set_attr(tuple_type,"__doc__",context.new_str(tuple_doc.to_string()));
-    context.set_attr(tuple_type, "index", context.new_rustfunc(PyTupleRef::index));
+    extend_class!(context, tuple_type, {
+        "__add__" => context.new_rustfunc(PyTupleRef::add),
+        "__bool__" => context.new_rustfunc(PyTupleRef::bool),
+        "__eq__" => context.new_rustfunc(PyTupleRef::eq),
+        "__contains__" => context.new_rustfunc(PyTupleRef::contains),
+        "__getitem__" => context.new_rustfunc(PyTupleRef::getitem),
+        "__hash__" => context.new_rustfunc(PyTupleRef::hash),
+        "__iter__" => context.new_rustfunc(PyTupleRef::iter),
+        "__len__" => context.new_rustfunc(PyTupleRef::len),
+        "__new__" => context.new_rustfunc(tuple_new),
+        "__mul__" => context.new_rustfunc(PyTupleRef::mul),
+        "__repr__" => context.new_rustfunc(PyTupleRef::repr),
+        "count" => context.new_rustfunc(PyTupleRef::count),
+        "__lt__" => context.new_rustfunc(PyTupleRef::lt),
+        "__le__" => context.new_rustfunc(PyTupleRef::le),
+        "__gt__" => context.new_rustfunc(PyTupleRef::gt),
+        "__ge__" => context.new_rustfunc(PyTupleRef::ge),
+        "__doc__" => context.new_str(tuple_doc.to_string()),
+        "index" => context.new_rustfunc(PyTupleRef::index)
+    });
 }
