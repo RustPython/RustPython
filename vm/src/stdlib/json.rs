@@ -6,15 +6,13 @@ use serde::ser::{SerializeMap, SerializeSeq};
 use serde_json;
 
 use crate::function::PyFuncArgs;
-use crate::obj::objtype::PyClassRef;
 use crate::obj::{
     objbool, objdict, objfloat, objint, objsequence,
     objstr::{self, PyString},
     objtype,
 };
 use crate::pyobject::{
-    create_type, DictProtocol, FromPyObjectRef, IdProtocol, PyContext, PyObjectRef, PyResult,
-    TypeProtocol,
+    create_type, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;
@@ -208,7 +206,7 @@ pub fn de_pyobject(vm: &VirtualMachine, s: &str) -> PyResult {
                 .unwrap()
                 .get_item("JSONDecodeError")
                 .unwrap();
-            let json_decode_error = PyClassRef::from_pyobj(&json_decode_error);
+            let json_decode_error = json_decode_error.downcast().unwrap();
             let exc = vm.new_exception(json_decode_error, format!("{}", err));
             vm.ctx.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()));
             vm.ctx.set_attr(&exc, "colno", vm.ctx.new_int(err.column()));

@@ -4,8 +4,8 @@ use std::fmt;
 
 use crate::function::{Args, KwArgs, PyFuncArgs};
 use crate::pyobject::{
-    FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -236,7 +236,7 @@ pub fn type_new_class(
     let mut bases: Vec<PyClassRef> = vm
         .extract_elements(bases)?
         .iter()
-        .map(|x| FromPyObjectRef::from_pyobj(x))
+        .map(|x| x.clone().downcast().unwrap())
         .collect();
     bases.push(vm.ctx.object());
     let name = objstr::get_value(name);
