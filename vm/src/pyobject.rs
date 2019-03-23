@@ -795,7 +795,7 @@ pub trait IdProtocol {
 enum Never {}
 
 impl PyValue for Never {
-    fn class(_vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(_vm: &VirtualMachine) -> PyObjectRef {
         unreachable!()
     }
 }
