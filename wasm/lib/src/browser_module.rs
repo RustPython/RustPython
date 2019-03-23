@@ -12,8 +12,7 @@ use rustpython_vm::import::import_module;
 use rustpython_vm::obj::objtype::PyClassRef;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{
-    AttributeProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -185,9 +184,12 @@ pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
 }
 
 pub fn import_promise_type(vm: &VirtualMachine) -> PyResult<PyClassRef> {
-    match import_module(vm, PathBuf::default(), BROWSER_NAME)?.get_attr("Promise") {
-        Some(promise) => PyClassRef::try_from_object(vm, promise),
-        None => Err(vm.new_not_implemented_error("No Promise".to_string())),
+    match vm.get_attribute(
+        import_module(vm, PathBuf::default(), BROWSER_NAME)?,
+        "Promise",
+    ) {
+        Ok(promise) => PyClassRef::try_from_object(vm, promise),
+        Err(_) => Err(vm.new_not_implemented_error("No Promise".to_string())),
     }
 }
 
