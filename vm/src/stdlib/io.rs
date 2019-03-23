@@ -21,7 +21,7 @@ use crate::obj::objint;
 use crate::obj::objstr;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    BufferProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    BufferProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -59,15 +59,11 @@ impl PyStringIORef {
     }
 }
 
-fn string_io_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(cls, None)]);
-
-    Ok(PyObject::new(
-        PyStringIO {
-            data: RefCell::new(String::default()),
-        },
-        cls.clone(),
-    ))
+fn string_io_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyStringIORef> {
+    PyStringIO {
+        data: RefCell::new(String::default()),
+    }
+    .into_ref_with_type(vm, cls)
 }
 
 fn bytes_io_init(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {

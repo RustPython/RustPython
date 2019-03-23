@@ -10,7 +10,9 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objsequence::get_elements;
 use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objtype::PyClassRef;
@@ -23,13 +25,13 @@ enum AddressFamily {
     Inet6 = 3,
 }
 
-impl AddressFamily {
-    fn from_i32(vm: &VirtualMachine, value: i32) -> Result<AddressFamily, PyObjectRef> {
-        match value {
+impl TryFromObject for AddressFamily {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match i32::try_from_object(vm, obj)? {
             1 => Ok(AddressFamily::Unix),
             2 => Ok(AddressFamily::Inet),
             3 => Ok(AddressFamily::Inet6),
-            _ => Err(vm.new_os_error(format!("Unknown address family value: {}", value))),
+            value => Err(vm.new_os_error(format!("Unknown address family value: {}", value))),
         }
     }
 }
@@ -40,12 +42,12 @@ enum SocketKind {
     Dgram = 2,
 }
 
-impl SocketKind {
-    fn from_i32(vm: &VirtualMachine, value: i32) -> Result<SocketKind, PyObjectRef> {
-        match value {
+impl TryFromObject for SocketKind {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match i32::try_from_object(vm, obj)? {
             1 => Ok(SocketKind::Stream),
             2 => Ok(SocketKind::Dgram),
-            _ => Err(vm.new_os_error(format!("Unknown socket kind value: {}", value))),
+            value => Err(vm.new_os_error(format!("Unknown socket kind value: {}", value))),
         }
     }
 }
@@ -119,9 +121,8 @@ pub struct Socket {
 }
 
 impl PyValue for Socket {
-    fn class(_vm: &VirtualMachine) -> PyClassRef {
-        // TODO
-        unimplemented!()
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("socket", "socket")
     }
 }
 
@@ -139,25 +140,15 @@ fn get_socket<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Socket> + 'a {
     obj.payload::<Socket>().unwrap()
 }
 
-fn socket_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, None),
-            (family_int, Some(vm.ctx.int_type())),
-            (kind_int, Some(vm.ctx.int_type()))
-        ]
-    );
+type SocketRef = PyRef<Socket>;
 
-    let address_family =
-        AddressFamily::from_i32(vm, objint::get_value(family_int).to_i32().unwrap())?;
-    let kind = SocketKind::from_i32(vm, objint::get_value(kind_int).to_i32().unwrap())?;
-
-    Ok(PyObject::new(
-        Socket::new(address_family, kind),
-        cls.clone(),
-    ))
+fn socket_new(
+    cls: PyClassRef,
+    family: AddressFamily,
+    kind: SocketKind,
+    vm: &VirtualMachine,
+) -> PyResult<SocketRef> {
+    Socket::new(family, kind).into_ref_with_type(vm, cls)
 }
 
 fn socket_connect(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -279,13 +270,12 @@ fn socket_accept(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         address_family: socket.address_family,
         socket_kind: socket.socket_kind,
         con: RefCell::new(Some(Connection::TcpStream(tcp_stream))),
-    };
-
-    let sock_obj = PyObject::new(socket, zelf.typ());
+    }
+    .into_ref(vm);
 
     let addr_tuple = get_addr_tuple(vm, addr)?;
 
-    Ok(vm.ctx.new_tuple(vec![sock_obj, addr_tuple]))
+    Ok(vm.ctx.new_tuple(vec![socket.into_object(), addr_tuple]))
 }
 
 fn socket_recv(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
