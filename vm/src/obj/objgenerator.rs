@@ -4,6 +4,7 @@
 
 use crate::frame::{ExecutionResult, Frame};
 use crate::function::PyFuncArgs;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -14,28 +15,18 @@ pub struct PyGenerator {
 type PyGeneratorRef = PyRef<PyGenerator>;
 
 impl PyValue for PyGenerator {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.generator_type()
     }
 }
 
 pub fn init(context: &PyContext) {
     let generator_type = &context.generator_type;
-    context.set_attr(
-        &generator_type,
-        "__iter__",
-        context.new_rustfunc(generator_iter),
-    );
-    context.set_attr(
-        &generator_type,
-        "__next__",
-        context.new_rustfunc(generator_next),
-    );
-    context.set_attr(
-        &generator_type,
-        "send",
-        context.new_rustfunc(generator_send),
-    );
+    extend_class!(context, generator_type, {
+        "__iter__" => context.new_rustfunc(generator_iter),
+        "__next__" => context.new_rustfunc(generator_next),
+        "send" => context.new_rustfunc(generator_send)
+    });
 }
 
 pub fn new_generator(frame: PyObjectRef, vm: &VirtualMachine) -> PyGeneratorRef {

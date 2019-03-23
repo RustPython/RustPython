@@ -4,7 +4,7 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::obj::{objbytes, objint, objsequence, objtype};
-use rustpython_vm::pyobject::{AttributeProtocol, DictProtocol, PyObjectRef, PyResult};
+use rustpython_vm::pyobject::{DictProtocol, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module;
@@ -20,8 +20,9 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
             }
         };
     }
-    let msg = match py_err
-        .get_attr("msg")
+    let msg = match vm
+        .get_attribute(py_err.clone(), "msg")
+        .ok()
         .and_then(|msg| vm.to_pystr(&msg).ok())
     {
         Some(msg) => msg,
@@ -37,7 +38,7 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
         &vm.ctx.exceptions.name_error => js_sys::ReferenceError::new,
         &vm.ctx.exceptions.syntax_error => js_sys::SyntaxError::new,
     });
-    if let Some(tb) = py_err.get_attr("__traceback__") {
+    if let Ok(tb) = vm.get_attribute(py_err.clone(), "__traceback__") {
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
             let elements = objsequence::get_elements(&tb).to_vec();
             if let Some(top) = elements.get(0) {

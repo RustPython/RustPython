@@ -16,7 +16,7 @@ pub struct PyComplex {
 type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.complex_type()
     }
 }
@@ -34,33 +34,19 @@ pub fn init(context: &PyContext) {
         "Create a complex number from a real part and an optional imaginary part.\n\n\
          This is equivalent to (real + imag*1j) where imag defaults to 0.";
 
-    context.set_attr(&complex_type, "__abs__", context.new_rustfunc(complex_abs));
-    context.set_attr(&complex_type, "__add__", context.new_rustfunc(complex_add));
-    context.set_attr(
-        &complex_type,
-        "__radd__",
-        context.new_rustfunc(complex_radd),
-    );
-    context.set_attr(&complex_type, "__eq__", context.new_rustfunc(complex_eq));
-    context.set_attr(&complex_type, "__neg__", context.new_rustfunc(complex_neg));
-    context.set_attr(&complex_type, "__new__", context.new_rustfunc(complex_new));
-    context.set_attr(&complex_type, "real", context.new_property(complex_real));
-    context.set_attr(&complex_type, "imag", context.new_property(complex_imag));
-    context.set_attr(
-        &complex_type,
-        "__doc__",
-        context.new_str(complex_doc.to_string()),
-    );
-    context.set_attr(
-        &complex_type,
-        "__repr__",
-        context.new_rustfunc(complex_repr),
-    );
-    context.set_attr(
-        &complex_type,
-        "conjugate",
-        context.new_rustfunc(complex_conjugate),
-    );
+    extend_class!(context, complex_type, {
+        "__abs__" => context.new_rustfunc(complex_abs),
+        "__add__" => context.new_rustfunc(complex_add),
+        "__doc__" => context.new_str(complex_doc.to_string()),
+        "__eq__" => context.new_rustfunc(complex_eq),
+        "__neg__" => context.new_rustfunc(complex_neg),
+        "__new__" => context.new_rustfunc(complex_new),
+        "__radd__" => context.new_rustfunc(complex_radd),
+        "__repr__" => context.new_rustfunc(complex_repr),
+        "conjugate" => context.new_rustfunc(complex_conjugate),
+        "imag" => context.new_property(complex_imag),
+        "real" => context.new_property(complex_real)
+    });
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {

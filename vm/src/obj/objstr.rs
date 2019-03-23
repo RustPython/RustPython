@@ -57,6 +57,10 @@ impl PyStringRef {
         }
     }
 
+    fn bool(self, _vm: &VirtualMachine) -> bool {
+        !self.value.is_empty()
+    }
+
     fn eq(self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
         if objtype::isinstance(&rhs, &vm.ctx.str_type()) {
             self.value == get_value(&rhs)
@@ -605,7 +609,7 @@ impl PyStringRef {
 }
 
 impl PyValue for PyString {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.str_type()
     }
 }
@@ -632,6 +636,7 @@ pub fn init(context: &PyContext) {
 
     extend_class!(context, str_type, {
         "__add__" => context.new_rustfunc(PyStringRef::add),
+        "__bool__" => context.new_rustfunc(PyStringRef::bool),
         "__contains__" => context.new_rustfunc(PyStringRef::contains),
         "__doc__" => context.new_str(str_doc.to_string()),
         "__eq__" => context.new_rustfunc(PyStringRef::eq),

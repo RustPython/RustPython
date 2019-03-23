@@ -15,11 +15,13 @@ use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
-use crate::obj::objtype;
+use crate::obj::objtype::{self, PyClassRef};
 
 use crate::frame::Scope;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
-use crate::pyobject::{DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{
+    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -357,15 +359,8 @@ fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 
-fn builtin_isinstance(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None), (typ, Some(vm.get_type()))]
-    );
-
-    let isinstance = vm.isinstance(obj, typ)?;
-    Ok(vm.new_bool(isinstance))
+fn builtin_isinstance(obj: PyObjectRef, typ: PyClassRef, vm: &VirtualMachine) -> PyResult<bool> {
+    vm.isinstance(&obj, &typ)
 }
 
 fn builtin_issubclass(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -785,7 +780,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "__import__" => ctx.new_rustfunc(builtin_import),
 
         // Constants
-        "NotImplemented" => ctx.not_implemented.clone(),
+        "NotImplemented" => ctx.not_implemented(),
 
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.clone(),
@@ -818,12 +813,16 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let function = args.shift();
     let name_arg = args.shift();
     let bases = args.args.clone();
-    let mut metaclass = args.get_kwarg("metaclass", vm.get_type());
+    let mut metaclass = if let Some(metaclass) = args.get_optional_kwarg("metaclass") {
+        PyClassRef::try_from_object(vm, metaclass)?
+    } else {
+        vm.get_type()
+    };
 
     for base in bases.clone() {
-        if objtype::issubclass(&base.typ(), &metaclass) {
-            metaclass = base.typ();
-        } else if !objtype::issubclass(&metaclass, &base.typ()) {
+        if objtype::issubclass(&base.type_pyref(), &metaclass) {
+            metaclass = base.type_pyref();
+        } else if !objtype::issubclass(&metaclass, &base.type_pyref()) {
             return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
         }
     }
@@ -831,13 +830,17 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let bases = vm.context().new_tuple(bases);
 
     // Prepare uses full __getattribute__ resolution chain.
-    let prepare = vm.get_attribute(metaclass.clone(), "__prepare__")?;
+    let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
     let cells = vm.new_dict();
 
     vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
-    let class = vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])?;
+    let class = vm.call_method(
+        metaclass.as_object(),
+        "__call__",
+        vec![name_arg, bases, namespace],
+    )?;
     cells.set_item(&vm.ctx, "__class__", class.clone());
     Ok(class)
 }

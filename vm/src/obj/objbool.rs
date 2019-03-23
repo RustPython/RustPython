@@ -6,12 +6,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objdict::PyDict;
-use super::objfloat::PyFloat;
 use super::objint::PyInt;
-use super::objlist::PyList;
-use super::objstr::PyString;
-use super::objtuple::PyTuple;
 use super::objtype;
 
 impl IntoPyObject for bool {
@@ -27,25 +22,6 @@ impl TryFromObject for bool {
 }
 
 pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
-    if let Some(s) = obj.payload::<PyString>() {
-        return Ok(!s.value.is_empty());
-    }
-    if let Some(value) = obj.payload::<PyFloat>() {
-        return Ok(*value != PyFloat::from(0.0));
-    }
-    if let Some(dict) = obj.payload::<PyDict>() {
-        return Ok(!dict.entries.borrow().is_empty());
-    }
-    if let Some(i) = obj.payload::<PyInt>() {
-        return Ok(!i.value.is_zero());
-    }
-    if let Some(list) = obj.payload::<PyList>() {
-        return Ok(!list.elements.borrow().is_empty());
-    }
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return Ok(!tuple.elements.borrow().is_empty());
-    }
-
     Ok(if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
         let bool_res = vm.invoke(f, PyFuncArgs::default())?;
         match bool_res.payload::<PyInt>() {
@@ -65,9 +41,11 @@ The builtins True and False are the only two instances of the class bool.
 The class bool is a subclass of the class int, and cannot be subclassed.";
 
     let bool_type = &context.bool_type;
-    context.set_attr(&bool_type, "__new__", context.new_rustfunc(bool_new));
-    context.set_attr(&bool_type, "__repr__", context.new_rustfunc(bool_repr));
-    context.set_attr(&bool_type, "__doc__", context.new_str(bool_doc.to_string()));
+    extend_class!(context, bool_type, {
+        "__new__" => context.new_rustfunc(bool_new),
+        "__repr__" => context.new_rustfunc(bool_repr),
+        "__doc__" => context.new_str(bool_doc.to_string())
+    });
 }
 
 pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult {

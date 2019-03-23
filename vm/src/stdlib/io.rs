@@ -19,6 +19,7 @@ use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     BufferProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -42,7 +43,7 @@ struct PyStringIO {
 type PyStringIORef = PyRef<PyStringIO>;
 
 impl PyValue for PyStringIO {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("io", "StringIO")
     }
 }
@@ -102,7 +103,7 @@ fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
-    vm.ctx.set_attr(&buffered, "raw", raw.clone());
+    vm.ctx.set_attr(buffered, "raw", raw.clone());
     Ok(vm.get_none())
 }
 
@@ -115,7 +116,7 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut result = vec![];
     let mut length = buff_size;
 
-    let raw = vm.ctx.get_attr(&buffered, "raw").unwrap();
+    let raw = vm.get_attribute(buffered.clone(), "raw").unwrap();
 
     //Iterates through the raw class, invoking the readinto method
     //to obtain buff_size many bytes. Exit when less than buff_size many
@@ -151,10 +152,10 @@ fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             let args = vec![name.clone(), vm.ctx.new_int(os_mode)];
             let file_no = os::os_open(vm, PyFuncArgs::new(args, vec![]))?;
 
-            vm.ctx.set_attr(&file_io, "name", name.clone());
-            vm.ctx.set_attr(&file_io, "fileno", file_no);
-            vm.ctx.set_attr(&file_io, "closefd", vm.new_bool(false));
-            vm.ctx.set_attr(&file_io, "closed", vm.new_bool(false));
+            vm.ctx.set_attr(file_io, "name", name.clone());
+            vm.ctx.set_attr(file_io, "fileno", file_no);
+            vm.ctx.set_attr(file_io, "closefd", vm.new_bool(false));
+            vm.ctx.set_attr(file_io, "closed", vm.new_bool(false));
 
             Ok(vm.get_none())
         }
@@ -218,7 +219,7 @@ fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     let updated = os::raw_file_number(f.into_inner());
-    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(updated));
+    vm.ctx.set_attr(file_io, "fileno", vm.ctx.new_int(updated));
     Ok(vm.get_none())
 }
 
@@ -244,7 +245,7 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 Ok(len) => {
                     //reset raw fd on the FileIO object
                     let updated = os::raw_file_number(handle);
-                    vm.ctx.set_attr(&file_io, "fileno", vm.ctx.new_int(updated));
+                    vm.ctx.set_attr(file_io, "fileno", vm.ctx.new_int(updated));
 
                     //return number of bytes written
                     Ok(vm.ctx.new_int(len))
@@ -263,7 +264,7 @@ fn buffered_writer_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(buffered, None), (obj, Some(vm.ctx.bytes_type()))]
     );
 
-    let raw = vm.ctx.get_attr(&buffered, "raw").unwrap();
+    let raw = vm.get_attribute(buffered.clone(), "raw").unwrap();
 
     //This should be replaced with a more appropriate chunking implementation
     vm.call_method(&raw, "write", vec![obj.clone()])
@@ -276,14 +277,14 @@ fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(text_io_wrapper, None), (buffer, None)]
     );
 
-    vm.ctx.set_attr(&text_io_wrapper, "buffer", buffer.clone());
+    vm.ctx.set_attr(text_io_wrapper, "buffer", buffer.clone());
     Ok(vm.get_none())
 }
 
 fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(text_io_base, None)]);
 
-    let raw = vm.ctx.get_attr(&text_io_base, "buffer").unwrap();
+    let raw = vm.get_attribute(text_io_base.clone(), "buffer").unwrap();
 
     if let Ok(bytes) = vm.call_method(&raw, "read", PyFuncArgs::default()) {
         let value = objbytes::get_value(&bytes).to_vec();
@@ -334,10 +335,10 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     //RawIO: FileIO
     //Buffered: BufferedWriter, BufferedReader
     //Text: TextIOWrapper
-    let file_io_class = vm.ctx.get_attr(&module, "FileIO").unwrap();
-    let buffered_writer_class = vm.ctx.get_attr(&module, "BufferedWriter").unwrap();
-    let buffered_reader_class = vm.ctx.get_attr(&module, "BufferedReader").unwrap();
-    let text_io_wrapper_class = vm.ctx.get_attr(&module, "TextIOWrapper").unwrap();
+    let file_io_class = vm.get_attribute(module.clone(), "FileIO").unwrap();
+    let buffered_writer_class = vm.get_attribute(module.clone(), "BufferedWriter").unwrap();
+    let buffered_reader_class = vm.get_attribute(module.clone(), "BufferedReader").unwrap();
+    let text_io_wrapper_class = vm.get_attribute(module, "TextIOWrapper").unwrap();
 
     //Construct a FileIO (subclass of RawIOBase)
     //This is subsequently consumed by a Buffered Class.
@@ -388,6 +389,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     });
 
     // RawBaseIO Subclasses
+    // TODO Fix name?
     let file_io = py_class!(ctx, "FileIO", raw_io_base.clone(), {
         "__init__" => ctx.new_rustfunc(file_io_init),
         "name" => ctx.str_type(),
@@ -425,14 +427,14 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 
     py_module!(ctx, "io", {
         "open" => ctx.new_rustfunc(io_open),
-        "IOBase" => io_base.clone(),
-        "RawIOBase" => raw_io_base.clone(),
-        "BufferedIOBase" => buffered_io_base.clone(),
-        "TextIOBase" => text_io_base.clone(),
-        "FileIO" => file_io.clone(),
-        "BufferedReader" => buffered_reader.clone(),
-        "BufferedWriter" => buffered_writer.clone(),
-        "TextIOWrapper" => text_io_wrapper.clone(),
+        "IOBase" => io_base,
+        "RawIOBase" => raw_io_base,
+        "BufferedIOBase" => buffered_io_base,
+        "TextIOBase" => text_io_base,
+        "FileIO" => file_io,
+        "BufferedReader" => buffered_reader,
+        "BufferedWriter" => buffered_writer,
+        "TextIOWrapper" => text_io_wrapper,
         "StringIO" => string_io,
         "BytesIO" => bytes_io,
     })

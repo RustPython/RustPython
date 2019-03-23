@@ -7,13 +7,16 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::PyFuncArgs;
 use crate::pyobject::{
-    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objint::{self, PyInt};
 use super::objslice::PySlice;
 use super::objtype;
+use crate::obj::objtype::PyClassRef;
+
+pub type PyRangeRef = PyRef<PyRange>;
 
 #[derive(Debug, Clone)]
 pub struct PyRange {
@@ -25,7 +28,7 @@ pub struct PyRange {
 }
 
 impl PyValue for PyRange {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.range_type()
     }
 }
@@ -218,30 +221,20 @@ fn range_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn range_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(range, Some(vm.ctx.range_type()))]);
-
-    Ok(PyObject::new(
-        PyIteratorValue {
-            position: Cell::new(0),
-            iterated_obj: range.clone(),
-        },
-        vm.ctx.iter_type(),
-    ))
+fn range_iter(range: PyRangeRef, _vm: &VirtualMachine) -> PyIteratorValue {
+    PyIteratorValue {
+        position: Cell::new(0),
+        iterated_obj: range.into_object(),
+    }
 }
 
-fn range_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.range_type()))]);
+fn range_reversed(zelf: PyRangeRef, vm: &VirtualMachine) -> PyIteratorValue {
+    let range = zelf.reversed();
 
-    let range = get_value(zelf).reversed();
-
-    Ok(PyObject::new(
-        PyIteratorValue {
-            position: Cell::new(0),
-            iterated_obj: PyObject::new(range, vm.ctx.range_type()),
-        },
-        vm.ctx.iter_type(),
-    ))
+    PyIteratorValue {
+        position: Cell::new(0),
+        iterated_obj: range.into_ref(vm).into_object(),
+    }
 }
 
 fn range_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -301,14 +294,13 @@ fn range_getitem(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             range.step
         };
 
-        Ok(PyObject::new(
-            PyRange {
-                start: new_start,
-                end: new_end,
-                step: new_step,
-            },
-            vm.ctx.range_type(),
-        ))
+        Ok(PyRange {
+            start: new_start,
+            end: new_end,
+            step: new_step,
+        }
+        .into_ref(vm)
+        .into_object())
     } else {
         Err(vm.new_type_error("range indices must be integer or slice".to_string()))
     }

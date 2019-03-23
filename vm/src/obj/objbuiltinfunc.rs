@@ -1,7 +1,8 @@
 use std::fmt;
 
 use crate::function::PyNativeFunc;
-use crate::pyobject::{PyObjectRef, PyValue};
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::PyValue;
 use crate::vm::VirtualMachine;
 
 pub struct PyBuiltinFunction {
@@ -10,7 +11,7 @@ pub struct PyBuiltinFunction {
 }
 
 impl PyValue for PyBuiltinFunction {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.builtin_function_or_method_type()
     }
 }

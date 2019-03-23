@@ -34,7 +34,7 @@ impl Deref for PyBytes {
 }
 
 impl PyValue for PyBytes {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.bytes_type()
     }
 }
@@ -43,7 +43,7 @@ impl PyValue for PyBytes {
 
 // Fill bytes class methods:
 pub fn init(context: &PyContext) {
-    let bytes_type = &context.bytes_type;
+    let bytes_type = context.bytes_type.as_object();
 
     let bytes_doc =
         "bytes(iterable_of_ints) -> bytes\n\
@@ -56,21 +56,19 @@ pub fn init(context: &PyContext) {
          - any object implementing the buffer API.\n  \
          - an integer";
 
-    context.set_attr(bytes_type, "__eq__", context.new_rustfunc(bytes_eq));
-    context.set_attr(bytes_type, "__lt__", context.new_rustfunc(bytes_lt));
-    context.set_attr(bytes_type, "__le__", context.new_rustfunc(bytes_le));
-    context.set_attr(bytes_type, "__gt__", context.new_rustfunc(bytes_gt));
-    context.set_attr(bytes_type, "__ge__", context.new_rustfunc(bytes_ge));
-    context.set_attr(bytes_type, "__hash__", context.new_rustfunc(bytes_hash));
-    context.set_attr(bytes_type, "__new__", context.new_rustfunc(bytes_new));
-    context.set_attr(bytes_type, "__repr__", context.new_rustfunc(bytes_repr));
-    context.set_attr(bytes_type, "__len__", context.new_rustfunc(bytes_len));
-    context.set_attr(bytes_type, "__iter__", context.new_rustfunc(bytes_iter));
-    context.set_attr(
-        bytes_type,
-        "__doc__",
-        context.new_str(bytes_doc.to_string()),
-    );
+    extend_class!(context, bytes_type, {
+        "__eq__" => context.new_rustfunc(bytes_eq),
+        "__lt__" => context.new_rustfunc(bytes_lt),
+        "__le__" => context.new_rustfunc(bytes_le),
+        "__gt__" => context.new_rustfunc(bytes_gt),
+        "__ge__" => context.new_rustfunc(bytes_ge),
+        "__hash__" => context.new_rustfunc(bytes_hash),
+        "__new__" => context.new_rustfunc(bytes_new),
+        "__repr__" => context.new_rustfunc(bytes_repr),
+        "__len__" => context.new_rustfunc(bytes_len),
+        "__iter__" => context.new_rustfunc(bytes_iter),
+        "__doc__" => context.new_str(bytes_doc.to_string())
+    });
 }
 
 fn bytes_new(

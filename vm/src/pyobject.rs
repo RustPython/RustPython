@@ -31,13 +31,13 @@ use crate::obj::objfloat::{self, PyFloat};
 use crate::obj::objframe;
 use crate::obj::objfunction::{self, PyFunction, PyMethod};
 use crate::obj::objgenerator;
-use crate::obj::objint::{self, PyInt};
+use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::{self, PyList};
 use crate::obj::objmap;
 use crate::obj::objmemory;
 use crate::obj::objmodule::{self, PyModule};
-use crate::obj::objnone;
+use crate::obj::objnone::{self, PyNone, PyNoneRef};
 use crate::obj::objobject;
 use crate::obj::objproperty;
 use crate::obj::objproperty::PropertyBuilder;
@@ -72,7 +72,7 @@ Basically reference counting, but then done by rust.
 /// this reference counting is accounted for by this type. Use the `.clone()`
 /// method to create a new reference and increment the amount of references
 /// to the python object by 1.
-pub type PyObjectRef = Rc<PyObject>;
+pub type PyObjectRef = Rc<PyObject<dyn PyObjectPayload>>;
 
 /// Use this type for function which return a python object or and exception.
 /// Both the python object and the python exception are `PyObjectRef` types
@@ -83,7 +83,7 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, o
 /// faster, unordered, and only supports strings as keys.
 pub type PyAttributes = HashMap<String, PyObjectRef>;
 
-impl fmt::Display for PyObject {
+impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
@@ -106,80 +106,85 @@ impl fmt::Display for PyObject {
 
 #[derive(Debug)]
 pub struct PyContext {
-    pub bytes_type: PyObjectRef,
-    pub bytearray_type: PyObjectRef,
-    pub bool_type: PyObjectRef,
-    pub classmethod_type: PyObjectRef,
-    pub code_type: PyObjectRef,
-    pub dict_type: PyObjectRef,
-    pub ellipsis_type: PyObjectRef,
-    pub enumerate_type: PyObjectRef,
-    pub filter_type: PyObjectRef,
-    pub float_type: PyObjectRef,
-    pub frame_type: PyObjectRef,
-    pub frozenset_type: PyObjectRef,
-    pub generator_type: PyObjectRef,
-    pub int_type: PyObjectRef,
-    pub iter_type: PyObjectRef,
-    pub complex_type: PyObjectRef,
-    pub true_value: PyObjectRef,
-    pub false_value: PyObjectRef,
-    pub list_type: PyObjectRef,
-    pub map_type: PyObjectRef,
-    pub memoryview_type: PyObjectRef,
-    pub none: PyObjectRef,
-    pub ellipsis: PyObjectRef,
-    pub not_implemented: PyObjectRef,
-    pub tuple_type: PyObjectRef,
-    pub set_type: PyObjectRef,
-    pub staticmethod_type: PyObjectRef,
-    pub super_type: PyObjectRef,
-    pub str_type: PyObjectRef,
-    pub range_type: PyObjectRef,
-    pub slice_type: PyObjectRef,
-    pub type_type: PyObjectRef,
-    pub zip_type: PyObjectRef,
-    pub function_type: PyObjectRef,
-    pub builtin_function_or_method_type: PyObjectRef,
-    pub property_type: PyObjectRef,
-    pub readonly_property_type: PyObjectRef,
-    pub module_type: PyObjectRef,
-    pub bound_method_type: PyObjectRef,
-    pub weakref_type: PyObjectRef,
-    pub object: PyObjectRef,
+    pub bytes_type: PyClassRef,
+    pub bytearray_type: PyClassRef,
+    pub bool_type: PyClassRef,
+    pub classmethod_type: PyClassRef,
+    pub code_type: PyClassRef,
+    pub dict_type: PyClassRef,
+    pub ellipsis_type: PyClassRef,
+    pub enumerate_type: PyClassRef,
+    pub filter_type: PyClassRef,
+    pub float_type: PyClassRef,
+    pub frame_type: PyClassRef,
+    pub frozenset_type: PyClassRef,
+    pub generator_type: PyClassRef,
+    pub int_type: PyClassRef,
+    pub iter_type: PyClassRef,
+    pub complex_type: PyClassRef,
+    pub true_value: PyIntRef,
+    pub false_value: PyIntRef,
+    pub list_type: PyClassRef,
+    pub map_type: PyClassRef,
+    pub memoryview_type: PyClassRef,
+    pub none: PyNoneRef,
+    pub ellipsis: PyEllipsisRef,
+    pub not_implemented: PyNotImplementedRef,
+    pub tuple_type: PyClassRef,
+    pub set_type: PyClassRef,
+    pub staticmethod_type: PyClassRef,
+    pub super_type: PyClassRef,
+    pub str_type: PyClassRef,
+    pub range_type: PyClassRef,
+    pub slice_type: PyClassRef,
+    pub type_type: PyClassRef,
+    pub zip_type: PyClassRef,
+    pub function_type: PyClassRef,
+    pub builtin_function_or_method_type: PyClassRef,
+    pub property_type: PyClassRef,
+    pub readonly_property_type: PyClassRef,
+    pub module_type: PyClassRef,
+    pub bound_method_type: PyClassRef,
+    pub weakref_type: PyClassRef,
+    pub object: PyClassRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
 
-pub fn create_type(name: &str, type_type: &PyObjectRef, base: &PyObjectRef) -> PyObjectRef {
+pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
     let dict = PyAttributes::new();
-    objtype::new(
-        type_type.clone(),
+    let new_type = objtype::new(
+        type_type.clone().into_object(),
         name,
-        vec![FromPyObjectRef::from_pyobj(base)],
+        vec![base.clone()],
         dict,
     )
-    .unwrap()
+    .unwrap();
+    new_type.downcast().unwrap()
 }
+
+pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
 
 #[derive(Debug)]
 pub struct PyNotImplemented;
 
 impl PyValue for PyNotImplemented {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented().typ()
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.not_implemented().type_pyref()
     }
 }
+
+pub type PyEllipsisRef = PyRef<PyEllipsis>;
 
 #[derive(Debug)]
 pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.ellipsis_type.clone()
     }
 }
 
-fn init_type_hierarchy() -> (PyObjectRef, PyObjectRef) {
+fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     // `type` inherits from `object`
     // and both `type` and `object are instances of `type`.
     // to produce this circular dependency, we need an unsafe block.
@@ -188,29 +193,32 @@ fn init_type_hierarchy() -> (PyObjectRef, PyObjectRef) {
         let object_type = PyObject {
             typ: mem::uninitialized(), // !
             dict: Some(RefCell::new(PyAttributes::new())),
-            payload: Box::new(PyClass {
+            payload: PyClass {
                 name: String::from("object"),
                 mro: vec![],
-            }),
+            },
         }
         .into_ref();
 
         let type_type = PyObject {
             typ: mem::uninitialized(), // !
             dict: Some(RefCell::new(PyAttributes::new())),
-            payload: Box::new(PyClass {
+            payload: PyClass {
                 name: String::from("type"),
-                mro: vec![FromPyObjectRef::from_pyobj(&object_type)],
-            }),
+                mro: vec![object_type.clone().downcast().unwrap()],
+            },
         }
         .into_ref();
 
-        let object_type_ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject;
-        let type_type_ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject;
+        let object_type_ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject<PyClass>;
+        let type_type_ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject<PyClass>;
         ptr::write(&mut (*object_type_ptr).typ, type_type.clone());
         ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
 
-        (type_type, object_type)
+        (
+            type_type.downcast().unwrap(),
+            object_type.downcast().unwrap(),
+        )
     }
 }
 
@@ -244,7 +252,6 @@ impl PyContext {
         let bytearray_type = create_type("bytearray", &type_type, &object_type);
         let tuple_type = create_type("tuple", &type_type, &object_type);
         let iter_type = create_type("iter", &type_type, &object_type);
-        let ellipsis_type = create_type("EllipsisType", &type_type, &object_type);
         let enumerate_type = create_type("enumerate", &type_type, &object_type);
         let filter_type = create_type("filter", &type_type, &object_type);
         let map_type = create_type("map", &type_type, &object_type);
@@ -256,20 +263,24 @@ impl PyContext {
         let slice_type = create_type("slice", &type_type, &object_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type);
 
-        let none = PyObject::new(
-            objnone::PyNone,
-            create_type("NoneType", &type_type, &object_type),
-        );
+        fn create_object<T: PyObjectPayload>(payload: T, cls: &PyClassRef) -> PyRef<T> {
+            PyRef {
+                obj: PyObject::new(payload, cls.clone().into_object()),
+                _payload: PhantomData,
+            }
+        }
 
-        let ellipsis = PyObject::new(PyEllipsis, ellipsis_type.clone());
+        let none_type = create_type("NoneType", &type_type, &object_type);
+        let none = create_object(PyNone, &none_type);
 
-        let not_implemented = PyObject::new(
-            PyNotImplemented,
-            create_type("NotImplementedType", &type_type, &object_type),
-        );
+        let ellipsis_type = create_type("EllipsisType", &type_type, &object_type);
+        let ellipsis = create_object(PyEllipsis, &ellipsis_type);
 
-        let true_value = PyObject::new(PyInt::new(BigInt::one()), bool_type.clone());
-        let false_value = PyObject::new(PyInt::new(BigInt::zero()), bool_type.clone());
+        let not_implemented_type = create_type("NotImplementedType", &type_type, &object_type);
+        let not_implemented = create_object(PyNotImplemented, &not_implemented_type);
+
+        let true_value = create_object(PyInt::new(BigInt::one()), &bool_type);
+        let false_value = create_object(PyInt::new(BigInt::zero()), &bool_type);
         let context = PyContext {
             bool_type,
             memoryview_type,
@@ -352,220 +363,227 @@ impl PyContext {
         context
     }
 
-    pub fn bytearray_type(&self) -> PyObjectRef {
+    pub fn bytearray_type(&self) -> PyClassRef {
         self.bytearray_type.clone()
     }
 
-    pub fn bytes_type(&self) -> PyObjectRef {
+    pub fn bytes_type(&self) -> PyClassRef {
         self.bytes_type.clone()
     }
 
-    pub fn code_type(&self) -> PyObjectRef {
+    pub fn code_type(&self) -> PyClassRef {
         self.code_type.clone()
     }
 
-    pub fn complex_type(&self) -> PyObjectRef {
+    pub fn complex_type(&self) -> PyClassRef {
         self.complex_type.clone()
     }
 
-    pub fn dict_type(&self) -> PyObjectRef {
+    pub fn dict_type(&self) -> PyClassRef {
         self.dict_type.clone()
     }
 
-    pub fn float_type(&self) -> PyObjectRef {
+    pub fn float_type(&self) -> PyClassRef {
         self.float_type.clone()
     }
 
-    pub fn frame_type(&self) -> PyObjectRef {
+    pub fn frame_type(&self) -> PyClassRef {
         self.frame_type.clone()
     }
 
-    pub fn int_type(&self) -> PyObjectRef {
+    pub fn int_type(&self) -> PyClassRef {
         self.int_type.clone()
     }
 
-    pub fn list_type(&self) -> PyObjectRef {
+    pub fn list_type(&self) -> PyClassRef {
         self.list_type.clone()
     }
 
-    pub fn module_type(&self) -> PyObjectRef {
+    pub fn module_type(&self) -> PyClassRef {
         self.module_type.clone()
     }
 
-    pub fn set_type(&self) -> PyObjectRef {
+    pub fn set_type(&self) -> PyClassRef {
         self.set_type.clone()
     }
 
-    pub fn range_type(&self) -> PyObjectRef {
+    pub fn range_type(&self) -> PyClassRef {
         self.range_type.clone()
     }
 
-    pub fn slice_type(&self) -> PyObjectRef {
+    pub fn slice_type(&self) -> PyClassRef {
         self.slice_type.clone()
     }
 
-    pub fn frozenset_type(&self) -> PyObjectRef {
+    pub fn frozenset_type(&self) -> PyClassRef {
         self.frozenset_type.clone()
     }
 
-    pub fn bool_type(&self) -> PyObjectRef {
+    pub fn bool_type(&self) -> PyClassRef {
         self.bool_type.clone()
     }
 
-    pub fn memoryview_type(&self) -> PyObjectRef {
+    pub fn memoryview_type(&self) -> PyClassRef {
         self.memoryview_type.clone()
     }
 
-    pub fn tuple_type(&self) -> PyObjectRef {
+    pub fn tuple_type(&self) -> PyClassRef {
         self.tuple_type.clone()
     }
 
-    pub fn iter_type(&self) -> PyObjectRef {
+    pub fn iter_type(&self) -> PyClassRef {
         self.iter_type.clone()
     }
 
-    pub fn enumerate_type(&self) -> PyObjectRef {
+    pub fn enumerate_type(&self) -> PyClassRef {
         self.enumerate_type.clone()
     }
 
-    pub fn filter_type(&self) -> PyObjectRef {
+    pub fn filter_type(&self) -> PyClassRef {
         self.filter_type.clone()
     }
 
-    pub fn map_type(&self) -> PyObjectRef {
+    pub fn map_type(&self) -> PyClassRef {
         self.map_type.clone()
     }
 
-    pub fn zip_type(&self) -> PyObjectRef {
+    pub fn zip_type(&self) -> PyClassRef {
         self.zip_type.clone()
     }
 
-    pub fn str_type(&self) -> PyObjectRef {
+    pub fn str_type(&self) -> PyClassRef {
         self.str_type.clone()
     }
 
-    pub fn super_type(&self) -> PyObjectRef {
+    pub fn super_type(&self) -> PyClassRef {
         self.super_type.clone()
     }
 
-    pub fn function_type(&self) -> PyObjectRef {
+    pub fn function_type(&self) -> PyClassRef {
         self.function_type.clone()
     }
 
-    pub fn builtin_function_or_method_type(&self) -> PyObjectRef {
+    pub fn builtin_function_or_method_type(&self) -> PyClassRef {
         self.builtin_function_or_method_type.clone()
     }
 
-    pub fn property_type(&self) -> PyObjectRef {
+    pub fn property_type(&self) -> PyClassRef {
         self.property_type.clone()
     }
 
-    pub fn readonly_property_type(&self) -> PyObjectRef {
+    pub fn readonly_property_type(&self) -> PyClassRef {
         self.readonly_property_type.clone()
     }
 
-    pub fn classmethod_type(&self) -> PyObjectRef {
+    pub fn classmethod_type(&self) -> PyClassRef {
         self.classmethod_type.clone()
     }
 
-    pub fn staticmethod_type(&self) -> PyObjectRef {
+    pub fn staticmethod_type(&self) -> PyClassRef {
         self.staticmethod_type.clone()
     }
 
-    pub fn generator_type(&self) -> PyObjectRef {
+    pub fn generator_type(&self) -> PyClassRef {
         self.generator_type.clone()
     }
 
-    pub fn bound_method_type(&self) -> PyObjectRef {
+    pub fn bound_method_type(&self) -> PyClassRef {
         self.bound_method_type.clone()
     }
 
-    pub fn weakref_type(&self) -> PyObjectRef {
+    pub fn weakref_type(&self) -> PyClassRef {
         self.weakref_type.clone()
     }
 
-    pub fn type_type(&self) -> PyObjectRef {
+    pub fn type_type(&self) -> PyClassRef {
         self.type_type.clone()
     }
 
     pub fn none(&self) -> PyObjectRef {
-        self.none.clone()
+        self.none.clone().into_object()
     }
 
     pub fn ellipsis(&self) -> PyObjectRef {
-        self.ellipsis.clone()
+        self.ellipsis.clone().into_object()
     }
 
     pub fn not_implemented(&self) -> PyObjectRef {
-        self.not_implemented.clone()
+        self.not_implemented.clone().into_object()
     }
 
-    pub fn object(&self) -> PyObjectRef {
+    pub fn object(&self) -> PyClassRef {
         self.object.clone()
     }
 
     pub fn new_object(&self) -> PyObjectRef {
-        self.new_instance(self.object(), None)
+        self.new_instance(self.object.clone(), None)
     }
 
     pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
-        PyObject::new(PyInt::new(i), self.int_type())
+        PyObject::new(PyInt::new(i), self.int_type().into_object())
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {
-        PyObject::new(PyFloat::from(value), self.float_type())
+        PyObject::new(PyFloat::from(value), self.float_type().into_object())
     }
 
     pub fn new_complex(&self, value: Complex64) -> PyObjectRef {
-        PyObject::new(PyComplex::from(value), self.complex_type())
+        PyObject::new(PyComplex::from(value), self.complex_type().into_object())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(objstr::PyString { value: s }, self.str_type())
+        PyObject::new(objstr::PyString { value: s }, self.str_type().into_object())
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(objbytes::PyBytes::new(data), self.bytes_type())
+        PyObject::new(
+            objbytes::PyBytes::new(data),
+            self.bytes_type().into_object(),
+        )
     }
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(objbytearray::PyByteArray::new(data), self.bytearray_type())
+        PyObject::new(
+            objbytearray::PyByteArray::new(data),
+            self.bytearray_type().into_object(),
+        )
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
         if b {
-            self.true_value.clone()
+            self.true_value.clone().into_object()
         } else {
-            self.false_value.clone()
+            self.false_value.clone().into_object()
         }
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyTuple::from(elements), self.tuple_type())
+        PyObject::new(PyTuple::from(elements), self.tuple_type().into_object())
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyList::from(elements), self.list_type())
+        PyObject::new(PyList::from(elements), self.list_type().into_object())
     }
 
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        PyObject::new(PySet::default(), self.set_type())
+        PyObject::new(PySet::default(), self.set_type().into_object())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
-        PyObject::new(PyDict::default(), self.dict_type())
+        PyObject::new(PyDict::default(), self.dict_type().into_object())
     }
 
-    pub fn new_class(&self, name: &str, base: PyObjectRef) -> PyObjectRef {
-        objtype::new(
-            self.type_type(),
+    pub fn new_class(&self, name: &str, base: PyClassRef) -> PyClassRef {
+        let typ = objtype::new(
+            self.type_type().into_object(),
             name,
-            vec![FromPyObjectRef::from_pyobj(&base)],
+            vec![base],
             PyAttributes::new(),
         )
-        .unwrap()
+        .unwrap();
+        typ.downcast().unwrap()
     }
 
     pub fn new_scope(&self) -> Scope {
@@ -578,7 +596,7 @@ impl PyContext {
                 name: name.to_string(),
                 dict,
             },
-            self.module_type.clone(),
+            self.module_type.clone().into_object(),
         )
     }
 
@@ -588,12 +606,12 @@ impl PyContext {
     {
         PyObject::new(
             PyBuiltinFunction::new(f.into_func()),
-            self.builtin_function_or_method_type(),
+            self.builtin_function_or_method_type().into_object(),
         )
     }
 
     pub fn new_frame(&self, code: PyObjectRef, scope: Scope) -> PyObjectRef {
-        PyObject::new(Frame::new(code, scope), self.frame_type())
+        PyObject::new(Frame::new(code, scope), self.frame_type().into_object())
     }
 
     pub fn new_property<F, I, V>(&self, f: F) -> PyObjectRef
@@ -604,7 +622,7 @@ impl PyContext {
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
-        PyObject::new(objcode::PyCode::new(code), self.code_type())
+        PyObject::new(objcode::PyCode::new(code), self.code_type().into_object())
     }
 
     pub fn new_function(
@@ -615,20 +633,23 @@ impl PyContext {
     ) -> PyObjectRef {
         PyObject::new(
             PyFunction::new(code_obj, scope, defaults),
-            self.function_type(),
+            self.function_type().into_object(),
         )
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-        PyObject::new(PyMethod::new(object, function), self.bound_method_type())
+        PyObject::new(
+            PyMethod::new(object, function),
+            self.bound_method_type().into_object(),
+        )
     }
 
-    pub fn new_instance(&self, class: PyObjectRef, dict: Option<PyAttributes>) -> PyObjectRef {
+    pub fn new_instance(&self, class: PyClassRef, dict: Option<PyAttributes>) -> PyObjectRef {
         let dict = dict.unwrap_or_default();
         PyObject {
-            typ: class,
+            typ: class.into_object(),
             dict: Some(RefCell::new(dict)),
-            payload: Box::new(objobject::PyInstance),
+            payload: objobject::PyInstance,
         }
         .into_ref()
     }
@@ -643,18 +664,18 @@ impl PyContext {
         };
     }
 
-    pub fn get_attr(&self, obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-        // This does not need to be on the PyContext.
-        // We do not require to make a new key as string for this function
-        // (yet)...
-        obj.get_attr(attr_name)
-    }
-
-    pub fn set_attr(&self, obj: &PyObjectRef, attr_name: &str, value: PyObjectRef) {
+    pub fn set_attr<'a, T: Into<&'a PyObjectRef>, V: Into<PyObjectRef>>(
+        &'a self,
+        obj: T,
+        attr_name: &str,
+        value: V,
+    ) {
+        let obj = obj.into();
         if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
-            dict.set_item(self, attr_name, value)
+            dict.set_item(self, attr_name, value.into())
         } else if let Some(ref dict) = obj.dict {
-            dict.borrow_mut().insert(attr_name.to_string(), value);
+            dict.borrow_mut()
+                .insert(attr_name.to_string(), value.into());
         } else {
             unimplemented!("set_attr unimplemented for: {:?}", obj);
         };
@@ -691,10 +712,28 @@ impl Default for PyContext {
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
-pub struct PyObject {
+pub struct PyObject<T>
+where
+    T: ?Sized + PyObjectPayload,
+{
     pub typ: PyObjectRef,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
-    pub payload: Box<dyn PyObjectPayload>,
+    pub payload: T,
+}
+
+impl PyObject<dyn PyObjectPayload> {
+    pub fn downcast<T: PyObjectPayload>(self: Rc<Self>) -> Option<PyRef<T>> {
+        if self.payload_is::<T>() {
+            Some({
+                PyRef {
+                    obj: self,
+                    _payload: PhantomData,
+                }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 /// A reference to a Python object.
@@ -706,11 +745,20 @@ pub struct PyObject {
 /// A `PyRef<T>` can be directly returned from a built-in function to handle
 /// situations (such as when implementing in-place methods such as `__iadd__`)
 /// where a reference to the same object must be returned.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyRef<T> {
     // invariant: this obj must always have payload of type T
     obj: PyObjectRef,
     _payload: PhantomData<T>,
+}
+
+impl<T> Clone for PyRef<T> {
+    fn clone(&self) -> Self {
+        Self {
+            obj: self.obj.clone(),
+            _payload: PhantomData,
+        }
+    }
 }
 
 impl<T: PyValue> PyRef<T> {
@@ -768,6 +816,18 @@ impl<T> IntoPyObject for PyRef<T> {
     }
 }
 
+impl<'a, T: PyValue> From<&'a PyRef<T>> for &'a PyObjectRef {
+    fn from(obj: &'a PyRef<T>) -> Self {
+        obj.as_object()
+    }
+}
+
+impl<T: PyValue> From<PyRef<T>> for PyObjectRef {
+    fn from(obj: PyRef<T>) -> Self {
+        obj.into_object()
+    }
+}
+
 impl<T: fmt::Display> fmt::Display for PyRef<T>
 where
     T: PyValue + fmt::Display,
@@ -788,14 +848,31 @@ pub trait IdProtocol {
     }
 }
 
-impl IdProtocol for PyObjectRef {
-    fn get_id(&self) -> usize {
-        &*self as &PyObject as *const PyObject as usize
+#[derive(Debug)]
+enum Never {}
+
+impl PyValue for Never {
+    fn class(_vm: &VirtualMachine) -> PyClassRef {
+        unreachable!()
     }
 }
 
-pub trait FromPyObjectRef {
-    fn from_pyobj(obj: &PyObjectRef) -> Self;
+impl<T: ?Sized + PyObjectPayload> IdProtocol for PyObject<T> {
+    fn get_id(&self) -> usize {
+        self as *const _ as *const PyObject<Never> as usize
+    }
+}
+
+impl<T: ?Sized + IdProtocol> IdProtocol for Rc<T> {
+    fn get_id(&self) -> usize {
+        (**self).get_id()
+    }
+}
+
+impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
+    fn get_id(&self) -> usize {
+        self.obj.get_id()
+    }
 }
 
 pub trait TypeProtocol {
@@ -803,7 +880,7 @@ pub trait TypeProtocol {
         self.type_ref().clone()
     }
     fn type_pyref(&self) -> PyClassRef {
-        FromPyObjectRef::from_pyobj(self.type_ref())
+        self.typ().downcast().unwrap()
     }
     fn type_ref(&self) -> &PyObjectRef;
 }
@@ -814,73 +891,12 @@ impl TypeProtocol for PyObjectRef {
     }
 }
 
-impl TypeProtocol for PyObject {
+impl<T> TypeProtocol for PyObject<T>
+where
+    T: ?Sized + PyObjectPayload,
+{
     fn type_ref(&self) -> &PyObjectRef {
         &self.typ
-    }
-}
-
-pub trait AttributeProtocol {
-    fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
-    fn has_attr(&self, attr_name: &str) -> bool;
-}
-
-fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-    if let Some(ref dict) = class.dict {
-        dict.borrow().get(attr_name).cloned()
-    } else {
-        panic!("Only classes should be in MRO!");
-    }
-}
-
-fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
-    if let Some(ref dict) = class.dict {
-        dict.borrow().contains_key(attr_name)
-    } else {
-        panic!("Only classes should be in MRO!");
-    }
-}
-
-impl AttributeProtocol for PyObjectRef {
-    fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
-            if let Some(item) = class_get_item(self, attr_name) {
-                return Some(item);
-            }
-            for class in mro {
-                if let Some(item) = class_get_item(class.as_object(), attr_name) {
-                    return Some(item);
-                }
-            }
-            return None;
-        }
-
-        if let Some(PyModule { ref dict, .. }) = self.payload::<PyModule>() {
-            return dict.get_item(attr_name);
-        }
-
-        if let Some(ref dict) = self.dict {
-            dict.borrow().get(attr_name).cloned()
-        } else {
-            None
-        }
-    }
-
-    fn has_attr(&self, attr_name: &str) -> bool {
-        if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
-            return class_has_item(self, attr_name)
-                || mro.iter().any(|d| class_has_item(d.as_object(), attr_name));
-        }
-
-        if let Some(PyModule { ref dict, .. }) = self.payload::<PyModule>() {
-            return dict.contains_key(attr_name);
-        }
-
-        if let Some(ref dict) = self.dict {
-            dict.borrow().contains_key(attr_name)
-        } else {
-            false
-        }
     }
 }
 
@@ -953,9 +969,9 @@ impl BufferProtocol for PyObjectRef {
     }
 }
 
-impl fmt::Debug for PyObject {
+impl fmt::Debug for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[PyObj {:?}]", self.payload)
+        write!(f, "[PyObj {:?}]", &self.payload)
     }
 }
 
@@ -1009,8 +1025,7 @@ where
         match self.vm.call_method(&self.obj, "__next__", vec![]) {
             Ok(value) => Some(T::try_from_object(self.vm, value)),
             Err(err) => {
-                let stop_ex = self.vm.ctx.exceptions.stop_iteration.clone();
-                if objtype::isinstance(&err, &stop_ex) {
+                if objtype::isinstance(&err, &self.vm.ctx.exceptions.stop_iteration) {
                     None
                 } else {
                     Some(Err(err))
@@ -1109,7 +1124,7 @@ where
     T: PyValue + Sized,
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(self, T::class(vm)))
+        Ok(PyObject::new(self, T::class(vm).into_object()))
     }
 }
 
@@ -1122,26 +1137,29 @@ pub struct PyIteratorValue {
 }
 
 impl PyValue for PyIteratorValue {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.iter_type()
     }
 }
 
-impl PyObject {
-    pub fn new<T: PyObjectPayload>(payload: T, typ: PyObjectRef) -> PyObjectRef {
+impl<T> PyObject<T>
+where
+    T: Sized + PyObjectPayload,
+{
+    pub fn new(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             typ,
             dict: Some(RefCell::new(PyAttributes::new())),
-            payload: Box::new(payload),
+            payload,
         }
         .into_ref()
     }
 
-    pub fn new_without_dict<T: PyObjectPayload>(payload: T, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new_without_dict(payload: T, typ: PyObjectRef) -> PyObjectRef {
         PyObject {
             typ,
             dict: None,
-            payload: Box::new(payload),
+            payload,
         }
         .into_ref()
     }
@@ -1150,7 +1168,9 @@ impl PyObject {
     pub fn into_ref(self) -> PyObjectRef {
         Rc::new(self)
     }
+}
 
+impl PyObject<dyn PyObjectPayload> {
     #[inline]
     pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
         self.payload.as_any().downcast_ref()
@@ -1163,25 +1183,25 @@ impl PyObject {
 }
 
 pub trait PyValue: fmt::Debug + Sized + 'static {
-    fn class(vm: &VirtualMachine) -> PyObjectRef;
+    fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
         PyRef {
-            obj: PyObject::new(self, Self::class(vm)),
+            obj: PyObject::new(self, Self::class(vm).into_object()),
             _payload: PhantomData,
         }
     }
 
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
-        if objtype::issubclass(&cls.obj, &class) {
+        if objtype::issubclass(&cls, &class) {
             Ok(PyRef {
                 obj: PyObject::new(self, cls.obj),
                 _payload: PhantomData,
             })
         } else {
             let subtype = vm.to_pystr(&cls.obj)?;
-            let basetype = vm.to_pystr(&class)?;
+            let basetype = vm.to_pystr(&class.obj)?;
             Err(vm.new_type_error(format!("{} is not a subtype of {}", subtype, basetype)))
         }
     }
@@ -1198,22 +1218,9 @@ impl<T: PyValue + 'static> PyObjectPayload for T {
     }
 }
 
-impl FromPyObjectRef for PyRef<PyClass> {
-    fn from_pyobj(obj: &PyObjectRef) -> Self {
-        if obj.payload_is::<PyClass>() {
-            PyRef {
-                obj: obj.clone(),
-                _payload: PhantomData,
-            }
-        } else {
-            panic!("Error getting inner type: {:?}", obj.typ)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::PyContext;
+    use super::*;
 
     #[test]
     fn test_type_type() {

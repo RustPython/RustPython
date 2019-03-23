@@ -4,8 +4,8 @@ use std::fmt;
 
 use crate::function::{Args, KwArgs, PyFuncArgs};
 use crate::pyobject::{
-    FromPyObjectRef, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult,
-    PyValue, TypeProtocol,
+    IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -30,14 +30,8 @@ impl fmt::Display for PyClass {
 pub type PyClassRef = PyRef<PyClass>;
 
 impl PyValue for PyClass {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.type_type()
-    }
-}
-
-impl IdProtocol for PyClassRef {
-    fn get_id(&self) -> usize {
-        self.as_object().get_id()
     }
 }
 
@@ -101,11 +95,11 @@ impl PyClassRef {
     }
 
     fn instance_check(self, obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
-        isinstance(&obj, self.as_object())
+        isinstance(&obj, &self)
     }
 
-    fn subclass_check(self, subclass: PyObjectRef, _vm: &VirtualMachine) -> bool {
-        issubclass(&subclass, self.as_object())
+    fn subclass_check(self, subclass: PyClassRef, _vm: &VirtualMachine) -> bool {
+        issubclass(&subclass, &self)
     }
 
     fn repr(self, _vm: &VirtualMachine) -> String {
@@ -186,16 +180,16 @@ fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
 
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
-pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    issubclass(obj.type_ref(), &cls)
+pub fn isinstance(obj: &PyObjectRef, cls: &PyClassRef) -> bool {
+    issubclass(&obj.type_pyref(), &cls)
 }
 
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
-pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    let mro = &subclass.payload::<PyClass>().unwrap().mro;
-    subclass.is(cls) || mro.iter().any(|c| c.is(cls))
+pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
+    let mro = &subclass.mro;
+    subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
@@ -242,9 +236,9 @@ pub fn type_new_class(
     let mut bases: Vec<PyClassRef> = vm
         .extract_elements(bases)?
         .iter()
-        .map(|x| FromPyObjectRef::from_pyobj(x))
+        .map(|x| x.clone().downcast().unwrap())
         .collect();
-    bases.push(FromPyObjectRef::from_pyobj(&vm.ctx.object()));
+    bases.push(vm.ctx.object());
     let name = objstr::get_value(name);
     new(
         typ.clone(),
@@ -335,10 +329,7 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Ve
 
     for base in &bases {
         let head = base[0].clone();
-        if !(&bases)
-            .iter()
-            .any(|x| x[1..].iter().any(|x| x.get_id() == head.get_id()))
-        {
+        if !(&bases).iter().any(|x| x[1..].iter().any(|x| x.is(&head))) {
             next = Some(head);
             break;
         }
@@ -346,7 +337,7 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Ve
 
     if let Some(head) = next {
         for item in &mut bases {
-            if item[0].get_id() == head.get_id() {
+            if item[0].is(&head) {
                 item.remove(0);
             }
         }
@@ -382,10 +373,10 @@ pub fn new(
     let mros = bases.into_iter().map(|x| _mro(&x)).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject {
-        payload: Box::new(PyClass {
+        payload: PyClass {
             name: String::from(name),
             mro,
-        }),
+        },
         dict: Some(RefCell::new(dict)),
         typ,
     }
@@ -394,7 +385,6 @@ pub fn new(
 
 #[cfg(test)]
 mod tests {
-    use super::FromPyObjectRef;
     use super::{linearise_mro, new};
     use super::{HashMap, IdProtocol, PyClassRef, PyContext};
 
@@ -408,14 +398,26 @@ mod tests {
     #[test]
     fn test_linearise() {
         let context = PyContext::new();
-        let object: PyClassRef = FromPyObjectRef::from_pyobj(&context.object);
+        let object: PyClassRef = context.object.clone();
         let type_type = &context.type_type;
 
-        let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
-        let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
+        let a = new(
+            type_type.clone().into_object(),
+            "A",
+            vec![object.clone()],
+            HashMap::new(),
+        )
+        .unwrap();
+        let b = new(
+            type_type.clone().into_object(),
+            "B",
+            vec![object.clone()],
+            HashMap::new(),
+        )
+        .unwrap();
 
-        let a: PyClassRef = FromPyObjectRef::from_pyobj(&a);
-        let b: PyClassRef = FromPyObjectRef::from_pyobj(&b);
+        let a: PyClassRef = a.downcast().unwrap();
+        let b: PyClassRef = b.downcast().unwrap();
 
         assert_eq!(
             map_ids(linearise_mro(vec![

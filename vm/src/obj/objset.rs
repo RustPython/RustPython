@@ -16,7 +16,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objiter;
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 
 #[derive(Default)]
 pub struct PySet {
@@ -32,7 +32,7 @@ impl fmt::Debug for PySet {
 }
 
 impl PyValue for PySet {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.set_type()
     }
 }
@@ -157,10 +157,6 @@ fn set_new(
     iterable: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PySetRef> {
-    if !objtype::issubclass(cls.as_object(), &vm.ctx.set_type()) {
-        return Err(vm.new_type_error(format!("{} is not a subtype of set", cls)));
-    }
-
     let elements: HashMap<u64, PyObjectRef> = match iterable {
         OptionalArg::Missing => HashMap::new(),
         OptionalArg::Present(iterable) => {
@@ -552,73 +548,65 @@ pub fn init(context: &PyContext) {
                    set(iterable) -> new set object\n\n\
                    Build an unordered collection of unique elements.";
 
+    context.set_attr(set_type, "__contains__", context.new_rustfunc(set_contains));
+    context.set_attr(set_type, "__len__", context.new_rustfunc(set_len));
+    context.set_attr(set_type, "__new__", context.new_rustfunc(set_new));
+    context.set_attr(set_type, "__repr__", context.new_rustfunc(set_repr));
+    context.set_attr(set_type, "__eq__", context.new_rustfunc(set_eq));
+    context.set_attr(set_type, "__ge__", context.new_rustfunc(set_ge));
+    context.set_attr(set_type, "__gt__", context.new_rustfunc(set_gt));
+    context.set_attr(set_type, "__le__", context.new_rustfunc(set_le));
+    context.set_attr(set_type, "__lt__", context.new_rustfunc(set_lt));
+    context.set_attr(set_type, "issubset", context.new_rustfunc(set_le));
+    context.set_attr(set_type, "issuperset", context.new_rustfunc(set_ge));
+    context.set_attr(set_type, "union", context.new_rustfunc(set_union));
+    context.set_attr(set_type, "__or__", context.new_rustfunc(set_union));
     context.set_attr(
-        &set_type,
-        "__contains__",
-        context.new_rustfunc(set_contains),
-    );
-    context.set_attr(&set_type, "__len__", context.new_rustfunc(set_len));
-    context.set_attr(&set_type, "__new__", context.new_rustfunc(set_new));
-    context.set_attr(&set_type, "__repr__", context.new_rustfunc(set_repr));
-    context.set_attr(&set_type, "__eq__", context.new_rustfunc(set_eq));
-    context.set_attr(&set_type, "__ge__", context.new_rustfunc(set_ge));
-    context.set_attr(&set_type, "__gt__", context.new_rustfunc(set_gt));
-    context.set_attr(&set_type, "__le__", context.new_rustfunc(set_le));
-    context.set_attr(&set_type, "__lt__", context.new_rustfunc(set_lt));
-    context.set_attr(&set_type, "issubset", context.new_rustfunc(set_le));
-    context.set_attr(&set_type, "issuperset", context.new_rustfunc(set_ge));
-    context.set_attr(&set_type, "union", context.new_rustfunc(set_union));
-    context.set_attr(&set_type, "__or__", context.new_rustfunc(set_union));
-    context.set_attr(
-        &set_type,
+        set_type,
         "intersection",
         context.new_rustfunc(set_intersection),
     );
-    context.set_attr(&set_type, "__and__", context.new_rustfunc(set_intersection));
+    context.set_attr(set_type, "__and__", context.new_rustfunc(set_intersection));
+    context.set_attr(set_type, "difference", context.new_rustfunc(set_difference));
+    context.set_attr(set_type, "__sub__", context.new_rustfunc(set_difference));
     context.set_attr(
-        &set_type,
-        "difference",
-        context.new_rustfunc(set_difference),
-    );
-    context.set_attr(&set_type, "__sub__", context.new_rustfunc(set_difference));
-    context.set_attr(
-        &set_type,
+        set_type,
         "symmetric_difference",
         context.new_rustfunc(set_symmetric_difference),
     );
     context.set_attr(
-        &set_type,
+        set_type,
         "__xor__",
         context.new_rustfunc(set_symmetric_difference),
     );
-    context.set_attr(&set_type, "__doc__", context.new_str(set_doc.to_string()));
-    context.set_attr(&set_type, "add", context.new_rustfunc(set_add));
-    context.set_attr(&set_type, "remove", context.new_rustfunc(set_remove));
-    context.set_attr(&set_type, "discard", context.new_rustfunc(set_discard));
-    context.set_attr(&set_type, "clear", context.new_rustfunc(set_clear));
-    context.set_attr(&set_type, "copy", context.new_rustfunc(set_copy));
-    context.set_attr(&set_type, "pop", context.new_rustfunc(set_pop));
-    context.set_attr(&set_type, "update", context.new_rustfunc(set_update));
-    context.set_attr(&set_type, "__ior__", context.new_rustfunc(set_ior));
+    context.set_attr(set_type, "__doc__", context.new_str(set_doc.to_string()));
+    context.set_attr(set_type, "add", context.new_rustfunc(set_add));
+    context.set_attr(set_type, "remove", context.new_rustfunc(set_remove));
+    context.set_attr(set_type, "discard", context.new_rustfunc(set_discard));
+    context.set_attr(set_type, "clear", context.new_rustfunc(set_clear));
+    context.set_attr(set_type, "copy", context.new_rustfunc(set_copy));
+    context.set_attr(set_type, "pop", context.new_rustfunc(set_pop));
+    context.set_attr(set_type, "update", context.new_rustfunc(set_update));
+    context.set_attr(set_type, "__ior__", context.new_rustfunc(set_ior));
     context.set_attr(
-        &set_type,
+        set_type,
         "intersection_update",
         context.new_rustfunc(set_intersection_update),
     );
-    context.set_attr(&set_type, "__iand__", context.new_rustfunc(set_iand));
+    context.set_attr(set_type, "__iand__", context.new_rustfunc(set_iand));
     context.set_attr(
-        &set_type,
+        set_type,
         "difference_update",
         context.new_rustfunc(set_difference_update),
     );
-    context.set_attr(&set_type, "__isub__", context.new_rustfunc(set_isub));
+    context.set_attr(set_type, "__isub__", context.new_rustfunc(set_isub));
     context.set_attr(
-        &set_type,
+        set_type,
         "symmetric_difference_update",
         context.new_rustfunc(set_symmetric_difference_update),
     );
-    context.set_attr(&set_type, "__ixor__", context.new_rustfunc(set_ixor));
-    context.set_attr(&set_type, "__iter__", context.new_rustfunc(set_iter));
+    context.set_attr(set_type, "__ixor__", context.new_rustfunc(set_ixor));
+    context.set_attr(set_type, "__iter__", context.new_rustfunc(set_iter));
 
     let frozenset_type = &context.frozenset_type;
 
@@ -627,18 +615,18 @@ pub fn init(context: &PyContext) {
                          Build an immutable unordered collection of unique elements.";
 
     context.set_attr(
-        &frozenset_type,
+        frozenset_type,
         "__contains__",
         context.new_rustfunc(set_contains),
     );
-    context.set_attr(&frozenset_type, "__len__", context.new_rustfunc(set_len));
+    context.set_attr(frozenset_type, "__len__", context.new_rustfunc(set_len));
     context.set_attr(
-        &frozenset_type,
+        frozenset_type,
         "__doc__",
         context.new_str(frozenset_doc.to_string()),
     );
     context.set_attr(
-        &frozenset_type,
+        frozenset_type,
         "__repr__",
         context.new_rustfunc(frozenset_repr),
     );

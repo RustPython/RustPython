@@ -8,6 +8,7 @@
 use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use crate::error::CompileError;
 use crate::obj::objcode;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyObject, PyObjectRef};
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
@@ -26,7 +27,7 @@ pub fn compile(
     source: &str,
     mode: &Mode,
     source_path: String,
-    code_type: PyObjectRef,
+    code_type: PyClassRef,
 ) -> Result<PyObjectRef, CompileError> {
     let mut compiler = Compiler::new();
     compiler.source_path = Some(source_path);
@@ -49,7 +50,10 @@ pub fn compile(
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(PyObject::new(objcode::PyCode::new(code), code_type))
+    Ok(PyObject::new(
+        objcode::PyCode::new(code),
+        code_type.into_object(),
+    ))
 }
 
 pub enum Mode {

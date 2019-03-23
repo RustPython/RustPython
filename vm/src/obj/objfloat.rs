@@ -2,6 +2,7 @@ use super::objbytes;
 use super::objint;
 use super::objstr;
 use super::objtype;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     IntoPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -16,7 +17,7 @@ pub struct PyFloat {
 }
 
 impl PyValue for PyFloat {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.float_type()
     }
 }
@@ -117,6 +118,10 @@ impl PyFloatRef {
         } else {
             vm.ctx.not_implemented()
         }
+    }
+
+    fn bool(self, _vm: &VirtualMachine) -> bool {
+        self.value != 0.0
     }
 
     fn divmod(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -365,6 +370,7 @@ pub fn init(context: &PyContext) {
         "__abs__" => context.new_rustfunc(PyFloatRef::abs),
         "__add__" => context.new_rustfunc(PyFloatRef::add),
         "__radd__" => context.new_rustfunc(PyFloatRef::add),
+        "__bool__" => context.new_rustfunc(PyFloatRef::bool),
         "__divmod__" => context.new_rustfunc(PyFloatRef::divmod),
         "__floordiv__" => context.new_rustfunc(PyFloatRef::floordiv),
         "__new__" => context.new_rustfunc(PyFloatRef::new_float),

@@ -20,6 +20,7 @@ use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -195,7 +196,7 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.frame_type()
     }
 }
@@ -659,20 +660,22 @@ impl Frame {
                 if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);
                     Err(exception)
-                } else if objtype::isinstance(&exception, &vm.ctx.type_type())
-                    && objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type)
-                {
-                    let exception = vm.new_empty_exception(exception)?;
-                    info!("Exception raised: {:?}", exception);
-                    Err(exception)
+                } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
+                    if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
+                        let exception = vm.new_empty_exception(exception)?;
+                        info!("Exception raised: {:?}", exception);
+                        Err(exception)
+                    } else {
+                        let msg = format!(
+                            "Can only raise BaseException derived types, not {}",
+                            exception
+                        );
+                        let type_error_type = vm.ctx.exceptions.type_error.clone();
+                        let type_error = vm.new_exception(type_error_type, msg);
+                        Err(type_error)
+                    }
                 } else {
-                    let msg = format!(
-                        "Can only raise BaseException derived types, not {}",
-                        exception
-                    );
-                    let type_error_type = vm.ctx.exceptions.type_error.clone();
-                    let type_error = vm.new_exception(type_error_type, msg);
-                    Err(type_error)
+                    Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
                 }
             }
 
@@ -704,7 +707,7 @@ impl Frame {
                 if !expr.is(&vm.get_none()) {
                     let repr = vm.to_repr(&expr)?;
                     // TODO: implement sys.displayhook
-                    if let Some(print) = vm.ctx.get_attr(&vm.builtins, "print") {
+                    if let Ok(print) = vm.get_attribute(vm.builtins.clone(), "print") {
                         vm.invoke(print, vec![repr.into_object()])?;
                     }
                 }

@@ -1,6 +1,7 @@
 use crate::function::PyFuncArgs;
 use crate::obj::objsequence;
 use crate::obj::objtype;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{create_type, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -82,31 +83,31 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 #[derive(Debug)]
 pub struct ExceptionZoo {
-    pub arithmetic_error: PyObjectRef,
-    pub assertion_error: PyObjectRef,
-    pub attribute_error: PyObjectRef,
-    pub base_exception_type: PyObjectRef,
-    pub exception_type: PyObjectRef,
-    pub file_not_found_error: PyObjectRef,
-    pub import_error: PyObjectRef,
-    pub index_error: PyObjectRef,
-    pub key_error: PyObjectRef,
-    pub module_not_found_error: PyObjectRef,
-    pub name_error: PyObjectRef,
-    pub not_implemented_error: PyObjectRef,
-    pub os_error: PyObjectRef,
-    pub overflow_error: PyObjectRef,
-    pub permission_error: PyObjectRef,
-    pub runtime_error: PyObjectRef,
-    pub stop_iteration: PyObjectRef,
-    pub syntax_error: PyObjectRef,
-    pub type_error: PyObjectRef,
-    pub value_error: PyObjectRef,
-    pub zero_division_error: PyObjectRef,
+    pub arithmetic_error: PyClassRef,
+    pub assertion_error: PyClassRef,
+    pub attribute_error: PyClassRef,
+    pub base_exception_type: PyClassRef,
+    pub exception_type: PyClassRef,
+    pub file_not_found_error: PyClassRef,
+    pub import_error: PyClassRef,
+    pub index_error: PyClassRef,
+    pub key_error: PyClassRef,
+    pub module_not_found_error: PyClassRef,
+    pub name_error: PyClassRef,
+    pub not_implemented_error: PyClassRef,
+    pub os_error: PyClassRef,
+    pub overflow_error: PyClassRef,
+    pub permission_error: PyClassRef,
+    pub runtime_error: PyClassRef,
+    pub stop_iteration: PyClassRef,
+    pub syntax_error: PyClassRef,
+    pub type_error: PyClassRef,
+    pub value_error: PyClassRef,
+    pub zero_division_error: PyClassRef,
 }
 
 impl ExceptionZoo {
-    pub fn new(type_type: &PyObjectRef, object_type: &PyObjectRef) -> Self {
+    pub fn new(type_type: &PyClassRef, object_type: &PyClassRef) -> Self {
         // Sorted By Hierarchy then alphabetized.
         let base_exception_type = create_type("BaseException", &type_type, &object_type);
         let exception_type = create_type("Exception", &type_type, &base_exception_type);
@@ -158,15 +159,12 @@ impl ExceptionZoo {
 
 pub fn init(context: &PyContext) {
     let base_exception_type = &context.exceptions.base_exception_type;
-    context.set_attr(
-        &base_exception_type,
-        "__init__",
-        context.new_rustfunc(exception_init),
-    );
+    extend_class!(context, base_exception_type, {
+        "__init__" => context.new_rustfunc(exception_init)
+    });
+
     let exception_type = &context.exceptions.exception_type;
-    context.set_attr(
-        &exception_type,
-        "__str__",
-        context.new_rustfunc(exception_str),
-    );
+    extend_class!(context, exception_type, {
+        "__str__" => context.new_rustfunc(exception_str)
+    });
 }

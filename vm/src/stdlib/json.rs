@@ -184,7 +184,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.none.clone())
+        Ok(self.vm.ctx.none.clone().into_object())
     }
 }
 
@@ -206,6 +206,7 @@ pub fn de_pyobject(vm: &VirtualMachine, s: &str) -> PyResult {
                 .unwrap()
                 .get_item("JSONDecodeError")
                 .unwrap();
+            let json_decode_error = json_decode_error.downcast().unwrap();
             let exc = vm.new_exception(json_decode_error, format!("{}", err));
             vm.ctx.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()));
             vm.ctx.set_attr(&exc, "colno", vm.ctx.new_int(err.column()));

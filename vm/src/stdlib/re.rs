@@ -12,11 +12,12 @@ use regex::{Match, Regex};
 use crate::function::PyFuncArgs;
 use crate::import;
 use crate::obj::objstr;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("re", "Pattern")
     }
 }
@@ -109,7 +110,7 @@ struct PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("re", "Match")
     }
 }
@@ -120,7 +121,7 @@ fn create_match(vm: &VirtualMachine, match_value: &Match) -> PyResult {
     // TODO: implement match object
     // TODO: how to refer to match object defined in this
     let module = import::import_module(vm, PathBuf::default(), "re").unwrap();
-    let match_class = vm.ctx.get_attr(&module, "Match").unwrap();
+    let match_class = vm.get_attribute(module, "Match").unwrap();
 
     // let mo = vm.invoke(match_class, PyFuncArgs::default())?;
     // let txt = vm.ctx.new_str(result.as_str().to_string());
@@ -146,7 +147,7 @@ fn re_compile(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let regex = make_regex(vm, pattern)?;
     // TODO: retrieval of this module is akward:
     let module = import::import_module(vm, PathBuf::default(), "re").unwrap();
-    let pattern_class = vm.ctx.get_attr(&module, "Pattern").unwrap();
+    let pattern_class = vm.get_attribute(module, "Pattern").unwrap();
 
     Ok(PyObject::new(regex, pattern_class.clone()))
 }

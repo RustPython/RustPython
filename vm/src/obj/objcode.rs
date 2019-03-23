@@ -6,6 +6,7 @@ use std::fmt;
 
 use crate::bytecode;
 use crate::function::PyFuncArgs;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -26,15 +27,17 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyValue for PyCode {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.code_type()
     }
 }
 
 pub fn init(context: &PyContext) {
-    let code_type = &context.code_type;
-    context.set_attr(code_type, "__new__", context.new_rustfunc(code_new));
-    context.set_attr(code_type, "__repr__", context.new_rustfunc(code_repr));
+    let code_type = context.code_type.as_object();
+    extend_class!(context, code_type, {
+        "__new__" => context.new_rustfunc(code_new),
+        "__repr__" => context.new_rustfunc(code_repr)
+    });
 
     for (name, f) in &[
         (

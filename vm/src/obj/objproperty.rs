@@ -16,7 +16,7 @@ pub struct PyReadOnlyProperty {
 }
 
 impl PyValue for PyReadOnlyProperty {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.readonly_property_type()
     }
 }
@@ -30,7 +30,7 @@ impl PyReadOnlyPropertyRef {
         _owner: OptionalArg<PyClassRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if obj.is(&vm.ctx.none) {
+        if obj.is(vm.ctx.none.as_object()) {
             Ok(self.into_object())
         } else {
             vm.invoke(self.getter.clone(), obj)
@@ -47,7 +47,7 @@ pub struct PyProperty {
 }
 
 impl PyValue for PyProperty {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.property_type()
     }
 }
@@ -89,7 +89,7 @@ impl PyPropertyRef {
         vm: &VirtualMachine,
     ) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
-            if obj.is(&vm.ctx.none) {
+            if obj.is(vm.ctx.none.as_object()) {
                 Ok(self.into_object())
             } else {
                 vm.invoke(getter.clone(), obj)
@@ -200,7 +200,7 @@ impl<'a> PropertyBuilder<'a> {
                 deleter: None,
             };
 
-            PyObject::new(payload, self.ctx.property_type())
+            PyObject::new(payload, self.ctx.property_type().into_object())
         } else {
             let payload = PyReadOnlyProperty {
                 getter: self.getter.expect(
@@ -208,7 +208,7 @@ impl<'a> PropertyBuilder<'a> {
                 ),
             };
 
-            PyObject::new(payload, self.ctx.readonly_property_type())
+            PyObject::new(payload, self.ctx.readonly_property_type().into_object())
         }
     }
 }

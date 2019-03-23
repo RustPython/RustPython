@@ -9,6 +9,7 @@ use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::obj::{
     objint,
     objstr::{self, PyStringRef},
+    objtype::PyClassRef,
 };
 use rustpython_vm::pyobject::{
     PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
@@ -164,14 +165,14 @@ pub struct PyPromise {
 }
 
 impl PyValue for PyPromise {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("browser", "Promise")
     }
 }
 
 impl PyPromise {
-    pub fn new_obj(promise_type: PyObjectRef, value: Promise) -> PyObjectRef {
-        PyObject::new(PyPromise { value }, promise_type)
+    pub fn new_obj(promise_type: PyClassRef, value: Promise) -> PyObjectRef {
+        PyObject::new(PyPromise { value }, promise_type.into_object())
     }
 }
 
