@@ -133,9 +133,9 @@ impl PyFloatRef {
 
     fn floordiv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
-        let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
+        let v2 = if objtype::isinstance(&other, vm.ctx.float_type.as_object()) {
             get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
+        } else if objtype::isinstance(&other, vm.ctx.int_type.as_object()) {
             objint::get_value(&other).to_f64().ok_or_else(|| {
                 vm.new_overflow_error("int too large to convert to float".to_string())
             })?
@@ -193,9 +193,9 @@ impl PyFloatRef {
 
     fn mod_(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
-        let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
+        let v2 = if objtype::isinstance(&other, vm.ctx.float_type.as_object()) {
             get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
+        } else if objtype::isinstance(&other, vm.ctx.int_type.as_object()) {
             objint::get_value(&other).to_f64().ok_or_else(|| {
                 vm.new_overflow_error("int too large to convert to float".to_string())
             })?
@@ -258,9 +258,9 @@ impl PyFloatRef {
 
     fn truediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
-        let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
+        let v2 = if objtype::isinstance(&other, vm.ctx.float_type.as_object()) {
             get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
+        } else if objtype::isinstance(&other, vm.ctx.int_type.as_object()) {
             objint::get_value(&other).to_f64().ok_or_else(|| {
                 vm.new_overflow_error("int too large to convert to float".to_string())
             })?
@@ -277,9 +277,9 @@ impl PyFloatRef {
 
     fn rtruediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
-        let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
+        let v2 = if objtype::isinstance(&other, vm.ctx.float_type.as_object()) {
             get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
+        } else if objtype::isinstance(&other, vm.ctx.int_type.as_object()) {
             objint::get_value(&other).to_f64().ok_or_else(|| {
                 vm.new_overflow_error("int too large to convert to float".to_string())
             })?
@@ -296,9 +296,9 @@ impl PyFloatRef {
 
     fn mul(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
-        if objtype::isinstance(&other, &vm.ctx.float_type) {
+        if objtype::isinstance(&other, vm.ctx.float_type.as_object()) {
             Ok(vm.ctx.new_float(v1 * get_value(&other)))
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
+        } else if objtype::isinstance(&other, vm.ctx.int_type.as_object()) {
             Ok(vm
                 .ctx
                 .new_float(v1 * objint::get_value(&other).to_f64().unwrap()))

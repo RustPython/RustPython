@@ -65,9 +65,9 @@ The builtins True and False are the only two instances of the class bool.
 The class bool is a subclass of the class int, and cannot be subclassed.";
 
     let bool_type = &context.bool_type;
-    context.set_attr(&bool_type, "__new__", context.new_rustfunc(bool_new));
-    context.set_attr(&bool_type, "__repr__", context.new_rustfunc(bool_repr));
-    context.set_attr(&bool_type, "__doc__", context.new_str(bool_doc.to_string()));
+    context.set_attr(bool_type, "__new__", context.new_rustfunc(bool_new));
+    context.set_attr(bool_type, "__repr__", context.new_rustfunc(bool_repr));
+    context.set_attr(bool_type, "__doc__", context.new_str(bool_doc.to_string()));
 }
 
 pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult {

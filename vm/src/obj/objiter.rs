@@ -12,6 +12,7 @@ use super::objbytes::PyBytes;
 use super::objrange::PyRange;
 use super::objsequence;
 use super::objtype;
+use crate::obj::objtype::PyClassRef;
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -42,7 +43,7 @@ pub fn get_next_object(
         Ok(value) => Ok(Some(value)),
         Err(next_error) => {
             // Check if we have stopiteration, or something else:
-            if objtype::isinstance(&next_error, &vm.ctx.exceptions.stop_iteration) {
+            if objtype::isinstance(&next_error, vm.ctx.exceptions.stop_iteration.as_object()) {
                 Ok(None)
             } else {
                 Err(next_error)
@@ -90,18 +91,18 @@ fn contains(vm: &VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> Py
 }
 
 /// Common setup for iter types, adds __iter__ and __contains__ methods
-pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
+pub fn iter_type_init(context: &PyContext, iter_type: &PyClassRef) {
     let contains_func = {
-        let cloned_iter_type = iter_type.clone();
+        let cloned_iter_type = iter_type.clone().into_object();
         move |vm: &VirtualMachine, args: PyFuncArgs| contains(vm, args, cloned_iter_type.clone())
     };
     context.set_attr(
-        &iter_type,
+        iter_type,
         "__contains__",
         context.new_rustfunc(contains_func),
     );
     let iter_func = {
-        let cloned_iter_type = iter_type.clone();
+        let cloned_iter_type = iter_type.clone().into_object();
         move |vm: &VirtualMachine, args: PyFuncArgs| {
             arg_check!(
                 vm,
@@ -112,7 +113,7 @@ pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
             Ok(iter.clone())
         }
     };
-    context.set_attr(&iter_type, "__iter__", context.new_rustfunc(iter_func));
+    context.set_attr(iter_type, "__iter__", context.new_rustfunc(iter_func));
 }
 
 // Sequence iterator:
@@ -178,7 +179,7 @@ pub fn init(context: &PyContext) {
                     In the second form, the callable is called until it returns the sentinel.";
 
     iter_type_init(context, iter_type);
-    context.set_attr(&iter_type, "__new__", context.new_rustfunc(iter_new));
-    context.set_attr(&iter_type, "__next__", context.new_rustfunc(iter_next));
-    context.set_attr(&iter_type, "__doc__", context.new_str(iter_doc.to_string()));
+    context.set_attr(iter_type, "__new__", context.new_rustfunc(iter_new));
+    context.set_attr(iter_type, "__next__", context.new_rustfunc(iter_next));
+    context.set_attr(iter_type, "__doc__", context.new_str(iter_doc.to_string()));
 }

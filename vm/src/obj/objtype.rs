@@ -408,11 +408,23 @@ mod tests {
     #[test]
     fn test_linearise() {
         let context = PyContext::new();
-        let object: PyClassRef = FromPyObjectRef::from_pyobj(&context.object);
+        let object: PyClassRef = context.object.clone();
         let type_type = &context.type_type;
 
-        let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
-        let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
+        let a = new(
+            type_type.clone().into_object(),
+            "A",
+            vec![object.clone()],
+            HashMap::new(),
+        )
+        .unwrap();
+        let b = new(
+            type_type.clone().into_object(),
+            "B",
+            vec![object.clone()],
+            HashMap::new(),
+        )
+        .unwrap();
 
         let a: PyClassRef = FromPyObjectRef::from_pyobj(&a);
         let b: PyClassRef = FromPyObjectRef::from_pyobj(&b);

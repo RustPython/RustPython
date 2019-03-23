@@ -46,14 +46,14 @@ pub fn init(context: &PyContext) {
                      def cmeth(cls, arg):\n        \
                      super().cmeth(arg)\n";
 
-    context.set_attr(&super_type, "__new__", context.new_rustfunc(super_new));
+    context.set_attr(super_type, "__new__", context.new_rustfunc(super_new));
     context.set_attr(
-        &super_type,
+        super_type,
         "__getattribute__",
         context.new_rustfunc(super_getattribute),
     );
     context.set_attr(
-        &super_type,
+        super_type,
         "__doc__",
         context.new_str(super_doc.to_string()),
     );

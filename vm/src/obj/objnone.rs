@@ -1,7 +1,6 @@
-use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PyPropertyRef;
 use crate::obj::objstr::PyStringRef;
-use crate::obj::objtype::{class_get_attr, class_has_attr};
+use crate::obj::objtype::{class_get_attr, class_has_attr, PyClassRef};
 use crate::pyobject::{
     IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
@@ -103,13 +102,8 @@ impl PyNoneRef {
     }
 }
 
-fn none_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(_zelf, Some(vm.ctx.type_type.clone()))]
-    );
-    Ok(vm.get_none())
+fn none_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
+    vm.ctx.none.clone()
 }
 
 pub fn init(context: &PyContext) {

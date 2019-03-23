@@ -15,7 +15,7 @@ impl PyValue for PyMemoryView {
 
 pub fn new_memory_view(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (bytes_object, None)]);
-    vm.ctx.set_attr(&cls, "obj", bytes_object.clone());
+    vm.ctx.set_attr(cls, "obj", bytes_object.clone());
     Ok(PyObject::new(
         PyMemoryView {
             obj: bytes_object.clone(),
@@ -27,7 +27,7 @@ pub fn new_memory_view(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn init(ctx: &PyContext) {
     let memoryview_type = &ctx.memoryview_type;
     ctx.set_attr(
-        &memoryview_type,
+        memoryview_type,
         "__new__",
         ctx.new_rustfunc(new_memory_view),
     );

@@ -182,36 +182,36 @@ pub fn init(context: &PyContext) {
     let object = &context.object;
     let object_doc = "The most base type";
 
-    context.set_attr(&object, "__new__", context.new_rustfunc(new_instance));
-    context.set_attr(&object, "__init__", context.new_rustfunc(object_init));
+    context.set_attr(object, "__new__", context.new_rustfunc(new_instance));
+    context.set_attr(object, "__init__", context.new_rustfunc(object_init));
     context.set_attr(
-        &object,
+        object,
         "__class__",
         PropertyBuilder::new(context)
             .add_getter(object_class)
             .add_setter(object_class_setter)
             .create(),
     );
-    context.set_attr(&object, "__eq__", context.new_rustfunc(object_eq));
-    context.set_attr(&object, "__ne__", context.new_rustfunc(object_ne));
-    context.set_attr(&object, "__lt__", context.new_rustfunc(object_lt));
-    context.set_attr(&object, "__le__", context.new_rustfunc(object_le));
-    context.set_attr(&object, "__gt__", context.new_rustfunc(object_gt));
-    context.set_attr(&object, "__ge__", context.new_rustfunc(object_ge));
-    context.set_attr(&object, "__setattr__", context.new_rustfunc(object_setattr));
-    context.set_attr(&object, "__delattr__", context.new_rustfunc(object_delattr));
-    context.set_attr(&object, "__dict__", context.new_property(object_dict));
-    context.set_attr(&object, "__dir__", context.new_rustfunc(object_dir));
-    context.set_attr(&object, "__hash__", context.new_rustfunc(object_hash));
-    context.set_attr(&object, "__str__", context.new_rustfunc(object_str));
-    context.set_attr(&object, "__repr__", context.new_rustfunc(object_repr));
-    context.set_attr(&object, "__format__", context.new_rustfunc(object_format));
+    context.set_attr(object, "__eq__", context.new_rustfunc(object_eq));
+    context.set_attr(object, "__ne__", context.new_rustfunc(object_ne));
+    context.set_attr(object, "__lt__", context.new_rustfunc(object_lt));
+    context.set_attr(object, "__le__", context.new_rustfunc(object_le));
+    context.set_attr(object, "__gt__", context.new_rustfunc(object_gt));
+    context.set_attr(object, "__ge__", context.new_rustfunc(object_ge));
+    context.set_attr(object, "__setattr__", context.new_rustfunc(object_setattr));
+    context.set_attr(object, "__delattr__", context.new_rustfunc(object_delattr));
+    context.set_attr(object, "__dict__", context.new_property(object_dict));
+    context.set_attr(object, "__dir__", context.new_rustfunc(object_dir));
+    context.set_attr(object, "__hash__", context.new_rustfunc(object_hash));
+    context.set_attr(object, "__str__", context.new_rustfunc(object_str));
+    context.set_attr(object, "__repr__", context.new_rustfunc(object_repr));
+    context.set_attr(object, "__format__", context.new_rustfunc(object_format));
     context.set_attr(
-        &object,
+        object,
         "__getattribute__",
         context.new_rustfunc(object_getattribute),
     );
-    context.set_attr(&object, "__doc__", context.new_str(object_doc.to_string()));
+    context.set_attr(object, "__doc__", context.new_str(object_doc.to_string()));
 }
 
 fn object_init(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
