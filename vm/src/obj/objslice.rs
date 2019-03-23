@@ -1,7 +1,7 @@
 use num_bigint::BigInt;
 
 use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objint;
@@ -20,6 +20,8 @@ impl PyValue for PySlice {
         vm.ctx.slice_type()
     }
 }
+
+pub type PySliceRef = PyRef<PySlice>;
 
 fn slice_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     no_kwargs!(vm, args);

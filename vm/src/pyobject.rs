@@ -1218,6 +1218,50 @@ impl<T: PyValue + 'static> PyObjectPayload for T {
     }
 }
 
+pub enum Either2<A, B> {
+    A(A),
+    B(B),
+}
+
+/// This allows a builtin method to accept arguments that may be one of two
+/// types, raising a `TypeError` if it is neither.
+///
+/// # Example
+///
+/// ```
+/// fn do_something(arg: Either2<PyIntRef, PyStringRef>, vm: &VirtualMachine) {
+///     match arg {
+///         Either2::A(int)=> {
+///             // do something with int
+///         }
+///         Either2::B(string) => {
+///             // do something with string
+///         }
+///     }
+/// }
+/// ```
+impl<A, B> TryFromObject for Either2<PyRef<A>, PyRef<B>>
+where
+    A: PyValue,
+    B: PyValue,
+{
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        // TODO: downcast could probably be reworked a bit to make these clones not necessary
+        obj.clone()
+            .downcast::<A>()
+            .map(Either2::A)
+            .or_else(|| obj.clone().downcast::<B>().map(Either2::B))
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "must be {} or {}, not {}",
+                    A::class(vm),
+                    B::class(vm),
+                    obj.type_pyref()
+                ))
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
