@@ -896,7 +896,7 @@ where
     }
 }
 
-pub trait AttributeProtocol {
+trait AttributeProtocol {
     fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
     fn has_attr(&self, attr_name: &str) -> bool;
 }
