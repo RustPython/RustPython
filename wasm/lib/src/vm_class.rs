@@ -8,23 +8,19 @@ use wasm_bindgen::prelude::*;
 use rustpython_vm::compile;
 use rustpython_vm::frame::{NameProtocol, Scope};
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::pyobject::{PyContext, PyObjectRef, PyResult};
+use rustpython_vm::pyobject::{PyContext, PyObject, PyObjectPayload, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module::setup_browser_module;
 use crate::convert;
 use crate::wasm_builtins;
 
-pub trait HeldRcInner {}
-
-impl<T> HeldRcInner for T {}
-
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
     pub scope: RefCell<Scope>,
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
-    held_rcs: RefCell<Vec<Rc<dyn HeldRcInner>>>,
+    held_objects: RefCell<Vec<PyObjectRef>>,
 }
 
 impl StoredVirtualMachine {
@@ -38,7 +34,7 @@ impl StoredVirtualMachine {
         StoredVirtualMachine {
             vm,
             scope: RefCell::new(scope),
-            held_rcs: RefCell::new(Vec::new()),
+            held_objects: RefCell::new(Vec::new()),
         }
     }
 }
@@ -178,13 +174,13 @@ impl WASMVirtualMachine {
         STORED_VMS.with(|cell| cell.borrow().contains_key(&self.id))
     }
 
-    pub(crate) fn push_held_rc<T: HeldRcInner + 'static>(
+    pub(crate) fn push_held_rc(
         &self,
-        rc: Rc<T>,
-    ) -> Result<Weak<T>, JsValue> {
+        obj: PyObjectRef,
+    ) -> Result<Weak<PyObject<dyn PyObjectPayload>>, JsValue> {
         self.with(|stored_vm| {
-            let weak = Rc::downgrade(&rc);
-            stored_vm.held_rcs.borrow_mut().push(rc);
+            let weak = Rc::downgrade(&obj);
+            stored_vm.held_objects.borrow_mut().push(obj);
             weak
         })
     }
