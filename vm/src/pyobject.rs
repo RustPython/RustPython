@@ -700,16 +700,23 @@ where
 }
 
 impl PyObject<dyn PyObjectPayload> {
-    pub fn downcast<T: PyObjectPayload>(self: Rc<Self>) -> Option<PyRef<T>> {
+    /// Attempt to downcast this reference to a subclass.
+    ///
+    /// If the downcast fails, the original ref is returned in as `Err` so
+    /// another downcast can be attempted without unnecessary cloning.
+    ///
+    /// Note: The returned `Result` is _not_ a `PyResult`, even though the
+    ///       types are compatible.
+    pub fn downcast<T: PyObjectPayload>(self: Rc<Self>) -> Result<PyRef<T>, PyObjectRef> {
         if self.payload_is::<T>() {
-            Some({
+            Ok({
                 PyRef {
                     obj: self,
                     _payload: PhantomData,
                 }
             })
         } else {
-            None
+            Err(self)
         }
     }
 }
@@ -1228,12 +1235,10 @@ where
     B: PyValue,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // TODO: downcast could probably be reworked a bit to make these clones not necessary
-        obj.clone()
-            .downcast::<A>()
+        obj.downcast::<A>()
             .map(Either2::A)
-            .or_else(|| obj.clone().downcast::<B>().map(Either2::B))
-            .ok_or_else(|| {
+            .or_else(|obj| obj.clone().downcast::<B>().map(Either2::B))
+            .map_err(|obj| {
                 vm.new_type_error(format!(
                     "must be {} or {}, not {}",
                     A::class(vm),
