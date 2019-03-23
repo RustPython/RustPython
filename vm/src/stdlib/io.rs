@@ -19,6 +19,7 @@ use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     BufferProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -42,7 +43,7 @@ struct PyStringIO {
 type PyStringIORef = PyRef<PyStringIO>;
 
 impl PyValue for PyStringIO {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("io", "StringIO")
     }
 }
@@ -388,9 +389,10 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     });
 
     // RawBaseIO Subclasses
+    // TODO Fix name?
     let file_io = py_class!(ctx, "FileIO", raw_io_base.clone(), {
         "__init__" => ctx.new_rustfunc(file_io_init),
-        "name" => ctx.str_type(),
+        "name" => ctx.str_type().into_object(),
         "read" => ctx.new_rustfunc(file_io_read),
         "readinto" => ctx.new_rustfunc(file_io_readinto),
         "write" => ctx.new_rustfunc(file_io_write)
@@ -425,15 +427,15 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 
     py_module!(ctx, "io", {
         "open" => ctx.new_rustfunc(io_open),
-        "IOBase" => io_base.clone(),
-        "RawIOBase" => raw_io_base.clone(),
-        "BufferedIOBase" => buffered_io_base.clone(),
-        "TextIOBase" => text_io_base.clone(),
-        "FileIO" => file_io.clone(),
-        "BufferedReader" => buffered_reader.clone(),
-        "BufferedWriter" => buffered_writer.clone(),
-        "TextIOWrapper" => text_io_wrapper.clone(),
-        "StringIO" => string_io,
-        "BytesIO" => bytes_io,
+        "IOBase" => io_base.into_object(),
+        "RawIOBase" => raw_io_base.into_object(),
+        "BufferedIOBase" => buffered_io_base.into_object(),
+        "TextIOBase" => text_io_base.into_object(),
+        "FileIO" => file_io.into_object(),
+        "BufferedReader" => buffered_reader.into_object(),
+        "BufferedWriter" => buffered_writer.into_object(),
+        "TextIOWrapper" => text_io_wrapper.into_object(),
+        "StringIO" => string_io.into_object(),
+        "BytesIO" => bytes_io.into_object(),
     })
 }

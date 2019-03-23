@@ -5,8 +5,7 @@ use num_traits::ToPrimitive;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    IdProtocol, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -17,6 +16,7 @@ use super::objsequence::{
     PySliceableSequence,
 };
 use super::objtype;
+use crate::obj::objtype::PyClassRef;
 
 #[derive(Default)]
 pub struct PyList {
@@ -40,7 +40,7 @@ impl From<Vec<PyObjectRef>> for PyList {
 }
 
 impl PyValue for PyList {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.list_type()
     }
 }
@@ -306,21 +306,17 @@ impl PyListRef {
 }
 
 fn list_new(
-    cls: PyRef<objtype::PyClass>,
+    cls: PyClassRef,
     iterable: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
-) -> PyResult {
-    if !objtype::issubclass(cls.as_object(), &vm.ctx.list_type()) {
-        return Err(vm.new_type_error(format!("{} is not a subtype of list", cls)));
-    }
-
+) -> PyResult<PyListRef> {
     let elements = if let OptionalArg::Present(iterable) = iterable {
         vm.extract_elements(&iterable)?
     } else {
         vec![]
     };
 
-    Ok(PyObject::new(PyList::from(elements), cls.into_object()))
+    PyList::from(elements).into_ref_with_type(vm, cls)
 }
 
 fn quicksort(

@@ -30,7 +30,7 @@ impl fmt::Display for PyClass {
 pub type PyClassRef = PyRef<PyClass>;
 
 impl PyValue for PyClass {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.type_type()
     }
 }
@@ -95,11 +95,11 @@ impl PyClassRef {
     }
 
     fn instance_check(self, obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
-        isinstance(&obj, self.as_object())
+        isinstance(&obj, &self)
     }
 
-    fn subclass_check(self, subclass: PyObjectRef, _vm: &VirtualMachine) -> bool {
-        issubclass(&subclass, self.as_object())
+    fn subclass_check(self, subclass: PyClassRef, _vm: &VirtualMachine) -> bool {
+        issubclass(&subclass, &self)
     }
 
     fn repr(self, _vm: &VirtualMachine) -> String {
@@ -180,16 +180,16 @@ fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
 
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
-pub fn isinstance(obj: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    issubclass(obj.type_ref(), &cls)
+pub fn isinstance(obj: &PyObjectRef, cls: &PyClassRef) -> bool {
+    issubclass(&obj.type_pyref(), &cls)
 }
 
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
 /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
 /// method.
-pub fn issubclass(subclass: &PyObjectRef, cls: &PyObjectRef) -> bool {
-    let mro = &subclass.payload::<PyClass>().unwrap().mro;
-    subclass.is(cls) || mro.iter().any(|c| c.is(cls))
+pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
+    let mro = &subclass.mro;
+    subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
 }
 
 pub fn get_type_name(typ: &PyObjectRef) -> String {
@@ -238,7 +238,7 @@ pub fn type_new_class(
         .iter()
         .map(|x| FromPyObjectRef::from_pyobj(x))
         .collect();
-    bases.push(FromPyObjectRef::from_pyobj(&vm.ctx.object()));
+    bases.push(vm.ctx.object());
     let name = objstr::get_value(name);
     new(
         typ.clone(),

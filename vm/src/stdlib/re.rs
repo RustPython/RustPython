@@ -12,11 +12,12 @@ use regex::{Match, Regex};
 use crate::function::PyFuncArgs;
 use crate::import;
 use crate::obj::objstr;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("re", "Pattern")
     }
 }
@@ -35,9 +36,9 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 
     py_module!(ctx, "re", {
         "compile" => ctx.new_rustfunc(re_compile),
-        "Match" => match_type,
+        "Match" => match_type.into_object(),
         "match" => ctx.new_rustfunc(re_match),
-        "Pattern" => pattern_type,
+        "Pattern" => pattern_type.into_object(),
         "search" => ctx.new_rustfunc(re_search)
     })
 }
@@ -109,7 +110,7 @@ struct PyMatch {
 }
 
 impl PyValue for PyMatch {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("re", "Match")
     }
 }

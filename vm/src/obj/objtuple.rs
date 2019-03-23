@@ -38,7 +38,7 @@ impl From<Vec<PyObjectRef>> for PyTuple {
 }
 
 impl PyValue for PyTuple {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.tuple_type()
     }
 }
@@ -213,10 +213,6 @@ fn tuple_new(
     iterable: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PyTupleRef> {
-    if !objtype::issubclass(cls.as_object(), &vm.ctx.tuple_type()) {
-        return Err(vm.new_type_error(format!("{} is not a subtype of tuple", cls)));
-    }
-
     let elements = if let OptionalArg::Present(iterable) = iterable {
         vm.extract_elements(&iterable)?
     } else {

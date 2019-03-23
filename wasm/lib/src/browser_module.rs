@@ -164,7 +164,7 @@ pub struct PyPromise {
 }
 
 impl PyValue for PyPromise {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class(BROWSER_NAME, "Promise")
     }
 }
@@ -327,7 +327,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "fetch" => ctx.new_rustfunc(browser_fetch),
         "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
-        "Promise" => promise,
+        "Promise" => promise.into_object(),
         "alert" => ctx.new_rustfunc(browser_alert),
         "confirm" => ctx.new_rustfunc(browser_confirm),
         "prompt" => ctx.new_rustfunc(browser_prompt),

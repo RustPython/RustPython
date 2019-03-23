@@ -7,15 +7,17 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 */
 
 use crate::frame::NameProtocol;
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objstr;
-use crate::obj::objtype::PyClass;
+use crate::obj::objtype::{PyClass, PyClassRef};
 use crate::pyobject::{
-    DictProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    DictProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objtype;
+
+pub type PySuperRef = PyRef<PySuper>;
 
 #[derive(Debug)]
 pub struct PySuper {
@@ -24,7 +26,7 @@ pub struct PySuper {
 }
 
 impl PyValue for PySuper {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.super_type()
     }
 }
@@ -89,25 +91,18 @@ fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("super.__new__ {:?}", args.args);
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None)],
-        optional = [(py_type, None), (py_obj, None)]
-    );
-
-    if !objtype::issubclass(cls, &vm.ctx.super_type()) {
-        return Err(vm.new_type_error(format!("{:?} is not a subtype of super", cls)));
-    }
-
+fn super_new(
+    cls: PyClassRef,
+    py_type: OptionalArg<PyClassRef>,
+    py_obj: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PySuperRef> {
     // Get the type:
-    let py_type = if let Some(ty) = py_type {
+    let py_type = if let OptionalArg::Present(ty) = py_type {
         ty.clone()
     } else {
         match vm.current_scope().load_cell(vm, "__class__") {
-            Some(obj) => obj.clone(),
+            Some(obj) => PyClassRef::try_from_object(vm, obj)?,
             _ => {
                 return Err(vm.new_type_error(
                     "super must be called with 1 argument or from inside class method".to_string(),
@@ -117,8 +112,8 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     // Check type argument:
-    if !objtype::isinstance(&py_type, &vm.get_type()) {
-        let type_name = objtype::get_type_name(&py_type.typ());
+    if !objtype::isinstance(py_type.as_object(), &vm.get_type()) {
+        let type_name = objtype::get_type_name(py_type.as_object().type_ref());
         return Err(vm.new_type_error(format!(
             "super() argument 1 must be type, not {}",
             type_name
@@ -126,7 +121,7 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     // Get the bound object:
-    let py_obj = if let Some(obj) = py_obj {
+    let py_obj = if let OptionalArg::Present(obj) = py_obj {
         obj.clone()
     } else {
         let frame = vm.current_frame();
@@ -146,17 +141,22 @@ fn super_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     // Check obj type:
-    if !(objtype::isinstance(&py_obj, &py_type) || objtype::issubclass(&py_obj, &py_type)) {
-        return Err(vm.new_type_error(
-            "super(type, obj): obj must be an instance or subtype of type".to_string(),
-        ));
+    if !objtype::isinstance(&py_obj, &py_type) {
+        let is_subclass = if let Ok(py_obj) = PyClassRef::try_from_object(vm, py_obj.clone()) {
+            objtype::issubclass(&py_obj, &py_type)
+        } else {
+            false
+        };
+        if !is_subclass {
+            return Err(vm.new_type_error(
+                "super(type, obj): obj must be an instance or subtype of type".to_string(),
+            ));
+        }
     }
 
-    Ok(PyObject::new(
-        PySuper {
-            obj: py_obj,
-            typ: py_type,
-        },
-        cls.clone(),
-    ))
+    PySuper {
+        obj: py_obj,
+        typ: py_type.into_object(),
+    }
+    .into_ref_with_type(vm, cls)
 }

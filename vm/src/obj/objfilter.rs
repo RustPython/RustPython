@@ -6,6 +6,7 @@ use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
 use super::objbool;
 use super::objiter;
+use crate::obj::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyFilter {
@@ -14,7 +15,7 @@ pub struct PyFilter {
 }
 
 impl PyValue for PyFilter {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.filter_type()
     }
 }

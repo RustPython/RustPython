@@ -15,11 +15,13 @@ use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
-use crate::obj::objtype;
+use crate::obj::objtype::{self, PyClassRef};
 
 use crate::frame::Scope;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
-use crate::pyobject::{DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{
+    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -295,7 +297,7 @@ fn builtin_format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn catch_attr_exception<T>(ex: PyObjectRef, default: T, vm: &VirtualMachine) -> PyResult<T> {
-    if objtype::isinstance(&ex, vm.ctx.exceptions.attribute_error.as_object()) {
+    if objtype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
         Ok(default)
     } else {
         Err(ex)
@@ -357,15 +359,8 @@ fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 
-fn builtin_isinstance(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None), (typ, Some(vm.get_type()))]
-    );
-
-    let isinstance = vm.isinstance(obj, typ)?;
-    Ok(vm.new_bool(isinstance))
+fn builtin_isinstance(obj: PyObjectRef, typ: PyClassRef, vm: &VirtualMachine) -> PyResult<bool> {
+    vm.isinstance(&obj, &typ)
 }
 
 fn builtin_issubclass(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -510,7 +505,7 @@ fn builtin_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     match vm.call_method(iterator, "__next__", vec![]) {
         Ok(value) => Ok(value),
         Err(value) => {
-            if objtype::isinstance(&value, vm.ctx.exceptions.stop_iteration.as_object()) {
+            if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
                 match default_value {
                     None => Err(value),
                     Some(value) => Ok(value.clone()),
@@ -719,24 +714,24 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "all" => ctx.new_rustfunc(builtin_all),
         "any" => ctx.new_rustfunc(builtin_any),
         "bin" => ctx.new_rustfunc(builtin_bin),
-        "bool" => ctx.bool_type(),
-        "bytearray" => ctx.bytearray_type(),
-        "bytes" => ctx.bytes_type(),
+        "bool" => ctx.bool_type().into_object(),
+        "bytearray" => ctx.bytearray_type().into_object(),
+        "bytes" => ctx.bytes_type().into_object(),
         "callable" => ctx.new_rustfunc(builtin_callable),
         "chr" => ctx.new_rustfunc(builtin_chr),
-        "classmethod" => ctx.classmethod_type(),
+        "classmethod" => ctx.classmethod_type().into_object(),
         "compile" => ctx.new_rustfunc(builtin_compile),
-        "complex" => ctx.complex_type(),
+        "complex" => ctx.complex_type().into_object(),
         "delattr" => ctx.new_rustfunc(builtin_delattr),
-        "dict" => ctx.dict_type(),
+        "dict" => ctx.dict_type().into_object(),
         "divmod" => ctx.new_rustfunc(builtin_divmod),
         "dir" => ctx.new_rustfunc(builtin_dir),
-        "enumerate" => ctx.enumerate_type(),
+        "enumerate" => ctx.enumerate_type().into_object(),
         "eval" => ctx.new_rustfunc(builtin_eval),
         "exec" => ctx.new_rustfunc(builtin_exec),
-        "float" => ctx.float_type(),
-        "frozenset" => ctx.frozenset_type(),
-        "filter" => ctx.filter_type(),
+        "float" => ctx.float_type().into_object(),
+        "frozenset" => ctx.frozenset_type().into_object(),
+        "filter" => ctx.filter_type().into_object(),
         "format" => ctx.new_rustfunc(builtin_format),
         "getattr" => ctx.new_rustfunc(builtin_getattr),
         "globals" => ctx.new_rustfunc(builtin_globals),
@@ -744,39 +739,39 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "hash" => ctx.new_rustfunc(builtin_hash),
         "hex" => ctx.new_rustfunc(builtin_hex),
         "id" => ctx.new_rustfunc(builtin_id),
-        "int" => ctx.int_type(),
+        "int" => ctx.int_type().into_object(),
         "isinstance" => ctx.new_rustfunc(builtin_isinstance),
         "issubclass" => ctx.new_rustfunc(builtin_issubclass),
         "iter" => ctx.new_rustfunc(builtin_iter),
         "len" => ctx.new_rustfunc(builtin_len),
-        "list" => ctx.list_type(),
+        "list" => ctx.list_type().into_object(),
         "locals" => ctx.new_rustfunc(builtin_locals),
-        "map" => ctx.map_type(),
+        "map" => ctx.map_type().into_object(),
         "max" => ctx.new_rustfunc(builtin_max),
-        "memoryview" => ctx.memoryview_type(),
+        "memoryview" => ctx.memoryview_type().into_object(),
         "min" => ctx.new_rustfunc(builtin_min),
-        "object" => ctx.object(),
+        "object" => ctx.object().into_object(),
         "oct" => ctx.new_rustfunc(builtin_oct),
         "ord" => ctx.new_rustfunc(builtin_ord),
         "next" => ctx.new_rustfunc(builtin_next),
         "pow" => ctx.new_rustfunc(builtin_pow),
         "print" => ctx.new_rustfunc(builtin_print),
-        "property" => ctx.property_type(),
-        "range" => ctx.range_type(),
+        "property" => ctx.property_type().into_object(),
+        "range" => ctx.range_type().into_object(),
         "repr" => ctx.new_rustfunc(builtin_repr),
         "reversed" => ctx.new_rustfunc(builtin_reversed),
         "round" => ctx.new_rustfunc(builtin_round),
-        "set" => ctx.set_type(),
+        "set" => ctx.set_type().into_object(),
         "setattr" => ctx.new_rustfunc(builtin_setattr),
         "sorted" => ctx.new_rustfunc(builtin_sorted),
-        "slice" => ctx.slice_type(),
-        "staticmethod" => ctx.staticmethod_type(),
-        "str" => ctx.str_type(),
+        "slice" => ctx.slice_type().into_object(),
+        "staticmethod" => ctx.staticmethod_type().into_object(),
+        "str" => ctx.str_type().into_object(),
         "sum" => ctx.new_rustfunc(builtin_sum),
-        "super" => ctx.super_type(),
-        "tuple" => ctx.tuple_type(),
-        "type" => ctx.type_type(),
-        "zip" => ctx.zip_type(),
+        "super" => ctx.super_type().into_object(),
+        "tuple" => ctx.tuple_type().into_object(),
+        "type" => ctx.type_type().into_object(),
+        "zip" => ctx.zip_type().into_object(),
         "__import__" => ctx.new_rustfunc(builtin_import),
 
         // Constants
@@ -813,12 +808,16 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let function = args.shift();
     let name_arg = args.shift();
     let bases = args.args.clone();
-    let mut metaclass = args.get_kwarg("metaclass", vm.get_type());
+    let mut metaclass = if let Some(metaclass) = args.get_optional_kwarg("metaclass") {
+        PyClassRef::try_from_object(vm, metaclass)?
+    } else {
+        vm.get_type()
+    };
 
     for base in bases.clone() {
-        if objtype::issubclass(&base.typ(), &metaclass) {
-            metaclass = base.typ();
-        } else if !objtype::issubclass(&metaclass, &base.typ()) {
+        if objtype::issubclass(&base.type_pyref(), &metaclass) {
+            metaclass = base.type_pyref();
+        } else if !objtype::issubclass(&metaclass, &base.type_pyref()) {
             return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
         }
     }
@@ -826,13 +825,17 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let bases = vm.context().new_tuple(bases);
 
     // Prepare uses full __getattribute__ resolution chain.
-    let prepare = vm.get_attribute(metaclass.clone(), "__prepare__")?;
+    let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
     let cells = vm.new_dict();
 
     vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
-    let class = vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])?;
+    let class = vm.call_method(
+        metaclass.as_object(),
+        "__call__",
+        vec![name_arg, bases, namespace],
+    )?;
     cells.set_item(&vm.ctx, "__class__", class.clone());
     Ok(class)
 }

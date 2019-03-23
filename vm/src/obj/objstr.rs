@@ -605,7 +605,7 @@ impl PyStringRef {
 }
 
 impl PyValue for PyString {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.str_type()
     }
 }

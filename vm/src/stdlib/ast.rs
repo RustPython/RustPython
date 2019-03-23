@@ -626,8 +626,8 @@ fn ast_parse(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "ast", {
         "parse" => ctx.new_rustfunc(ast_parse),
-        "Module" => py_class!(ctx, "_ast.Module", ctx.object(), {}),
-        "FunctionDef" => py_class!(ctx, "_ast.FunctionDef", ctx.object(), {}),
-        "Call" => py_class!(ctx, "_ast.Call", ctx.object(), {})
+        "Module" => py_class!(ctx, "_ast.Module", ctx.object(), {}).into_object(),
+        "FunctionDef" => py_class!(ctx, "_ast.FunctionDef", ctx.object(), {}).into_object(),
+        "Call" => py_class!(ctx, "_ast.Call", ctx.object(), {}).into_object()
     })
 }

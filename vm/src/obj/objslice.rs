@@ -5,6 +5,7 @@ use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeP
 use crate::vm::VirtualMachine;
 
 use super::objint;
+use crate::obj::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PySlice {
@@ -15,7 +16,7 @@ pub struct PySlice {
 }
 
 impl PyValue for PySlice {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.slice_type()
     }
 }

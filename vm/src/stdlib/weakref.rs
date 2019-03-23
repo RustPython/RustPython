@@ -9,6 +9,6 @@ use super::super::pyobject::{PyContext, PyObjectRef};
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "_weakref", {
-        "ref" => ctx.weakref_type()
+        "ref" => ctx.weakref_type().into_object()
     })
 }
