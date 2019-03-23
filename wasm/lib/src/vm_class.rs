@@ -15,10 +15,6 @@ use crate::browser_module::setup_browser_module;
 use crate::convert;
 use crate::wasm_builtins;
 
-pub trait HeldRcInner {}
-
-impl<T> HeldRcInner for T {}
-
 pub(crate) struct StoredVirtualMachine {
     pub vm: VirtualMachine,
     pub scope: RefCell<Scope>,
