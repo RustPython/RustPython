@@ -33,8 +33,10 @@ impl PyValue for PyCode {
 
 pub fn init(context: &PyContext) {
     let code_type = context.code_type.as_object();
-    context.set_attr(code_type, "__new__", context.new_rustfunc(code_new));
-    context.set_attr(code_type, "__repr__", context.new_rustfunc(code_repr));
+    extend_class!(context, code_type, {
+        "__new__" => context.new_rustfunc(code_new),
+        "__repr__" => context.new_rustfunc(code_repr)
+    });
 
     for (name, f) in &[
         (

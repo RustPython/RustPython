@@ -61,83 +61,25 @@ pub fn init(context: &PyContext) {
          - any object implementing the buffer API.\n  \
          - an integer";
 
-    context.set_attr(bytearray_type, "__eq__", context.new_rustfunc(bytearray_eq));
-    context.set_attr(
-        bytearray_type,
-        "__new__",
-        context.new_rustfunc(bytearray_new),
-    );
-    context.set_attr(
-        bytearray_type,
-        "__repr__",
-        context.new_rustfunc(bytearray_repr),
-    );
-    context.set_attr(
-        bytearray_type,
-        "__len__",
-        context.new_rustfunc(bytesarray_len),
-    );
-    context.set_attr(
-        bytearray_type,
-        "__doc__",
-        context.new_str(bytearray_doc.to_string()),
-    );
-    context.set_attr(
-        bytearray_type,
-        "isalnum",
-        context.new_rustfunc(bytearray_isalnum),
-    );
-    context.set_attr(
-        bytearray_type,
-        "isalpha",
-        context.new_rustfunc(bytearray_isalpha),
-    );
-    context.set_attr(
-        bytearray_type,
-        "isascii",
-        context.new_rustfunc(bytearray_isascii),
-    );
-    context.set_attr(
-        bytearray_type,
-        "isdigit",
-        context.new_rustfunc(bytearray_isdigit),
-    );
-    context.set_attr(
-        bytearray_type,
-        "islower",
-        context.new_rustfunc(bytearray_islower),
-    );
-    context.set_attr(
-        bytearray_type,
-        "isspace",
-        context.new_rustfunc(bytearray_isspace),
-    );
-    context.set_attr(
-        bytearray_type,
-        "isupper",
-        context.new_rustfunc(bytearray_isupper),
-    );
-    context.set_attr(
-        bytearray_type,
-        "istitle",
-        context.new_rustfunc(bytearray_istitle),
-    );
-    context.set_attr(
-        bytearray_type,
-        "clear",
-        context.new_rustfunc(bytearray_clear),
-    );
-    context.set_attr(bytearray_type, "pop", context.new_rustfunc(bytearray_pop));
-    context.set_attr(
-        bytearray_type,
-        "lower",
-        context.new_rustfunc(bytearray_lower),
-    );
-    context.set_attr(
-        bytearray_type,
-        "upper",
-        context.new_rustfunc(bytearray_upper),
-    );
+    extend_class!(context, bytearray_type, {
+        "__doc__" => context.new_str(bytearray_doc.to_string()),
+        "__eq__" => context.new_rustfunc(bytearray_eq),
+        "__len__" => context.new_rustfunc(bytesarray_len),
+        "__new__" => context.new_rustfunc(bytearray_new),
+        "__repr__" => context.new_rustfunc(bytearray_repr),
+        "clear" => context.new_rustfunc(bytearray_clear),
+        "isalnum" => context.new_rustfunc(bytearray_isalnum),
+        "isalpha" => context.new_rustfunc(bytearray_isalpha),
+        "isascii" => context.new_rustfunc(bytearray_isascii),
+        "isdigit" => context.new_rustfunc(bytearray_isdigit),
+        "islower" => context.new_rustfunc(bytearray_islower),
+        "isspace" => context.new_rustfunc(bytearray_isspace),
+        "istitle" =>context.new_rustfunc(bytearray_istitle),
+        "isupper" => context.new_rustfunc(bytearray_isupper),
+        "lower" => context.new_rustfunc(bytearray_lower),
+        "pop" => context.new_rustfunc(bytearray_pop),
+        "upper" => context.new_rustfunc(bytearray_upper)
+    });
 }
 
 fn bytearray_new(

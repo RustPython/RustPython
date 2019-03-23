@@ -26,9 +26,7 @@ pub fn new_memory_view(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn init(ctx: &PyContext) {
     let memoryview_type = &ctx.memoryview_type;
-    ctx.set_attr(
-        memoryview_type,
-        "__new__",
-        ctx.new_rustfunc(new_memory_view),
-    );
+    extend_class!(ctx, memoryview_type, {
+        "__new__" => ctx.new_rustfunc(new_memory_view)
+    });
 }
