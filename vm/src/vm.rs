@@ -91,17 +91,26 @@ impl VirtualMachine {
         result
     }
 
-    pub fn current_frame(&self) -> Ref<Frame> {
-        Ref::map(self.frames.borrow(), |frames| {
-            let index = frames.len() - 1;
-            let current_frame = &frames[index];
-            objframe::get_value(current_frame)
-        })
+    pub fn current_frame(&self) -> Option<Ref<Frame>> {
+        let frames = self.frames.borrow();
+        if frames.is_empty() {
+            None
+        } else {
+            Some(Ref::map(self.frames.borrow(), |frames| {
+                objframe::get_value(frames.last().unwrap())
+            }))
+        }
     }
 
     pub fn current_scope(&self) -> Ref<Scope> {
-        let frame = self.current_frame();
+        let frame = self
+            .current_frame()
+            .expect("called current_scope but no frames on the stack");
         Ref::map(frame, |f| &f.scope)
+    }
+
+    pub fn try_class(&self, module: &str, class: &str) -> PyResult {
+        self.get_attribute(self.import(module)?, class)
     }
 
     pub fn class(&self, module: &str, class: &str) -> PyObjectRef {
@@ -246,10 +255,9 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str) -> PyResult {
-        let builtins_import = self.builtins.get_item("__import__");
-        match builtins_import {
-            Some(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
-            None => Err(self.new_exception(
+        match self.get_attribute(self.builtins.clone(), "__import__") {
+            Ok(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
+            Err(_) => Err(self.new_exception(
                 self.ctx.exceptions.import_error.clone(),
                 "__import__ not found".to_string(),
             )),
