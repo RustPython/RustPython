@@ -35,12 +35,6 @@ impl PyValue for PyClass {
     }
 }
 
-impl IdProtocol for PyClassRef {
-    fn get_id(&self) -> usize {
-        self.as_object().get_id()
-    }
-}
-
 impl TypeProtocol for PyClassRef {
     fn type_ref(&self) -> &PyObjectRef {
         &self.as_object().type_ref()
@@ -300,10 +294,7 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Ve
 
     for base in &bases {
         let head = base[0].clone();
-        if !(&bases)
-            .iter()
-            .any(|x| x[1..].iter().any(|x| x.get_id() == head.get_id()))
-        {
+        if !(&bases).iter().any(|x| x[1..].iter().any(|x| x.is(&head))) {
             next = Some(head);
             break;
         }
@@ -311,7 +302,7 @@ fn take_next_base(mut bases: Vec<Vec<PyClassRef>>) -> Option<(PyClassRef, Vec<Ve
 
     if let Some(head) = next {
         for item in &mut bases {
-            if item[0].get_id() == head.get_id() {
+            if item[0].is(&head) {
                 item.remove(0);
             }
         }
@@ -347,10 +338,10 @@ pub fn new(
     let mros = bases.into_iter().map(|x| _mro(&x)).collect();
     let mro = linearise_mro(mros).unwrap();
     Ok(PyObject {
-        payload: Box::new(PyClass {
+        payload: PyClass {
             name: String::from(name),
             mro,
-        }),
+        },
         dict: Some(RefCell::new(dict)),
         typ,
     }

@@ -333,7 +333,7 @@ impl VirtualMachine {
         }
 
         // TODO: is it safe to just invoke __call__ otherwise?
-        trace!("invoke __call__ for: {:?}", func_ref.payload);
+        trace!("invoke __call__ for: {:?}", &func_ref.payload);
         self.call_method(&func_ref, "__call__", args)
     }
 
