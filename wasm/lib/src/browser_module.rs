@@ -9,9 +9,11 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::import::import_module;
+use rustpython_vm::obj::objtype::PyClassRef;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{
-    AttributeProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    AttributeProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -170,8 +172,8 @@ impl PyValue for PyPromise {
 }
 
 impl PyPromise {
-    pub fn new_obj(promise_type: PyObjectRef, value: Promise) -> PyObjectRef {
-        PyObject::new(PyPromise { value }, promise_type)
+    pub fn new_obj(promise_type: PyClassRef, value: Promise) -> PyObjectRef {
+        PyObject::new(PyPromise { value }, promise_type.into_object())
     }
 }
 
@@ -182,9 +184,9 @@ pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
     panic!("Inner error getting promise")
 }
 
-pub fn import_promise_type(vm: &VirtualMachine) -> PyResult {
+pub fn import_promise_type(vm: &VirtualMachine) -> PyResult<PyClassRef> {
     match import_module(vm, PathBuf::default(), BROWSER_NAME)?.get_attr("Promise") {
-        Some(promise) => Ok(promise),
+        Some(promise) => PyClassRef::try_from_object(vm, promise),
         None => Err(vm.new_not_implemented_error("No Promise".to_string())),
     }
 }
