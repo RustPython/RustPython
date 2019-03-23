@@ -4,7 +4,7 @@ use super::objstr;
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::ToBigInt;
@@ -155,7 +155,7 @@ impl PyFloatRef {
         }
     }
 
-    fn new_float(cls: PyObjectRef, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn new_float(cls: PyClassRef, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyFloatRef> {
         let value = if objtype::isinstance(&arg, &vm.ctx.float_type()) {
             get_value(&arg)
         } else if objtype::isinstance(&arg, &vm.ctx.int_type()) {
@@ -193,7 +193,7 @@ impl PyFloatRef {
             let type_name = objtype::get_type_name(&arg.typ());
             return Err(vm.new_type_error(format!("can't convert {} to float", type_name)));
         };
-        Ok(PyObject::new(PyFloat { value }, cls.clone()))
+        PyFloat { value }.into_ref_with_type(vm, cls)
     }
 
     fn mod_(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {

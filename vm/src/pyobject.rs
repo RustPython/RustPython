@@ -152,14 +152,7 @@ pub struct PyContext {
 
 pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
     let dict = PyAttributes::new();
-    let new_type = objtype::new(
-        type_type.clone().into_object(),
-        name,
-        vec![base.clone()],
-        dict,
-    )
-    .unwrap();
-    new_type.downcast().unwrap()
+    objtype::new(type_type.clone(), name, vec![base.clone()], dict).unwrap()
 }
 
 pub type PyNotImplementedRef = PyRef<PyNotImplemented>;
@@ -212,13 +205,14 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
 
         let object_type_ptr = PyObjectRef::into_raw(object_type.clone()) as *mut PyObject<PyClass>;
         let type_type_ptr = PyObjectRef::into_raw(type_type.clone()) as *mut PyObject<PyClass>;
+
+        let type_type = PyClassRef::from_pyobj(&type_type);
+        let object_type = PyClassRef::from_pyobj(&object_type);
+
         ptr::write(&mut (*object_type_ptr).typ, type_type.clone());
         ptr::write(&mut (*type_type_ptr).typ, type_type.clone());
 
-        (
-            type_type.downcast().unwrap(),
-            object_type.downcast().unwrap(),
-        )
+        (type_type, object_type)
     }
 }
 
@@ -265,7 +259,7 @@ impl PyContext {
 
         fn create_object<T: PyObjectPayload>(payload: T, cls: &PyClassRef) -> PyRef<T> {
             PyRef {
-                obj: PyObject::new(payload, cls.clone().into_object()),
+                obj: PyObject::new(payload, cls.clone()),
                 _payload: PhantomData,
             }
         }
@@ -520,33 +514,27 @@ impl PyContext {
     }
 
     pub fn new_int<T: Into<BigInt>>(&self, i: T) -> PyObjectRef {
-        PyObject::new(PyInt::new(i), self.int_type().into_object())
+        PyObject::new(PyInt::new(i), self.int_type())
     }
 
     pub fn new_float(&self, value: f64) -> PyObjectRef {
-        PyObject::new(PyFloat::from(value), self.float_type().into_object())
+        PyObject::new(PyFloat::from(value), self.float_type())
     }
 
     pub fn new_complex(&self, value: Complex64) -> PyObjectRef {
-        PyObject::new(PyComplex::from(value), self.complex_type().into_object())
+        PyObject::new(PyComplex::from(value), self.complex_type())
     }
 
     pub fn new_str(&self, s: String) -> PyObjectRef {
-        PyObject::new(objstr::PyString { value: s }, self.str_type().into_object())
+        PyObject::new(objstr::PyString { value: s }, self.str_type())
     }
 
     pub fn new_bytes(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            objbytes::PyBytes::new(data),
-            self.bytes_type().into_object(),
-        )
+        PyObject::new(objbytes::PyBytes::new(data), self.bytes_type())
     }
 
     pub fn new_bytearray(&self, data: Vec<u8>) -> PyObjectRef {
-        PyObject::new(
-            objbytearray::PyByteArray::new(data),
-            self.bytearray_type().into_object(),
-        )
+        PyObject::new(objbytearray::PyByteArray::new(data), self.bytearray_type())
     }
 
     pub fn new_bool(&self, b: bool) -> PyObjectRef {
@@ -558,32 +546,25 @@ impl PyContext {
     }
 
     pub fn new_tuple(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyTuple::from(elements), self.tuple_type().into_object())
+        PyObject::new(PyTuple::from(elements), self.tuple_type())
     }
 
     pub fn new_list(&self, elements: Vec<PyObjectRef>) -> PyObjectRef {
-        PyObject::new(PyList::from(elements), self.list_type().into_object())
+        PyObject::new(PyList::from(elements), self.list_type())
     }
 
     pub fn new_set(&self) -> PyObjectRef {
         // Initialized empty, as calling __hash__ is required for adding each object to the set
         // which requires a VM context - this is done in the objset code itself.
-        PyObject::new(PySet::default(), self.set_type().into_object())
+        PyObject::new(PySet::default(), self.set_type())
     }
 
     pub fn new_dict(&self) -> PyObjectRef {
-        PyObject::new(PyDict::default(), self.dict_type().into_object())
+        PyObject::new(PyDict::default(), self.dict_type())
     }
 
     pub fn new_class(&self, name: &str, base: PyClassRef) -> PyClassRef {
-        let typ = objtype::new(
-            self.type_type().into_object(),
-            name,
-            vec![base],
-            PyAttributes::new(),
-        )
-        .unwrap();
-        typ.downcast().unwrap()
+        objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
     }
 
     pub fn new_scope(&self) -> Scope {
@@ -596,7 +577,7 @@ impl PyContext {
                 name: name.to_string(),
                 dict,
             },
-            self.module_type.clone().into_object(),
+            self.module_type.clone(),
         )
     }
 
@@ -606,12 +587,12 @@ impl PyContext {
     {
         PyObject::new(
             PyBuiltinFunction::new(f.into_func()),
-            self.builtin_function_or_method_type().into_object(),
+            self.builtin_function_or_method_type(),
         )
     }
 
     pub fn new_frame(&self, code: PyObjectRef, scope: Scope) -> PyObjectRef {
-        PyObject::new(Frame::new(code, scope), self.frame_type().into_object())
+        PyObject::new(Frame::new(code, scope), self.frame_type())
     }
 
     pub fn new_property<F, I, V>(&self, f: F) -> PyObjectRef
@@ -622,7 +603,7 @@ impl PyContext {
     }
 
     pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
-        PyObject::new(objcode::PyCode::new(code), self.code_type().into_object())
+        PyObject::new(objcode::PyCode::new(code), self.code_type())
     }
 
     pub fn new_function(
@@ -633,21 +614,18 @@ impl PyContext {
     ) -> PyObjectRef {
         PyObject::new(
             PyFunction::new(code_obj, scope, defaults),
-            self.function_type().into_object(),
+            self.function_type(),
         )
     }
 
     pub fn new_bound_method(&self, function: PyObjectRef, object: PyObjectRef) -> PyObjectRef {
-        PyObject::new(
-            PyMethod::new(object, function),
-            self.bound_method_type().into_object(),
-        )
+        PyObject::new(PyMethod::new(object, function), self.bound_method_type())
     }
 
     pub fn new_instance(&self, class: PyClassRef, dict: Option<PyAttributes>) -> PyObjectRef {
         let dict = dict.unwrap_or_default();
         PyObject {
-            typ: class.into_object(),
+            typ: class,
             dict: Some(RefCell::new(dict)),
             payload: objobject::PyInstance,
         }
@@ -716,7 +694,7 @@ pub struct PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    pub typ: PyObjectRef,
+    pub typ: PyClassRef,
     pub dict: Option<RefCell<PyAttributes>>, // __dict__ member
     pub payload: T,
 }
@@ -896,7 +874,7 @@ where
     T: ?Sized + PyObjectPayload,
 {
     fn type_ref(&self) -> &PyObjectRef {
-        &self.typ
+        self.typ.as_object()
     }
 }
 
@@ -1124,7 +1102,7 @@ where
     T: PyValue + Sized,
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(self, T::class(vm).into_object()))
+        Ok(PyObject::new(self, T::class(vm)))
     }
 }
 
@@ -1146,7 +1124,7 @@ impl<T> PyObject<T>
 where
     T: Sized + PyObjectPayload,
 {
-    pub fn new(payload: T, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new(payload: T, typ: PyClassRef) -> PyObjectRef {
         PyObject {
             typ,
             dict: Some(RefCell::new(PyAttributes::new())),
@@ -1155,7 +1133,7 @@ where
         .into_ref()
     }
 
-    pub fn new_without_dict(payload: T, typ: PyObjectRef) -> PyObjectRef {
+    pub fn new_without_dict(payload: T, typ: PyClassRef) -> PyObjectRef {
         PyObject {
             typ,
             dict: None,
@@ -1187,7 +1165,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
         PyRef {
-            obj: PyObject::new(self, Self::class(vm).into_object()),
+            obj: PyObject::new(self, Self::class(vm)),
             _payload: PhantomData,
         }
     }
@@ -1196,7 +1174,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
         let class = Self::class(vm);
         if objtype::issubclass(&cls, &class) {
             Ok(PyRef {
-                obj: PyObject::new(self, cls.obj),
+                obj: PyObject::new(self, cls),
                 _payload: PhantomData,
             })
         } else {
