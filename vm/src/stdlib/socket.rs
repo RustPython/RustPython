@@ -121,9 +121,8 @@ pub struct Socket {
 }
 
 impl PyValue for Socket {
-    fn class(_vm: &VirtualMachine) -> PyClassRef {
-        // TODO
-        unimplemented!()
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("socket", "socket")
     }
 }
 
