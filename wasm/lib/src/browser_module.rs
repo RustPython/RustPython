@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use futures::Future;
 use js_sys::Promise;
 use num_traits::cast::ToPrimitive;
@@ -7,11 +5,13 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::import::import_module;
-use rustpython_vm::obj::{objint, objstr};
+use rustpython_vm::function::{OptionalArg, PyFuncArgs};
+use rustpython_vm::obj::{
+    objint,
+    objstr::{self, PyStringRef},
+};
 use rustpython_vm::pyobject::{
-    AttributeProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
+    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -44,7 +44,7 @@ impl FetchResponseFormat {
 fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(url, Some(vm.ctx.str_type()))]);
 
-    let promise_type = import_promise_type(vm)?;
+    let promise_type = vm.try_class("browser", "Promise")?;
 
     let response_format =
         args.get_optional_kwarg_with_type("response_format", vm.ctx.str_type(), vm)?;
@@ -165,7 +165,7 @@ pub struct PyPromise {
 
 impl PyValue for PyPromise {
     fn class(vm: &VirtualMachine) -> PyObjectRef {
-        vm.class(BROWSER_NAME, "Promise")
+        vm.class("browser", "Promise")
     }
 }
 
@@ -182,15 +182,8 @@ pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
     panic!("Inner error getting promise")
 }
 
-pub fn import_promise_type(vm: &VirtualMachine) -> PyResult {
-    match import_module(vm, PathBuf::default(), BROWSER_NAME)?.get_attr("Promise") {
-        Some(promise) => Ok(promise),
-        None => Err(vm.new_not_implemented_error("No Promise".to_string())),
-    }
-}
-
 fn promise_then(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let promise_type = import_promise_type(vm)?;
+    let promise_type = vm.try_class("browser", "Promise")?;
     arg_check!(
         vm,
         args,
@@ -236,7 +229,7 @@ fn promise_then(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn promise_catch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let promise_type = import_promise_type(vm)?;
+    let promise_type = vm.try_class("browser", "Promise")?;
     arg_check!(
         vm,
         args,
@@ -268,6 +261,65 @@ fn promise_catch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let ret_promise = future_to_promise(ret_future);
 
     Ok(PyPromise::new_obj(promise_type, ret_promise))
+}
+
+#[derive(Debug)]
+struct PyDocument {
+    doc: web_sys::Document,
+}
+type PyDocumentRef = PyRef<PyDocument>;
+
+impl PyValue for PyDocument {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.class("browser", "Document")
+    }
+}
+
+fn document_query(zelf: PyDocumentRef, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    let elem = zelf
+        .doc
+        .query_selector(&query.value)
+        .map_err(|err| convert::js_py_typeerror(vm, err))?;
+    let elem = match elem {
+        Some(elem) => PyElement { elem }.into_ref(vm).into_object(),
+        None => vm.get_none(),
+    };
+    Ok(elem)
+}
+
+#[derive(Debug)]
+struct PyElement {
+    elem: web_sys::Element,
+}
+type PyElementRef = PyRef<PyElement>;
+
+impl PyValue for PyElement {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.class("browser", "Element")
+    }
+}
+
+fn elem_get_attr(
+    zelf: PyElementRef,
+    attr: PyStringRef,
+    default: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyObjectRef {
+    match zelf.elem.get_attribute(&attr.value) {
+        Some(s) => vm.new_str(s),
+        None => default.into_option().unwrap_or_else(|| vm.get_none()),
+    }
+}
+
+fn elem_set_attr(
+    zelf: PyElementRef,
+    attr: PyStringRef,
+    value: PyStringRef,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    zelf.elem
+        .set_attribute(&attr.value, &value.value)
+        .map_err(|err| convert::js_to_py(vm, err))
 }
 
 fn browser_alert(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -315,19 +367,36 @@ fn browser_prompt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(result)
 }
 
-const BROWSER_NAME: &str = "browser";
-
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let promise = py_class!(ctx, "Promise", ctx.object(), {
         "then" => ctx.new_rustfunc(promise_then),
-        "catch" => ctx.new_rustfunc(promise_catch)
+        "catch" => ctx.new_rustfunc(promise_catch),
     });
 
-    py_module!(ctx, BROWSER_NAME, {
+    let document_class = py_class!(ctx, "Document", ctx.object(), {
+        "query" => ctx.new_rustfunc(document_query),
+    });
+
+    let document = PyObject::new(
+        PyDocument {
+            doc: window().document().expect("Document missing from window"),
+        },
+        document_class.clone(),
+    );
+
+    let element = py_class!(ctx, "Element", ctx.object(), {
+        "get_attr" => ctx.new_rustfunc(elem_get_attr),
+        "set_attr" => ctx.new_rustfunc(elem_set_attr),
+    });
+
+    py_module!(ctx, "browser", {
         "fetch" => ctx.new_rustfunc(browser_fetch),
         "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
         "Promise" => promise,
+        "Document" => document_class,
+        "document" => document,
+        "Element" => element,
         "alert" => ctx.new_rustfunc(browser_alert),
         "confirm" => ctx.new_rustfunc(browser_confirm),
         "prompt" => ctx.new_rustfunc(browser_prompt),
@@ -337,5 +406,5 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 pub fn setup_browser_module(vm: &VirtualMachine) {
     vm.stdlib_inits
         .borrow_mut()
-        .insert(BROWSER_NAME.to_string(), Box::new(make_module));
+        .insert("browser".to_string(), Box::new(make_module));
 }
