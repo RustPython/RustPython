@@ -43,7 +43,7 @@ pub fn get_next_object(
         Ok(value) => Ok(Some(value)),
         Err(next_error) => {
             // Check if we have stopiteration, or something else:
-            if objtype::isinstance(&next_error, vm.ctx.exceptions.stop_iteration.as_object()) {
+            if objtype::isinstance(&next_error, &vm.ctx.exceptions.stop_iteration) {
                 Ok(None)
             } else {
                 Err(next_error)
@@ -70,7 +70,7 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
 }
 
-fn contains(vm: &VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> PyResult {
+fn contains(vm: &VirtualMachine, args: PyFuncArgs, iter_type: PyClassRef) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -93,7 +93,7 @@ fn contains(vm: &VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> Py
 /// Common setup for iter types, adds __iter__ and __contains__ methods
 pub fn iter_type_init(context: &PyContext, iter_type: &PyClassRef) {
     let contains_func = {
-        let cloned_iter_type = iter_type.clone().into_object();
+        let cloned_iter_type = iter_type.clone();
         move |vm: &VirtualMachine, args: PyFuncArgs| contains(vm, args, cloned_iter_type.clone())
     };
     context.set_attr(
@@ -102,7 +102,7 @@ pub fn iter_type_init(context: &PyContext, iter_type: &PyClassRef) {
         context.new_rustfunc(contains_func),
     );
     let iter_func = {
-        let cloned_iter_type = iter_type.clone().into_object();
+        let cloned_iter_type = iter_type.clone();
         move |vm: &VirtualMachine, args: PyFuncArgs| {
             arg_check!(
                 vm,

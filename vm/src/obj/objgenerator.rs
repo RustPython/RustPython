@@ -4,6 +4,7 @@
 
 use crate::frame::{ExecutionResult, Frame};
 use crate::function::PyFuncArgs;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -14,7 +15,7 @@ pub struct PyGenerator {
 type PyGeneratorRef = PyRef<PyGenerator>;
 
 impl PyValue for PyGenerator {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.generator_type()
     }
 }

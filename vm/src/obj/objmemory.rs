@@ -1,4 +1,5 @@
 use crate::function::PyFuncArgs;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -8,7 +9,7 @@ pub struct PyMemoryView {
 }
 
 impl PyValue for PyMemoryView {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.memoryview_type()
     }
 }

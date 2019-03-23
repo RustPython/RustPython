@@ -1,4 +1,5 @@
 use crate::obj::objstr::PyStringRef;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -10,7 +11,7 @@ pub struct PyModule {
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.module_type()
     }
 }

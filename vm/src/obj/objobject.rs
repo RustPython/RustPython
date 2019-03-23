@@ -4,6 +4,7 @@ use super::objstr::{self, PyStringRef};
 use super::objtype;
 use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     DictProtocol, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
     TypeProtocol,
@@ -14,7 +15,7 @@ use crate::vm::VirtualMachine;
 pub struct PyInstance;
 
 impl PyValue for PyInstance {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.object()
     }
 }

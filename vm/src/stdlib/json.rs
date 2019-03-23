@@ -243,6 +243,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     py_module!(ctx, "json", {
         "dumps" => ctx.new_rustfunc(json_dumps),
         "loads" => ctx.new_rustfunc(json_loads),
-        "JSONDecodeError" => json_decode_error.into_object()
+        "JSONDecodeError" => json_decode_error
     })
 }

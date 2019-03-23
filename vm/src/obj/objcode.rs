@@ -6,6 +6,7 @@ use std::fmt;
 
 use crate::bytecode;
 use crate::function::PyFuncArgs;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -26,7 +27,7 @@ impl fmt::Debug for PyCode {
 }
 
 impl PyValue for PyCode {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.code_type()
     }
 }

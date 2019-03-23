@@ -19,6 +19,7 @@ use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     BufferProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -42,7 +43,7 @@ struct PyStringIO {
 type PyStringIORef = PyRef<PyStringIO>;
 
 impl PyValue for PyStringIO {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("io", "StringIO")
     }
 }
@@ -388,6 +389,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     });
 
     // RawBaseIO Subclasses
+    // TODO Fix name?
     let file_io = py_class!(ctx, "FileIO", raw_io_base.clone(), {
         "__init__" => ctx.new_rustfunc(file_io_init),
         "name" => ctx.str_type(),
@@ -425,14 +427,14 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 
     py_module!(ctx, "io", {
         "open" => ctx.new_rustfunc(io_open),
-        "IOBase" => io_base.clone(),
-        "RawIOBase" => raw_io_base.clone(),
-        "BufferedIOBase" => buffered_io_base.clone(),
-        "TextIOBase" => text_io_base.clone(),
-        "FileIO" => file_io.clone(),
-        "BufferedReader" => buffered_reader.clone(),
-        "BufferedWriter" => buffered_writer.clone(),
-        "TextIOWrapper" => text_io_wrapper.clone(),
+        "IOBase" => io_base,
+        "RawIOBase" => raw_io_base,
+        "BufferedIOBase" => buffered_io_base,
+        "TextIOBase" => text_io_base,
+        "FileIO" => file_io,
+        "BufferedReader" => buffered_reader,
+        "BufferedWriter" => buffered_writer,
+        "TextIOWrapper" => text_io_wrapper,
         "StringIO" => string_io,
         "BytesIO" => bytes_io,
     })

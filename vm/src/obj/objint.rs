@@ -7,7 +7,7 @@ use num_traits::{Pow, Signed, ToPrimitive, Zero};
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    FromPyObjectRef, IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -15,6 +15,7 @@ use crate::vm::VirtualMachine;
 use super::objfloat;
 use super::objstr;
 use super::objtype;
+use crate::obj::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyInt {
@@ -37,7 +38,7 @@ impl IntoPyObject for BigInt {
 }
 
 impl PyValue for PyInt {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.int_type()
     }
 }
@@ -377,9 +378,6 @@ fn int_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(cls, None)],
         optional = [(val_option, None)]
     );
-    if !objtype::issubclass(cls, &vm.ctx.int_type()) {
-        return Err(vm.new_type_error(format!("{:?} is not a subtype of int", cls)));
-    }
 
     let base = match args.get_optional_kwarg("base") {
         Some(argument) => get_value(&argument).to_u32().unwrap(),
@@ -389,7 +387,9 @@ fn int_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(val) => to_int(vm, val, base)?,
         None => Zero::zero(),
     };
-    Ok(PyObject::new(PyInt::new(val), cls.clone()))
+    Ok(PyInt::new(val)
+        .into_ref_with_type(vm, PyClassRef::from_pyobj(cls))?
+        .into_object())
 }
 
 // Casting function:

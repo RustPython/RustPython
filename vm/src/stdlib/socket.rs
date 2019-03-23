@@ -13,6 +13,7 @@ use crate::obj::objstr;
 use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
+use crate::obj::objtype::PyClassRef;
 use num_traits::ToPrimitive;
 
 #[derive(Debug, Copy, Clone)]
@@ -118,7 +119,7 @@ pub struct Socket {
 }
 
 impl PyValue for Socket {
-    fn class(_vm: &VirtualMachine) -> PyObjectRef {
+    fn class(_vm: &VirtualMachine) -> PyClassRef {
         // TODO
         unimplemented!()
     }
@@ -439,6 +440,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
          "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),
-         "socket" => socket.clone(),
+         "socket" => socket,
     })
 }

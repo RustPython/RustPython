@@ -16,7 +16,7 @@ use crate::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objint;
 use super::objiter;
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 
 #[derive(Default)]
 pub struct PySet {
@@ -32,7 +32,7 @@ impl fmt::Debug for PySet {
 }
 
 impl PyValue for PySet {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.set_type()
     }
 }
@@ -157,10 +157,6 @@ fn set_new(
     iterable: OptionalArg<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<PySetRef> {
-    if !objtype::issubclass(cls.as_object(), &vm.ctx.set_type()) {
-        return Err(vm.new_type_error(format!("{} is not a subtype of set", cls)));
-    }
-
     let elements: HashMap<u64, PyObjectRef> = match iterable {
         OptionalArg::Missing => HashMap::new(),
         OptionalArg::Present(iterable) => {

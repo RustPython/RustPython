@@ -20,6 +20,7 @@ use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
+use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -195,7 +196,7 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.frame_type()
     }
 }
@@ -253,7 +254,7 @@ impl Frame {
                     // Add an entry in the traceback:
                     assert!(objtype::isinstance(
                         &exception,
-                        vm.ctx.exceptions.base_exception_type.as_object()
+                        &vm.ctx.exceptions.base_exception_type
                     ));
                     let traceback = vm
                         .get_attribute(exception.clone(), "__traceback__")
@@ -656,29 +657,25 @@ impl Frame {
                     0 | 2 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                if objtype::isinstance(
-                    &exception,
-                    vm.ctx.exceptions.base_exception_type.as_object(),
-                ) {
+                if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
                     info!("Exception raised: {:?}", exception);
                     Err(exception)
-                } else if objtype::isinstance(&exception, &vm.ctx.type_type())
-                    && objtype::issubclass(
-                        &exception,
-                        vm.ctx.exceptions.base_exception_type.as_object(),
-                    )
-                {
-                    let exception = vm.new_empty_exception(exception)?;
-                    info!("Exception raised: {:?}", exception);
-                    Err(exception)
+                } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
+                    if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
+                        let exception = vm.new_empty_exception(exception)?;
+                        info!("Exception raised: {:?}", exception);
+                        Err(exception)
+                    } else {
+                        let msg = format!(
+                            "Can only raise BaseException derived types, not {}",
+                            exception
+                        );
+                        let type_error_type = vm.ctx.exceptions.type_error.clone();
+                        let type_error = vm.new_exception(type_error_type, msg);
+                        Err(type_error)
+                    }
                 } else {
-                    let msg = format!(
-                        "Can only raise BaseException derived types, not {}",
-                        exception
-                    );
-                    let type_error_type = vm.ctx.exceptions.type_error.clone();
-                    let type_error = vm.new_exception(type_error_type, msg);
-                    Err(type_error)
+                    Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
                 }
             }
 

@@ -15,11 +15,13 @@ use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
-use crate::obj::objtype;
+use crate::obj::objtype::{self, PyClassRef};
 
 use crate::frame::Scope;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
-use crate::pyobject::{DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{
+    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -295,7 +297,7 @@ fn builtin_format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn catch_attr_exception<T>(ex: PyObjectRef, default: T, vm: &VirtualMachine) -> PyResult<T> {
-    if objtype::isinstance(&ex, vm.ctx.exceptions.attribute_error.as_object()) {
+    if objtype::isinstance(&ex, &vm.ctx.exceptions.attribute_error) {
         Ok(default)
     } else {
         Err(ex)
@@ -357,15 +359,8 @@ fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 
-fn builtin_isinstance(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None), (typ, Some(vm.get_type()))]
-    );
-
-    let isinstance = vm.isinstance(obj, typ)?;
-    Ok(vm.new_bool(isinstance))
+fn builtin_isinstance(obj: PyObjectRef, typ: PyClassRef, vm: &VirtualMachine) -> PyResult<bool> {
+    vm.isinstance(&obj, &typ)
 }
 
 fn builtin_issubclass(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -510,7 +505,7 @@ fn builtin_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     match vm.call_method(iterator, "__next__", vec![]) {
         Ok(value) => Ok(value),
         Err(value) => {
-            if objtype::isinstance(&value, vm.ctx.exceptions.stop_iteration.as_object()) {
+            if objtype::isinstance(&value, &vm.ctx.exceptions.stop_iteration) {
                 match default_value {
                     None => Err(value),
                     Some(value) => Ok(value.clone()),
@@ -783,24 +778,24 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "NotImplemented" => ctx.not_implemented(),
 
         // Exceptions:
-        "BaseException" => ctx.exceptions.base_exception_type.clone().into_object(),
-        "Exception" => ctx.exceptions.exception_type.clone().into_object(),
-        "ArithmeticError" => ctx.exceptions.arithmetic_error.clone().into_object(),
-        "AssertionError" => ctx.exceptions.assertion_error.clone().into_object(),
-        "AttributeError" => ctx.exceptions.attribute_error.clone().into_object(),
-        "NameError" => ctx.exceptions.name_error.clone().into_object(),
-        "OverflowError" => ctx.exceptions.overflow_error.clone().into_object(),
-        "RuntimeError" => ctx.exceptions.runtime_error.clone().into_object(),
-        "NotImplementedError" => ctx.exceptions.not_implemented_error.clone().into_object(),
-        "TypeError" => ctx.exceptions.type_error.clone().into_object(),
-        "ValueError" => ctx.exceptions.value_error.clone().into_object(),
-        "IndexError" => ctx.exceptions.index_error.clone().into_object(),
-        "ImportError" => ctx.exceptions.import_error.clone().into_object(),
-        "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone().into_object(),
-        "StopIteration" => ctx.exceptions.stop_iteration.clone().into_object(),
-        "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone().into_object(),
-        "KeyError" => ctx.exceptions.key_error.clone().into_object(),
-        "OSError" => ctx.exceptions.os_error.clone().into_object(),
+        "BaseException" => ctx.exceptions.base_exception_type.clone(),
+        "Exception" => ctx.exceptions.exception_type.clone(),
+        "ArithmeticError" => ctx.exceptions.arithmetic_error.clone(),
+        "AssertionError" => ctx.exceptions.assertion_error.clone(),
+        "AttributeError" => ctx.exceptions.attribute_error.clone(),
+        "NameError" => ctx.exceptions.name_error.clone(),
+        "OverflowError" => ctx.exceptions.overflow_error.clone(),
+        "RuntimeError" => ctx.exceptions.runtime_error.clone(),
+        "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
+        "TypeError" => ctx.exceptions.type_error.clone(),
+        "ValueError" => ctx.exceptions.value_error.clone(),
+        "IndexError" => ctx.exceptions.index_error.clone(),
+        "ImportError" => ctx.exceptions.import_error.clone(),
+        "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
+        "StopIteration" => ctx.exceptions.stop_iteration.clone(),
+        "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
+        "KeyError" => ctx.exceptions.key_error.clone(),
+        "OSError" => ctx.exceptions.os_error.clone(),
     });
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -813,12 +808,16 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let function = args.shift();
     let name_arg = args.shift();
     let bases = args.args.clone();
-    let mut metaclass = args.get_kwarg("metaclass", vm.get_type());
+    let mut metaclass = if let Some(metaclass) = args.get_optional_kwarg("metaclass") {
+        PyClassRef::try_from_object(vm, metaclass)?
+    } else {
+        vm.get_type()
+    };
 
     for base in bases.clone() {
-        if objtype::issubclass(&base.typ(), &metaclass) {
-            metaclass = base.typ();
-        } else if !objtype::issubclass(&metaclass, &base.typ()) {
+        if objtype::issubclass(&base.type_pyref(), &metaclass) {
+            metaclass = base.type_pyref();
+        } else if !objtype::issubclass(&metaclass, &base.type_pyref()) {
             return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
         }
     }
@@ -826,13 +825,17 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let bases = vm.context().new_tuple(bases);
 
     // Prepare uses full __getattribute__ resolution chain.
-    let prepare = vm.get_attribute(metaclass.clone(), "__prepare__")?;
+    let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
     let cells = vm.new_dict();
 
     vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
-    let class = vm.call_method(&metaclass, "__call__", vec![name_arg, bases, namespace])?;
+    let class = vm.call_method(
+        metaclass.as_object(),
+        "__call__",
+        vec![name_arg, bases, namespace],
+    )?;
     cells.set_item(&vm.ctx, "__class__", class.clone());
     Ok(class)
 }

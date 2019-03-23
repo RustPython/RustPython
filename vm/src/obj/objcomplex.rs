@@ -16,7 +16,7 @@ pub struct PyComplex {
 type PyComplexRef = PyRef<PyComplex>;
 
 impl PyValue for PyComplex {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.complex_type()
     }
 }

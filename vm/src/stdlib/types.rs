@@ -20,7 +20,7 @@ fn types_new_class(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         None => vm.ctx.new_tuple(vec![]),
     };
     let dict = vm.ctx.new_dict();
-    objtype::type_new_class(vm, &vm.ctx.type_type(), name, &bases, &dict)
+    objtype::type_new_class(vm, &vm.ctx.type_type().into_object(), name, &bases, &dict)
 }
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {

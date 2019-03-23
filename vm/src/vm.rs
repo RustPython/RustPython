@@ -30,8 +30,8 @@ use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TryIntoRef,
-    TypeProtocol,
+    DictProtocol, FromPyObjectRef, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject,
+    TryIntoRef, TypeProtocol,
 };
 use crate::stdlib;
 use crate::sysmodule;
@@ -105,12 +105,14 @@ impl VirtualMachine {
         Ref::map(frame, |f| &f.scope)
     }
 
-    pub fn class(&self, module: &str, class: &str) -> PyObjectRef {
+    pub fn class(&self, module: &str, class: &str) -> PyClassRef {
         let module = self
             .import(module)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
-        self.get_attribute(module.clone(), class)
-            .unwrap_or_else(|_| panic!("module {} has no class {}", module, class))
+        let class = self
+            .get_attribute(module.clone(), class)
+            .unwrap_or_else(|_| panic!("module {} has no class {}", module, class));
+        PyClassRef::from_pyobj(&class)
     }
 
     /// Create a new python string object.
@@ -132,10 +134,10 @@ impl VirtualMachine {
         self.ctx.new_dict()
     }
 
-    pub fn new_empty_exception(&self, exc_type: PyObjectRef) -> PyResult {
+    pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
         info!("New exception created: no msg");
         let args = PyFuncArgs::default();
-        self.invoke(exc_type, args)
+        self.invoke(exc_type.into_object(), args)
     }
 
     pub fn new_exception(&self, exc_type: PyClassRef, msg: String) -> PyObjectRef {
@@ -214,11 +216,11 @@ impl VirtualMachine {
         self.ctx.none()
     }
 
-    pub fn get_type(&self) -> PyObjectRef {
+    pub fn get_type(&self) -> PyClassRef {
         self.ctx.type_type()
     }
 
-    pub fn get_object(&self) -> PyObjectRef {
+    pub fn get_object(&self) -> PyClassRef {
         self.ctx.object()
     }
 
@@ -236,8 +238,8 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, str)
     }
 
-    pub fn to_pystr(&self, obj: &PyObjectRef) -> Result<String, PyObjectRef> {
-        let py_str_obj = self.to_str(obj)?;
+    pub fn to_pystr<'a, T: Into<&'a PyObjectRef>>(&'a self, obj: T) -> Result<String, PyObjectRef> {
+        let py_str_obj = self.to_str(obj.into())?;
         Ok(py_str_obj.value.clone())
     }
 
@@ -259,13 +261,13 @@ impl VirtualMachine {
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via
     /// the __instancecheck__ magic method.
-    pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
+    pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyClassRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if Rc::ptr_eq(&obj.typ(), cls) {
+        if Rc::ptr_eq(&obj.typ(), cls.as_object()) {
             Ok(true)
         } else {
-            let ret = self.call_method(cls, "__instancecheck__", vec![obj.clone()])?;
+            let ret = self.call_method(cls.as_object(), "__instancecheck__", vec![obj.clone()])?;
             objbool::boolval(self, ret)
         }
     }

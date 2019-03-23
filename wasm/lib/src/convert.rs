@@ -13,7 +13,7 @@ use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
     macro_rules! map_exceptions {
         ($py_exc:ident, $msg:expr, { $($py_exc_ty:expr => $js_err_new:expr),*$(,)? }) => {
-            $(if objtype::isinstance($py_exc, $py_exc_ty.as_object()) {
+            $(if objtype::isinstance($py_exc, $py_exc_ty) {
                 JsValue::from($js_err_new($msg))
             } else)* {
                 JsValue::from(js_sys::Error::new($msg))

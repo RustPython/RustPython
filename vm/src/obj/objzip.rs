@@ -3,6 +3,7 @@ use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeP
 use crate::vm::VirtualMachine;
 
 use super::objiter;
+use crate::obj::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyZip {
@@ -10,7 +11,7 @@ pub struct PyZip {
 }
 
 impl PyValue for PyZip {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.zip_type()
     }
 }

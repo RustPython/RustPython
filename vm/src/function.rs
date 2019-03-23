@@ -6,6 +6,7 @@ use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, TryFromObject, TypePr
 use crate::vm::VirtualMachine;
 
 use self::OptionalArg::*;
+use crate::obj::objtype::PyClassRef;
 
 /// The `PyFuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
@@ -89,7 +90,7 @@ impl PyFuncArgs {
     pub fn get_optional_kwarg_with_type(
         &self,
         key: &str,
-        ty: PyObjectRef,
+        ty: PyClassRef,
         vm: &VirtualMachine,
     ) -> Result<Option<PyObjectRef>, PyObjectRef> {
         match self.get_optional_kwarg(key) {

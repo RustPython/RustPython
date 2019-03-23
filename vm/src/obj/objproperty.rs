@@ -16,7 +16,7 @@ pub struct PyReadOnlyProperty {
 }
 
 impl PyValue for PyReadOnlyProperty {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.readonly_property_type()
     }
 }
@@ -47,7 +47,7 @@ pub struct PyProperty {
 }
 
 impl PyValue for PyProperty {
-    fn class(vm: &VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.property_type()
     }
 }
@@ -200,7 +200,7 @@ impl<'a> PropertyBuilder<'a> {
                 deleter: None,
             };
 
-            PyObject::new(payload, self.ctx.property_type())
+            PyObject::new(payload, self.ctx.property_type().into_object())
         } else {
             let payload = PyReadOnlyProperty {
                 getter: self.getter.expect(
@@ -208,7 +208,7 @@ impl<'a> PropertyBuilder<'a> {
                 ),
             };
 
-            PyObject::new(payload, self.ctx.readonly_property_type())
+            PyObject::new(payload, self.ctx.readonly_property_type().into_object())
         }
     }
 }
