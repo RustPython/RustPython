@@ -159,15 +159,12 @@ impl ExceptionZoo {
 
 pub fn init(context: &PyContext) {
     let base_exception_type = &context.exceptions.base_exception_type;
-    context.set_attr(
-        base_exception_type,
-        "__init__",
-        context.new_rustfunc(exception_init),
-    );
+    extend_class!(context, base_exception_type, {
+        "__init__" => context.new_rustfunc(exception_init)
+    });
+
     let exception_type = &context.exceptions.exception_type;
-    context.set_attr(
-        exception_type,
-        "__str__",
-        context.new_rustfunc(exception_str),
-    );
+    extend_class!(context, exception_type, {
+        "__str__" => context.new_rustfunc(exception_str)
+    });
 }
