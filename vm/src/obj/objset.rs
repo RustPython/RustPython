@@ -27,7 +27,7 @@ pub type PySetRef = PyRef<PySet>;
 
 #[derive(Default)]
 pub struct PyFrozenSet {
-    elements: RefCell<HashMap<u64, PyObjectRef>>,
+    elements: HashMap<u64, PyObjectRef>,
 }
 pub type PyFrozenSetRef = PyRef<PyFrozenSet>;
 
@@ -61,7 +61,7 @@ pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
     if let Some(set) = obj.payload::<PySet>() {
         return set.elements.borrow().clone();
     } else if let Some(frozenset) = obj.payload::<PyFrozenSet>() {
-        return frozenset.elements.borrow().clone();
+        return frozenset.elements.clone();
     }
     panic!("Not frozenset or set");
 }
@@ -93,9 +93,7 @@ fn create_set(
         ))
     } else if objtype::issubclass(&cls, &vm.ctx.frozenset_type()) {
         Ok(PyObject::new(
-            PyFrozenSet {
-                elements: RefCell::new(elements),
-            },
+            PyFrozenSet { elements: elements },
             PyFrozenSet::class(vm).into_object(),
         ))
     } else {
