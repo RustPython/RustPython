@@ -10,14 +10,8 @@ extern crate rustyline;
 use clap::{App, Arg};
 use rustpython_parser::error::ParseError;
 use rustpython_vm::{
-    compile,
-    error::CompileError,
-    frame::Scope,
-    import,
-    obj::objstr,
-    print_exception,
-    pyobject::{AttributeProtocol, PyResult},
-    util, VirtualMachine,
+    compile, error::CompileError, frame::Scope, import, obj::objstr, print_exception,
+    pyobject::PyResult, util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};
 use std::path::{Path, PathBuf};
@@ -51,26 +45,26 @@ fn main() {
         .get_matches();
 
     // Construct vm:
-    let mut vm = VirtualMachine::new();
+    let vm = VirtualMachine::new();
 
     // Figure out if a -c option was given:
     let result = if let Some(command) = matches.value_of("c") {
-        run_command(&mut vm, command.to_string())
+        run_command(&vm, command.to_string())
     } else if let Some(module) = matches.value_of("m") {
-        run_module(&mut vm, module)
+        run_module(&vm, module)
     } else {
         // Figure out if a script was passed:
         match matches.value_of("script") {
-            None => run_shell(&mut vm),
-            Some(filename) => run_script(&mut vm, filename),
+            None => run_shell(&vm),
+            Some(filename) => run_script(&vm, filename),
         }
     };
 
     // See if any exception leaked out:
-    handle_exception(&mut vm, result);
+    handle_exception(&vm, result);
 }
 
-fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> PyResult {
+fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResult {
     let code_obj = compile::compile(
         source,
         &compile::Mode::Exec,
@@ -86,14 +80,14 @@ fn _run_string(vm: &mut VirtualMachine, source: &str, source_path: String) -> Py
     vm.run_code_obj(code_obj, vars)
 }
 
-fn handle_exception(vm: &mut VirtualMachine, result: PyResult) {
+fn handle_exception(vm: &VirtualMachine, result: PyResult) {
     if let Err(err) = result {
         print_exception(vm, &err);
         std::process::exit(1);
     }
 }
 
-fn run_command(vm: &mut VirtualMachine, mut source: String) -> PyResult {
+fn run_command(vm: &VirtualMachine, mut source: String) -> PyResult {
     debug!("Running command {}", source);
 
     // This works around https://github.com/RustPython/RustPython/issues/17
@@ -101,13 +95,13 @@ fn run_command(vm: &mut VirtualMachine, mut source: String) -> PyResult {
     _run_string(vm, &source, "<stdin>".to_string())
 }
 
-fn run_module(vm: &mut VirtualMachine, module: &str) -> PyResult {
+fn run_module(vm: &VirtualMachine, module: &str) -> PyResult {
     debug!("Running module {}", module);
     let current_path = PathBuf::from(".");
     import::import_module(vm, current_path, module)
 }
 
-fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
+fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
     let file_path = Path::new(script_file);
@@ -120,7 +114,7 @@ fn run_script(vm: &mut VirtualMachine, script_file: &str) -> PyResult {
     }
 }
 
-fn shell_exec(vm: &mut VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
+fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
     match compile::compile(
         source,
         &compile::Mode::Single,
@@ -159,7 +153,15 @@ fn get_history_path() -> PathBuf {
     xdg_dirs.place_cache_file("repl_history.txt").unwrap()
 }
 
-fn run_shell(vm: &mut VirtualMachine) -> PyResult {
+fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
+    vm.get_attribute(vm.sys_module.clone(), prompt_name)
+        .ok()
+        .as_ref()
+        .map(objstr::get_value)
+        .unwrap_or_else(String::new)
+}
+
+fn run_shell(vm: &VirtualMachine) -> PyResult {
     println!(
         "Welcome to the magnificent Rust Python {} interpreter",
         crate_version!()
@@ -176,25 +178,35 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
         println!("No previous history.");
     }
 
-    let ps1 = &objstr::get_value(&vm.sys_module.get_attr("ps1").unwrap());
-    let ps2 = &objstr::get_value(&vm.sys_module.get_attr("ps2").unwrap());
-    let mut prompt = ps1;
+    let mut continuing = false;
 
     loop {
-        match repl.readline(prompt) {
+        let prompt = if continuing {
+            get_prompt(vm, "ps2")
+        } else {
+            get_prompt(vm, "ps1")
+        };
+        match repl.readline(&prompt) {
             Ok(line) => {
                 debug!("You entered {:?}", line);
                 input.push_str(&line);
-                input.push_str("\n");
+                input.push('\n');
                 repl.add_history_entry(line.trim_end());
+
+                if continuing {
+                    if line.is_empty() {
+                        continuing = false;
+                    } else {
+                        continue;
+                    }
+                }
 
                 match shell_exec(vm, &input, vars.clone()) {
                     Err(CompileError::Parse(ParseError::EOF(_))) => {
-                        prompt = ps2;
+                        continuing = true;
                         continue;
                     }
                     _ => {
-                        prompt = ps1;
                         input = String::new();
                     }
                 }
@@ -202,7 +214,8 @@ fn run_shell(vm: &mut VirtualMachine) -> PyResult {
             Err(ReadlineError::Interrupted) => {
                 // TODO: Raise a real KeyboardInterrupt exception
                 println!("^C");
-                break;
+                continuing = false;
+                continue;
             }
             Err(ReadlineError::Eof) => {
                 break;

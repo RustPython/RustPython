@@ -1,43 +1,42 @@
-use crate::function::PyFuncArgs;
-use crate::pyobject::{AttributeProtocol, PyContext, PyResult, TypeProtocol};
+use super::objtype::PyClassRef;
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
+
+#[derive(Clone, Debug)]
+pub struct PyClassMethod {
+    pub callable: PyObjectRef,
+}
+pub type PyClassMethodRef = PyRef<PyClassMethod>;
+
+impl PyValue for PyClassMethod {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.classmethod_type()
+    }
+}
+
+impl PyClassMethodRef {
+    fn new(
+        cls: PyClassRef,
+        callable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyClassMethodRef> {
+        PyClassMethod {
+            callable: callable.clone(),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
+    fn get(self, _inst: PyObjectRef, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bound_method(self.callable.clone(), owner.clone()))
+    }
+}
 
 pub fn init(context: &PyContext) {
     let classmethod_type = &context.classmethod_type;
     extend_class!(context, classmethod_type, {
-        "__get__" => context.new_rustfunc(classmethod_get),
-        "__new__" => context.new_rustfunc(classmethod_new)
+        "__get__" => context.new_rustfunc(PyClassMethodRef::get),
+        "__new__" => context.new_rustfunc(PyClassMethodRef::new)
     });
-}
-
-fn classmethod_get(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("classmethod.__get__ {:?}", args.args);
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (cls, Some(vm.ctx.classmethod_type())),
-            (_inst, None),
-            (owner, None)
-        ]
-    );
-    match cls.get_attr("function") {
-        Some(function) => {
-            let py_obj = owner.clone();
-            let py_method = vm.ctx.new_bound_method(function, py_obj);
-            Ok(py_method)
-        }
-        None => Err(vm.new_attribute_error(
-            "Attribute Error: classmethod must have 'function' attribute".to_string(),
-        )),
-    }
-}
-
-fn classmethod_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("classmethod.__new__ {:?}", args.args);
-    arg_check!(vm, args, required = [(cls, None), (callable, None)]);
-
-    let py_obj = vm.ctx.new_instance(cls.clone(), None);
-    vm.ctx.set_attr(&py_obj, "function", callable.clone());
-    Ok(py_obj)
 }

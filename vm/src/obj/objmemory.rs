@@ -8,12 +8,12 @@ pub struct PyMemoryView {
 }
 
 impl PyValue for PyMemoryView {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.memoryview_type()
     }
 }
 
-pub fn new_memory_view(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+pub fn new_memory_view(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(cls, None), (bytes_object, None)]);
     vm.ctx.set_attr(&cls, "obj", bytes_object.clone());
     Ok(PyObject::new(

@@ -14,7 +14,7 @@ pub struct PyGenerator {
 type PyGeneratorRef = PyRef<PyGenerator>;
 
 impl PyValue for PyGenerator {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.generator_type()
     }
 }
@@ -38,22 +38,22 @@ pub fn init(context: &PyContext) {
     );
 }
 
-pub fn new_generator(frame: PyObjectRef, vm: &mut VirtualMachine) -> PyGeneratorRef {
+pub fn new_generator(frame: PyObjectRef, vm: &VirtualMachine) -> PyGeneratorRef {
     PyGenerator { frame }.into_ref(vm)
 }
 
-fn generator_iter(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn generator_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.generator_type()))]);
     Ok(o.clone())
 }
 
-fn generator_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn generator_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.generator_type()))]);
     let value = vm.get_none();
     send(vm, o, &value)
 }
 
-fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn generator_send(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -62,7 +62,7 @@ fn generator_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     send(vm, o, value)
 }
 
-fn send(vm: &mut VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
+fn send(vm: &VirtualMachine, gen: &PyObjectRef, value: &PyObjectRef) -> PyResult {
     if let Some(PyGenerator { ref frame }) = gen.payload() {
         if let Some(frame) = frame.payload::<Frame>() {
             frame.push_value(value.clone());

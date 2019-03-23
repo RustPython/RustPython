@@ -4,7 +4,7 @@ use crate::obj::objtype;
 use crate::pyobject::{create_type, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let zelf = args.args[0].clone();
     let msg = if args.args.len() > 1 {
         args.args[1].clone()
@@ -18,7 +18,7 @@ fn exception_init(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 // Print exception including traceback:
-pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
+pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
@@ -61,7 +61,7 @@ pub fn print_exception(vm: &mut VirtualMachine, exc: &PyObjectRef) {
     }
 }
 
-fn exception_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

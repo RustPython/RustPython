@@ -165,7 +165,7 @@ pub fn create_type(name: &str, type_type: &PyObjectRef, base: &PyObjectRef) -> P
 pub struct PyNotImplemented;
 
 impl PyValue for PyNotImplemented {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.not_implemented().typ()
     }
 }
@@ -174,7 +174,7 @@ impl PyValue for PyNotImplemented {
 pub struct PyEllipsis;
 
 impl PyValue for PyEllipsis {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.ellipsis_type.clone()
     }
 }
@@ -660,7 +660,7 @@ impl PyContext {
         };
     }
 
-    pub fn unwrap_constant(&mut self, value: &bytecode::Constant) -> PyObjectRef {
+    pub fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
             bytecode::Constant::Integer { ref value } => self.new_int(value.clone()),
             bytecode::Constant::Float { ref value } => self.new_float(*value),
@@ -747,7 +747,7 @@ impl<T> TryFromObject for PyRef<T>
 where
     T: PyValue,
 {
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if objtype::isinstance(&obj, &T::class(vm)) {
             Ok(PyRef {
                 obj,
@@ -766,7 +766,7 @@ where
 }
 
 impl<T> IntoPyObject for PyRef<T> {
-    fn into_pyobject(self, _vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
         Ok(self.obj)
     }
 }
@@ -1003,7 +1003,7 @@ impl<T> PyIterable<T> {
     ///
     /// This operation may fail if an exception is raised while invoking the
     /// `__iter__` method of the iterable object.
-    pub fn iter<'a>(&self, vm: &'a mut VirtualMachine) -> PyResult<PyIterator<'a, T>> {
+    pub fn iter<'a>(&self, vm: &'a VirtualMachine) -> PyResult<PyIterator<'a, T>> {
         let iter_obj = vm.invoke(
             self.method.clone(),
             PyFuncArgs {
@@ -1021,7 +1021,7 @@ impl<T> PyIterable<T> {
 }
 
 pub struct PyIterator<'a, T> {
-    vm: &'a mut VirtualMachine,
+    vm: &'a VirtualMachine,
     obj: PyObjectRef,
     _item: std::marker::PhantomData<T>,
 }
@@ -1051,7 +1051,7 @@ impl<T> TryFromObject for PyIterable<T>
 where
     T: TryFromObject,
 {
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Ok(PyIterable {
             method: vm.get_method(obj, "__iter__")?,
             _item: std::marker::PhantomData,
@@ -1060,13 +1060,13 @@ where
 }
 
 impl TryFromObject for PyObjectRef {
-    fn try_from_object(_vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+    fn try_from_object(_vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Ok(obj)
     }
 }
 
 impl<T: TryFromObject> TryFromObject for Option<T> {
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if vm.get_none().is(&obj) {
             Ok(None)
         } else {
@@ -1078,11 +1078,11 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
 /// Allows coercion of a types into PyRefs, so that we can write functions that can take
 /// refs, pyobject refs or basic types.
 pub trait TryIntoRef<T> {
-    fn try_into_ref(self, vm: &mut VirtualMachine) -> PyResult<PyRef<T>>;
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<T>>;
 }
 
 impl<T> TryIntoRef<T> for PyRef<T> {
-    fn try_into_ref(self, _vm: &mut VirtualMachine) -> PyResult<PyRef<T>> {
+    fn try_into_ref(self, _vm: &VirtualMachine) -> PyResult<PyRef<T>> {
         Ok(self)
     }
 }
@@ -1091,7 +1091,7 @@ impl<T> TryIntoRef<T> for PyObjectRef
 where
     T: PyValue,
 {
-    fn try_into_ref(self, vm: &mut VirtualMachine) -> PyResult<PyRef<T>> {
+    fn try_into_ref(self, vm: &VirtualMachine) -> PyResult<PyRef<T>> {
         TryFromObject::try_from_object(vm, self)
     }
 }
@@ -1102,7 +1102,7 @@ where
 /// so can be accepted as a argument to a built-in function.
 pub trait TryFromObject: Sized {
     /// Attempt to convert a Python object to a value of this type.
-    fn try_from_object(vm: &mut VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
 }
 
 /// Implemented by any type that can be returned from a built-in Python function.
@@ -1111,11 +1111,11 @@ pub trait TryFromObject: Sized {
 /// and should be implemented by many primitive Rust types, allowing a built-in
 /// function to simply return a `bool` or a `usize` for example.
 pub trait IntoPyObject {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult;
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult;
 }
 
 impl IntoPyObject for PyObjectRef {
-    fn into_pyobject(self, _vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
         Ok(self)
     }
 }
@@ -1124,7 +1124,7 @@ impl<T> IntoPyObject for PyResult<T>
 where
     T: IntoPyObject,
 {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         self.and_then(|res| T::into_pyobject(res, vm))
     }
 }
@@ -1135,7 +1135,7 @@ impl<T> IntoPyObject for T
 where
     T: PyValue + Sized,
 {
-    fn into_pyobject(self, vm: &mut VirtualMachine) -> PyResult {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(PyObject::new(self, T::class(vm)))
     }
 }
@@ -1149,7 +1149,7 @@ pub struct PyIteratorValue {
 }
 
 impl PyValue for PyIteratorValue {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.iter_type()
     }
 }
@@ -1195,16 +1195,16 @@ impl PyObject<dyn PyObjectPayload> {
 }
 
 pub trait PyValue: fmt::Debug + Sized + 'static {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef;
+    fn class(vm: &VirtualMachine) -> PyObjectRef;
 
-    fn into_ref(self, vm: &mut VirtualMachine) -> PyRef<Self> {
+    fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
         PyRef {
             obj: PyObject::new(self, Self::class(vm)),
             _payload: PhantomData,
         }
     }
 
-    fn into_ref_with_type(self, vm: &mut VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
+    fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
         if objtype::issubclass(&cls.obj, &class) {
             Ok(PyRef {

@@ -22,7 +22,7 @@ impl PyFunction {
 }
 
 impl PyValue for PyFunction {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.function_type()
     }
 }
@@ -41,7 +41,7 @@ impl PyMethod {
 }
 
 impl PyValue for PyMethod {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.bound_method_type()
     }
 }
@@ -59,7 +59,7 @@ pub fn init(context: &PyContext) {
     });
 }
 
-fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn bind_method(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -73,7 +73,7 @@ fn bind_method(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn function_code(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn function_code(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     match args.args[0].payload() {
         Some(PyFunction { ref code, .. }) => Ok(code.clone()),
         None => Err(vm.new_type_error("no code".to_string())),

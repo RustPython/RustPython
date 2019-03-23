@@ -20,7 +20,7 @@ pub struct PyEnumerate {
 type PyEnumerateRef = PyRef<PyEnumerate>;
 
 impl PyValue for PyEnumerate {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.enumerate_type()
     }
 }
@@ -29,7 +29,7 @@ fn enumerate_new(
     cls: PyClassRef,
     iterable: PyObjectRef,
     start: OptionalArg<PyIntRef>,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyEnumerateRef> {
     let counter = match start {
         OptionalArg::Present(start) => start.value.clone(),
@@ -44,7 +44,7 @@ fn enumerate_new(
     .into_ref_with_type(vm, cls)
 }
 
-fn enumerate_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn enumerate_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,

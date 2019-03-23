@@ -8,17 +8,13 @@ use std::path::PathBuf;
 use crate::compile;
 use crate::frame::Scope;
 use crate::obj::{objsequence, objstr};
-use crate::pyobject::{AttributeProtocol, DictProtocol, PyResult};
+use crate::pyobject::{DictProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
-fn import_uncached_module(
-    vm: &mut VirtualMachine,
-    current_path: PathBuf,
-    module: &str,
-) -> PyResult {
+fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &str) -> PyResult {
     // Check for Rust-native modules
-    if let Some(module) = vm.stdlib_inits.get(module) {
+    if let Some(module) = vm.stdlib_inits.borrow().get(module) {
         return Ok(module(&vm.ctx).clone());
     }
 
@@ -48,13 +44,9 @@ fn import_uncached_module(
     Ok(vm.ctx.new_module(module, attrs))
 }
 
-pub fn import_module(
-    vm: &mut VirtualMachine,
-    current_path: PathBuf,
-    module_name: &str,
-) -> PyResult {
+pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
     // First, see if we already loaded the module:
-    let sys_modules = vm.sys_module.get_attr("modules").unwrap();
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
     if let Some(module) = sys_modules.get_item(module_name) {
         return Ok(module);
     }
@@ -64,7 +56,7 @@ pub fn import_module(
 }
 
 fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
-    let sys_path = vm.sys_module.get_attr("path").unwrap();
+    let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
     let mut paths: Vec<PathBuf> = objsequence::get_elements(&sys_path)
         .iter()
         .map(|item| PathBuf::from(objstr::get_value(item)))

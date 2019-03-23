@@ -1,11 +1,12 @@
 use super::objlist::PyList;
+use super::objmodule::PyModule;
 use super::objstr::{self, PyStringRef};
 use super::objtype;
 use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef,
-    PyRef, PyResult, PyValue, TypeProtocol,
+    DictProtocol, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -13,14 +14,12 @@ use crate::vm::VirtualMachine;
 pub struct PyInstance;
 
 impl PyValue for PyInstance {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.object()
     }
 }
 
-pub type PyInstanceRef = PyRef<PyInstance>;
-
-pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
+pub fn new_instance(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
     let cls = args.shift();
     Ok(if cls.is(&vm.ctx.object) {
@@ -30,7 +29,7 @@ pub fn new_instance(vm: &mut VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     })
 }
 
-fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -39,17 +38,7 @@ fn object_eq(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_ne(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
-    );
-
-    Ok(vm.ctx.not_implemented())
-}
-
-fn object_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_ne(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -59,7 +48,7 @@ fn object_lt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -69,7 +58,7 @@ fn object_le(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -79,7 +68,7 @@ fn object_gt(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -89,7 +78,17 @@ fn object_ge(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.not_implemented())
 }
 
-fn object_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(_zelf, Some(vm.ctx.object())), (_other, None)]
+    );
+
+    Ok(vm.ctx.not_implemented())
+}
+
+fn object_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(_zelf, Some(vm.ctx.object()))]);
 
     // For now default to non hashable
@@ -97,28 +96,27 @@ fn object_hash(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn object_setattr(
-    obj: PyInstanceRef,
+    obj: PyObjectRef,
     attr_name: PyStringRef,
     value: PyObjectRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<()> {
     trace!("object.__setattr__({:?}, {}, {:?})", obj, attr_name, value);
-    let cls = obj.as_object().typ();
+    let cls = obj.type_pyref();
 
-    if let Some(attr) = cls.get_attr(&attr_name.value) {
-        let attr_class = attr.typ();
-        if let Some(descriptor) = attr_class.get_attr("__set__") {
+    if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
+        if let Some(descriptor) = objtype::class_get_attr(&attr.type_pyref(), "__set__") {
             return vm
-                .invoke(descriptor, vec![attr, obj.into_object(), value])
+                .invoke(descriptor, vec![attr, obj.clone(), value])
                 .map(|_| ());
         }
     }
 
-    if let Some(ref dict) = obj.as_object().dict {
+    if let Some(ref dict) = obj.clone().dict {
         dict.borrow_mut().insert(attr_name.value.clone(), value);
         Ok(())
     } else {
-        let type_name = objtype::get_type_name(&obj.as_object().typ());
+        let type_name = objtype::get_type_name(obj.type_ref());
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
             type_name, &attr_name.value
@@ -126,27 +124,20 @@ fn object_setattr(
     }
 }
 
-fn object_delattr(
-    obj: PyInstanceRef,
-    attr_name: PyStringRef,
-    vm: &mut VirtualMachine,
-) -> PyResult<()> {
-    let cls = obj.as_object().typ();
+fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    let cls = obj.type_pyref();
 
-    if let Some(attr) = cls.get_attr(&attr_name.value) {
-        let attr_class = attr.typ();
-        if let Some(descriptor) = attr_class.get_attr("__delete__") {
-            return vm
-                .invoke(descriptor, vec![attr, obj.into_object()])
-                .map(|_| ());
+    if let Some(attr) = objtype::class_get_attr(&cls, &attr_name.value) {
+        if let Some(descriptor) = objtype::class_get_attr(&attr.type_pyref(), "__delete__") {
+            return vm.invoke(descriptor, vec![attr, obj.clone()]).map(|_| ());
         }
     }
 
-    if let Some(ref dict) = obj.as_object().dict {
+    if let Some(ref dict) = obj.dict {
         dict.borrow_mut().remove(&attr_name.value);
         Ok(())
     } else {
-        let type_name = objtype::get_type_name(&obj.as_object().typ());
+        let type_name = objtype::get_type_name(obj.type_ref());
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
             type_name, &attr_name.value
@@ -154,19 +145,19 @@ fn object_delattr(
     }
 }
 
-fn object_str(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, Some(vm.ctx.object()))]);
     vm.call_method(zelf, "__repr__", vec![])
 }
 
-fn object_repr(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.object()))]);
     let type_name = objtype::get_type_name(&obj.typ());
     let address = obj.get_id();
     Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
 }
 
-pub fn object_dir(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyList {
+pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyList {
     let attributes = get_attributes(&obj);
     let attributes: Vec<PyObjectRef> = attributes
         .keys()
@@ -178,7 +169,7 @@ pub fn object_dir(obj: PyObjectRef, vm: &mut VirtualMachine) -> PyList {
 fn object_format(
     obj: PyObjectRef,
     format_spec: PyStringRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyStringRef> {
     if format_spec.value.is_empty() {
         vm.to_str(&obj)
@@ -223,24 +214,24 @@ pub fn init(context: &PyContext) {
     context.set_attr(&object, "__doc__", context.new_str(object_doc.to_string()));
 }
 
-fn object_init(vm: &mut VirtualMachine, _args: PyFuncArgs) -> PyResult {
+fn object_init(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.none())
 }
 
-fn object_class(obj: PyObjectRef, _vm: &mut VirtualMachine) -> PyObjectRef {
+fn object_class(obj: PyObjectRef, _vm: &VirtualMachine) -> PyObjectRef {
     obj.typ()
 }
 
 fn object_class_setter(
     instance: PyObjectRef,
     _value: PyObjectRef,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult {
     let type_repr = vm.to_pystr(&instance.typ())?;
     Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
 }
 
-fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_dict(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(ref dict) = args.args[0].dict {
         let new_dict = vm.new_dict();
         for (attr, value) in dict.borrow().iter() {
@@ -252,7 +243,7 @@ fn object_dict(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn object_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -263,25 +254,40 @@ fn object_getattribute(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
     let name = objstr::get_value(&name_str);
     trace!("object.__getattribute__({:?}, {:?})", obj, name);
-    let cls = obj.typ();
+    let cls = obj.type_pyref();
 
-    if let Some(attr) = cls.get_attr(&name) {
-        let attr_class = attr.typ();
-        if attr_class.has_attr("__set__") {
-            if let Some(descriptor) = attr_class.get_attr("__get__") {
-                return vm.invoke(descriptor, vec![attr, obj.clone(), cls]);
+    if let Some(attr) = objtype::class_get_attr(&cls, &name) {
+        let attr_class = attr.type_pyref();
+        if objtype::class_has_attr(&attr_class, "__set__") {
+            if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
+                return vm.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()]);
             }
         }
     }
 
-    if let Some(obj_attr) = obj.get_attr(&name) {
+    if let Some(obj_attr) = object_getattr(&obj, &name) {
         Ok(obj_attr)
-    } else if let Some(attr) = cls.get_attr(&name) {
+    } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
         vm.call_get_descriptor(attr, obj.clone())
-    } else if let Some(getter) = cls.get_attr("__getattr__") {
+    } else if let Some(getter) = objtype::class_get_attr(&cls, "__getattr__") {
         vm.invoke(getter, vec![obj.clone(), name_str.clone()])
     } else {
         Err(vm.new_attribute_error(format!("{} has no attribute '{}'", obj, name)))
+    }
+}
+
+fn object_getattr(obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+    // TODO:
+    // This is an all kinds of wrong work-around for the temporary difference in
+    // shape between modules and object. It will disappear once that is fixed.
+    if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
+        return dict.get_item(attr_name);
+    }
+
+    if let Some(ref dict) = obj.dict {
+        dict.borrow().get(attr_name).cloned()
+    } else {
+        None
     }
 }
 

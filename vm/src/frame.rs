@@ -21,8 +21,8 @@ use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::pyobject::{
-    AttributeProtocol, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -126,6 +126,7 @@ pub trait NameProtocol {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn delete_name(&self, vm: &VirtualMachine, name: &str);
+    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
 }
 
 impl NameProtocol for Scope {
@@ -141,6 +142,15 @@ impl NameProtocol for Scope {
         }
 
         vm.builtins.get_item(name)
+    }
+
+    fn load_cell(&self, _vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+        for dict in self.locals.iter().skip(1) {
+            if let Some(value) = dict.get_item(name) {
+                return Some(value);
+            }
+        }
+        None
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
@@ -185,7 +195,7 @@ pub struct Frame {
 }
 
 impl PyValue for Frame {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.frame_type()
     }
 }
@@ -223,7 +233,7 @@ impl Frame {
         }
     }
 
-    pub fn run(&self, vm: &mut VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
+    pub fn run(&self, vm: &VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
         let filename = &self.code.source_path.to_string();
 
         // This is the name of the object being run:
@@ -276,7 +286,7 @@ impl Frame {
     }
 
     // Execute a single instruction:
-    fn execute_instruction(&self, vm: &mut VirtualMachine) -> FrameResult {
+    fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
         {
             trace!("=======");
@@ -780,7 +790,7 @@ impl Frame {
 
     fn get_elements(
         &self,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
         size: usize,
         unpack: bool,
     ) -> Result<Vec<PyObjectRef>, PyObjectRef> {
@@ -799,24 +809,16 @@ impl Frame {
         }
     }
 
-    fn import(
-        &self,
-        vm: &mut VirtualMachine,
-        module: &str,
-        symbol: &Option<String>,
-    ) -> FrameResult {
+    fn import(&self, vm: &VirtualMachine, module: &str, symbol: &Option<String>) -> FrameResult {
         let module = vm.import(module)?;
 
         // If we're importing a symbol, look it up and use it, otherwise construct a module and return
         // that
         let obj = match symbol {
-            Some(symbol) => module.get_attr(symbol).map_or_else(
-                || {
-                    let import_error = vm.context().exceptions.import_error.clone();
-                    Err(vm.new_exception(import_error, format!("cannot import name '{}'", symbol)))
-                },
-                Ok,
-            ),
+            Some(symbol) => vm.get_attribute(module, symbol.as_str()).map_err(|_| {
+                let import_error = vm.context().exceptions.import_error.clone();
+                vm.new_exception(import_error, format!("cannot import name '{}'", symbol))
+            }),
             None => Ok(module),
         };
 
@@ -825,7 +827,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn import_star(&self, vm: &mut VirtualMachine, module: &str) -> FrameResult {
+    fn import_star(&self, vm: &VirtualMachine, module: &str) -> FrameResult {
         let module = vm.import(module)?;
 
         // Grab all the names from the module and put them in the context
@@ -836,7 +838,7 @@ impl Frame {
     }
 
     // Unwind all blocks:
-    fn unwind_blocks(&self, vm: &mut VirtualMachine) -> Option<PyObjectRef> {
+    fn unwind_blocks(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
         while let Some(block) = self.pop_block() {
             match block.typ {
                 BlockType::Loop { .. } => {}
@@ -860,7 +862,7 @@ impl Frame {
         None
     }
 
-    fn unwind_loop(&self, vm: &mut VirtualMachine) -> Block {
+    fn unwind_loop(&self, vm: &VirtualMachine) -> Block {
         loop {
             let block = self.current_block().expect("not in a loop");
             match block.typ {
@@ -882,7 +884,7 @@ impl Frame {
         }
     }
 
-    fn unwind_exception(&self, vm: &mut VirtualMachine, exc: PyObjectRef) -> Option<PyObjectRef> {
+    fn unwind_exception(&self, vm: &VirtualMachine, exc: PyObjectRef) -> Option<PyObjectRef> {
         // unwind block stack on exception and find any handlers:
         while let Some(block) = self.pop_block() {
             match block.typ {
@@ -927,7 +929,7 @@ impl Frame {
 
     fn with_exit(
         &self,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
         context_manager: &PyObjectRef,
         exc: Option<PyObjectRef>,
     ) -> PyResult {
@@ -950,18 +952,18 @@ impl Frame {
         vm.call_method(context_manager, "__exit__", args)
     }
 
-    fn store_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
+    fn store_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
         let obj = self.pop_value();
         self.scope.store_name(&vm, name, obj);
         Ok(None)
     }
 
-    fn delete_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
+    fn delete_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
         self.scope.delete_name(vm, name);
         Ok(None)
     }
 
-    fn load_name(&self, vm: &mut VirtualMachine, name: &str) -> FrameResult {
+    fn load_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
         match self.scope.load_name(&vm, name) {
             Some(value) => {
                 self.push_value(value);
@@ -976,11 +978,11 @@ impl Frame {
         }
     }
 
-    fn subscript(&self, vm: &mut VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
+    fn subscript(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         vm.call_method(&a, "__getitem__", vec![b])
     }
 
-    fn execute_store_subscript(&self, vm: &mut VirtualMachine) -> FrameResult {
+    fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
@@ -988,7 +990,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_delete_subscript(&self, vm: &mut VirtualMachine) -> FrameResult {
+    fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         vm.call_method(&obj, "__delitem__", vec![idx])?;
@@ -1003,7 +1005,7 @@ impl Frame {
 
     fn execute_binop(
         &self,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
         op: &bytecode::BinaryOperator,
         inplace: bool,
     ) -> FrameResult {
@@ -1045,7 +1047,7 @@ impl Frame {
         Ok(None)
     }
 
-    fn execute_unop(&self, vm: &mut VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
+    fn execute_unop(&self, vm: &VirtualMachine, op: &bytecode::UnaryOperator) -> FrameResult {
         let a = self.pop_value();
         let value = match *op {
             bytecode::UnaryOperator::Minus => vm.call_method(&a, "__neg__", vec![])?,
@@ -1067,7 +1069,7 @@ impl Frame {
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
     fn _membership(
         &self,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
         needle: PyObjectRef,
         haystack: &PyObjectRef,
     ) -> PyResult {
@@ -1076,7 +1078,7 @@ impl Frame {
         // not implemented.
     }
 
-    fn _in(&self, vm: &mut VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
+    fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
         match self._membership(vm, needle, &haystack) {
             Ok(found) => Ok(found),
             Err(_) => Err(vm.new_type_error(format!(
@@ -1086,12 +1088,7 @@ impl Frame {
         }
     }
 
-    fn _not_in(
-        &self,
-        vm: &mut VirtualMachine,
-        needle: PyObjectRef,
-        haystack: PyObjectRef,
-    ) -> PyResult {
+    fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
         match self._membership(vm, needle, &haystack) {
             Ok(found) => Ok(vm.ctx.new_bool(!objbool::get_value(&found))),
             Err(_) => Err(vm.new_type_error(format!(
@@ -1114,7 +1111,7 @@ impl Frame {
 
     fn execute_compare(
         &self,
-        vm: &mut VirtualMachine,
+        vm: &VirtualMachine,
         op: &bytecode::ComparisonOperator,
     ) -> FrameResult {
         let b = self.pop_value();
@@ -1136,21 +1133,21 @@ impl Frame {
         Ok(None)
     }
 
-    fn load_attr(&self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
+    fn load_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let obj = vm.get_attribute(parent, attr_name)?;
         self.push_value(obj);
         Ok(None)
     }
 
-    fn store_attr(&self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
+    fn store_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let value = self.pop_value();
         vm.set_attr(&parent, vm.new_str(attr_name.to_string()), value)?;
         Ok(None)
     }
 
-    fn delete_attr(&self, vm: &mut VirtualMachine, attr_name: &str) -> FrameResult {
+    fn delete_attr(&self, vm: &VirtualMachine, attr_name: &str) -> FrameResult {
         let parent = self.pop_value();
         let name = vm.ctx.new_str(attr_name.to_string());
         vm.del_attr(&parent, name)?;

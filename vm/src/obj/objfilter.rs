@@ -14,12 +14,12 @@ pub struct PyFilter {
 }
 
 impl PyValue for PyFilter {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.filter_type()
     }
 }
 
-fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn filter_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -35,7 +35,7 @@ fn filter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-fn filter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn filter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(filter, Some(vm.ctx.filter_type()))]);
 
     if let Some(PyFilter {

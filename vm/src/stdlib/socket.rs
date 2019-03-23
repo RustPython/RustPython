@@ -23,7 +23,7 @@ enum AddressFamily {
 }
 
 impl AddressFamily {
-    fn from_i32(vm: &mut VirtualMachine, value: i32) -> Result<AddressFamily, PyObjectRef> {
+    fn from_i32(vm: &VirtualMachine, value: i32) -> Result<AddressFamily, PyObjectRef> {
         match value {
             1 => Ok(AddressFamily::Unix),
             2 => Ok(AddressFamily::Inet),
@@ -40,7 +40,7 @@ enum SocketKind {
 }
 
 impl SocketKind {
-    fn from_i32(vm: &mut VirtualMachine, value: i32) -> Result<SocketKind, PyObjectRef> {
+    fn from_i32(vm: &VirtualMachine, value: i32) -> Result<SocketKind, PyObjectRef> {
         match value {
             1 => Ok(SocketKind::Stream),
             2 => Ok(SocketKind::Dgram),
@@ -118,7 +118,7 @@ pub struct Socket {
 }
 
 impl PyValue for Socket {
-    fn class(_vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(_vm: &VirtualMachine) -> PyObjectRef {
         // TODO
         unimplemented!()
     }
@@ -138,7 +138,7 @@ fn get_socket<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Socket> + 'a {
     obj.payload::<Socket>().unwrap()
 }
 
-fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -159,7 +159,7 @@ fn socket_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     ))
 }
 
-fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_connect(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -194,7 +194,7 @@ fn socket_connect(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn socket_bind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_bind(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -229,10 +229,7 @@ fn socket_bind(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn get_address_string(
-    vm: &mut VirtualMachine,
-    address: &PyObjectRef,
-) -> Result<String, PyObjectRef> {
+fn get_address_string(vm: &VirtualMachine, address: &PyObjectRef) -> Result<String, PyObjectRef> {
     let args = PyFuncArgs {
         args: get_elements(address).to_vec(),
         kwargs: vec![],
@@ -253,7 +250,7 @@ fn get_address_string(
     ))
 }
 
-fn socket_listen(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_listen(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -262,7 +259,7 @@ fn socket_listen(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_accept(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None)]);
 
     let socket = get_socket(zelf);
@@ -290,7 +287,7 @@ fn socket_accept(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_tuple(vec![sock_obj, addr_tuple]))
 }
 
-fn socket_recv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_recv(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -309,7 +306,7 @@ fn socket_recv(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(buffer))
 }
 
-fn socket_recvfrom(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_recvfrom(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -334,7 +331,7 @@ fn socket_recvfrom(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_tuple(vec![vm.ctx.new_bytes(buffer), addr_tuple]))
 }
 
-fn socket_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_send(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -352,7 +349,7 @@ fn socket_send(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn socket_sendto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_sendto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -393,7 +390,7 @@ fn socket_sendto(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn socket_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None)]);
 
     let socket = get_socket(zelf);
@@ -401,7 +398,7 @@ fn socket_close(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn socket_getsockname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn socket_getsockname(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None)]);
     let socket = get_socket(zelf);
 
@@ -416,7 +413,7 @@ fn socket_getsockname(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn get_addr_tuple(vm: &mut VirtualMachine, addr: SocketAddr) -> PyResult {
+fn get_addr_tuple(vm: &VirtualMachine, addr: SocketAddr) -> PyResult {
     let port = vm.ctx.new_int(addr.port());
     let ip = vm.ctx.new_str(addr.ip().to_string());
 

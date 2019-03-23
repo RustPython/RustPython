@@ -18,14 +18,14 @@ use super::objtype;
  * in the vm when a for loop is entered. Next, it is used when the builtin
  * function 'iter' is called.
  */
-pub fn get_iter(vm: &mut VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
+pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     vm.call_method(iter_target, "__iter__", vec![])
     // let type_str = objstr::get_value(&vm.to_str(iter_target.typ()).unwrap());
     // let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
     // return Err(type_error);
 }
 
-pub fn call_next(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
+pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
     vm.call_method(iter_obj, "__next__", vec![])
 }
 
@@ -33,7 +33,7 @@ pub fn call_next(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
  * Helper function to retrieve the next object (or none) from an iterator.
  */
 pub fn get_next_object(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     iter_obj: &PyObjectRef,
 ) -> PyResult<Option<PyObjectRef>> {
     let next_obj: PyResult = call_next(vm, iter_obj);
@@ -52,7 +52,7 @@ pub fn get_next_object(
 }
 
 /* Retrieve all elements from an iterator */
-pub fn get_all(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
+pub fn get_all(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
     let mut elements = vec![];
     loop {
         let element = get_next_object(vm, iter_obj)?;
@@ -64,12 +64,12 @@ pub fn get_all(vm: &mut VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<
     Ok(elements)
 }
 
-pub fn new_stop_iteration(vm: &mut VirtualMachine) -> PyObjectRef {
+pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
 }
 
-fn contains(vm: &mut VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> PyResult {
+fn contains(vm: &VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -93,9 +93,7 @@ fn contains(vm: &mut VirtualMachine, args: PyFuncArgs, iter_type: PyObjectRef) -
 pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
     let contains_func = {
         let cloned_iter_type = iter_type.clone();
-        move |vm: &mut VirtualMachine, args: PyFuncArgs| {
-            contains(vm, args, cloned_iter_type.clone())
-        }
+        move |vm: &VirtualMachine, args: PyFuncArgs| contains(vm, args, cloned_iter_type.clone())
     };
     context.set_attr(
         &iter_type,
@@ -104,7 +102,7 @@ pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
     );
     let iter_func = {
         let cloned_iter_type = iter_type.clone();
-        move |vm: &mut VirtualMachine, args: PyFuncArgs| {
+        move |vm: &VirtualMachine, args: PyFuncArgs| {
             arg_check!(
                 vm,
                 args,
@@ -118,13 +116,13 @@ pub fn iter_type_init(context: &PyContext, iter_type: &PyObjectRef) {
 }
 
 // Sequence iterator:
-fn iter_new(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn iter_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter_target, None)]);
 
     get_iter(vm, iter_target)
 }
 
-fn iter_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn iter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
 
     if let Some(PyIteratorValue {

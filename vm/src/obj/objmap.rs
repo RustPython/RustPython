@@ -13,7 +13,7 @@ pub struct PyMap {
 type PyMapRef = PyRef<PyMap>;
 
 impl PyValue for PyMap {
-    fn class(vm: &mut VirtualMachine) -> PyObjectRef {
+    fn class(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.map_type()
     }
 }
@@ -22,7 +22,7 @@ fn map_new(
     cls: PyClassRef,
     function: PyObjectRef,
     iterables: Args,
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
 ) -> PyResult<PyMapRef> {
     let iterators = iterables
         .into_iter()
@@ -35,7 +35,7 @@ fn map_new(
     .into_ref_with_type(vm, cls.clone())
 }
 
-fn map_next(vm: &mut VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn map_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(map, Some(vm.ctx.map_type()))]);
 
     if let Some(PyMap {
@@ -63,7 +63,9 @@ pub fn init(context: &PyContext) {
                    each of the iterables.  Stops when the shortest iterable is exhausted.";
 
     objiter::iter_type_init(context, map_type);
-    context.set_attr(&map_type, "__new__", context.new_rustfunc(map_new));
-    context.set_attr(&map_type, "__next__", context.new_rustfunc(map_next));
-    context.set_attr(&map_type, "__doc__", context.new_str(map_doc.to_string()));
+    extend_class!(context, map_type, {
+        "__new__" => context.new_rustfunc(map_new),
+        "__next__" => context.new_rustfunc(map_next),
+        "__doc__" => context.new_str(map_doc.to_string())
+    });
 }

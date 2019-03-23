@@ -61,11 +61,7 @@ pub trait PySliceableSequence {
         start..stop
     }
 
-    fn get_slice_items(
-        &self,
-        vm: &mut VirtualMachine,
-        slice: &PyObjectRef,
-    ) -> Result<Self, PyObjectRef>
+    fn get_slice_items(&self, vm: &VirtualMachine, slice: &PyObjectRef) -> Result<Self, PyObjectRef>
     where
         Self: Sized,
     {
@@ -142,7 +138,7 @@ impl<T: Clone> PySliceableSequence for Vec<T> {
 }
 
 pub fn get_item(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     sequence: &PyObjectRef,
     elements: &[PyObjectRef],
     subscript: PyObjectRef,
@@ -186,7 +182,7 @@ pub fn get_item(
 }
 
 pub fn seq_equal(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     zelf: &[PyObjectRef],
     other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
@@ -207,7 +203,7 @@ pub fn seq_equal(
 }
 
 pub fn seq_lt(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     zelf: &[PyObjectRef],
     other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
@@ -247,7 +243,7 @@ pub fn seq_lt(
 }
 
 pub fn seq_gt(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     zelf: &[PyObjectRef],
     other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
@@ -286,7 +282,7 @@ pub fn seq_gt(
 }
 
 pub fn seq_ge(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     zelf: &[PyObjectRef],
     other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
@@ -294,7 +290,7 @@ pub fn seq_ge(
 }
 
 pub fn seq_le(
-    vm: &mut VirtualMachine,
+    vm: &VirtualMachine,
     zelf: &[PyObjectRef],
     other: &[PyObjectRef],
 ) -> Result<bool, PyObjectRef> {
