@@ -8,8 +8,9 @@
 use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use crate::error::CompileError;
 use crate::obj::objcode;
-use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyObject, PyObjectRef};
+use crate::obj::objcode::PyCodeRef;
+use crate::pyobject::PyValue;
+use crate::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
@@ -24,11 +25,11 @@ struct Compiler {
 
 /// Compile a given sourcecode into a bytecode object.
 pub fn compile(
+    vm: &VirtualMachine,
     source: &str,
     mode: &Mode,
     source_path: String,
-    code_type: PyClassRef,
-) -> Result<PyObjectRef, CompileError> {
+) -> Result<PyCodeRef, CompileError> {
     let mut compiler = Compiler::new();
     compiler.source_path = Some(source_path);
     compiler.push_new_code_object("<module>".to_string());
@@ -50,10 +51,7 @@ pub fn compile(
 
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(PyObject::new(
-        objcode::PyCode::new(code),
-        code_type.into_object(),
-    ))
+    Ok(objcode::PyCode::new(code).into_ref(vm))
 }
 
 pub enum Mode {

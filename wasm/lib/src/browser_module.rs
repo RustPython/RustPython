@@ -7,12 +7,12 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use rustpython_vm::function::PyFuncArgs;
+use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::import::import_module;
 use rustpython_vm::obj::objtype::PyClassRef;
 use rustpython_vm::obj::{objint, objstr};
 use rustpython_vm::pyobject::{
-    PyContext, PyObject, PyObjectRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -44,8 +44,6 @@ impl FetchResponseFormat {
 
 fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(url, Some(vm.ctx.str_type()))]);
-
-    let promise_type = import_promise_type(vm)?;
 
     let response_format =
         args.get_optional_kwarg_with_type("response_format", vm.ctx.str_type(), vm)?;
@@ -102,7 +100,7 @@ fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         })
         .and_then(JsFuture::from);
 
-    Ok(PyPromise::new_obj(promise_type, future_to_promise(future)))
+    Ok(PyPromise::from_future(future).into_ref(vm).into_object())
 }
 
 fn browser_request_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -159,6 +157,8 @@ fn browser_cancel_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyRe
     Ok(vm.get_none())
 }
 
+pub type PyPromiseRef = PyRef<PyPromise>;
+
 #[derive(Debug)]
 pub struct PyPromise {
     value: Promise,
@@ -171,8 +171,15 @@ impl PyValue for PyPromise {
 }
 
 impl PyPromise {
-    pub fn new_obj(promise_type: PyClassRef, value: Promise) -> PyObjectRef {
-        PyObject::new(PyPromise { value }, promise_type.into_object())
+    pub fn new(promise: Promise) -> PyPromise {
+        PyPromise { value: promise }
+    }
+
+    pub fn from_future<F>(future: F) -> PyPromise
+    where
+        F: Future<Item = JsValue, Error = JsValue> + 'static,
+    {
+        PyPromise::new(future_to_promise(future))
     }
 }
 
@@ -193,26 +200,17 @@ pub fn import_promise_type(vm: &VirtualMachine) -> PyResult<PyClassRef> {
     }
 }
 
-fn promise_then(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let promise_type = import_promise_type(vm)?;
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(promise_type.clone())),
-            (on_fulfill, Some(vm.ctx.function_type()))
-        ],
-        optional = [(on_reject, Some(vm.ctx.function_type()))]
-    );
-
-    let on_fulfill = on_fulfill.clone();
-    let on_reject = on_reject.cloned();
+fn promise_then(
+    zelf: PyPromiseRef,
+    on_fulfill: PyObjectRef,
+    on_reject: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyPromise {
+    let on_reject = on_reject.into_option();
 
     let acc_vm = AccessibleVM::from(vm);
 
-    let promise = get_promise_value(zelf);
-
-    let ret_future = JsFuture::from(promise).then(move |res| {
+    let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
         let stored_vm = &acc_vm
             .upgrade()
             .expect("that the vm is valid when the promise resolves");
@@ -234,29 +232,13 @@ fn promise_then(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         convert::pyresult_to_jsresult(vm, ret)
     });
 
-    let ret_promise = future_to_promise(ret_future);
-
-    Ok(PyPromise::new_obj(promise_type, ret_promise))
+    PyPromise::from_future(ret_future)
 }
 
-fn promise_catch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let promise_type = import_promise_type(vm)?;
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (zelf, Some(promise_type.clone())),
-            (on_reject, Some(vm.ctx.function_type()))
-        ]
-    );
-
-    let on_reject = on_reject.clone();
-
+fn promise_catch(zelf: PyPromiseRef, on_reject: PyObjectRef, vm: &VirtualMachine) -> PyPromise {
     let acc_vm = AccessibleVM::from(vm);
 
-    let promise = get_promise_value(zelf);
-
-    let ret_future = JsFuture::from(promise).then(move |res| match res {
+    let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| match res {
         Ok(val) => Ok(val),
         Err(err) => {
             let stored_vm = acc_vm
@@ -269,9 +251,7 @@ fn promise_catch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     });
 
-    let ret_promise = future_to_promise(ret_future);
-
-    Ok(PyPromise::new_obj(promise_type, ret_promise))
+    PyPromise::from_future(ret_future)
 }
 
 fn browser_alert(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

@@ -1,7 +1,7 @@
 use num_bigint::BigInt;
 
 use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objint;
@@ -57,14 +57,13 @@ fn slice_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             Ok((cls, Some(start), Some(stop), step))
         }
     }?;
-    Ok(PyObject::new(
-        PySlice {
-            start: start.map(|x| objint::get_value(x).clone()),
-            stop: stop.map(|x| objint::get_value(x).clone()),
-            step: step.map(|x| objint::get_value(x).clone()),
-        },
-        cls.clone(),
-    ))
+    PySlice {
+        start: start.map(|x| objint::get_value(x).clone()),
+        stop: stop.map(|x| objint::get_value(x).clone()),
+        step: step.map(|x| objint::get_value(x).clone()),
+    }
+    .into_ref_with_type(vm, cls.clone().downcast().unwrap())
+    .map(|x| x.into_object())
 }
 
 fn get_property_value(vm: &VirtualMachine, value: &Option<BigInt>) -> PyResult {

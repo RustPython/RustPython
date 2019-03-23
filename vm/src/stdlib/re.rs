@@ -4,16 +4,13 @@
  * This module fits the python re interface onto the rust regular expression
  * system.
  */
-
-use std::path::PathBuf;
-
 use regex::{Match, Regex};
 
 use crate::function::PyFuncArgs;
-use crate::import;
 use crate::obj::objstr;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
@@ -55,7 +52,8 @@ fn re_match(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             (string, Some(vm.ctx.str_type()))
         ]
     );
-    let regex = make_regex(vm, pattern)?;
+    let pattern_str = objstr::get_value(&pattern);
+    let regex = make_regex(vm, &pattern_str)?;
     let search_text = objstr::get_value(string);
 
     do_match(vm, &regex, search_text)
@@ -74,8 +72,8 @@ fn re_search(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
 
-    // let pattern_str = objstr::get_value(&pattern);
-    let regex = make_regex(vm, pattern)?;
+    let pattern_str = objstr::get_value(&pattern);
+    let regex = make_regex(vm, &pattern_str)?;
     let search_text = objstr::get_value(string);
 
     do_search(vm, &regex, search_text)
@@ -93,10 +91,8 @@ fn do_search(vm: &VirtualMachine, regex: &Regex, search_text: String) -> PyResul
     }
 }
 
-fn make_regex(vm: &VirtualMachine, pattern: &PyObjectRef) -> PyResult<Regex> {
-    let pattern_str = objstr::get_value(pattern);
-
-    match Regex::new(&pattern_str) {
+fn make_regex(vm: &VirtualMachine, pattern: &str) -> PyResult<Regex> {
+    match Regex::new(pattern) {
         Ok(regex) => Ok(regex),
         Err(err) => Err(vm.new_value_error(format!("Error in regex: {:?}", err))),
     }
@@ -117,39 +113,24 @@ impl PyValue for PyMatch {
 
 /// Take a found regular expression and convert it to proper match object.
 fn create_match(vm: &VirtualMachine, match_value: &Match) -> PyResult {
-    // Return match object:
-    // TODO: implement match object
-    // TODO: how to refer to match object defined in this
-    let module = import::import_module(vm, PathBuf::default(), "re").unwrap();
-    let match_class = vm.get_attribute(module, "Match").unwrap();
-
     // let mo = vm.invoke(match_class, PyFuncArgs::default())?;
     // let txt = vm.ctx.new_str(result.as_str().to_string());
     // vm.ctx.set_attr(&mo, "str", txt);
-    let match_value = PyMatch {
+    Ok(PyMatch {
         start: match_value.start(),
         end: match_value.end(),
-    };
-
-    Ok(PyObject::new(match_value, match_class.clone()))
+    }
+    .into_ref(vm)
+    .into_object())
 }
 
 /// Compile a regular expression into a Pattern object.
 /// See also:
 /// https://docs.python.org/3/library/re.html#re.compile
-fn re_compile(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(pattern, Some(vm.ctx.str_type()))] // TODO: flags=0
-    );
+fn re_compile(pattern: PyStringRef, vm: &VirtualMachine) -> PyResult<PyRef<Regex>> {
+    let regex = make_regex(vm, &pattern.value)?;
 
-    let regex = make_regex(vm, pattern)?;
-    // TODO: retrieval of this module is akward:
-    let module = import::import_module(vm, PathBuf::default(), "re").unwrap();
-    let pattern_class = vm.get_attribute(module, "Pattern").unwrap();
-
-    Ok(PyObject::new(regex, pattern_class.clone()))
+    Ok(regex.into_ref(vm))
 }
 
 fn pattern_match(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
