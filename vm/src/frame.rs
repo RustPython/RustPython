@@ -707,7 +707,7 @@ impl Frame {
                 if !expr.is(&vm.get_none()) {
                     let repr = vm.to_repr(&expr)?;
                     // TODO: implement sys.displayhook
-                    if let Some(print) = vm.ctx.get_attr(&vm.builtins, "print") {
+                    if let Ok(print) = vm.get_attribute(vm.builtins.clone(), "print") {
                         vm.invoke(print, vec![repr.into_object()])?;
                     }
                 }

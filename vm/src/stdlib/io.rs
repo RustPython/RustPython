@@ -116,7 +116,7 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let mut result = vec![];
     let mut length = buff_size;
 
-    let raw = vm.ctx.get_attr(&buffered, "raw").unwrap();
+    let raw = vm.get_attribute(buffered.clone(), "raw").unwrap();
 
     //Iterates through the raw class, invoking the readinto method
     //to obtain buff_size many bytes. Exit when less than buff_size many
@@ -264,7 +264,7 @@ fn buffered_writer_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(buffered, None), (obj, Some(vm.ctx.bytes_type()))]
     );
 
-    let raw = vm.ctx.get_attr(&buffered, "raw").unwrap();
+    let raw = vm.get_attribute(buffered.clone(), "raw").unwrap();
 
     //This should be replaced with a more appropriate chunking implementation
     vm.call_method(&raw, "write", vec![obj.clone()])
@@ -284,7 +284,7 @@ fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(text_io_base, None)]);
 
-    let raw = vm.ctx.get_attr(&text_io_base, "buffer").unwrap();
+    let raw = vm.get_attribute(text_io_base.clone(), "buffer").unwrap();
 
     if let Ok(bytes) = vm.call_method(&raw, "read", PyFuncArgs::default()) {
         let value = objbytes::get_value(&bytes).to_vec();
@@ -335,10 +335,10 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     //RawIO: FileIO
     //Buffered: BufferedWriter, BufferedReader
     //Text: TextIOWrapper
-    let file_io_class = vm.ctx.get_attr(&module, "FileIO").unwrap();
-    let buffered_writer_class = vm.ctx.get_attr(&module, "BufferedWriter").unwrap();
-    let buffered_reader_class = vm.ctx.get_attr(&module, "BufferedReader").unwrap();
-    let text_io_wrapper_class = vm.ctx.get_attr(&module, "TextIOWrapper").unwrap();
+    let file_io_class = vm.get_attribute(module.clone(), "FileIO").unwrap();
+    let buffered_writer_class = vm.get_attribute(module.clone(), "BufferedWriter").unwrap();
+    let buffered_reader_class = vm.get_attribute(module.clone(), "BufferedReader").unwrap();
+    let text_io_wrapper_class = vm.get_attribute(module, "TextIOWrapper").unwrap();
 
     //Construct a FileIO (subclass of RawIOBase)
     //This is subsequently consumed by a Buffered Class.

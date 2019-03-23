@@ -664,13 +664,6 @@ impl PyContext {
         };
     }
 
-    pub fn get_attr(&self, obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-        // This does not need to be on the PyContext.
-        // We do not require to make a new key as string for this function
-        // (yet)...
-        obj.get_attr(attr_name)
-    }
-
     pub fn set_attr<'a, T: Into<&'a PyObjectRef>, V: Into<PyObjectRef>>(
         &'a self,
         obj: T,
@@ -893,70 +886,6 @@ where
 {
     fn type_ref(&self) -> &PyObjectRef {
         &self.typ
-    }
-}
-
-trait AttributeProtocol {
-    fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef>;
-    fn has_attr(&self, attr_name: &str) -> bool;
-}
-
-fn class_get_item(class: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-    if let Some(ref dict) = class.dict {
-        dict.borrow().get(attr_name).cloned()
-    } else {
-        panic!("Only classes should be in MRO!");
-    }
-}
-
-fn class_has_item(class: &PyObjectRef, attr_name: &str) -> bool {
-    if let Some(ref dict) = class.dict {
-        dict.borrow().contains_key(attr_name)
-    } else {
-        panic!("Only classes should be in MRO!");
-    }
-}
-
-impl AttributeProtocol for PyObjectRef {
-    fn get_attr(&self, attr_name: &str) -> Option<PyObjectRef> {
-        if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
-            if let Some(item) = class_get_item(self, attr_name) {
-                return Some(item);
-            }
-            for class in mro {
-                if let Some(item) = class_get_item(class.as_object(), attr_name) {
-                    return Some(item);
-                }
-            }
-            return None;
-        }
-
-        if let Some(PyModule { ref dict, .. }) = self.payload::<PyModule>() {
-            return dict.get_item(attr_name);
-        }
-
-        if let Some(ref dict) = self.dict {
-            dict.borrow().get(attr_name).cloned()
-        } else {
-            None
-        }
-    }
-
-    fn has_attr(&self, attr_name: &str) -> bool {
-        if let Some(PyClass { ref mro, .. }) = self.payload::<PyClass>() {
-            return class_has_item(self, attr_name)
-                || mro.iter().any(|d| class_has_item(d.as_object(), attr_name));
-        }
-
-        if let Some(PyModule { ref dict, .. }) = self.payload::<PyModule>() {
-            return dict.contains_key(attr_name);
-        }
-
-        if let Some(ref dict) = self.dict {
-            dict.borrow().contains_key(attr_name)
-        } else {
-            false
-        }
     }
 }
 
