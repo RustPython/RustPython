@@ -27,10 +27,10 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
     let source = util::read_file(file_path.as_path())
         .map_err(|e| vm.new_exception(import_error.clone(), e.description().to_string()))?;
     let code_obj = compile::compile(
+        vm,
         &source,
         &compile::Mode::Exec,
         file_path.to_str().unwrap().to_string(),
-        vm.ctx.code_type(),
     )
     .map_err(|err| {
         let syntax_error = vm.context().exceptions.syntax_error.clone();

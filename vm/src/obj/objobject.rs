@@ -7,7 +7,7 @@ use crate::obj::objproperty::PropertyBuilder;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     DictProtocol, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
-    TypeProtocol,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -22,7 +22,7 @@ impl PyValue for PyInstance {
 
 pub fn new_instance(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
-    let cls = args.shift();
+    let cls = PyClassRef::try_from_object(vm, args.shift())?;
     Ok(if cls.is(&vm.ctx.object) {
         PyObject::new_without_dict(PyInstance, cls)
     } else {

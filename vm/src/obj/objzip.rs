@@ -1,9 +1,11 @@
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::function::{Args, PyFuncArgs};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objiter;
 use crate::obj::objtype::PyClassRef;
+
+pub type PyZipRef = PyRef<PyZip>;
 
 #[derive(Debug)]
 pub struct PyZip {
@@ -16,15 +18,12 @@ impl PyValue for PyZip {
     }
 }
 
-fn zip_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    no_kwargs!(vm, args);
-    let cls = &args.args[0];
-    let iterables = &args.args[1..];
+fn zip_new(cls: PyClassRef, iterables: Args, vm: &VirtualMachine) -> PyResult<PyZipRef> {
     let iterators = iterables
-        .iter()
-        .map(|iterable| objiter::get_iter(vm, iterable))
+        .into_iter()
+        .map(|iterable| objiter::get_iter(vm, &iterable))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(PyObject::new(PyZip { iterators }, cls.clone()))
+    PyZip { iterators }.into_ref_with_type(vm, cls)
 }
 
 fn zip_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

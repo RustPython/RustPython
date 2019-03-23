@@ -163,12 +163,12 @@ pub fn get_item(
         if sequence.payload::<PyList>().is_some() {
             Ok(PyObject::new(
                 PyList::from(elements.to_vec().get_slice_items(vm, &subscript)?),
-                sequence.typ(),
+                sequence.type_pyref(),
             ))
         } else if sequence.payload::<PyTuple>().is_some() {
             Ok(PyObject::new(
                 PyTuple::from(elements.to_vec().get_slice_items(vm, &subscript)?),
-                sequence.typ(),
+                sequence.type_pyref(),
             ))
         } else {
             panic!("sequence get_item called for non-sequence")

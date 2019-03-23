@@ -1,12 +1,12 @@
 use crate::function::PyFuncArgs;
-use crate::pyobject::{
-    IdProtocol, PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
 use super::objbool;
 use super::objiter;
 use crate::obj::objtype::PyClassRef;
+
+pub type PyFilterRef = PyRef<PyFilter>;
 
 #[derive(Debug)]
 pub struct PyFilter {
@@ -20,20 +20,19 @@ impl PyValue for PyFilter {
     }
 }
 
-fn filter_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None), (function, None), (iterable, None)]
-    );
-    let iterator = objiter::get_iter(vm, iterable)?;
-    Ok(PyObject::new(
-        PyFilter {
-            predicate: function.clone(),
-            iterator,
-        },
-        cls.clone(),
-    ))
+fn filter_new(
+    cls: PyClassRef,
+    function: PyObjectRef,
+    iterable: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyFilterRef> {
+    let iterator = objiter::get_iter(vm, &iterable)?;
+
+    PyFilter {
+        predicate: function.clone(),
+        iterator,
+    }
+    .into_ref_with_type(vm, cls)
 }
 
 fn filter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

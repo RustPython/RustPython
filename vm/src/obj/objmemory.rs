@@ -1,7 +1,8 @@
-use crate::function::PyFuncArgs;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
+
+pub type PyMemoryViewRef = PyRef<PyMemoryView>;
 
 #[derive(Debug)]
 pub struct PyMemoryView {
@@ -14,15 +15,13 @@ impl PyValue for PyMemoryView {
     }
 }
 
-pub fn new_memory_view(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(cls, None), (bytes_object, None)]);
-    vm.ctx.set_attr(cls, "obj", bytes_object.clone());
-    Ok(PyObject::new(
-        PyMemoryView {
-            obj: bytes_object.clone(),
-        },
-        cls.clone(),
-    ))
+pub fn new_memory_view(
+    cls: PyClassRef,
+    bytes_object: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyMemoryViewRef> {
+    vm.ctx.set_attr(&cls, "obj", bytes_object.clone());
+    PyMemoryView { obj: bytes_object }.into_ref_with_type(vm, cls)
 }
 
 pub fn init(ctx: &PyContext) {
