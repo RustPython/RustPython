@@ -11,6 +11,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use super::objint;
+use super::objsequence::get_item;
 use super::objtype::{self, PyClassRef};
 
 #[derive(Debug)]
@@ -204,21 +205,13 @@ fn bytes_iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
     }
 }
 
-fn compare_slice(a: &[u8], b: &[u8]) -> bool {
-    for (i, j) in a.iter().zip(b.iter()) {
-        if i != j {
-            return false;
-        }
-    }
-    return true;
-}
-
-fn compare_vec(a: &Vec<u8>, b: &Vec<u8>) -> bool {
+/// return true if b is a subset of a.
+fn vec_contains(a: &Vec<u8>, b: &Vec<u8>) -> bool {
     let a_len = a.len();
     let b_len = b.len();
     for (n, i) in a.iter().enumerate() {
         if n + b_len <= a_len && *i == b[0] {
-            if compare_slice(&a[n..n + b_len], b) {
+            if &a[n..n + b_len] == b.as_slice() {
                 return true;
             }
         }
@@ -239,20 +232,13 @@ impl PyBytesRef {
 
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         if objtype::isinstance(&needle, &vm.ctx.bytes_type()) {
-            if compare_vec(&self.value, &get_value(&needle)) {
-                return Ok(true);
-            } else {
-                return Ok(false);
-            }
+            let result = vec_contains(&self.value, &get_value(&needle));
+            Ok(result)
         } else if objtype::isinstance(&needle, &vm.ctx.int_type()) {
-            let c = self
+            let result = self
                 .value
                 .contains(&objint::get_value(&needle).to_u8().unwrap());
-            if c == true {
-                return Ok(true);
-            } else {
-                return Ok(false);
-            }
+            Ok(result)
         } else {
             Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", self, needle)))
         }
