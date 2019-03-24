@@ -69,6 +69,7 @@ pub fn init(context: &PyContext) {
         "__iter__" => context.new_rustfunc(bytes_iter),
         "__doc__" => context.new_str(bytes_doc.to_string()),
         "__add__" => context.new_rustfunc(PyBytesRef::add),
+        "__contains__" => context.new_rustfunc(PyBytesRef::contains),
     });
 }
 
@@ -203,6 +204,28 @@ fn bytes_iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
     }
 }
 
+fn compare_slice(a: &[u8], b: &[u8]) -> bool {
+    for (i, j) in a.iter().zip(b.iter()) {
+        if i != j {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn compare_vec(a: &Vec<u8>, b: &Vec<u8>) -> bool {
+    let a_len = a.len();
+    let b_len = b.len();
+    for (n, i) in a.iter().enumerate() {
+        if n + b_len <= a_len && *i == b[0] {
+            if compare_slice(&a[n..n + b_len], b) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 impl PyBytesRef {
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.bytes_type()) {
@@ -210,7 +233,28 @@ impl PyBytesRef {
             let elements: Vec<u8> = self.value.iter().chain(rhs.iter()).cloned().collect();
             Ok(vm.ctx.new_bytes(elements))
         } else {
-            Err(vm.new_type_error(format!("Cannot add {} and {}", self.as_object(), other)))
+            Err(vm.new_not_implemented_error("".to_string()))
+        }
+    }
+
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        if objtype::isinstance(&needle, &vm.ctx.bytes_type()) {
+            if compare_vec(&self.value, &get_value(&needle)) {
+                return Ok(true);
+            } else {
+                return Ok(false);
+            }
+        } else if objtype::isinstance(&needle, &vm.ctx.int_type()) {
+            let c = self
+                .value
+                .contains(&objint::get_value(&needle).to_u8().unwrap());
+            if c == true {
+                return Ok(true);
+            } else {
+                return Ok(false);
+            }
+        } else {
+            Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", self, needle)))
         }
     }
 }
