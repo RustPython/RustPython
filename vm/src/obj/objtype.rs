@@ -241,11 +241,12 @@ pub fn type_new_class(
     bases.push(vm.ctx.object());
     let name = objstr::get_value(name);
     new(
-        typ.clone(),
+        typ.clone().downcast().unwrap(),
         &name,
         bases,
         objdict::py_dict_to_attributes(dict),
     )
+    .map(|x| x.into_object())
 }
 
 pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {
@@ -365,14 +366,14 @@ fn linearise_mro(mut bases: Vec<Vec<PyClassRef>>) -> Option<Vec<PyClassRef>> {
 }
 
 pub fn new(
-    typ: PyObjectRef,
+    typ: PyClassRef,
     name: &str,
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
-) -> PyResult {
+) -> PyResult<PyClassRef> {
     let mros = bases.into_iter().map(|x| _mro(&x)).collect();
     let mro = linearise_mro(mros).unwrap();
-    Ok(PyObject {
+    let new_type = PyObject {
         payload: PyClass {
             name: String::from(name),
             mro,
@@ -380,7 +381,8 @@ pub fn new(
         dict: Some(RefCell::new(dict)),
         typ,
     }
-    .into_ref())
+    .into_ref();
+    Ok(new_type.downcast().unwrap())
 }
 
 #[cfg(test)]
@@ -401,23 +403,8 @@ mod tests {
         let object: PyClassRef = context.object.clone();
         let type_type = &context.type_type;
 
-        let a = new(
-            type_type.clone().into_object(),
-            "A",
-            vec![object.clone()],
-            HashMap::new(),
-        )
-        .unwrap();
-        let b = new(
-            type_type.clone().into_object(),
-            "B",
-            vec![object.clone()],
-            HashMap::new(),
-        )
-        .unwrap();
-
-        let a: PyClassRef = a.downcast().unwrap();
-        let b: PyClassRef = b.downcast().unwrap();
+        let a = new(type_type.clone(), "A", vec![object.clone()], HashMap::new()).unwrap();
+        let b = new(type_type.clone(), "B", vec![object.clone()], HashMap::new()).unwrap();
 
         assert_eq!(
             map_ids(linearise_mro(vec![

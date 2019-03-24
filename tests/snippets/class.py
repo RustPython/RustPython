@@ -64,6 +64,10 @@ class B():
     def test1(self):
         return 200
 
+    @classmethod
+    def test3(cls):
+        return 300
+
 class C(A,B):
     def test(self):
         return super().test()
@@ -71,9 +75,15 @@ class C(A,B):
     def test1(self):
         return super().test1()
 
+    @classmethod
+    def test3(cls):
+        return super().test3()
+
 c = C()
 assert c.test() == 100
 assert c.test1() == 200
+assert c.test3() == 300
+assert C.test3() == 300
 
 class Me():
 

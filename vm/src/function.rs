@@ -143,7 +143,7 @@ impl PyFuncArgs {
     ///
     /// If the given `FromArgs` includes any conversions, exceptions raised
     /// during the conversion will halt the binding and return the error.
-    fn bind<T: FromArgs>(mut self, vm: &VirtualMachine) -> PyResult<T> {
+    pub fn bind<T: FromArgs>(mut self, vm: &VirtualMachine) -> PyResult<T> {
         let given_args = self.args.len();
         let bound = match T::from_args(vm, &mut self) {
             Ok(args) => args,
@@ -305,6 +305,14 @@ pub enum OptionalArg<T> {
 }
 
 impl<T> OptionalArg<T> {
+    #[inline]
+    pub fn is_present(&self) -> bool {
+        match self {
+            Present(_) => true,
+            Missing => false,
+        }
+    }
+
     #[inline]
     pub fn into_option(self) -> Option<T> {
         match self {

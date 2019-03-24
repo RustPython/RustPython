@@ -65,16 +65,11 @@ fn main() {
 }
 
 fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResult {
-    let code_obj = compile::compile(
-        source,
-        &compile::Mode::Exec,
-        source_path,
-        vm.ctx.code_type(),
-    )
-    .map_err(|err| {
-        let syntax_error = vm.context().exceptions.syntax_error.clone();
-        vm.new_exception(syntax_error, err.to_string())
-    })?;
+    let code_obj =
+        compile::compile(vm, source, &compile::Mode::Exec, source_path).map_err(|err| {
+            let syntax_error = vm.context().exceptions.syntax_error.clone();
+            vm.new_exception(syntax_error, err.to_string())
+        })?;
     // trace!("Code object: {:?}", code_obj.borrow());
     let vars = vm.ctx.new_scope(); // Keep track of local variables
     vm.run_code_obj(code_obj, vars)
@@ -115,12 +110,7 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
 }
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
-    match compile::compile(
-        source,
-        &compile::Mode::Single,
-        "<stdin>".to_string(),
-        vm.ctx.code_type(),
-    ) {
+    match compile::compile(vm, source, &compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
             if let Err(err) = vm.run_code_obj(code, scope) {
                 print_exception(vm, &err);

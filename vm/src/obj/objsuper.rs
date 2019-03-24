@@ -8,6 +8,7 @@ https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/
 
 use crate::frame::NameProtocol;
 use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objfunction::PyMethod;
 use crate::obj::objstr;
 use crate::obj::objtype::{PyClass, PyClassRef};
 use crate::pyobject::{
@@ -72,6 +73,10 @@ fn super_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Some(PyClass { ref mro, .. }) => {
             for class in mro {
                 if let Ok(item) = vm.get_attribute(class.as_object().clone(), name_str.clone()) {
+                    if item.payload_is::<PyMethod>() {
+                        // This is a classmethod
+                        return Ok(item);
+                    }
                     return Ok(vm.ctx.new_bound_method(item, inst.clone()));
                 }
             }

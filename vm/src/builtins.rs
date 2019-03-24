@@ -24,6 +24,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
+use crate::obj::objcode::PyCodeRef;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
@@ -112,22 +113,17 @@ fn builtin_chr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(txt))
 }
 
-fn builtin_compile(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (source, None),
-            (filename, Some(vm.ctx.str_type())),
-            (mode, Some(vm.ctx.str_type()))
-        ]
-    );
-    let source = objstr::get_value(source);
+fn builtin_compile(
+    source: PyStringRef,
+    filename: PyStringRef,
+    mode: PyStringRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyCodeRef> {
     // TODO: fix this newline bug:
-    let source = format!("{}\n", source);
+    let source = format!("{}\n", &source.value);
 
     let mode = {
-        let mode = objstr::get_value(mode);
+        let mode = &mode.value;
         if mode == "exec" {
             compile::Mode::Exec
         } else if mode == "eval" {
@@ -141,9 +137,7 @@ fn builtin_compile(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     };
 
-    let filename = objstr::get_value(filename);
-
-    compile::compile(&source, &mode, filename, vm.ctx.code_type()).map_err(|err| {
+    compile::compile(vm, &source, &mode, filename.value.to_string()).map_err(|err| {
         let syntax_error = vm.context().exceptions.syntax_error.clone();
         vm.new_exception(syntax_error, err.to_string())
     })
@@ -190,25 +184,23 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let scope = make_scope(vm, globals, locals)?;
 
     // Determine code object:
-    let code_obj = if objtype::isinstance(source, &vm.ctx.code_type()) {
-        source.clone()
+    let code_obj = if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
+        code_obj
     } else if objtype::isinstance(source, &vm.ctx.str_type()) {
         let mode = compile::Mode::Eval;
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(
-            |err| {
-                let syntax_error = vm.context().exceptions.syntax_error.clone();
-                vm.new_exception(syntax_error, err.to_string())
-            },
-        )?
+        compile::compile(vm, &source, &mode, "<string>".to_string()).map_err(|err| {
+            let syntax_error = vm.context().exceptions.syntax_error.clone();
+            vm.new_exception(syntax_error, err.to_string())
+        })?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
 
     // Run the source:
-    vm.run_code_obj(code_obj.clone(), scope)
+    vm.run_code_obj(code_obj, scope)
 }
 
 /// Implements `exec`
@@ -229,14 +221,12 @@ fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(&source, &mode, "<string>".to_string(), vm.ctx.code_type()).map_err(
-            |err| {
-                let syntax_error = vm.context().exceptions.syntax_error.clone();
-                vm.new_exception(syntax_error, err.to_string())
-            },
-        )?
-    } else if objtype::isinstance(source, &vm.ctx.code_type()) {
-        source.clone()
+        compile::compile(vm, &source, &mode, "<string>".to_string()).map_err(|err| {
+            let syntax_error = vm.context().exceptions.syntax_error.clone();
+            vm.new_exception(syntax_error, err.to_string())
+        })?
+    } else if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
+        code_obj
     } else {
         return Err(vm.new_type_error("source argument must be str or code object".to_string()));
     };

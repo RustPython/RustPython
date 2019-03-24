@@ -284,8 +284,7 @@ impl WASMVirtualMachine {
                  ref vm, ref scope, ..
              }| {
                 source.push('\n');
-                let code =
-                    compile::compile(&source, &mode, "<wasm>".to_string(), vm.ctx.code_type());
+                let code = compile::compile(vm, &source, &mode, "<wasm>".to_string());
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
                     if let rustpython_vm::error::CompileError::Parse(ref parse_error) = err {

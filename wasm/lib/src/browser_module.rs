@@ -101,9 +101,7 @@ fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         })
         .and_then(JsFuture::from);
 
-    Ok(PyPromise::new(future_to_promise(future))
-        .into_ref(vm)
-        .into_object())
+    Ok(PyPromise::from_future(future).into_ref(vm).into_object())
 }
 
 fn browser_request_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -176,6 +174,12 @@ impl PyPromise {
     pub fn new(value: Promise) -> PyPromise {
         PyPromise { value }
     }
+    pub fn from_future<F>(future: F) -> PyPromise
+    where
+        F: Future<Item = JsValue, Error = JsValue> + 'static,
+    {
+        PyPromise::new(future_to_promise(future))
+    }
     pub fn value(&self) -> Promise {
         self.value.clone()
     }
@@ -185,7 +189,7 @@ impl PyPromise {
         on_fulfill: PyRef<PyFunction>,
         on_reject: OptionalArg<PyRef<PyFunction>>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyPromiseRef> {
+    ) -> PyPromiseRef {
         let acc_vm = AccessibleVM::from(vm);
 
         let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
@@ -210,21 +214,18 @@ impl PyPromise {
             convert::pyresult_to_jsresult(vm, ret)
         });
 
-        let ret_promise = future_to_promise(ret_future);
-
-        Ok(PyPromise::new(ret_promise).into_ref(vm))
+        PyPromise::from_future(ret_future).into_ref(vm)
     }
 
     fn catch(
         zelf: PyPromiseRef,
         on_reject: PyRef<PyFunction>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyPromiseRef> {
+    ) -> PyPromiseRef {
         let acc_vm = AccessibleVM::from(vm);
 
-        let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| match res {
-            Ok(val) => Ok(val),
-            Err(err) => {
+        let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
+            res.or_else(|err| {
                 let stored_vm = acc_vm
                     .upgrade()
                     .expect("that the vm is valid when the promise resolves");
@@ -232,12 +233,10 @@ impl PyPromise {
                 let err = convert::js_to_py(vm, err);
                 let res = vm.invoke(on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
                 convert::pyresult_to_jsresult(vm, res)
-            }
+            })
         });
 
-        let ret_promise = future_to_promise(ret_future);
-
-        Ok(PyPromise::new(ret_promise).into_ref(vm))
+        PyPromise::from_future(ret_future).into_ref(vm)
     }
 }
 
@@ -363,7 +362,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         Document {
             doc: window().document().expect("Document missing from window"),
         },
-        document_class.clone().into_object(),
+        document_class.clone(),
     );
 
     let element = py_class!(ctx, "Element", ctx.object(), {

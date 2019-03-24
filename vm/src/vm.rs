@@ -19,6 +19,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode;
+use crate::obj::objcode::PyCodeRef;
 use crate::obj::objframe;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator;
@@ -72,8 +73,8 @@ impl VirtualMachine {
         }
     }
 
-    pub fn run_code_obj(&self, code: PyObjectRef, scope: Scope) -> PyResult {
-        let frame = self.ctx.new_frame(code, scope);
+    pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
+        let frame = self.ctx.new_frame(code.into_object(), scope);
         self.run_frame_full(frame)
     }
 

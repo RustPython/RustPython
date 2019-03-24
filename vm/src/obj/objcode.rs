@@ -7,8 +7,10 @@ use std::fmt;
 use crate::bytecode;
 use crate::function::PyFuncArgs;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
+
+pub type PyCodeRef = PyRef<PyCode>;
 
 pub struct PyCode {
     code: bytecode::CodeObject,
