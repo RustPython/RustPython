@@ -13,7 +13,7 @@ use crate::vm::VirtualMachine;
 pub type PyCodeRef = PyRef<PyCode>;
 
 pub struct PyCode {
-    code: bytecode::CodeObject,
+    pub code: bytecode::CodeObject,
 }
 
 impl PyCode {
@@ -38,30 +38,15 @@ pub fn init(context: &PyContext) {
     let code_type = context.code_type.as_object();
     extend_class!(context, code_type, {
         "__new__" => context.new_rustfunc(code_new),
-        "__repr__" => context.new_rustfunc(code_repr)
+        "__repr__" => context.new_rustfunc(code_repr),
+
+        "co_argcount" => context.new_property(code_co_argcount),
+        "co_consts" => context.new_property(code_co_consts),
+        "co_filename" => context.new_property(code_co_filename),
+        "co_firstlineno" => context.new_property(code_co_firstlineno),
+        "co_kwonlyargcount" => context.new_property(code_co_kwonlyargcount),
+        "co_name" => context.new_property(code_co_name),
     });
-
-    for (name, f) in &[
-        (
-            "co_argcount",
-            code_co_argcount as fn(&VirtualMachine, PyFuncArgs) -> PyResult,
-        ),
-        ("co_consts", code_co_consts),
-        ("co_filename", code_co_filename),
-        ("co_firstlineno", code_co_firstlineno),
-        ("co_kwonlyargcount", code_co_kwonlyargcount),
-        ("co_name", code_co_name),
-    ] {
-        context.set_attr(code_type, name, context.new_property(f))
-    }
-}
-
-pub fn get_value(obj: &PyObjectRef) -> bytecode::CodeObject {
-    if let Some(code) = obj.payload::<PyCode>() {
-        code.code.clone()
-    } else {
-        panic!("Inner error getting code {:?}", obj)
-    }
 }
 
 fn code_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -69,56 +54,42 @@ fn code_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_type_error("Cannot directly create code object".to_string()))
 }
 
-fn code_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(o, Some(vm.ctx.code_type()))]);
-
-    let code = get_value(o);
-    let repr = format!(
+fn code_repr(o: PyCodeRef, _vm: &VirtualMachine) -> String {
+    let code = &o.code;
+    format!(
         "<code object {} at 0x{:x} file {:?}, line {}>",
         code.obj_name,
         o.get_id(),
         code.source_path,
         code.first_line_number
-    );
-    Ok(vm.new_str(repr))
+    )
 }
 
-fn member_code_obj(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult<bytecode::CodeObject> {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.code_type()))]);
-    Ok(get_value(zelf))
+fn code_co_argcount(code: PyCodeRef, _vm: &VirtualMachine) -> usize {
+    code.code.arg_names.len()
 }
 
-fn code_co_argcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    Ok(vm.ctx.new_int(code_obj.arg_names.len()))
+fn code_co_filename(code: PyCodeRef, _vm: &VirtualMachine) -> String {
+    code.code.source_path.clone()
 }
 
-fn code_co_filename(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    let source_path = code_obj.source_path;
-    Ok(vm.new_str(source_path))
+fn code_co_firstlineno(code: PyCodeRef, _vm: &VirtualMachine) -> usize {
+    code.code.first_line_number
 }
 
-fn code_co_firstlineno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    Ok(vm.ctx.new_int(code_obj.first_line_number))
+fn code_co_kwonlyargcount(code: PyCodeRef, _vm: &VirtualMachine) -> usize {
+    code.code.kwonlyarg_names.len()
 }
 
-fn code_co_kwonlyargcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    Ok(vm.ctx.new_int(code_obj.kwonlyarg_names.len()))
-}
-
-fn code_co_consts(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    let consts = code_obj
+fn code_co_consts(code: PyCodeRef, vm: &VirtualMachine) -> PyObjectRef {
+    let consts = code
+        .code
         .get_constants()
         .map(|x| vm.ctx.unwrap_constant(x))
         .collect();
-    Ok(vm.ctx.new_tuple(consts))
+    vm.ctx.new_tuple(consts)
 }
 
-fn code_co_name(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let code_obj = member_code_obj(vm, args)?;
-    Ok(vm.new_str(code_obj.obj_name))
+fn code_co_name(code: PyCodeRef, _vm: &VirtualMachine) -> String {
+    code.code.obj_name.clone()
 }

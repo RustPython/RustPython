@@ -14,7 +14,7 @@ use num_traits::{One, Zero};
 
 use crate::bytecode;
 use crate::exceptions;
-use crate::frame::{Frame, Scope};
+use crate::frame::Scope;
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
@@ -22,6 +22,7 @@ use crate::obj::objbytearray;
 use crate::obj::objbytes;
 use crate::obj::objclassmethod;
 use crate::obj::objcode;
+use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcomplex::{self, PyComplex};
 use crate::obj::objdict::{self, PyDict};
 use crate::obj::objellipsis;
@@ -591,10 +592,6 @@ impl PyContext {
         )
     }
 
-    pub fn new_frame(&self, code: PyObjectRef, scope: Scope) -> PyObjectRef {
-        PyObject::new(Frame::new(code, scope), self.frame_type())
-    }
-
     pub fn new_property<F, I, V>(&self, f: F) -> PyObjectRef
     where
         F: IntoPyNativeFunc<I, V>,
@@ -608,7 +605,7 @@ impl PyContext {
 
     pub fn new_function(
         &self,
-        code_obj: PyObjectRef,
+        code_obj: PyCodeRef,
         scope: Scope,
         defaults: PyObjectRef,
     ) -> PyObjectRef {

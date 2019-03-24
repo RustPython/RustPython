@@ -14,15 +14,13 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
-use crate::frame::{ExecutionResult, Frame, Scope};
+use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
-use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
-use crate::obj::objframe;
 use crate::obj::objfunction::{PyFunction, PyMethod};
-use crate::obj::objgenerator;
+use crate::obj::objgenerator::PyGeneratorRef;
 use crate::obj::objiter;
 use crate::obj::objlist::PyList;
 use crate::obj::objsequence;
@@ -31,7 +29,7 @@ use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TryIntoRef,
+    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
 use crate::stdlib;
@@ -49,7 +47,7 @@ pub struct VirtualMachine {
     pub sys_module: PyObjectRef,
     pub stdlib_inits: RefCell<HashMap<String, stdlib::StdlibInitFunc>>,
     pub ctx: PyContext,
-    pub frames: RefCell<Vec<PyObjectRef>>,
+    pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
 }
 
@@ -74,30 +72,28 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
-        let frame = self.ctx.new_frame(code.into_object(), scope);
+        let frame = Frame::new(code, scope).into_ref(self);
         self.run_frame_full(frame)
     }
 
-    pub fn run_frame_full(&self, frame: PyObjectRef) -> PyResult {
+    pub fn run_frame_full(&self, frame: FrameRef) -> PyResult {
         match self.run_frame(frame)? {
             ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),
         }
     }
 
-    pub fn run_frame(&self, frame: PyObjectRef) -> PyResult<ExecutionResult> {
+    pub fn run_frame(&self, frame: FrameRef) -> PyResult<ExecutionResult> {
         self.frames.borrow_mut().push(frame.clone());
-        let frame = objframe::get_value(&frame);
         let result = frame.run(self);
         self.frames.borrow_mut().pop();
         result
     }
 
-    pub fn current_frame(&self) -> Ref<Frame> {
+    pub fn current_frame(&self) -> Ref<FrameRef> {
         Ref::map(self.frames.borrow(), |frames| {
             let index = frames.len() - 1;
-            let current_frame = &frames[index];
-            objframe::get_value(current_frame)
+            &frames[index]
         })
     }
 
@@ -344,21 +340,20 @@ impl VirtualMachine {
 
     fn invoke_python_function(
         &self,
-        code: &PyObjectRef,
+        code: &PyCodeRef,
         scope: &Scope,
         defaults: &PyObjectRef,
         args: PyFuncArgs,
     ) -> PyResult {
-        let code_object = objcode::get_value(code);
         let scope = scope.child_scope(&self.ctx);
-        self.fill_locals_from_args(&code_object, &scope.get_locals(), args, defaults)?;
+        self.fill_locals_from_args(&code.code, &scope.get_locals(), args, defaults)?;
 
         // Construct frame:
-        let frame = self.ctx.new_frame(code.clone(), scope);
+        let frame = Frame::new(code.clone(), scope).into_ref(self);
 
         // If we have a generator, create a new generator
-        if code_object.is_generator {
-            Ok(objgenerator::new_generator(frame, self).into_object())
+        if code.code.is_generator {
+            Ok(PyGeneratorRef::new(frame, self).into_object())
         } else {
             self.run_frame_full(frame)
         }
@@ -379,7 +374,7 @@ impl VirtualMachine {
             let scope = scope
                 .child_scope_with_locals(cells)
                 .child_scope_with_locals(locals);
-            let frame = self.ctx.new_frame(code.clone(), scope);
+            let frame = Frame::new(code.clone(), scope).into_ref(self);
             return self.run_frame_full(frame);
         }
         panic!(
