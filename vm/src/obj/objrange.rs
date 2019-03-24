@@ -7,7 +7,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    Either2, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    Either, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -212,16 +212,16 @@ impl PyRangeRef {
         .into_ref_with_type(vm, cls)
     }
 
-    fn getitem(self, subscript: Either2<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(self, subscript: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         match subscript {
-            Either2::A(index) => {
+            Either::A(index) => {
                 if let Some(value) = self.get(index.value.clone()) {
                     Ok(PyInt::new(value).into_ref(vm).into_object())
                 } else {
                     Err(vm.new_index_error("range object index out of range".to_string()))
                 }
             }
-            Either2::B(slice) => {
+            Either::B(slice) => {
                 let new_start = if let Some(int) = slice.start.clone() {
                     if let Some(i) = self.get(int) {
                         i

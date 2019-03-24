@@ -1203,7 +1203,7 @@ impl<T: PyValue + 'static> PyObjectPayload for T {
     }
 }
 
-pub enum Either2<A, B> {
+pub enum Either<A, B> {
     A(A),
     B(B),
 }
@@ -1216,28 +1216,28 @@ pub enum Either2<A, B> {
 /// ```
 /// use rustpython_vm::VirtualMachine;
 /// use rustpython_vm::obj::{objstr::PyStringRef, objint::PyIntRef};
-/// use rustpython_vm::pyobject::Either2;
+/// use rustpython_vm::pyobject::Either;
 ///
-/// fn do_something(arg: Either2<PyIntRef, PyStringRef>, vm: &VirtualMachine) {
+/// fn do_something(arg: Either<PyIntRef, PyStringRef>, vm: &VirtualMachine) {
 ///     match arg {
-///         Either2::A(int)=> {
+///         Either::A(int)=> {
 ///             // do something with int
 ///         }
-///         Either2::B(string) => {
+///         Either::B(string) => {
 ///             // do something with string
 ///         }
 ///     }
 /// }
 /// ```
-impl<A, B> TryFromObject for Either2<PyRef<A>, PyRef<B>>
+impl<A, B> TryFromObject for Either<PyRef<A>, PyRef<B>>
 where
     A: PyValue,
     B: PyValue,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.downcast::<A>()
-            .map(Either2::A)
-            .or_else(|obj| obj.clone().downcast::<B>().map(Either2::B))
+            .map(Either::A)
+            .or_else(|obj| obj.clone().downcast::<B>().map(Either::B))
             .map_err(|obj| {
                 vm.new_type_error(format!(
                     "must be {} or {}, not {}",
