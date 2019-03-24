@@ -4,16 +4,17 @@ use std::fmt;
 
 use crate::function::{Args, KwArgs, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TypeProtocol,
+    IdProtocol, PyAttributes, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult,
+    PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objdict;
 use super::objlist::PyList;
 use super::objproperty::PropertyBuilder;
-use super::objstr::{self, PyStringRef};
+use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
+use crate::obj::objdict::PyDictRef;
 
 #[derive(Clone, Debug)]
 pub struct PyClass {
@@ -203,24 +204,10 @@ pub fn get_type_name(typ: &PyObjectRef) -> String {
 pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     debug!("type.__new__ {:?}", args);
     if args.args.len() == 2 {
-        arg_check!(
-            vm,
-            args,
-            required = [(_typ, Some(vm.ctx.type_type())), (obj, None)]
-        );
-        Ok(obj.typ())
+        Ok(args.args[1].typ())
     } else if args.args.len() == 4 {
-        arg_check!(
-            vm,
-            args,
-            required = [
-                (typ, Some(vm.ctx.type_type())),
-                (name, Some(vm.ctx.str_type())),
-                (bases, None),
-                (dict, Some(vm.ctx.dict_type()))
-            ]
-        );
-        type_new_class(vm, typ, name, bases, dict)
+        let (typ, name, bases, dict) = args.bind(vm)?;
+        type_new_class(vm, typ, name, bases, dict).map(|x| x.into_object())
     } else {
         Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }
@@ -228,25 +215,19 @@ pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn type_new_class(
     vm: &VirtualMachine,
-    typ: &PyObjectRef,
-    name: &PyObjectRef,
-    bases: &PyObjectRef,
-    dict: &PyObjectRef,
-) -> PyResult {
-    let mut bases: Vec<PyClassRef> = vm
-        .extract_elements(bases)?
-        .iter()
-        .map(|x| x.clone().downcast().unwrap())
-        .collect();
+    typ: PyClassRef,
+    name: PyStringRef,
+    bases: PyIterable<PyClassRef>,
+    dict: PyDictRef,
+) -> PyResult<PyClassRef> {
+    let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
     bases.push(vm.ctx.object());
-    let name = objstr::get_value(name);
     new(
-        typ.clone().downcast().unwrap(),
-        &name,
+        typ.clone(),
+        &name.value,
         bases,
-        objdict::py_dict_to_attributes(dict),
+        objdict::py_dict_to_attributes(dict.as_object()),
     )
-    .map(|x| x.into_object())
 }
 
 pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {

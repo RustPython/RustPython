@@ -2,25 +2,27 @@
  * Dynamic type creation and names for built in types.
  */
 
-use crate::function::PyFuncArgs;
+use crate::function::OptionalArg;
+use crate::obj::objdict::PyDict;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{PyContext, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
 
-fn types_new_class(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(name, Some(vm.ctx.str_type()))],
-        optional = [(bases, None), (_kwds, None), (_exec_body, None)]
-    );
+fn types_new_class(
+    name: PyStringRef,
+    bases: OptionalArg<PyIterable<PyClassRef>>,
+    vm: &VirtualMachine,
+) -> PyResult<PyClassRef> {
+    // TODO kwds and exec_body parameter
 
-    let bases: PyObjectRef = match bases {
-        Some(bases) => bases.clone(),
-        None => vm.ctx.new_tuple(vec![]),
+    let bases = match bases {
+        OptionalArg::Present(bases) => bases,
+        OptionalArg::Missing => PyIterable::try_from_object(vm, vm.ctx.new_tuple(vec![]))?,
     };
-    let dict = vm.ctx.new_dict();
-    objtype::type_new_class(vm, &vm.ctx.type_type().into_object(), name, &bases, &dict)
+    let dict = PyDict::default().into_ref(vm);
+    objtype::type_new_class(vm, vm.ctx.type_type(), name, bases, dict)
 }
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {

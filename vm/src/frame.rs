@@ -11,7 +11,7 @@ use crate::bytecode;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
-use crate::obj::objcode;
+use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict;
 use crate::obj::objdict::PyDict;
 use crate::obj::objint::PyInt;
@@ -22,7 +22,7 @@ use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject,
+    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -186,6 +186,8 @@ enum BlockType {
     },
 }
 
+pub type FrameRef = PyRef<Frame>;
+
 pub struct Frame {
     pub code: bytecode::CodeObject,
     // We need 1 stack per frame
@@ -211,7 +213,7 @@ pub enum ExecutionResult {
 pub type FrameResult = Result<Option<ExecutionResult>, PyObjectRef>;
 
 impl Frame {
-    pub fn new(code: PyObjectRef, scope: Scope) -> Frame {
+    pub fn new(code: PyCodeRef, scope: Scope) -> Frame {
         //populate the globals and locals
         //TODO: This is wrong, check https://github.com/nedbat/byterun/blob/31e6c4a8212c35b5157919abff43a7daa0f377c6/byterun/pyvm2.py#L95
         /*
@@ -224,7 +226,7 @@ impl Frame {
         // locals.extend(callargs);
 
         Frame {
-            code: objcode::get_value(&code),
+            code: code.code.clone(),
             stack: RefCell::new(vec![]),
             blocks: RefCell::new(vec![]),
             // save the callargs as locals
@@ -562,7 +564,10 @@ impl Frame {
             }
             bytecode::Instruction::MakeFunction { flags } => {
                 let _qualified_name = self.pop_value();
-                let code_obj = self.pop_value();
+                let code_obj = self
+                    .pop_value()
+                    .downcast()
+                    .expect("Second to top value on the stack must be a code object");
 
                 let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
                     self.pop_value()
