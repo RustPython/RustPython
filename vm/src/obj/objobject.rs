@@ -11,7 +11,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyInstance;
 
 impl PyValue for PyInstance {

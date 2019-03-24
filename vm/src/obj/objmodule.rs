@@ -3,7 +3,7 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyModule {
     pub name: String,
     pub dict: PyObjectRef,
