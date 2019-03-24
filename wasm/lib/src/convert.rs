@@ -126,6 +126,10 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     {
         let bytes = objbytes::get_value(&py_obj);
         unsafe {
+            // `Uint8Array::view` is an `unsafe fn` because it provides
+            // a direct view into the WASM linear memory; if you were to allocate
+            // something with Rust that view would probably become invalid. It's safe
+            // because we then copy the array using `Uint8Array::slice`.
             let view = Uint8Array::view(&bytes);
             view.slice(0, bytes.len() as u32).into()
         }
