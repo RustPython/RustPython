@@ -32,7 +32,7 @@ fn enumerate_new(
     vm: &VirtualMachine,
 ) -> PyResult<PyEnumerateRef> {
     let counter = match start {
-        OptionalArg::Present(start) => start.value.clone(),
+        OptionalArg::Present(start) => start.as_bigint().clone(),
         OptionalArg::Missing => BigInt::zero(),
     };
 

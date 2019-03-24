@@ -19,8 +19,7 @@ use crate::obj::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyInt {
-    // TODO: shouldn't be public
-    pub value: BigInt,
+    value: BigInt,
 }
 
 impl fmt::Display for PyInt {

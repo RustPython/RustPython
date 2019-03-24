@@ -144,7 +144,7 @@ pub fn get_item(
     subscript: PyObjectRef,
 ) -> PyResult {
     if let Some(i) = subscript.payload::<PyInt>() {
-        return match i.value.to_i32() {
+        return match i.as_bigint().to_i32() {
             Some(value) => {
                 if let Some(pos_index) = elements.to_vec().get_pos(value) {
                     let obj = elements[pos_index].clone();

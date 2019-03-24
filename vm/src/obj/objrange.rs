@@ -222,7 +222,7 @@ impl PyRangeRef {
 
     fn contains(self, needle: PyObjectRef, _vm: &VirtualMachine) -> bool {
         if let Ok(int) = needle.downcast::<PyInt>() {
-            match self.offset(&int.value) {
+            match self.offset(int.as_bigint()) {
                 Some(ref offset) => offset.is_multiple_of(self.step.as_bigint()),
                 None => false,
             }
@@ -233,7 +233,7 @@ impl PyRangeRef {
 
     fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
         if let Ok(int) = needle.downcast::<PyInt>() {
-            match self.index_of(&int.value) {
+            match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(PyInt::new(idx)),
                 None => Err(vm.new_value_error(format!("{} is not in range", int))),
             }
@@ -244,7 +244,7 @@ impl PyRangeRef {
 
     fn count(self, item: PyObjectRef, _vm: &VirtualMachine) -> PyInt {
         if let Ok(int) = item.downcast::<PyInt>() {
-            if self.index_of(&int.value).is_some() {
+            if self.index_of(int.as_bigint()).is_some() {
                 PyInt::new(1)
             } else {
                 PyInt::new(0)
@@ -257,7 +257,7 @@ impl PyRangeRef {
     fn getitem(self, subscript: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         match subscript {
             Either::A(index) => {
-                if let Some(value) = self.get(index.value.clone()) {
+                if let Some(value) = self.get(index.as_bigint()) {
                     Ok(PyInt::new(value).into_ref(vm).into_object())
                 } else {
                     Err(vm.new_index_error("range object index out of range".to_string()))

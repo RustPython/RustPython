@@ -413,7 +413,7 @@ impl Frame {
                         if x.is(&vm.ctx.none()) {
                             None
                         } else if let Some(i) = x.payload::<PyInt>() {
-                            Some(i.value.clone())
+                            Some(i.as_bigint().clone())
                         } else {
                             panic!("Expect Int or None as BUILD_SLICE arguments")
                         }
