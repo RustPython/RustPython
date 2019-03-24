@@ -1,10 +1,8 @@
 use std::rc::Rc;
 use std::{env, mem};
 
-use num_traits::ToPrimitive;
-
-use crate::function::PyFuncArgs;
-use crate::obj::objint;
+use crate::frame::FrameRef;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -18,28 +16,12 @@ fn argv(ctx: &PyContext) -> PyObjectRef {
     ctx.new_list(argv)
 }
 
-fn frame_idx(vm: &VirtualMachine, offset: Option<&PyObjectRef>) -> Result<usize, PyObjectRef> {
-    if let Some(int) = offset {
-        if let Some(offset) = objint::get_value(&int).to_usize() {
-            if offset > vm.frames.borrow().len() - 1 {
-                return Err(vm.new_value_error("call stack is not deep enough".to_string()));
-            }
-            return Ok(offset);
-        }
+fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
+    let offset = offset.into_option().unwrap_or(0);
+    if offset > vm.frames.borrow().len() - 1 {
+        return Err(vm.new_value_error("call stack is not deep enough".to_string()));
     }
-    Ok(0)
-}
-
-fn getframe(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [],
-        optional = [(offset, Some(vm.ctx.int_type()))]
-    );
-
-    let idx = frame_idx(vm, offset)?;
-    let idx = vm.frames.borrow().len() - idx - 1;
+    let idx = vm.frames.borrow().len() - offset - 1;
     let frame = &vm.frames.borrow()[idx];
     Ok(frame.clone())
 }

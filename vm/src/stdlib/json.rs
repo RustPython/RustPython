@@ -184,7 +184,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.none.clone().into_object())
+        Ok(self.vm.get_none())
     }
 }
 

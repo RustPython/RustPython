@@ -1,19 +1,22 @@
 use crate::frame::Scope;
 use crate::function::PyFuncArgs;
+use crate::obj::objcode::PyCodeRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
+
+pub type PyFunctionRef = PyRef<PyFunction>;
 
 #[derive(Debug)]
 pub struct PyFunction {
     // TODO: these shouldn't be public
-    pub code: PyObjectRef,
+    pub code: PyCodeRef,
     pub scope: Scope,
     pub defaults: PyObjectRef,
 }
 
 impl PyFunction {
-    pub fn new(code: PyObjectRef, scope: Scope, defaults: PyObjectRef) -> Self {
+    pub fn new(code: PyCodeRef, scope: Scope, defaults: PyObjectRef) -> Self {
         PyFunction {
             code,
             scope,
@@ -25,6 +28,12 @@ impl PyFunction {
 impl PyValue for PyFunction {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.function_type()
+    }
+}
+
+impl PyFunctionRef {
+    fn code(self, _vm: &VirtualMachine) -> PyCodeRef {
+        self.code.clone()
     }
 }
 
@@ -51,7 +60,7 @@ pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
     extend_class!(context, function_type, {
         "__get__" => context.new_rustfunc(bind_method),
-        "__code__" => context.new_property(function_code)
+        "__code__" => context.new_property(PyFunctionRef::code)
     });
 
     let builtin_function_or_method_type = &context.builtin_function_or_method_type;
@@ -71,12 +80,5 @@ fn bind_method(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(function.clone())
     } else {
         Ok(vm.ctx.new_bound_method(function.clone(), obj.clone()))
-    }
-}
-
-fn function_code(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    match args.args[0].payload() {
-        Some(PyFunction { ref code, .. }) => Ok(code.clone()),
-        None => Err(vm.new_type_error("no code".to_string())),
     }
 }
