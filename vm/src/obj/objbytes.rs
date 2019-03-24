@@ -1,8 +1,7 @@
+use num_traits::ToPrimitive;
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-
-use num_traits::ToPrimitive;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
@@ -11,7 +10,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use super::objint;
-use super::objsequence::get_item;
+use super::objsequence::PySliceableSequence;
 use super::objtype::{self, PyClassRef};
 
 #[derive(Debug)]
@@ -71,6 +70,7 @@ pub fn init(context: &PyContext) {
         "__doc__" => context.new_str(bytes_doc.to_string()),
         "__add__" => context.new_rustfunc(PyBytesRef::add),
         "__contains__" => context.new_rustfunc(PyBytesRef::contains),
+        "__getitem__" => context.new_rustfunc(PyBytesRef::getitem),
     });
 }
 
@@ -241,6 +241,32 @@ impl PyBytesRef {
             Ok(result)
         } else {
             Err(vm.new_type_error(format!("Cannot add {:?} and {:?}", self, needle)))
+        }
+    }
+
+    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&needle, &vm.ctx.int_type()) {
+            match objint::get_value(&needle).to_i32() {
+                Some(pos) => {
+                    if let Some(idx) = self.value.get_pos(pos) {
+                        Ok(vm.ctx.new_int(self.value[idx]))
+                    } else {
+                        Err(vm.new_index_error("index out of range".to_string()))
+                    }
+                }
+                None => Err(
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string())
+                ),
+            }
+        } else if objtype::isinstance(&needle, &vm.ctx.slice_type()) {
+            Ok(vm
+                .ctx
+                .new_bytes((self.value.get_slice_items(&vm, &needle)).unwrap()))
+        } else {
+            Err(vm.new_type_error(format!(
+                "byte indices must be integers or slices, not {}",
+                needle.type_pyref()
+            )))
         }
     }
 }
