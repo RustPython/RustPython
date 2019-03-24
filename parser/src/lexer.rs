@@ -1,6 +1,7 @@
 //! This module takes care of lexing python source text. This means source
 //! code is translated into separate tokens.
 
+extern crate unic_emoji_char;
 extern crate unicode_xid;
 
 pub use super::token::Tok;
@@ -9,6 +10,7 @@ use num_traits::Num;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
+use unic_emoji_char::is_emoji_presentation;
 use unicode_xid::UnicodeXID;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -545,7 +547,7 @@ where
 
     fn is_identifier_start(&self, c: char) -> bool {
         match c {
-            'a'..='z' | 'A'..='Z' | '_' => true,
+            '_' => true,
             c => UnicodeXID::is_xid_start(c),
         }
     }
@@ -553,7 +555,7 @@ where
     fn is_identifier_continuation(&self) -> bool {
         if let Some(c) = self.chr0 {
             match c {
-                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => true,
+                '_' | '0'..='9' => true,
                 c => UnicodeXID::is_xid_continue(c),
             }
         } else {
@@ -705,6 +707,18 @@ where
                 // First check identifier:
                 if self.is_identifier_start(c) {
                     return Some(self.lex_identifier());
+                } else if is_emoji_presentation(c) {
+                    let tok_start = self.get_pos();
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    println!("Emoji: {}", c);
+                    return Some(Ok((
+                        tok_start,
+                        Tok::Name {
+                            name: c.to_string(),
+                        },
+                        tok_end,
+                    )));
                 } else {
                     match c {
                         '0'..='9' => return Some(self.lex_number()),
@@ -801,11 +815,7 @@ where
                                         }
                                         _ => {
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((
-                                                tok_start,
-                                                Tok::DoubleSlash,
-                                                tok_end,
-                                            )));
+                                            return Some(Ok((tok_start, Tok::DoubleSlash, tok_end)));
                                         }
                                     }
                                 }
