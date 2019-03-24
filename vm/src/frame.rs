@@ -564,7 +564,10 @@ impl Frame {
             }
             bytecode::Instruction::MakeFunction { flags } => {
                 let _qualified_name = self.pop_value();
-                let code_obj = PyCodeRef::try_from_object(vm, self.pop_value())?;
+                let code_obj = self
+                    .pop_value()
+                    .downcast()
+                    .expect("Second to top value on the stack must be a code object");
 
                 let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
                     self.pop_value()
