@@ -123,10 +123,8 @@ fn super_new(
             match vm.get_locals().get_item(first_arg) {
                 Some(obj) => obj.clone(),
                 _ => {
-                    return Err(vm.new_type_error(format!(
-                        "super arguement {} was not supplied",
-                        first_arg
-                    )));
+                    return Err(vm
+                        .new_type_error(format!("super argument {} was not supplied", first_arg)));
                 }
             }
         } else {
