@@ -123,7 +123,7 @@ fn super_new(
     let py_obj = if let OptionalArg::Present(obj) = py_obj {
         obj.clone()
     } else {
-        let frame = vm.current_frame();
+        let frame = vm.current_frame().expect("no current frame for super()");
         if let Some(first_arg) = frame.code.arg_names.get(0) {
             match vm.get_locals().get_item(first_arg) {
                 Some(obj) => obj.clone(),

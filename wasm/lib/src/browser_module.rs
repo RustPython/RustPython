@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use futures::Future;
 use js_sys::Promise;
 use num_traits::cast::ToPrimitive;
@@ -8,11 +6,14 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
-use rustpython_vm::import::import_module;
-use rustpython_vm::obj::objtype::PyClassRef;
-use rustpython_vm::obj::{objint, objstr};
+use rustpython_vm::obj::{
+    objfunction::PyFunction,
+    objint,
+    objstr::{self, PyStringRef},
+    objtype::PyClassRef,
+};
 use rustpython_vm::pyobject::{
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use rustpython_vm::VirtualMachine;
 
@@ -157,101 +158,149 @@ fn browser_cancel_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyRe
     Ok(vm.get_none())
 }
 
-pub type PyPromiseRef = PyRef<PyPromise>;
-
 #[derive(Debug)]
 pub struct PyPromise {
     value: Promise,
 }
+pub type PyPromiseRef = PyRef<PyPromise>;
 
 impl PyValue for PyPromise {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class(BROWSER_NAME, "Promise")
+        vm.class("browser", "Promise")
     }
 }
 
 impl PyPromise {
-    pub fn new(promise: Promise) -> PyPromise {
-        PyPromise { value: promise }
+    pub fn new(value: Promise) -> PyPromise {
+        PyPromise { value }
     }
-
     pub fn from_future<F>(future: F) -> PyPromise
     where
         F: Future<Item = JsValue, Error = JsValue> + 'static,
     {
         PyPromise::new(future_to_promise(future))
     }
-}
-
-pub fn get_promise_value(obj: &PyObjectRef) -> Promise {
-    if let Some(promise) = obj.payload::<PyPromise>() {
-        return promise.value.clone();
+    pub fn value(&self) -> Promise {
+        self.value.clone()
     }
-    panic!("Inner error getting promise")
-}
 
-pub fn import_promise_type(vm: &VirtualMachine) -> PyResult<PyClassRef> {
-    match vm.get_attribute(
-        import_module(vm, PathBuf::default(), BROWSER_NAME)?,
-        "Promise",
-    ) {
-        Ok(promise) => PyClassRef::try_from_object(vm, promise),
-        Err(_) => Err(vm.new_not_implemented_error("No Promise".to_string())),
-    }
-}
+    fn then(
+        zelf: PyPromiseRef,
+        on_fulfill: PyRef<PyFunction>,
+        on_reject: OptionalArg<PyRef<PyFunction>>,
+        vm: &VirtualMachine,
+    ) -> PyPromiseRef {
+        let acc_vm = AccessibleVM::from(vm);
 
-fn promise_then(
-    zelf: PyPromiseRef,
-    on_fulfill: PyObjectRef,
-    on_reject: OptionalArg<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyPromise {
-    let on_reject = on_reject.into_option();
-
-    let acc_vm = AccessibleVM::from(vm);
-
-    let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
-        let stored_vm = &acc_vm
-            .upgrade()
-            .expect("that the vm is valid when the promise resolves");
-        let vm = &stored_vm.vm;
-        let ret = match res {
-            Ok(val) => {
-                let val = convert::js_to_py(vm, val);
-                vm.invoke(on_fulfill, PyFuncArgs::new(vec![val], vec![]))
-            }
-            Err(err) => {
-                if let Some(on_reject) = on_reject {
-                    let err = convert::js_to_py(vm, err);
-                    vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]))
-                } else {
-                    return Err(err);
-                }
-            }
-        };
-        convert::pyresult_to_jsresult(vm, ret)
-    });
-
-    PyPromise::from_future(ret_future)
-}
-
-fn promise_catch(zelf: PyPromiseRef, on_reject: PyObjectRef, vm: &VirtualMachine) -> PyPromise {
-    let acc_vm = AccessibleVM::from(vm);
-
-    let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| match res {
-        Ok(val) => Ok(val),
-        Err(err) => {
-            let stored_vm = acc_vm
+        let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
+            let stored_vm = &acc_vm
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
             let vm = &stored_vm.vm;
-            let err = convert::js_to_py(vm, err);
-            let res = vm.invoke(on_reject, PyFuncArgs::new(vec![err], vec![]));
-            convert::pyresult_to_jsresult(vm, res)
-        }
-    });
+            let ret = match res {
+                Ok(val) => {
+                    let val = convert::js_to_py(vm, val);
+                    vm.invoke(on_fulfill.into_object(), PyFuncArgs::new(vec![val], vec![]))
+                }
+                Err(err) => {
+                    if let OptionalArg::Present(on_reject) = on_reject {
+                        let err = convert::js_to_py(vm, err);
+                        vm.invoke(on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]))
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
+            convert::pyresult_to_jsresult(vm, ret)
+        });
 
-    PyPromise::from_future(ret_future)
+        PyPromise::from_future(ret_future).into_ref(vm)
+    }
+
+    fn catch(
+        zelf: PyPromiseRef,
+        on_reject: PyRef<PyFunction>,
+        vm: &VirtualMachine,
+    ) -> PyPromiseRef {
+        let acc_vm = AccessibleVM::from(vm);
+
+        let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
+            res.or_else(|err| {
+                let stored_vm = acc_vm
+                    .upgrade()
+                    .expect("that the vm is valid when the promise resolves");
+                let vm = &stored_vm.vm;
+                let err = convert::js_to_py(vm, err);
+                let res = vm.invoke(on_reject.into_object(), PyFuncArgs::new(vec![err], vec![]));
+                convert::pyresult_to_jsresult(vm, res)
+            })
+        });
+
+        PyPromise::from_future(ret_future).into_ref(vm)
+    }
+}
+
+#[derive(Debug)]
+struct Document {
+    doc: web_sys::Document,
+}
+type DocumentRef = PyRef<Document>;
+
+impl PyValue for Document {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("browser", "Document")
+    }
+}
+
+impl Document {
+    fn query(zelf: DocumentRef, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let elem = zelf
+            .doc
+            .query_selector(&query.value)
+            .map_err(|err| convert::js_py_typeerror(vm, err))?;
+        let elem = match elem {
+            Some(elem) => Element { elem }.into_ref(vm).into_object(),
+            None => vm.get_none(),
+        };
+        Ok(elem)
+    }
+}
+
+#[derive(Debug)]
+struct Element {
+    elem: web_sys::Element,
+}
+type ElementRef = PyRef<Element>;
+
+impl PyValue for Element {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("browser", "Element")
+    }
+}
+
+impl Element {
+    fn get_attr(
+        zelf: ElementRef,
+        attr: PyStringRef,
+        default: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyObjectRef {
+        match zelf.elem.get_attribute(&attr.value) {
+            Some(s) => vm.new_str(s),
+            None => default.into_option().unwrap_or_else(|| vm.get_none()),
+        }
+    }
+
+    fn set_attr(
+        zelf: ElementRef,
+        attr: PyStringRef,
+        value: PyStringRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        zelf.elem
+            .set_attribute(&attr.value, &value.value)
+            .map_err(|err| convert::js_to_py(vm, err))
+    }
 }
 
 fn browser_alert(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -299,19 +348,36 @@ fn browser_prompt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(result)
 }
 
-const BROWSER_NAME: &str = "browser";
-
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     let promise = py_class!(ctx, "Promise", ctx.object(), {
-        "then" => ctx.new_rustfunc(promise_then),
-        "catch" => ctx.new_rustfunc(promise_catch)
+        "then" => ctx.new_rustfunc(PyPromise::then),
+        "catch" => ctx.new_rustfunc(PyPromise::catch),
     });
 
-    py_module!(ctx, BROWSER_NAME, {
+    let document_class = py_class!(ctx, "Document", ctx.object(), {
+        "query" => ctx.new_rustfunc(Document::query),
+    });
+
+    let document = PyObject::new(
+        Document {
+            doc: window().document().expect("Document missing from window"),
+        },
+        document_class.clone(),
+    );
+
+    let element = py_class!(ctx, "Element", ctx.object(), {
+        "get_attr" => ctx.new_rustfunc(Element::get_attr),
+        "set_attr" => ctx.new_rustfunc(Element::set_attr),
+    });
+
+    py_module!(ctx, "browser", {
         "fetch" => ctx.new_rustfunc(browser_fetch),
         "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),
         "Promise" => promise,
+        "Document" => document_class,
+        "document" => document,
+        "Element" => element,
         "alert" => ctx.new_rustfunc(browser_alert),
         "confirm" => ctx.new_rustfunc(browser_confirm),
         "prompt" => ctx.new_rustfunc(browser_prompt),
@@ -321,5 +387,5 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 pub fn setup_browser_module(vm: &VirtualMachine) {
     vm.stdlib_inits
         .borrow_mut()
-        .insert(BROWSER_NAME.to_string(), Box::new(make_module));
+        .insert("browser".to_string(), Box::new(make_module));
 }

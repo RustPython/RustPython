@@ -305,6 +305,7 @@ pub enum OptionalArg<T> {
 }
 
 impl<T> OptionalArg<T> {
+    #[inline]
     pub fn is_present(&self) -> bool {
         match self {
             Present(_) => true,
@@ -312,6 +313,7 @@ impl<T> OptionalArg<T> {
         }
     }
 
+    #[inline]
     pub fn into_option(self) -> Option<T> {
         match self {
             Present(value) => Some(value),

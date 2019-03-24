@@ -685,9 +685,14 @@ fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         ]
     );
     let current_path = {
-        let mut source_pathbuf = PathBuf::from(&vm.current_frame().code.source_path);
-        source_pathbuf.pop();
-        source_pathbuf
+        match vm.current_frame() {
+            Some(frame) => {
+                let mut source_pathbuf = PathBuf::from(&frame.code.source_path);
+                source_pathbuf.pop();
+                source_pathbuf
+            }
+            None => PathBuf::new(),
+        }
     };
 
     import_module(vm, current_path, &objstr::get_value(name))

@@ -90,16 +90,30 @@ impl VirtualMachine {
         result
     }
 
-    pub fn current_frame(&self) -> Ref<FrameRef> {
-        Ref::map(self.frames.borrow(), |frames| {
-            let index = frames.len() - 1;
-            &frames[index]
-        })
+    pub fn current_frame(&self) -> Option<Ref<FrameRef>> {
+        let frames = self.frames.borrow();
+        if frames.is_empty() {
+            None
+        } else {
+            Some(Ref::map(self.frames.borrow(), |frames| {
+                frames.last().unwrap()
+            }))
+        }
     }
 
     pub fn current_scope(&self) -> Ref<Scope> {
-        let frame = self.current_frame();
+        let frame = self
+            .current_frame()
+            .expect("called current_scope but no frames on the stack");
         Ref::map(frame, |f| &f.scope)
+    }
+
+    pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyClassRef> {
+        let class = self
+            .get_attribute(self.import(module)?, class)?
+            .downcast()
+            .expect("not a class");
+        Ok(class)
     }
 
     pub fn class(&self, module: &str, class: &str) -> PyClassRef {
@@ -109,7 +123,7 @@ impl VirtualMachine {
         let class = self
             .get_attribute(module.clone(), class)
             .unwrap_or_else(|_| panic!("module {} has no class {}", module, class));
-        class.downcast().unwrap()
+        class.downcast().expect("not a class")
     }
 
     /// Create a new python string object.
@@ -246,10 +260,9 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str) -> PyResult {
-        let builtins_import = self.builtins.get_item("__import__");
-        match builtins_import {
-            Some(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
-            None => Err(self.new_exception(
+        match self.get_attribute(self.builtins.clone(), "__import__") {
+            Ok(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
+            Err(_) => Err(self.new_exception(
                 self.ctx.exceptions.import_error.clone(),
                 "__import__ not found".to_string(),
             )),

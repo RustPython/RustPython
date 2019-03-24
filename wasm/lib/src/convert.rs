@@ -115,9 +115,9 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         }
     }
     // the browser module might not be injected
-    if let Ok(promise_type) = browser_module::import_promise_type(vm) {
-        if objtype::isinstance(&py_obj, &promise_type) {
-            return browser_module::get_promise_value(&py_obj).into();
+    if vm.try_class("browser", "Promise").is_ok() {
+        if let Some(py_prom) = py_obj.payload::<browser_module::PyPromise>() {
+            return py_prom.value().into();
         }
     }
 
@@ -159,7 +159,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     if js_val.is_object() {
         if let Some(promise) = js_val.dyn_ref::<Promise>() {
             // the browser module might not be injected
-            if let Ok(_) = browser_module::import_promise_type(vm) {
+            if vm.try_class("browser", "Promise").is_ok() {
                 return browser_module::PyPromise::new(promise.clone())
                     .into_ref(vm)
                     .into_object();

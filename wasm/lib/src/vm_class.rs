@@ -45,7 +45,6 @@ impl StoredVirtualMachine {
 thread_local! {
     static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> =
         RefCell::default();
-    static ACTIVE_VMS: RefCell<HashMap<String, *const VirtualMachine>> = RefCell::default();
 }
 
 #[wasm_bindgen(js_name = vmStore)]
