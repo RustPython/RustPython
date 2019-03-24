@@ -153,7 +153,7 @@ fn get_prompt(vm: &VirtualMachine, prompt_name: &str) -> String {
 
 fn run_shell(vm: &VirtualMachine) -> PyResult {
     println!(
-        "Welcome to the magnificent Rust Python {} interpreter",
+        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
         crate_version!()
     );
     let vars = vm.ctx.new_scope();
