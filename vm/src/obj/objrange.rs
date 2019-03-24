@@ -7,14 +7,13 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    Either, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use super::objint::{self, PyInt, PyIntRef};
-use super::objslice::PySlice;
-use super::objtype;
-use super::objtype::PyClassRef;
+use super::objslice::PySliceRef;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Debug, Clone)]
 pub struct PyRange {
@@ -169,7 +168,7 @@ pub fn init(context: &PyContext) {
         "__bool__" => context.new_rustfunc(range_bool),
         "__contains__" => context.new_rustfunc(range_contains),
         "__doc__" => context.new_str(range_doc.to_string()),
-        "__getitem__" => context.new_rustfunc(range_getitem),
+        "__getitem__" => context.new_rustfunc(PyRangeRef::getitem),
         "__iter__" => context.new_rustfunc(range_iter),
         "__len__" => context.new_rustfunc(range_len),
         "__new__" => context.new_rustfunc(range_new),
@@ -212,6 +211,53 @@ impl PyRangeRef {
         }
         .into_ref_with_type(vm, cls)
     }
+
+    fn getitem(self, subscript: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+        match subscript {
+            Either::A(index) => {
+                if let Some(value) = self.get(index.value.clone()) {
+                    Ok(PyInt::new(value).into_ref(vm).into_object())
+                } else {
+                    Err(vm.new_index_error("range object index out of range".to_string()))
+                }
+            }
+            Either::B(slice) => {
+                let new_start = if let Some(int) = slice.start.clone() {
+                    if let Some(i) = self.get(int) {
+                        i
+                    } else {
+                        self.start.clone()
+                    }
+                } else {
+                    self.start.clone()
+                };
+
+                let new_end = if let Some(int) = slice.stop.clone() {
+                    if let Some(i) = self.get(int) {
+                        i
+                    } else {
+                        self.stop.clone()
+                    }
+                } else {
+                    self.stop.clone()
+                };
+
+                let new_step = if let Some(int) = slice.step.clone() {
+                    int * self.step.clone()
+                } else {
+                    self.step.clone()
+                };
+
+                Ok(PyRange {
+                    start: new_start,
+                    stop: new_end,
+                    step: new_step,
+                }
+                .into_ref(vm)
+                .into_object())
+            }
+        }
+    }
 }
 
 fn range_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -249,65 +295,6 @@ fn range_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(vm.ctx.new_int(len))
     } else {
         Err(vm.new_overflow_error("Python int too large to convert to Rust usize".to_string()))
-    }
-}
-
-fn range_getitem(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.range_type())), (subscript, None)]
-    );
-
-    let range = get_value(zelf);
-
-    if let Some(i) = subscript.payload::<PyInt>() {
-        if let Some(int) = range.get(i.value.clone()) {
-            Ok(vm.ctx.new_int(int))
-        } else {
-            Err(vm.new_index_error("range object index out of range".to_string()))
-        }
-    } else if let Some(PySlice {
-        ref start,
-        ref stop,
-        ref step,
-    }) = subscript.payload()
-    {
-        let new_start = if let Some(int) = start {
-            if let Some(i) = range.get(int) {
-                i
-            } else {
-                range.start.clone()
-            }
-        } else {
-            range.start.clone()
-        };
-
-        let new_end = if let Some(int) = stop {
-            if let Some(i) = range.get(int) {
-                i
-            } else {
-                range.stop
-            }
-        } else {
-            range.stop
-        };
-
-        let new_step = if let Some(int) = step {
-            int * range.step
-        } else {
-            range.step
-        };
-
-        Ok(PyRange {
-            start: new_start,
-            stop: new_end,
-            step: new_step,
-        }
-        .into_ref(vm)
-        .into_object())
-    } else {
-        Err(vm.new_type_error("range indices must be integer or slice".to_string()))
     }
 }
 
