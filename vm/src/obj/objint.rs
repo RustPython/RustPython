@@ -35,6 +35,10 @@ impl PyInt {
     pub fn new<T: Into<BigInt>>(i: T) -> Self {
         PyInt { value: i.into() }
     }
+
+    pub fn as_bigint(&self) -> &BigInt {
+        &self.value
+    }
 }
 
 impl IntoPyObject for BigInt {

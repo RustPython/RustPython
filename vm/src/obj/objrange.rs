@@ -15,11 +15,9 @@ use super::objtype::PyClassRef;
 
 #[derive(Debug, Clone)]
 pub struct PyRange {
-    // Unfortunately Rust's built in range type doesn't support things like indexing
-    // or ranges where start > end so we need to roll our own.
-    pub start: BigInt,
-    pub stop: BigInt,
-    pub step: BigInt,
+    pub start: PyIntRef,
+    pub stop: PyIntRef,
+    pub step: PyIntRef,
 }
 
 impl PyValue for PyRange {
@@ -31,32 +29,36 @@ impl PyValue for PyRange {
 impl PyRange {
     #[inline]
     fn offset(&self, value: &BigInt) -> Option<BigInt> {
-        match self.step.sign() {
-            Sign::Plus if *value >= self.start && *value < self.stop => Some(value - &self.start),
-            Sign::Minus if *value <= self.start && *value > self.stop => Some(&self.start - value),
+        let start = self.start.as_bigint();
+        let stop = self.stop.as_bigint();
+        let step = self.step.as_bigint();
+        match step.sign() {
+            Sign::Plus if value >= start && value < stop => Some(value - start),
+            Sign::Minus if value <= self.start.as_bigint() && value > stop => Some(start - value),
             _ => None,
         }
     }
 
     #[inline]
     pub fn index_of(&self, value: &BigInt) -> Option<BigInt> {
+        let step = self.step.as_bigint();
         match self.offset(value) {
-            Some(ref offset) if offset.is_multiple_of(&self.step) => {
-                Some((offset / &self.step).abs())
-            }
+            Some(ref offset) if offset.is_multiple_of(step) => Some((offset / step).abs()),
             Some(_) | None => None,
         }
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        (self.start <= self.stop && self.step.is_negative())
-            || (self.start >= self.stop && self.step.is_positive())
+        let start = self.start.as_bigint();
+        let stop = self.stop.as_bigint();
+        let step = self.step.as_bigint();
+        (start <= stop && step.is_negative()) || (start >= stop && step.is_positive())
     }
 
     #[inline]
     pub fn forward(&self) -> bool {
-        self.start < self.stop
+        self.start.as_bigint() < self.stop.as_bigint()
     }
 
     #[inline]
@@ -64,10 +66,14 @@ impl PyRange {
     where
         &'a BigInt: Mul<T, Output = BigInt>,
     {
-        let result = &self.start + &self.step * index;
+        let start = self.start.as_bigint();
+        let stop = self.stop.as_bigint();
+        let step = self.step.as_bigint();
 
-        if (self.forward() && !self.is_empty() && result < self.stop)
-            || (!self.forward() && !self.is_empty() && result > self.stop)
+        let result = start + step * index;
+
+        if (self.forward() && !self.is_empty() && &result < stop)
+            || (!self.forward() && !self.is_empty() && &result > stop)
         {
             Some(result)
         } else {
@@ -114,9 +120,9 @@ type PyRangeRef = PyRef<PyRange>;
 impl PyRangeRef {
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
-            start: Zero::zero(),
-            stop: stop.value.clone(),
-            step: One::one(),
+            start: PyInt::new(BigInt::zero()).into_ref(vm),
+            stop: stop.clone(),
+            step: PyInt::new(BigInt::one()).into_ref(vm),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -129,25 +135,24 @@ impl PyRangeRef {
         vm: &VirtualMachine,
     ) -> PyResult<PyRangeRef> {
         PyRange {
-            start: start.value.clone(),
-            stop: stop.value.clone(),
+            start: start,
+            stop: stop,
             step: step
                 .into_option()
-                .map(|i| i.value.clone())
-                .unwrap_or_else(One::one),
+                .unwrap_or_else(|| PyInt::new(BigInt::one()).into_ref(vm)),
         }
         .into_ref_with_type(vm, cls)
     }
 
-    fn start(self, _vm: &VirtualMachine) -> BigInt {
+    fn start(self, _vm: &VirtualMachine) -> PyIntRef {
         self.start.clone()
     }
 
-    fn stop(self, _vm: &VirtualMachine) -> BigInt {
+    fn stop(self, _vm: &VirtualMachine) -> PyIntRef {
         self.stop.clone()
     }
 
-    fn step(self, _vm: &VirtualMachine) -> BigInt {
+    fn step(self, _vm: &VirtualMachine) -> PyIntRef {
         self.step.clone()
     }
 
@@ -159,28 +164,31 @@ impl PyRangeRef {
     }
 
     fn reversed(self: PyRangeRef, vm: &VirtualMachine) -> PyIteratorValue {
+        let start = self.start.as_bigint();
+        let stop = self.stop.as_bigint();
+        let step = self.step.as_bigint();
+
         // compute the last element that is actually contained within the range
         // this is the new start
-        let remainder = ((&self.stop - &self.start) % &self.step).abs();
-        let start = if remainder.is_zero() {
-            &self.stop - &self.step
+        let remainder = ((stop - start) % step).abs();
+        let new_start = if remainder.is_zero() {
+            stop - step
         } else {
-            &self.stop - &remainder
+            stop - &remainder
         };
 
-        let reversed = match self.step.sign() {
-            Sign::Plus => PyRange {
-                start,
-                stop: &self.start - 1,
-                step: -&self.step,
-            },
-            Sign::Minus => PyRange {
-                start,
-                stop: &self.start + 1,
-                step: -&self.step,
-            },
+        let new_stop: BigInt = match step.sign() {
+            Sign::Plus => start - 1,
+            Sign::Minus => start + 1,
             Sign::NoSign => unreachable!(),
         };
+
+        let reversed = PyRange {
+            start: PyInt::new(new_start).into_ref(vm),
+            stop: PyInt::new(new_stop).into_ref(vm),
+            step: PyInt::new(-step).into_ref(vm),
+        };
+
         PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: reversed.into_ref(vm).into_object(),
@@ -188,20 +196,20 @@ impl PyRangeRef {
     }
 
     fn len(self, _vm: &VirtualMachine) -> PyInt {
-        match self.step.sign() {
-            Sign::Plus if self.start < self.stop => {
-                PyInt::new((&self.stop - &self.start - 1usize) / &self.step + 1)
-            }
-            Sign::Minus if self.start > self.stop => {
-                PyInt::new((&self.start - &self.stop - 1usize) / (-&self.step) + 1)
-            }
+        let start = self.start.as_bigint();
+        let stop = self.stop.as_bigint();
+        let step = self.step.as_bigint();
+
+        match step.sign() {
+            Sign::Plus if start < stop => PyInt::new((stop - start - 1usize) / step + 1),
+            Sign::Minus if start > stop => PyInt::new((start - stop - 1usize) / (-step) + 1),
             Sign::Plus | Sign::Minus => PyInt::new(0),
             Sign::NoSign => unreachable!(),
         }
     }
 
     fn repr(self, _vm: &VirtualMachine) -> String {
-        if self.step.is_one() {
+        if self.step.as_bigint().is_one() {
             format!("range({}, {})", self.start, self.stop)
         } else {
             format!("range({}, {}, {})", self.start, self.stop, self.step)
@@ -215,7 +223,7 @@ impl PyRangeRef {
     fn contains(self, needle: PyObjectRef, _vm: &VirtualMachine) -> bool {
         if let Ok(int) = needle.downcast::<PyInt>() {
             match self.offset(&int.value) {
-                Some(ref offset) => offset.is_multiple_of(&self.step),
+                Some(ref offset) => offset.is_multiple_of(self.step.as_bigint()),
                 None => false,
             }
         } else {
@@ -256,9 +264,9 @@ impl PyRangeRef {
                 }
             }
             Either::B(slice) => {
-                let new_start = if let Some(int) = slice.start.clone() {
+                let new_start = if let Some(int) = slice.start.as_ref() {
                     if let Some(i) = self.get(int) {
-                        i
+                        PyInt::new(i).into_ref(vm)
                     } else {
                         self.start.clone()
                     }
@@ -266,9 +274,9 @@ impl PyRangeRef {
                     self.start.clone()
                 };
 
-                let new_end = if let Some(int) = slice.stop.clone() {
+                let new_end = if let Some(int) = slice.stop.as_ref() {
                     if let Some(i) = self.get(int) {
-                        i
+                        PyInt::new(i).into_ref(vm)
                     } else {
                         self.stop.clone()
                     }
@@ -276,8 +284,8 @@ impl PyRangeRef {
                     self.stop.clone()
                 };
 
-                let new_step = if let Some(int) = slice.step.clone() {
-                    int * self.step.clone()
+                let new_step = if let Some(int) = slice.step.as_ref() {
+                    PyInt::new(int * self.step.as_bigint()).into_ref(vm)
                 } else {
                     self.step.clone()
                 };
