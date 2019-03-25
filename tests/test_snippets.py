@@ -65,8 +65,7 @@ def run_via_cpython_bytecode(filename, test_type):
 
     # Step2: run cpython bytecode:
     env = os.environ.copy()
-    log_level = 'info' if test_type == _TestType.benchmark else 'debug'
-    env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
+    env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
     env['RUST_BACKTRACE'] = '1'
     with pushd(CPYTHON_RUNNER_DIR):
         subprocess.check_call(['cargo', 'run', bytecode_filename], env=env)
@@ -74,8 +73,7 @@ def run_via_cpython_bytecode(filename, test_type):
 
 def run_via_rustpython(filename, test_type):
     env = os.environ.copy()
-    log_level = 'info' if test_type == _TestType.benchmark else 'trace'
-    env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
+    env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
     env['RUST_BACKTRACE'] = '1'
     if env.get('CODE_COVERAGE', 'false') == 'true':
         subprocess.check_call(
