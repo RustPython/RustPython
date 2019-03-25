@@ -85,12 +85,12 @@ fn create_set(
             PySet {
                 elements: RefCell::new(elements),
             },
-            PySet::class(vm).into_object(),
+            PySet::class(vm),
         ))
     } else if objtype::issubclass(&cls, &vm.ctx.frozenset_type()) {
         Ok(PyObject::new(
             PyFrozenSet { elements: elements },
-            PyFrozenSet::class(vm).into_object(),
+            PyFrozenSet::class(vm),
         ))
     } else {
         Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", cls)))
@@ -593,65 +593,43 @@ pub fn init(context: &PyContext) {
                    set(iterable) -> new set object\n\n\
                    Build an unordered collection of unique elements.";
 
-    context.set_attr(set_type, "__contains__", context.new_rustfunc(set_contains));
-    context.set_attr(set_type, "__len__", context.new_rustfunc(set_len));
-    context.set_attr(set_type, "__new__", context.new_rustfunc(set_new));
-    context.set_attr(set_type, "__repr__", context.new_rustfunc(set_repr));
-    context.set_attr(set_type, "__eq__", context.new_rustfunc(set_eq));
-    context.set_attr(set_type, "__ge__", context.new_rustfunc(set_ge));
-    context.set_attr(set_type, "__gt__", context.new_rustfunc(set_gt));
-    context.set_attr(set_type, "__le__", context.new_rustfunc(set_le));
-    context.set_attr(set_type, "__lt__", context.new_rustfunc(set_lt));
-    context.set_attr(set_type, "issubset", context.new_rustfunc(set_le));
-    context.set_attr(set_type, "issuperset", context.new_rustfunc(set_ge));
-    context.set_attr(set_type, "union", context.new_rustfunc(set_union));
-    context.set_attr(set_type, "__or__", context.new_rustfunc(set_union));
-    context.set_attr(
-        set_type,
-        "intersection",
-        context.new_rustfunc(set_intersection),
-    );
-    context.set_attr(set_type, "__and__", context.new_rustfunc(set_intersection));
-    context.set_attr(set_type, "difference", context.new_rustfunc(set_difference));
-    context.set_attr(set_type, "__sub__", context.new_rustfunc(set_difference));
-    context.set_attr(
-        set_type,
-        "symmetric_difference",
-        context.new_rustfunc(set_symmetric_difference),
-    );
-    context.set_attr(
-        set_type,
-        "__xor__",
-        context.new_rustfunc(set_symmetric_difference),
-    );
-    context.set_attr(set_type, "__doc__", context.new_str(set_doc.to_string()));
-    context.set_attr(set_type, "add", context.new_rustfunc(set_add));
-    context.set_attr(set_type, "remove", context.new_rustfunc(set_remove));
-    context.set_attr(set_type, "discard", context.new_rustfunc(set_discard));
-    context.set_attr(set_type, "clear", context.new_rustfunc(set_clear));
-    context.set_attr(set_type, "copy", context.new_rustfunc(set_copy));
-    context.set_attr(set_type, "pop", context.new_rustfunc(set_pop));
-    context.set_attr(set_type, "update", context.new_rustfunc(set_update));
-    context.set_attr(set_type, "__ior__", context.new_rustfunc(set_ior));
-    context.set_attr(
-        set_type,
-        "intersection_update",
-        context.new_rustfunc(set_intersection_update),
-    );
-    context.set_attr(set_type, "__iand__", context.new_rustfunc(set_iand));
-    context.set_attr(
-        set_type,
-        "difference_update",
-        context.new_rustfunc(set_difference_update),
-    );
-    context.set_attr(set_type, "__isub__", context.new_rustfunc(set_isub));
-    context.set_attr(
-        set_type,
-        "symmetric_difference_update",
-        context.new_rustfunc(set_symmetric_difference_update),
-    );
-    context.set_attr(set_type, "__ixor__", context.new_rustfunc(set_ixor));
-    context.set_attr(set_type, "__iter__", context.new_rustfunc(set_iter));
+    extend_class!(context, set_type, {
+        "__contains__" => context.new_rustfunc(set_contains),
+        "__len__" => context.new_rustfunc(set_len),
+        "__new__" => context.new_rustfunc(set_new),
+        "__repr__" => context.new_rustfunc(set_repr),
+        "__eq__" => context.new_rustfunc(set_eq),
+        "__ge__" => context.new_rustfunc(set_ge),
+        "__gt__" => context.new_rustfunc(set_gt),
+        "__le__" => context.new_rustfunc(set_le),
+        "__lt__" => context.new_rustfunc(set_lt),
+        "issubset" => context.new_rustfunc(set_le),
+        "issuperset" => context.new_rustfunc(set_ge),
+        "union" => context.new_rustfunc(set_union),
+        "__or__" => context.new_rustfunc(set_union),
+        "intersection" => context.new_rustfunc(set_intersection),
+        "__and__" => context.new_rustfunc(set_intersection),
+        "difference" => context.new_rustfunc(set_difference),
+        "__sub__" => context.new_rustfunc(set_difference),
+        "symmetric_difference" => context.new_rustfunc(set_symmetric_difference),
+        "__xor__" => context.new_rustfunc(set_symmetric_difference),
+        "__doc__" => context.new_str(set_doc.to_string()),
+        "add" => context.new_rustfunc(set_add),
+        "remove" => context.new_rustfunc(set_remove),
+        "discard" => context.new_rustfunc(set_discard),
+        "clear" => context.new_rustfunc(set_clear),
+        "copy" => context.new_rustfunc(set_copy),
+        "pop" => context.new_rustfunc(set_pop),
+        "update" => context.new_rustfunc(set_update),
+        "__ior__" => context.new_rustfunc(set_ior),
+        "intersection_update" => context.new_rustfunc(set_intersection_update),
+        "__iand__" => context.new_rustfunc(set_iand),
+        "difference_update" => context.new_rustfunc(set_difference_update),
+        "__isub__" => context.new_rustfunc(set_isub),
+        "symmetric_difference_update" => context.new_rustfunc(set_symmetric_difference_update),
+        "__ixor__" => context.new_rustfunc(set_ixor),
+        "__iter__" => context.new_rustfunc(set_iter)
+    });
 
     let frozenset_type = &context.frozenset_type;
 
@@ -659,61 +637,27 @@ pub fn init(context: &PyContext) {
                          frozenset(iterable) -> frozenset object\n\n\
                          Build an immutable unordered collection of unique elements.";
 
-    context.set_attr(frozenset_type, "__new__", context.new_rustfunc(set_new));
-    context.set_attr(frozenset_type, "__eq__", context.new_rustfunc(set_eq));
-    context.set_attr(frozenset_type, "__ge__", context.new_rustfunc(set_ge));
-    context.set_attr(frozenset_type, "__gt__", context.new_rustfunc(set_gt));
-    context.set_attr(frozenset_type, "__le__", context.new_rustfunc(set_le));
-    context.set_attr(frozenset_type, "__lt__", context.new_rustfunc(set_lt));
-    context.set_attr(frozenset_type, "issubset", context.new_rustfunc(set_le));
-    context.set_attr(frozenset_type, "issuperset", context.new_rustfunc(set_ge));
-    context.set_attr(frozenset_type, "union", context.new_rustfunc(set_union));
-    context.set_attr(frozenset_type, "__or__", context.new_rustfunc(set_union));
-    context.set_attr(
-        frozenset_type,
-        "intersection",
-        context.new_rustfunc(set_intersection),
-    );
-    context.set_attr(
-        frozenset_type,
-        "__and__",
-        context.new_rustfunc(set_intersection),
-    );
-    context.set_attr(
-        frozenset_type,
-        "difference",
-        context.new_rustfunc(set_difference),
-    );
-    context.set_attr(
-        frozenset_type,
-        "__sub__",
-        context.new_rustfunc(set_difference),
-    );
-    context.set_attr(
-        frozenset_type,
-        "symmetric_difference",
-        context.new_rustfunc(set_symmetric_difference),
-    );
-    context.set_attr(
-        frozenset_type,
-        "__xor__",
-        context.new_rustfunc(set_symmetric_difference),
-    );
-    context.set_attr(
-        frozenset_type,
-        "__contains__",
-        context.new_rustfunc(set_contains),
-    );
-    context.set_attr(frozenset_type, "__len__", context.new_rustfunc(set_len));
-    context.set_attr(
-        frozenset_type,
-        "__doc__",
-        context.new_str(frozenset_doc.to_string()),
-    );
-    context.set_attr(
-        frozenset_type,
-        "__repr__",
-        context.new_rustfunc(frozenset_repr),
-    );
-    context.set_attr(frozenset_type, "copy", context.new_rustfunc(set_copy));
+    extend_class!(context, frozenset_type, {
+        "__new__" => context.new_rustfunc(set_new),
+        "__eq__" => context.new_rustfunc(set_eq),
+        "__ge__" => context.new_rustfunc(set_ge),
+        "__gt__" => context.new_rustfunc(set_gt),
+        "__le__" => context.new_rustfunc(set_le),
+        "__lt__" => context.new_rustfunc(set_lt),
+        "issubset" => context.new_rustfunc(set_le),
+        "issuperset" => context.new_rustfunc(set_ge),
+        "union" => context.new_rustfunc(set_union),
+        "__or__" => context.new_rustfunc(set_union),
+        "intersection" => context.new_rustfunc(set_intersection),
+        "__and__" => context.new_rustfunc(set_intersection),
+        "difference" => context.new_rustfunc(set_difference),
+        "__sub__" => context.new_rustfunc(set_difference),
+        "symmetric_difference" => context.new_rustfunc(set_symmetric_difference),
+        "__xor__" => context.new_rustfunc(set_symmetric_difference),
+        "__contains__" => context.new_rustfunc(set_contains),
+        "__len__" => context.new_rustfunc(set_len),
+        "__doc__" => context.new_str(frozenset_doc.to_string()),
+        "__repr__" => context.new_rustfunc(frozenset_repr),
+        "copy" => context.new_rustfunc(set_copy)
+    });
 }
