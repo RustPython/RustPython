@@ -110,8 +110,8 @@ impl PyClassRef {
         format!("<class '{}'>", self.name)
     }
 
-    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.new_dict()
+    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
+        vm.ctx.new_dict()
     }
 
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {

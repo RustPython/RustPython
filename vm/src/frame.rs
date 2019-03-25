@@ -119,7 +119,7 @@ impl Scope {
     }
 
     pub fn child_scope(&self, ctx: &PyContext) -> Scope {
-        self.child_scope_with_locals(ctx.new_dict())
+        self.child_scope_with_locals(ctx.new_dict().into_object())
     }
 }
 
@@ -142,7 +142,7 @@ impl NameProtocol for Scope {
             return Some(value);
         }
 
-        vm.builtins.get_item(name)
+        vm.get_attribute(vm.builtins.clone(), name).ok()
     }
 
     fn load_cell(&self, _vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
@@ -386,7 +386,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let map_obj = vm.ctx.new_dict();
+                let map_obj = vm.ctx.new_dict().into_object();
                 for _x in 0..*size {
                     let obj = self.pop_value();
                     if *unpack {
@@ -572,7 +572,7 @@ impl Frame {
                 let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
                     self.pop_value()
                 } else {
-                    vm.new_dict()
+                    vm.ctx.new_dict().into_object()
                 };
 
                 let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
@@ -839,8 +839,10 @@ impl Frame {
         let module = vm.import(module)?;
 
         // Grab all the names from the module and put them in the context
-        for (k, v) in module.get_key_value_pairs().iter() {
-            self.scope.store_name(&vm, &objstr::get_value(k), v.clone());
+        if let Some(dict) = &module.dict {
+            for (k, v) in dict.get_key_value_pairs().iter() {
+                self.scope.store_name(&vm, &objstr::get_value(k), v.clone());
+            }
         }
         Ok(None)
     }

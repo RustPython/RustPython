@@ -1,5 +1,5 @@
+use super::objdict::{self, PyDictRef};
 use super::objlist::PyList;
-use super::objmodule::PyModule;
 use super::objstr::{self, PyStringRef};
 use super::objtype;
 use crate::function::PyFuncArgs;
@@ -23,11 +23,12 @@ impl PyValue for PyInstance {
 pub fn new_instance(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     // more or less __new__ operator
     let cls = PyClassRef::try_from_object(vm, args.shift())?;
-    Ok(if cls.is(&vm.ctx.object) {
-        PyObject::new_without_dict(PyInstance, cls)
+    let dict = if cls.is(&vm.ctx.object) {
+        None
     } else {
-        PyObject::new(PyInstance, cls)
-    })
+        Some(vm.ctx.new_dict())
+    };
+    Ok(PyObject::new(PyInstance, cls, dict))
 }
 
 fn object_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -114,7 +115,7 @@ fn object_setattr(
     }
 
     if let Some(ref dict) = obj.clone().dict {
-        dict.borrow_mut().insert(attr_name.value.clone(), value);
+        dict.set_item(&vm.ctx, &attr_name.value, value);
         Ok(())
     } else {
         let type_name = objtype::get_type_name(obj.type_ref());
@@ -135,7 +136,7 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
     }
 
     if let Some(ref dict) = obj.dict {
-        dict.borrow_mut().remove(&attr_name.value);
+        dict.del_item(&attr_name.value);
         Ok(())
     } else {
         let type_name = objtype::get_type_name(obj.type_ref());
@@ -227,13 +228,9 @@ fn object_class_setter(
     Err(vm.new_type_error(format!("can't change class of type '{}'", type_repr)))
 }
 
-fn object_dict(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if let Some(ref dict) = args.args[0].dict {
-        let new_dict = vm.new_dict();
-        for (attr, value) in dict.borrow().iter() {
-            new_dict.set_item(&vm.ctx, &attr, value.clone());
-        }
-        Ok(new_dict)
+fn object_dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    if let Some(ref dict) = object.dict {
+        Ok(dict.clone())
     } else {
         Err(vm.new_type_error("TypeError: no dictionary.".to_string()))
     }
@@ -273,15 +270,8 @@ fn object_getattribute(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn object_getattr(obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
-    // TODO:
-    // This is an all kinds of wrong work-around for the temporary difference in
-    // shape between modules and object. It will disappear once that is fixed.
-    if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
-        return dict.get_item(attr_name);
-    }
-
     if let Some(ref dict) = obj.dict {
-        dict.borrow().get(attr_name).cloned()
+        dict.get_item(attr_name)
     } else {
         None
     }
@@ -293,8 +283,8 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
 
     // Get instance attributes:
     if let Some(dict) = &obj.dict {
-        for (name, value) in dict.borrow().iter() {
-            attributes.insert(name.to_string(), value.clone());
+        for (key, value) in objdict::get_key_value_pairs(dict.as_object()) {
+            attributes.insert(key.to_string(), value.clone());
         }
     }
 

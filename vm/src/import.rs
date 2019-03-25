@@ -40,7 +40,7 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
 
     let attrs = vm.ctx.new_dict();
     attrs.set_item(&vm.ctx, "__name__", vm.new_str(module.to_string()));
-    vm.run_code_obj(code_obj, Scope::new(None, attrs.clone()))?;
+    vm.run_code_obj(code_obj, Scope::new(None, attrs.clone().into_object()))?;
     Ok(vm.ctx.new_module(module, attrs))
 }
 

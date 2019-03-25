@@ -815,9 +815,9 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
-    let cells = vm.new_dict();
+    let cells = vm.ctx.new_dict();
 
-    vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
+    vm.invoke_with_locals(function, cells.clone().into_object(), namespace.clone())?;
     let class = vm.call_method(
         metaclass.as_object(),
         "__call__",
