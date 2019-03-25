@@ -73,12 +73,13 @@ def run_via_rustpython(filename, test_type):
     env = os.environ.copy()
     env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
     env['RUST_BACKTRACE'] = '1'
+
+    target = 'release'
     if env.get('CODE_COVERAGE', 'false') == 'true':
-        subprocess.check_call(
-            ['cargo', 'run', filename], env=env)
-    else:
-        subprocess.check_call(
-            ['cargo', 'run', '--release', filename], env=env)
+        target = 'debug'
+    binary = os.path.abspath(os.path.join(ROOT_DIR, 'target', target, 'rustpython'))
+
+    subprocess.check_call([binary, filename], env=env)
 
 
 def create_test_function(cls, filename, method, test_type):
@@ -120,4 +121,7 @@ def get_test_files():
 # @populate('cpython_bytecode')
 @populate('rustpython')
 class SampleTestCase(unittest.TestCase):
-    pass
+    @classmethod
+    def setUpClass(cls):
+        subprocess.check_call(['cargo', 'build'])
+        subprocess.check_call(['cargo', 'build', '--release'])
