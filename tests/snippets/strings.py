@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 assert "a" == 'a'
 assert """a""" == "a"
 assert len(""" " "" " "" """) == 11
@@ -124,3 +126,9 @@ assert 'a' <= 'a'
 assert 'z' > 'b'
 assert 'z' >= 'b'
 assert 'a' >= 'a'
+
+def try_mutate_str():
+   word = "word"
+   word[0] = 'x'
+
+assert_raises(TypeError, try_mutate_str)
