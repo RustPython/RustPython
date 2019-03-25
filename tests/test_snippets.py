@@ -17,7 +17,6 @@ import compile_code
 
 class _TestType(enum.Enum):
     functional = 1
-    benchmark = 2
 
 
 logger = logging.getLogger('tests')
@@ -25,7 +24,6 @@ ROOT_DIR = '..'
 TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, 'tests'))
 TEST_DIRS = {
     _TestType.functional: os.path.join(TEST_ROOT, 'snippets'),
-    _TestType.benchmark: os.path.join(TEST_ROOT, 'benchmarks'),
 }
 CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'py_code_object'))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
