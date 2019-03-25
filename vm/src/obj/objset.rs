@@ -86,11 +86,13 @@ fn create_set(
                 elements: RefCell::new(elements),
             },
             PySet::class(vm),
+            None,
         ))
     } else if objtype::issubclass(&cls, &vm.ctx.frozenset_type()) {
         Ok(PyObject::new(
             PyFrozenSet { elements: elements },
             PyFrozenSet::class(vm),
+            None,
         ))
     } else {
         Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", cls)))
