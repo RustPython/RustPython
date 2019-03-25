@@ -186,22 +186,24 @@ fn init_type_hierarchy() -> (PyClassRef, PyClassRef) {
     let (type_type, object_type) = unsafe {
         let object_type = PyObject {
             typ: mem::uninitialized(), // !
-            dict: Some(RefCell::new(PyAttributes::new())),
+            dict: None,
             payload: PyClass {
                 name: String::from("object"),
                 mro: vec![],
                 subclasses: RefCell::new(vec![]),
+                attributes: RefCell::new(PyAttributes::new()),
             },
         }
         .into_ref();
 
         let type_type = PyObject {
             typ: mem::uninitialized(), // !
-            dict: Some(RefCell::new(PyAttributes::new())),
+            dict: None,
             payload: PyClass {
                 name: String::from("type"),
                 mro: vec![object_type.clone().downcast().unwrap()],
                 subclasses: RefCell::new(vec![]),
+                attributes: RefCell::new(PyAttributes::new()),
             },
         }
         .into_ref();
@@ -655,7 +657,11 @@ impl PyContext {
         value: V,
     ) {
         let obj = obj.into();
-        if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
+        if let Some(PyClass { ref attributes, .. }) = obj.payload::<PyClass>() {
+            attributes
+                .borrow_mut()
+                .insert(attr_name.to_string(), value.into());
+        } else if let Some(PyModule { ref dict, .. }) = obj.payload::<PyModule>() {
             dict.set_item(self, attr_name, value.into())
         } else if let Some(ref dict) = obj.dict {
             dict.borrow_mut()
