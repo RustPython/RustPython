@@ -22,6 +22,7 @@ pub struct PyClass {
     pub name: String,
     pub mro: Vec<PyClassRef>,
     pub subclasses: RefCell<Vec<PyWeak>>,
+    pub attributes: RefCell<PyAttributes>,
 }
 
 impl fmt::Display for PyClass {
@@ -109,8 +110,8 @@ impl PyClassRef {
         format!("<class '{}'>", self.name)
     }
 
-    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.new_dict()
+    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
+        vm.ctx.new_dict()
     }
 
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
@@ -149,6 +150,25 @@ impl PyClassRef {
         }
     }
 
+    fn set_attr(
+        self,
+        attr_name: PyStringRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(attr) = class_get_attr(&self.type_pyref(), &attr_name.value) {
+            if let Some(descriptor) = class_get_attr(&attr.type_pyref(), "__set__") {
+                vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
+                return Ok(());
+            }
+        }
+
+        self.attributes
+            .borrow_mut()
+            .insert(attr_name.to_string(), value);
+        Ok(())
+    }
+
     fn subclasses(self, _vm: &VirtualMachine) -> PyList {
         let mut subclasses = self.subclasses.borrow_mut();
         subclasses.retain(|x| x.upgrade().is_some());
@@ -181,6 +201,7 @@ pub fn init(ctx: &PyContext) {
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
         "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
+        "__setattr__" => ctx.new_rustfunc(PyClassRef::set_attr),
         "__subclasses__" => ctx.new_rustfunc(PyClassRef::subclasses),
         "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
         "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),
@@ -260,32 +281,13 @@ pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMach
     Ok(obj)
 }
 
-// Very private helper function for class_get_attr
-fn class_get_attr_in_dict(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
-    if let Some(ref dict) = class.as_object().dict {
-        dict.borrow().get(attr_name).cloned()
-    } else {
-        panic!("Only classes should be in MRO!");
-    }
-}
-
-// Very private helper function for class_has_attr
-fn class_has_attr_in_dict(class: &PyClassRef, attr_name: &str) -> bool {
-    if let Some(ref dict) = class.as_object().dict {
-        dict.borrow().contains_key(attr_name)
-    } else {
-        panic!("All classes are expected to have dicts!");
-    }
-}
-
 // This is the internal get_attr implementation for fast lookup on a class.
-pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
-    let mro = &zelf.mro;
-    if let Some(item) = class_get_attr_in_dict(zelf, attr_name) {
+pub fn class_get_attr(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+    if let Some(item) = class.attributes.borrow().get(attr_name).cloned() {
         return Some(item);
     }
-    for class in mro {
-        if let Some(item) = class_get_attr_in_dict(class, attr_name) {
+    for class in &class.mro {
+        if let Some(item) = class.attributes.borrow().get(attr_name).cloned() {
             return Some(item);
         }
     }
@@ -293,12 +295,12 @@ pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef>
 }
 
 // This is the internal has_attr implementation for fast lookup on a class.
-pub fn class_has_attr(zelf: &PyClassRef, attr_name: &str) -> bool {
-    class_has_attr_in_dict(zelf, attr_name)
-        || zelf
+pub fn class_has_attr(class: &PyClassRef, attr_name: &str) -> bool {
+    class.attributes.borrow().contains_key(attr_name)
+        || class
             .mro
             .iter()
-            .any(|d| class_has_attr_in_dict(d, attr_name))
+            .any(|c| c.attributes.borrow().contains_key(attr_name))
 }
 
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
@@ -309,10 +311,8 @@ pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
     base_classes.reverse();
 
     for bc in base_classes {
-        if let Some(ref dict) = &bc.as_object().dict {
-            for (name, value) in dict.borrow().iter() {
-                attributes.insert(name.to_string(), value.clone());
-            }
+        for (name, value) in bc.attributes.borrow().iter() {
+            attributes.insert(name.to_string(), value.clone());
         }
     }
 
@@ -374,8 +374,9 @@ pub fn new(
             name: String::from(name),
             mro,
             subclasses: RefCell::new(vec![]),
+            attributes: RefCell::new(dict),
         },
-        dict: Some(RefCell::new(dict)),
+        dict: None,
         typ,
     }
     .into_ref();

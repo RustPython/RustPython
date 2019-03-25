@@ -187,13 +187,13 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             u8_array.for_each(&mut |byte, _, _| vec.push(byte));
             vm.ctx.new_bytes(vec)
         } else {
-            let dict = vm.new_dict();
+            let dict = vm.ctx.new_dict();
             for pair in object_entries(&Object::from(js_val)) {
                 let (key, val) = pair.expect("iteration over object to not fail");
                 let py_val = js_to_py(vm, val);
                 dict.set_item(&vm.ctx, &String::from(js_sys::JsString::from(key)), py_val);
             }
-            dict
+            dict.into_object()
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);

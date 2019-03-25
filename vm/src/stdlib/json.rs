@@ -177,7 +177,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
             };
             dict.set_item(&self.vm.ctx, &key, value);
         }
-        Ok(dict)
+        Ok(dict.into_object())
     }
 
     fn visit_unit<E>(self) -> Result<Self::Value, E>
