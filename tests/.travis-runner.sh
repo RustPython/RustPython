@@ -31,7 +31,7 @@ then
     zip -0 ccov.zip `find . \( -name "rustpython*.gc*" \) -print`
 
     # Install grcov
-    curl -L https://github.com/mozilla/grcov/releases/download/v0.4.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
+    curl -L https://github.com/mozilla/grcov/releases/download/v0.4.2/grcov-linux-x86_64.tar.bz2 | tar jxf -
 
     ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore-dir "/*" -p "x" > lcov.info
 
