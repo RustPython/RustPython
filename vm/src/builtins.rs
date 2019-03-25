@@ -11,7 +11,6 @@ use num_traits::{Signed, ToPrimitive};
 use crate::compile;
 use crate::import::import_module;
 use crate::obj::objbool;
-use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
@@ -29,14 +28,7 @@ use crate::obj::objcode::PyCodeRef;
 use crate::stdlib::io::io_open;
 
 fn get_locals(vm: &VirtualMachine) -> PyObjectRef {
-    let d = vm.new_dict();
-    // TODO: implement dict_iter_items?
-    let locals = vm.get_locals();
-    let key_value_pairs = objdict::get_key_value_pairs(&locals);
-    for (key, value) in key_value_pairs {
-        objdict::set_item(&d, vm, &key, &value);
-    }
-    d
+    vm.get_locals()
 }
 
 fn dir_locals(vm: &VirtualMachine) -> PyObjectRef {
