@@ -19,6 +19,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
+use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGeneratorRef;
 use crate::obj::objiter;
@@ -231,7 +232,7 @@ impl VirtualMachine {
         self.ctx.object()
     }
 
-    pub fn get_locals(&self) -> PyObjectRef {
+    pub fn get_locals(&self) -> PyDictRef {
         self.current_scope().get_locals().clone()
     }
 
@@ -371,8 +372,8 @@ impl VirtualMachine {
     pub fn invoke_with_locals(
         &self,
         function: PyObjectRef,
-        cells: PyObjectRef,
-        locals: PyObjectRef,
+        cells: PyDictRef,
+        locals: PyDictRef,
     ) -> PyResult {
         if let Some(PyFunction {
             code,
@@ -395,7 +396,7 @@ impl VirtualMachine {
     fn fill_locals_from_args(
         &self,
         code_object: &bytecode::CodeObject,
-        locals: &PyObjectRef,
+        locals: &PyDictRef,
         args: PyFuncArgs,
         defaults: &PyObjectRef,
     ) -> PyResult<()> {

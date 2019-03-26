@@ -11,6 +11,7 @@ use num_traits::{Signed, ToPrimitive};
 use crate::compile;
 use crate::import::import_module;
 use crate::obj::objbool;
+use crate::obj::objdict::PyDictRef;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
@@ -26,14 +27,6 @@ use crate::vm::VirtualMachine;
 use crate::obj::objcode::PyCodeRef;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
-
-fn get_locals(vm: &VirtualMachine) -> PyObjectRef {
-    vm.get_locals()
-}
-
-fn dir_locals(vm: &VirtualMachine) -> PyObjectRef {
-    get_locals(vm)
-}
 
 fn builtin_abs(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(x, None)]);
@@ -146,7 +139,7 @@ fn builtin_delattr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_dir(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.is_empty() {
-        Ok(dir_locals(vm))
+        Ok(vm.get_locals().into_object())
     } else {
         let obj = args.args.into_iter().next().unwrap();
         let seq = vm.call_method(&obj, "__dir__", vec![])?;
@@ -254,11 +247,11 @@ fn make_scope(
 
     let current_scope = vm.current_scope();
     let globals = match globals {
-        Some(dict) => dict.clone(),
+        Some(dict) => dict.clone().downcast().unwrap(),
         None => current_scope.globals.clone(),
     };
     let locals = match locals {
-        Some(dict) => Some(dict.clone()),
+        Some(dict) => dict.clone().downcast().ok(),
         None => current_scope.get_only_locals(),
     };
 
@@ -300,7 +293,7 @@ fn builtin_getattr(
     }
 }
 
-fn builtin_globals(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+fn builtin_globals(vm: &VirtualMachine) -> PyResult<PyDictRef> {
     Ok(vm.current_scope().globals.clone())
 }
 
@@ -374,9 +367,8 @@ fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-fn builtin_locals(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    Ok(vm.get_locals())
+fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
+    vm.get_locals()
 }
 
 fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -814,13 +806,15 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
+    let namespace: PyDictRef = TryFromObject::try_from_object(vm, namespace)?;
+
     let cells = vm.ctx.new_dict();
 
-    vm.invoke_with_locals(function, cells.clone().into_object(), namespace.clone())?;
+    vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
     let class = vm.call_method(
         metaclass.as_object(),
         "__call__",
-        vec![name_arg, bases, namespace],
+        vec![name_arg, bases, namespace.into_object()],
     )?;
     cells.set_item(&vm.ctx, "__class__", class.clone());
     Ok(class)
