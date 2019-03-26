@@ -190,7 +190,7 @@ impl PyFloatRef {
                 }
             }
         } else {
-            return Err(vm.new_type_error(format!("can't convert {} to float", arg.class())));
+            return Err(vm.new_type_error(format!("can't convert {} to float", arg.class().name)));
         };
         PyFloat { value }.into_ref_with_type(vm, cls)
     }

@@ -101,7 +101,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
         if let Some(PyModule { ref name, .. }) = self.payload::<PyModule>() {
             return write!(f, "module '{}'", name);
         }
-        write!(f, "'{}' object", self.class())
+        write!(f, "'{}' object", self.class().name)
     }
 }
 

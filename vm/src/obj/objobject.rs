@@ -120,7 +120,7 @@ fn object_setattr(
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            obj.class(),
+            obj.class().name,
             &attr_name.value
         )))
     }
@@ -141,7 +141,7 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
     } else {
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            obj.class(),
+            obj.class().name,
             &attr_name.value
         )))
     }
@@ -155,7 +155,7 @@ fn object_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn object_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.object()))]);
     let address = obj.get_id();
-    Ok(vm.new_str(format!("<{} object at 0x{:x}>", obj.class(), address)))
+    Ok(vm.new_str(format!("<{} object at 0x{:x}>", obj.class().name, address)))
 }
 
 pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyList {

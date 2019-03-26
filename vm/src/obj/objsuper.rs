@@ -114,7 +114,7 @@ fn super_new(
     if !objtype::isinstance(py_type.as_object(), &vm.get_type()) {
         return Err(vm.new_type_error(format!(
             "super() argument 1 must be type, not {}",
-            py_type.class()
+            py_type.class().name
         )));
     }
 

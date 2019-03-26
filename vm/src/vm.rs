@@ -177,8 +177,8 @@ impl VirtualMachine {
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}' and '{}'",
             op,
-            a.class(),
-            b.class()
+            a.class().name,
+            b.class().name
         ))
     }
 

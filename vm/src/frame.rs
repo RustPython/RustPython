@@ -1091,18 +1091,20 @@ impl Frame {
     fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
         match self._membership(vm, needle, &haystack) {
             Ok(found) => Ok(found),
-            Err(_) => {
-                Err(vm.new_type_error(format!("{} has no __contains__ method", haystack.class())))
-            }
+            Err(_) => Err(vm.new_type_error(format!(
+                "{} has no __contains__ method",
+                haystack.class().name
+            ))),
         }
     }
 
     fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
         match self._membership(vm, needle, &haystack) {
             Ok(found) => Ok(vm.ctx.new_bool(!objbool::get_value(&found))),
-            Err(_) => {
-                Err(vm.new_type_error(format!("{} has no __contains__ method", haystack.class())))
-            }
+            Err(_) => Err(vm.new_type_error(format!(
+                "{} has no __contains__ method",
+                haystack.class().name
+            ))),
         }
     }
 

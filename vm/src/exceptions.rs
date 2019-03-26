@@ -76,7 +76,7 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         panic!("Error message must be set");
     };
-    let s = format!("{}: {}", exc.class(), msg);
+    let s = format!("{}: {}", exc.class().name, msg);
     Ok(vm.new_str(s))
 }
 

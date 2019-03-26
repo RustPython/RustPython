@@ -414,7 +414,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
     } else {
         return Err(vm.new_type_error(format!(
             "int() argument must be a string or a number, not '{}'",
-            obj.class()
+            obj.class().name
         )));
     };
     Ok(val)
