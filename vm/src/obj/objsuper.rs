@@ -112,7 +112,7 @@ fn super_new(
 
     // Check type argument:
     if !objtype::isinstance(py_type.as_object(), &vm.get_type()) {
-        let type_name = objtype::get_type_name(py_type.as_object().type_ref());
+        let type_name = objtype::get_type_name(&py_type.as_object().class());
         return Err(vm.new_type_error(format!(
             "super() argument 1 must be type, not {}",
             type_name

@@ -213,8 +213,8 @@ impl PyIntRef {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
             return Err(vm.new_type_error(format!(
                 "unsupported operand type(s) for << '{}' and '{}'",
-                objtype::get_type_name(&self.as_object().typ()),
-                objtype::get_type_name(&other.typ())
+                objtype::get_type_name(&self.as_object().class()),
+                objtype::get_type_name(&other.class())
             )));
         }
 
@@ -236,8 +236,8 @@ impl PyIntRef {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
             return Err(vm.new_type_error(format!(
                 "unsupported operand type(s) for >> '{}' and '{}'",
-                objtype::get_type_name(&self.as_object().typ()),
-                objtype::get_type_name(&other.typ())
+                objtype::get_type_name(&self.as_object().class()),
+                objtype::get_type_name(&other.class())
             )));
         }
 
@@ -420,7 +420,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
             }
         }
     } else {
-        let type_name = objtype::get_type_name(&obj.typ());
+        let type_name = objtype::get_type_name(&obj.class());
         return Err(vm.new_type_error(format!(
             "int() argument must be a string or a number, not '{}'",
             type_name

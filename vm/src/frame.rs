@@ -949,7 +949,7 @@ impl Frame {
         // let args = PyFuncArgs::default();
         // TODO: what happens when we got an error during handling exception?
         let args = if let Some(exc) = exc {
-            let exc_type = exc.typ();
+            let exc_type = exc.class().into_object();
             let exc_val = exc.clone();
             let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
             vec![exc_type, exc_val, exc_tb]
@@ -1093,7 +1093,7 @@ impl Frame {
             Ok(found) => Ok(found),
             Err(_) => Err(vm.new_type_error(format!(
                 "{} has no __contains__ method",
-                objtype::get_type_name(&haystack.typ())
+                objtype::get_type_name(&haystack.class())
             ))),
         }
     }
@@ -1103,7 +1103,7 @@ impl Frame {
             Ok(found) => Ok(vm.ctx.new_bool(!objbool::get_value(&found))),
             Err(_) => Err(vm.new_type_error(format!(
                 "{} has no __contains__ method",
-                objtype::get_type_name(&haystack.typ())
+                objtype::get_type_name(&haystack.class())
             ))),
         }
     }

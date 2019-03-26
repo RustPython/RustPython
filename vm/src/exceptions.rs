@@ -68,7 +68,7 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
     );
-    let type_name = objtype::get_type_name(&exc.typ());
+    let type_name = objtype::get_type_name(&exc.class());
     let msg = if let Ok(m) = vm.get_attribute(exc.clone(), "msg") {
         match vm.to_pystr(&m) {
             Ok(msg) => msg,

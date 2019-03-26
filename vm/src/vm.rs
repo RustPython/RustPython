@@ -174,8 +174,8 @@ impl VirtualMachine {
         b: PyObjectRef,
         op: &str,
     ) -> PyObjectRef {
-        let a_type_name = objtype::get_type_name(&a.typ());
-        let b_type_name = objtype::get_type_name(&b.typ());
+        let a_type_name = objtype::get_type_name(&a.class());
+        let b_type_name = objtype::get_type_name(&b.class());
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}' and '{}'",
             op, a_type_name, b_type_name
@@ -270,7 +270,7 @@ impl VirtualMachine {
     pub fn isinstance(&self, obj: &PyObjectRef, cls: &PyClassRef) -> PyResult<bool> {
         // cpython first does an exact check on the type, although documentation doesn't state that
         // https://github.com/python/cpython/blob/a24107b04c1277e3c1105f98aff5bfa3a98b33a0/Objects/abstract.c#L2408
-        if Rc::ptr_eq(&obj.typ(), cls.as_object()) {
+        if Rc::ptr_eq(&obj.class().into_object(), cls.as_object()) {
             Ok(true)
         } else {
             let ret = self.call_method(cls.as_object(), "__instancecheck__", vec![obj.clone()])?;
@@ -286,10 +286,10 @@ impl VirtualMachine {
     }
 
     pub fn call_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
-        let attr_class = attr.type_pyref();
+        let attr_class = attr.class();
         if let Some(descriptor) = objtype::class_get_attr(&attr_class, "__get__") {
-            let cls = obj.typ();
-            self.invoke(descriptor, vec![attr, obj.clone(), cls])
+            let cls = obj.class();
+            self.invoke(descriptor, vec![attr, obj.clone(), cls.into_object()])
         } else {
             Ok(attr)
         }
@@ -300,7 +300,7 @@ impl VirtualMachine {
         T: Into<PyFuncArgs>,
     {
         // This is only used in the vm for magic methods, which use a greatly simplified attribute lookup.
-        let cls = obj.type_pyref();
+        let cls = obj.class();
         match objtype::class_get_attr(&cls, method_name) {
             Some(func) => {
                 trace!(
@@ -583,7 +583,7 @@ impl VirtualMachine {
     // get_method should be used for internal access to magic methods (by-passing
     // the full getattribute look-up.
     pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> PyResult {
-        let cls = obj.type_pyref();
+        let cls = obj.class();
         match objtype::class_get_attr(&cls, method_name) {
             Some(method) => self.call_get_descriptor(method, obj.clone()),
             None => Err(self.new_type_error(format!("{} has no method {:?}", obj, method_name))),
