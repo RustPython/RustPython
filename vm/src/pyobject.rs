@@ -582,7 +582,7 @@ impl PyContext {
     }
 
     pub fn new_scope(&self) -> Scope {
-        Scope::new(None, self.new_dict().into_object())
+        Scope::new(None, self.new_dict())
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
@@ -613,8 +613,10 @@ impl PyContext {
         PropertyBuilder::new(self).add_getter(f).create()
     }
 
-    pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
+    pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyCodeRef {
         PyObject::new(objcode::PyCode::new(code), self.code_type(), None)
+            .downcast()
+            .unwrap()
     }
 
     pub fn new_function(
@@ -683,7 +685,9 @@ impl PyContext {
             bytecode::Constant::String { ref value } => self.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => self.new_code_object(*code.clone()),
+            bytecode::Constant::Code { ref code } => {
+                self.new_code_object(*code.clone()).into_object()
+            }
             bytecode::Constant::Tuple { ref elements } => {
                 let elements = elements
                     .iter()

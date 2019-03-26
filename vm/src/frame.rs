@@ -12,8 +12,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict;
-use crate::obj::objdict::PyDict;
+use crate::obj::objdict::{self, PyDictRef};
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
@@ -80,8 +79,8 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
 #[derive(Clone)]
 pub struct Scope {
-    locals: RcList<PyObjectRef>,
-    pub globals: PyObjectRef,
+    locals: RcList<PyDictRef>,
+    pub globals: PyDictRef,
 }
 
 impl fmt::Debug for Scope {
@@ -92,7 +91,7 @@ impl fmt::Debug for Scope {
 }
 
 impl Scope {
-    pub fn new(locals: Option<PyObjectRef>, globals: PyObjectRef) -> Scope {
+    pub fn new(locals: Option<PyDictRef>, globals: PyDictRef) -> Scope {
         let locals = match locals {
             Some(dict) => RcList::new().insert(dict),
             None => RcList::new(),
@@ -100,18 +99,18 @@ impl Scope {
         Scope { locals, globals }
     }
 
-    pub fn get_locals(&self) -> PyObjectRef {
+    pub fn get_locals(&self) -> PyDictRef {
         match self.locals.iter().next() {
             Some(dict) => dict.clone(),
             None => self.globals.clone(),
         }
     }
 
-    pub fn get_only_locals(&self) -> Option<PyObjectRef> {
+    pub fn get_only_locals(&self) -> Option<PyDictRef> {
         self.locals.iter().next().cloned()
     }
 
-    pub fn child_scope_with_locals(&self, locals: PyObjectRef) -> Scope {
+    pub fn child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
         Scope {
             locals: self.locals.clone().insert(locals),
             globals: self.globals.clone(),
@@ -119,7 +118,7 @@ impl Scope {
     }
 
     pub fn child_scope(&self, ctx: &PyContext) -> Scope {
-        self.child_scope_with_locals(ctx.new_dict().into_object())
+        self.child_scope_with_locals(ctx.new_dict())
     }
 }
 
@@ -1232,13 +1231,11 @@ impl fmt::Debug for Frame {
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
-        let local_str = match self.scope.get_locals().payload::<PyDict>() {
-            Some(dict) => objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
-                .iter()
-                .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-                .collect::<String>(),
-            None => panic!("locals unexpectedly not wrapping a dict!",),
-        };
+        let dict = self.scope.get_locals();
+        let local_str = objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
+            .iter()
+            .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
+            .collect::<String>();
         write!(
             f,
             "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{}\n}}",
