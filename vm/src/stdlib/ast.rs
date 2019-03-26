@@ -11,8 +11,19 @@ use rustpython_parser::{ast, parser};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
+
+#[derive(Debug)]
+struct AstNode;
+// type AstNodeRef = PyRef<AstNode>;
+
+impl PyValue for AstNode {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("ast", "AST")
+    }
+}
 
 /*
  * Idea: maybe we can create a sort of struct with some helper functions?
@@ -30,35 +41,35 @@ impl AstToPyAst {
 }
 */
 
-fn program_to_ast(ctx: &PyContext, program: &ast::Program) -> PyObjectRef {
+fn program_to_ast(vm: &VirtualMachine, program: &ast::Program) -> PyObjectRef {
     let mut body = vec![];
     for statement in &program.statements {
-        body.push(statement_to_ast(ctx, statement));
+        body.push(statement_to_ast(&vm, statement));
     }
     // TODO: create Module node:
     // let ast_node = ctx.new_instance(this.Module);
-    let ast_node = ctx.new_object();
-    let py_body = ctx.new_list(body);
-    ctx.set_attr(&ast_node, "body", py_body);
+    let ast_node = create_node(vm, "program");
+    let py_body = vm.ctx.new_list(body);
+    vm.ctx.set_attr(&ast_node, "body", py_body);
     ast_node
 }
 
 // Create a node class instance
-fn create_node(ctx: &PyContext, _name: &str) -> PyObjectRef {
+fn create_node(vm: &VirtualMachine, _name: &str) -> PyObjectRef {
     // TODO: instantiate a class of type given by name
     // TODO: lookup in the current module?
-    ctx.new_object()
+    PyObject::new(AstNode, AstNode::class(vm), Some(vm.ctx.new_dict()))
 }
 
-fn statements_to_ast(ctx: &PyContext, statements: &[ast::LocatedStatement]) -> PyObjectRef {
+fn statements_to_ast(vm: &VirtualMachine, statements: &[ast::LocatedStatement]) -> PyObjectRef {
     let mut py_statements = vec![];
     for statement in statements {
-        py_statements.push(statement_to_ast(ctx, statement));
+        py_statements.push(statement_to_ast(vm, statement));
     }
-    ctx.new_list(py_statements)
+    vm.ctx.new_list(py_statements)
 }
 
-fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObjectRef {
+fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> PyObjectRef {
     let node = match &statement.node {
         ast::Statement::ClassDef {
             name,
@@ -66,17 +77,18 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             decorator_list,
             ..
         } => {
-            let node = create_node(ctx, "ClassDef");
+            let node = create_node(vm, "ClassDef");
 
             // Set name:
-            ctx.set_attr(&node, "name", ctx.new_str(name.to_string()));
+            vm.ctx
+                .set_attr(&node, "name", vm.ctx.new_str(name.to_string()));
 
             // Set body:
-            let py_body = statements_to_ast(ctx, body);
-            ctx.set_attr(&node, "body", py_body);
+            let py_body = statements_to_ast(vm, body);
+            vm.ctx.set_attr(&node, "body", py_body);
 
-            let py_decorator_list = expressions_to_ast(ctx, decorator_list);
-            ctx.set_attr(&node, "decorator_list", py_decorator_list);
+            let py_decorator_list = expressions_to_ast(vm, decorator_list);
+            vm.ctx.set_attr(&node, "decorator_list", py_decorator_list);
             node
         }
         ast::Statement::FunctionDef {
@@ -86,80 +98,83 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             decorator_list,
             returns,
         } => {
-            let node = create_node(ctx, "FunctionDef");
+            let node = create_node(vm, "FunctionDef");
 
             // Set name:
-            ctx.set_attr(&node, "name", ctx.new_str(name.to_string()));
+            vm.ctx
+                .set_attr(&node, "name", vm.ctx.new_str(name.to_string()));
 
-            ctx.set_attr(&node, "args", parameters_to_ast(ctx, args));
+            vm.ctx.set_attr(&node, "args", parameters_to_ast(vm, args));
 
             // Set body:
-            let py_body = statements_to_ast(ctx, body);
-            ctx.set_attr(&node, "body", py_body);
+            let py_body = statements_to_ast(vm, body);
+            vm.ctx.set_attr(&node, "body", py_body);
 
-            let py_decorator_list = expressions_to_ast(ctx, decorator_list);
-            ctx.set_attr(&node, "decorator_list", py_decorator_list);
+            let py_decorator_list = expressions_to_ast(vm, decorator_list);
+            vm.ctx.set_attr(&node, "decorator_list", py_decorator_list);
 
             let py_returns = if let Some(hint) = returns {
-                expression_to_ast(ctx, hint)
+                expression_to_ast(vm, hint)
             } else {
-                ctx.none()
+                vm.ctx.none()
             };
-            ctx.set_attr(&node, "returns", py_returns);
+            vm.ctx.set_attr(&node, "returns", py_returns);
             node
         }
-        ast::Statement::Continue => create_node(ctx, "Continue"),
-        ast::Statement::Break => create_node(ctx, "Break"),
-        ast::Statement::Pass => create_node(ctx, "Pass"),
+        ast::Statement::Continue => create_node(vm, "Continue"),
+        ast::Statement::Break => create_node(vm, "Break"),
+        ast::Statement::Pass => create_node(vm, "Pass"),
         ast::Statement::Assert { test, msg } => {
-            let node = create_node(ctx, "Pass");
+            let node = create_node(vm, "Pass");
 
-            ctx.set_attr(&node, "test", expression_to_ast(ctx, test));
+            vm.ctx.set_attr(&node, "test", expression_to_ast(vm, test));
 
             let py_msg = match msg {
-                Some(msg) => expression_to_ast(ctx, msg),
-                None => ctx.none(),
+                Some(msg) => expression_to_ast(vm, msg),
+                None => vm.ctx.none(),
             };
-            ctx.set_attr(&node, "msg", py_msg);
+            vm.ctx.set_attr(&node, "msg", py_msg);
 
             node
         }
         ast::Statement::Delete { targets } => {
-            let node = create_node(ctx, "Delete");
+            let node = create_node(vm, "Delete");
 
-            let py_targets =
-                ctx.new_tuple(targets.iter().map(|v| expression_to_ast(ctx, v)).collect());
-            ctx.set_attr(&node, "targets", py_targets);
+            let py_targets = vm
+                .ctx
+                .new_tuple(targets.iter().map(|v| expression_to_ast(vm, v)).collect());
+            vm.ctx.set_attr(&node, "targets", py_targets);
 
             node
         }
         ast::Statement::Return { value } => {
-            let node = create_node(ctx, "Return");
+            let node = create_node(vm, "Return");
 
             let py_value = if let Some(value) = value {
-                ctx.new_tuple(value.iter().map(|v| expression_to_ast(ctx, v)).collect())
+                vm.ctx
+                    .new_tuple(value.iter().map(|v| expression_to_ast(vm, v)).collect())
             } else {
-                ctx.none()
+                vm.ctx.none()
             };
-            ctx.set_attr(&node, "value", py_value);
+            vm.ctx.set_attr(&node, "value", py_value);
 
             node
         }
         ast::Statement::If { test, body, orelse } => {
-            let node = create_node(ctx, "If");
+            let node = create_node(vm, "If");
 
-            let py_test = expression_to_ast(ctx, test);
-            ctx.set_attr(&node, "test", py_test);
+            let py_test = expression_to_ast(vm, test);
+            vm.ctx.set_attr(&node, "test", py_test);
 
-            let py_body = statements_to_ast(ctx, body);
-            ctx.set_attr(&node, "body", py_body);
+            let py_body = statements_to_ast(vm, body);
+            vm.ctx.set_attr(&node, "body", py_body);
 
             let py_orelse = if let Some(orelse) = orelse {
-                statements_to_ast(ctx, orelse)
+                statements_to_ast(vm, orelse)
             } else {
-                ctx.none()
+                vm.ctx.none()
             };
-            ctx.set_attr(&node, "orelse", py_orelse);
+            vm.ctx.set_attr(&node, "orelse", py_orelse);
 
             node
         }
@@ -169,49 +184,49 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
             body,
             orelse,
         } => {
-            let node = create_node(ctx, "For");
+            let node = create_node(vm, "For");
 
-            let py_target = expression_to_ast(ctx, target);
-            ctx.set_attr(&node, "target", py_target);
+            let py_target = expression_to_ast(vm, target);
+            vm.ctx.set_attr(&node, "target", py_target);
 
-            let py_iter = expressions_to_ast(ctx, iter);
-            ctx.set_attr(&node, "iter", py_iter);
+            let py_iter = expressions_to_ast(vm, iter);
+            vm.ctx.set_attr(&node, "iter", py_iter);
 
-            let py_body = statements_to_ast(ctx, body);
-            ctx.set_attr(&node, "body", py_body);
+            let py_body = statements_to_ast(vm, body);
+            vm.ctx.set_attr(&node, "body", py_body);
 
             let py_orelse = if let Some(orelse) = orelse {
-                statements_to_ast(ctx, orelse)
+                statements_to_ast(vm, orelse)
             } else {
-                ctx.none()
+                vm.ctx.none()
             };
-            ctx.set_attr(&node, "orelse", py_orelse);
+            vm.ctx.set_attr(&node, "orelse", py_orelse);
 
             node
         }
         ast::Statement::While { test, body, orelse } => {
-            let node = create_node(ctx, "While");
+            let node = create_node(vm, "While");
 
-            let py_test = expression_to_ast(ctx, test);
-            ctx.set_attr(&node, "test", py_test);
+            let py_test = expression_to_ast(vm, test);
+            vm.ctx.set_attr(&node, "test", py_test);
 
-            let py_body = statements_to_ast(ctx, body);
-            ctx.set_attr(&node, "body", py_body);
+            let py_body = statements_to_ast(vm, body);
+            vm.ctx.set_attr(&node, "body", py_body);
 
             let py_orelse = if let Some(orelse) = orelse {
-                statements_to_ast(ctx, orelse)
+                statements_to_ast(vm, orelse)
             } else {
-                ctx.none()
+                vm.ctx.none()
             };
-            ctx.set_attr(&node, "orelse", py_orelse);
+            vm.ctx.set_attr(&node, "orelse", py_orelse);
 
             node
         }
         ast::Statement::Expression { expression } => {
-            let node = create_node(ctx, "Expr");
+            let node = create_node(vm, "Expr");
 
-            let value = expression_to_ast(ctx, expression);
-            ctx.set_attr(&node, "value", value);
+            let value = expression_to_ast(vm, expression);
+            vm.ctx.set_attr(&node, "value", value);
 
             node
         }
@@ -221,38 +236,38 @@ fn statement_to_ast(ctx: &PyContext, statement: &ast::LocatedStatement) -> PyObj
     };
 
     // set lineno on node:
-    let lineno = ctx.new_int(statement.location.get_row());
-    ctx.set_attr(&node, "lineno", lineno);
+    let lineno = vm.ctx.new_int(statement.location.get_row());
+    vm.ctx.set_attr(&node, "lineno", lineno);
 
     node
 }
 
-fn expressions_to_ast(ctx: &PyContext, expressions: &[ast::Expression]) -> PyObjectRef {
+fn expressions_to_ast(vm: &VirtualMachine, expressions: &[ast::Expression]) -> PyObjectRef {
     let mut py_expression_nodes = vec![];
     for expression in expressions {
-        py_expression_nodes.push(expression_to_ast(ctx, expression));
+        py_expression_nodes.push(expression_to_ast(vm, expression));
     }
-    ctx.new_list(py_expression_nodes)
+    vm.ctx.new_list(py_expression_nodes)
 }
 
-fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectRef {
+fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObjectRef {
     let node = match &expression {
         ast::Expression::Call { function, args, .. } => {
-            let node = create_node(ctx, "Call");
+            let node = create_node(vm, "Call");
 
-            let py_func_ast = expression_to_ast(ctx, function);
-            ctx.set_attr(&node, "func", py_func_ast);
+            let py_func_ast = expression_to_ast(vm, function);
+            vm.ctx.set_attr(&node, "func", py_func_ast);
 
-            let py_args = expressions_to_ast(ctx, args);
-            ctx.set_attr(&node, "args", py_args);
+            let py_args = expressions_to_ast(vm, args);
+            vm.ctx.set_attr(&node, "args", py_args);
 
             node
         }
         ast::Expression::Binop { a, op, b } => {
-            let node = create_node(ctx, "BinOp");
+            let node = create_node(vm, "BinOp");
 
-            let py_a = expression_to_ast(ctx, a);
-            ctx.set_attr(&node, "left", py_a);
+            let py_a = expression_to_ast(vm, a);
+            vm.ctx.set_attr(&node, "left", py_a);
 
             // Operator:
             let str_op = match op {
@@ -270,15 +285,15 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
                 ast::Operator::BitAnd => "BitAnd",
                 ast::Operator::FloorDiv => "FloorDiv",
             };
-            let py_op = ctx.new_str(str_op.to_string());
-            ctx.set_attr(&node, "op", py_op);
+            let py_op = vm.ctx.new_str(str_op.to_string());
+            vm.ctx.set_attr(&node, "op", py_op);
 
-            let py_b = expression_to_ast(ctx, b);
-            ctx.set_attr(&node, "right", py_b);
+            let py_b = expression_to_ast(vm, b);
+            vm.ctx.set_attr(&node, "right", py_b);
             node
         }
         ast::Expression::Unop { op, a } => {
-            let node = create_node(ctx, "UnaryOp");
+            let node = create_node(vm, "UnaryOp");
 
             let str_op = match op {
                 ast::UnaryOperator::Not => "Not",
@@ -286,37 +301,37 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
                 ast::UnaryOperator::Neg => "USub",
                 ast::UnaryOperator::Pos => "UAdd",
             };
-            let py_op = ctx.new_str(str_op.to_string());
-            ctx.set_attr(&node, "op", py_op);
+            let py_op = vm.ctx.new_str(str_op.to_string());
+            vm.ctx.set_attr(&node, "op", py_op);
 
-            let py_a = expression_to_ast(ctx, a);
-            ctx.set_attr(&node, "operand", py_a);
+            let py_a = expression_to_ast(vm, a);
+            vm.ctx.set_attr(&node, "operand", py_a);
 
             node
         }
         ast::Expression::BoolOp { a, op, b } => {
-            let node = create_node(ctx, "BoolOp");
+            let node = create_node(vm, "BoolOp");
 
             // Attach values:
-            let py_a = expression_to_ast(ctx, a);
-            let py_b = expression_to_ast(ctx, b);
-            let py_values = ctx.new_tuple(vec![py_a, py_b]);
-            ctx.set_attr(&node, "values", py_values);
+            let py_a = expression_to_ast(vm, a);
+            let py_b = expression_to_ast(vm, b);
+            let py_values = vm.ctx.new_tuple(vec![py_a, py_b]);
+            vm.ctx.set_attr(&node, "values", py_values);
 
             let str_op = match op {
                 ast::BooleanOperator::And => "And",
                 ast::BooleanOperator::Or => "Or",
             };
-            let py_op = ctx.new_str(str_op.to_string());
-            ctx.set_attr(&node, "op", py_op);
+            let py_op = vm.ctx.new_str(str_op.to_string());
+            vm.ctx.set_attr(&node, "op", py_op);
 
             node
         }
         ast::Expression::Compare { a, op, b } => {
-            let node = create_node(ctx, "Compare");
+            let node = create_node(vm, "Compare");
 
-            let py_a = expression_to_ast(ctx, a);
-            ctx.set_attr(&node, "left", py_a);
+            let py_a = expression_to_ast(vm, a);
+            vm.ctx.set_attr(&node, "left", py_a);
 
             // Operator:
             let str_op = match op {
@@ -331,282 +346,283 @@ fn expression_to_ast(ctx: &PyContext, expression: &ast::Expression) -> PyObjectR
                 ast::Comparison::Is => "Is",
                 ast::Comparison::IsNot => "IsNot",
             };
-            let py_ops = ctx.new_list(vec![ctx.new_str(str_op.to_string())]);
-            ctx.set_attr(&node, "ops", py_ops);
+            let py_ops = vm.ctx.new_list(vec![vm.ctx.new_str(str_op.to_string())]);
+            vm.ctx.set_attr(&node, "ops", py_ops);
 
-            let py_b = ctx.new_list(vec![expression_to_ast(ctx, b)]);
-            ctx.set_attr(&node, "comparators", py_b);
+            let py_b = vm.ctx.new_list(vec![expression_to_ast(vm, b)]);
+            vm.ctx.set_attr(&node, "comparators", py_b);
             node
         }
         ast::Expression::Identifier { name } => {
-            let node = create_node(ctx, "Identifier");
+            let node = create_node(vm, "Identifier");
 
             // Id:
-            let py_name = ctx.new_str(name.clone());
-            ctx.set_attr(&node, "id", py_name);
+            let py_name = vm.ctx.new_str(name.clone());
+            vm.ctx.set_attr(&node, "id", py_name);
             node
         }
         ast::Expression::Lambda { args, body } => {
-            let node = create_node(ctx, "Lambda");
+            let node = create_node(vm, "Lambda");
 
-            ctx.set_attr(&node, "args", parameters_to_ast(ctx, args));
+            vm.ctx.set_attr(&node, "args", parameters_to_ast(vm, args));
 
-            let py_body = expression_to_ast(ctx, body);
-            ctx.set_attr(&node, "body", py_body);
+            let py_body = expression_to_ast(vm, body);
+            vm.ctx.set_attr(&node, "body", py_body);
 
             node
         }
         ast::Expression::IfExpression { test, body, orelse } => {
-            let node = create_node(ctx, "IfExp");
+            let node = create_node(vm, "IfExp");
 
-            let py_test = expression_to_ast(ctx, test);
-            ctx.set_attr(&node, "test", py_test);
+            let py_test = expression_to_ast(vm, test);
+            vm.ctx.set_attr(&node, "test", py_test);
 
-            let py_body = expression_to_ast(ctx, body);
-            ctx.set_attr(&node, "body", py_body);
+            let py_body = expression_to_ast(vm, body);
+            vm.ctx.set_attr(&node, "body", py_body);
 
-            let py_orelse = expression_to_ast(ctx, orelse);
-            ctx.set_attr(&node, "orelse", py_orelse);
+            let py_orelse = expression_to_ast(vm, orelse);
+            vm.ctx.set_attr(&node, "orelse", py_orelse);
 
             node
         }
         ast::Expression::Number { value } => {
-            let node = create_node(ctx, "Num");
+            let node = create_node(vm, "Num");
 
             let py_n = match value {
-                ast::Number::Integer { value } => ctx.new_int(value.clone()),
-                ast::Number::Float { value } => ctx.new_float(*value),
+                ast::Number::Integer { value } => vm.ctx.new_int(value.clone()),
+                ast::Number::Float { value } => vm.ctx.new_float(*value),
                 ast::Number::Complex { real, imag } => {
-                    ctx.new_complex(Complex64::new(*real, *imag))
+                    vm.ctx.new_complex(Complex64::new(*real, *imag))
                 }
             };
-            ctx.set_attr(&node, "n", py_n);
+            vm.ctx.set_attr(&node, "n", py_n);
 
             node
         }
         ast::Expression::True => {
-            let node = create_node(ctx, "NameConstant");
+            let node = create_node(vm, "NameConstant");
 
-            ctx.set_attr(&node, "value", ctx.new_bool(true));
+            vm.ctx.set_attr(&node, "value", vm.ctx.new_bool(true));
 
             node
         }
         ast::Expression::False => {
-            let node = create_node(ctx, "NameConstant");
+            let node = create_node(vm, "NameConstant");
 
-            ctx.set_attr(&node, "value", ctx.new_bool(false));
+            vm.ctx.set_attr(&node, "value", vm.ctx.new_bool(false));
 
             node
         }
         ast::Expression::None => {
-            let node = create_node(ctx, "NameConstant");
+            let node = create_node(vm, "NameConstant");
 
-            ctx.set_attr(&node, "value", ctx.none());
+            vm.ctx.set_attr(&node, "value", vm.ctx.none());
 
             node
         }
-        ast::Expression::Ellipsis => create_node(ctx, "Ellipsis"),
+        ast::Expression::Ellipsis => create_node(vm, "Ellipsis"),
         ast::Expression::List { elements } => {
-            let node = create_node(ctx, "List");
+            let node = create_node(vm, "List");
 
-            let elts = elements.iter().map(|e| expression_to_ast(ctx, e)).collect();
-            let py_elts = ctx.new_list(elts);
-            ctx.set_attr(&node, "elts", py_elts);
+            let elts = elements.iter().map(|e| expression_to_ast(vm, e)).collect();
+            let py_elts = vm.ctx.new_list(elts);
+            vm.ctx.set_attr(&node, "elts", py_elts);
 
             node
         }
         ast::Expression::Tuple { elements } => {
-            let node = create_node(ctx, "Tuple");
+            let node = create_node(vm, "Tuple");
 
-            let elts = elements.iter().map(|e| expression_to_ast(ctx, e)).collect();
-            let py_elts = ctx.new_list(elts);
-            ctx.set_attr(&node, "elts", py_elts);
+            let elts = elements.iter().map(|e| expression_to_ast(vm, e)).collect();
+            let py_elts = vm.ctx.new_list(elts);
+            vm.ctx.set_attr(&node, "elts", py_elts);
 
             node
         }
         ast::Expression::Set { elements } => {
-            let node = create_node(ctx, "Set");
+            let node = create_node(vm, "Set");
 
-            let elts = elements.iter().map(|e| expression_to_ast(ctx, e)).collect();
-            let py_elts = ctx.new_list(elts);
-            ctx.set_attr(&node, "elts", py_elts);
+            let elts = elements.iter().map(|e| expression_to_ast(vm, e)).collect();
+            let py_elts = vm.ctx.new_list(elts);
+            vm.ctx.set_attr(&node, "elts", py_elts);
 
             node
         }
         ast::Expression::Dict { elements } => {
-            let node = create_node(ctx, "Dict");
+            let node = create_node(vm, "Dict");
 
             let mut keys = Vec::new();
             let mut values = Vec::new();
             for (k, v) in elements {
-                keys.push(expression_to_ast(ctx, k));
-                values.push(expression_to_ast(ctx, v));
+                keys.push(expression_to_ast(vm, k));
+                values.push(expression_to_ast(vm, v));
             }
 
-            let py_keys = ctx.new_list(keys);
-            ctx.set_attr(&node, "keys", py_keys);
+            let py_keys = vm.ctx.new_list(keys);
+            vm.ctx.set_attr(&node, "keys", py_keys);
 
-            let py_values = ctx.new_list(values);
-            ctx.set_attr(&node, "values", py_values);
+            let py_values = vm.ctx.new_list(values);
+            vm.ctx.set_attr(&node, "values", py_values);
 
             node
         }
         ast::Expression::Comprehension { kind, generators } => {
             let node = match kind.deref() {
                 ast::ComprehensionKind::GeneratorExpression { .. } => {
-                    create_node(ctx, "GeneratorExp")
+                    create_node(vm, "GeneratorExp")
                 }
-                ast::ComprehensionKind::List { .. } => create_node(ctx, "ListComp"),
-                ast::ComprehensionKind::Set { .. } => create_node(ctx, "SetComp"),
-                ast::ComprehensionKind::Dict { .. } => create_node(ctx, "DictComp"),
+                ast::ComprehensionKind::List { .. } => create_node(vm, "ListComp"),
+                ast::ComprehensionKind::Set { .. } => create_node(vm, "SetComp"),
+                ast::ComprehensionKind::Dict { .. } => create_node(vm, "DictComp"),
             };
 
             let g = generators
                 .iter()
-                .map(|g| comprehension_to_ast(ctx, g))
+                .map(|g| comprehension_to_ast(vm, g))
                 .collect();
-            let py_generators = ctx.new_list(g);
-            ctx.set_attr(&node, "generators", py_generators);
+            let py_generators = vm.ctx.new_list(g);
+            vm.ctx.set_attr(&node, "generators", py_generators);
 
             node
         }
         ast::Expression::Yield { value } => {
-            let node = create_node(ctx, "Yield");
+            let node = create_node(vm, "Yield");
 
             let py_value = match value {
-                Some(value) => expression_to_ast(ctx, value),
-                None => ctx.none(),
+                Some(value) => expression_to_ast(vm, value),
+                None => vm.ctx.none(),
             };
-            ctx.set_attr(&node, "value", py_value);
+            vm.ctx.set_attr(&node, "value", py_value);
 
             node
         }
         ast::Expression::YieldFrom { value } => {
-            let node = create_node(ctx, "YieldFrom");
+            let node = create_node(vm, "YieldFrom");
 
-            let py_value = expression_to_ast(ctx, value);
-            ctx.set_attr(&node, "value", py_value);
+            let py_value = expression_to_ast(vm, value);
+            vm.ctx.set_attr(&node, "value", py_value);
 
             node
         }
         ast::Expression::Subscript { a, b } => {
-            let node = create_node(ctx, "Subscript");
+            let node = create_node(vm, "Subscript");
 
-            let py_value = expression_to_ast(ctx, a);
-            ctx.set_attr(&node, "value", py_value);
+            let py_value = expression_to_ast(vm, a);
+            vm.ctx.set_attr(&node, "value", py_value);
 
-            let py_slice = expression_to_ast(ctx, b);
-            ctx.set_attr(&node, "slice", py_slice);
+            let py_slice = expression_to_ast(vm, b);
+            vm.ctx.set_attr(&node, "slice", py_slice);
 
             node
         }
         ast::Expression::Attribute { value, name } => {
-            let node = create_node(ctx, "Attribute");
+            let node = create_node(vm, "Attribute");
 
-            let py_value = expression_to_ast(ctx, value);
-            ctx.set_attr(&node, "value", py_value);
+            let py_value = expression_to_ast(vm, value);
+            vm.ctx.set_attr(&node, "value", py_value);
 
-            let py_attr = ctx.new_str(name.to_string());
-            ctx.set_attr(&node, "attr", py_attr);
+            let py_attr = vm.ctx.new_str(name.to_string());
+            vm.ctx.set_attr(&node, "attr", py_attr);
 
             node
         }
         ast::Expression::Starred { value } => {
-            let node = create_node(ctx, "Starred");
+            let node = create_node(vm, "Starred");
 
-            let py_value = expression_to_ast(ctx, value);
-            ctx.set_attr(&node, "value", py_value);
+            let py_value = expression_to_ast(vm, value);
+            vm.ctx.set_attr(&node, "value", py_value);
 
             node
         }
         ast::Expression::Slice { elements } => {
-            let node = create_node(ctx, "Slice");
+            let node = create_node(vm, "Slice");
 
-            let py_value = expressions_to_ast(ctx, elements);
-            ctx.set_attr(&node, "bounds", py_value);
+            let py_value = expressions_to_ast(vm, elements);
+            vm.ctx.set_attr(&node, "bounds", py_value);
 
             node
         }
-        ast::Expression::String { value } => string_to_ast(ctx, value),
+        ast::Expression::String { value } => string_to_ast(vm, value),
         ast::Expression::Bytes { value } => {
-            let node = create_node(ctx, "Bytes");
-            ctx.set_attr(&node, "s", ctx.new_bytes(value.clone()));
+            let node = create_node(vm, "Bytes");
+            vm.ctx.set_attr(&node, "s", vm.ctx.new_bytes(value.clone()));
             node
         }
     };
 
     // TODO: retrieve correct lineno:
-    let lineno = ctx.new_int(1);
-    ctx.set_attr(&node, "lineno", lineno);
+    let lineno = vm.ctx.new_int(1);
+    vm.ctx.set_attr(&node, "lineno", lineno);
 
     node
 }
 
-fn parameters_to_ast(ctx: &PyContext, args: &ast::Parameters) -> PyObjectRef {
-    let node = create_node(ctx, "arguments");
+fn parameters_to_ast(vm: &VirtualMachine, args: &ast::Parameters) -> PyObjectRef {
+    let node = create_node(vm, "arguments");
 
-    ctx.set_attr(
+    vm.ctx.set_attr(
         &node,
         "args",
-        ctx.new_list(args.args.iter().map(|a| parameter_to_ast(ctx, a)).collect()),
+        vm.ctx
+            .new_list(args.args.iter().map(|a| parameter_to_ast(vm, a)).collect()),
     );
 
     node
 }
 
-fn parameter_to_ast(ctx: &PyContext, parameter: &ast::Parameter) -> PyObjectRef {
-    let node = create_node(ctx, "arg");
+fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyObjectRef {
+    let node = create_node(vm, "arg");
 
-    let py_arg = ctx.new_str(parameter.arg.to_string());
-    ctx.set_attr(&node, "arg", py_arg);
+    let py_arg = vm.ctx.new_str(parameter.arg.to_string());
+    vm.ctx.set_attr(&node, "arg", py_arg);
 
     let py_annotation = if let Some(annotation) = &parameter.annotation {
-        expression_to_ast(ctx, annotation)
+        expression_to_ast(vm, annotation)
     } else {
-        ctx.none()
+        vm.ctx.none()
     };
-    ctx.set_attr(&node, "annotation", py_annotation);
+    vm.ctx.set_attr(&node, "annotation", py_annotation);
 
     node
 }
 
-fn comprehension_to_ast(ctx: &PyContext, comprehension: &ast::Comprehension) -> PyObjectRef {
-    let node = create_node(ctx, "comprehension");
+fn comprehension_to_ast(vm: &VirtualMachine, comprehension: &ast::Comprehension) -> PyObjectRef {
+    let node = create_node(vm, "comprehension");
 
-    let py_target = expression_to_ast(ctx, &comprehension.target);
-    ctx.set_attr(&node, "target", py_target);
+    let py_target = expression_to_ast(vm, &comprehension.target);
+    vm.ctx.set_attr(&node, "target", py_target);
 
-    let py_iter = expression_to_ast(ctx, &comprehension.iter);
-    ctx.set_attr(&node, "iter", py_iter);
+    let py_iter = expression_to_ast(vm, &comprehension.iter);
+    vm.ctx.set_attr(&node, "iter", py_iter);
 
-    let py_ifs = expressions_to_ast(ctx, &comprehension.ifs);
-    ctx.set_attr(&node, "ifs", py_ifs);
+    let py_ifs = expressions_to_ast(vm, &comprehension.ifs);
+    vm.ctx.set_attr(&node, "ifs", py_ifs);
 
     node
 }
 
-fn string_to_ast(ctx: &PyContext, string: &ast::StringGroup) -> PyObjectRef {
+fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyObjectRef {
     match string {
         ast::StringGroup::Constant { value } => {
-            let node = create_node(ctx, "Str");
-            ctx.set_attr(&node, "s", ctx.new_str(value.clone()));
+            let node = create_node(vm, "Str");
+            vm.ctx.set_attr(&node, "s", vm.ctx.new_str(value.clone()));
             node
         }
         ast::StringGroup::FormattedValue { value, .. } => {
-            let node = create_node(ctx, "FormattedValue");
-            let py_value = expression_to_ast(ctx, value);
-            ctx.set_attr(&node, "value", py_value);
+            let node = create_node(vm, "FormattedValue");
+            let py_value = expression_to_ast(vm, value);
+            vm.ctx.set_attr(&node, "value", py_value);
             node
         }
         ast::StringGroup::Joined { values } => {
-            let node = create_node(ctx, "JoinedStr");
-            let py_values = ctx.new_list(
+            let node = create_node(vm, "JoinedStr");
+            let py_values = vm.ctx.new_list(
                 values
                     .iter()
-                    .map(|value| string_to_ast(ctx, value))
+                    .map(|value| string_to_ast(vm, value))
                     .collect(),
             );
-            ctx.set_attr(&node, "values", py_values);
+            vm.ctx.set_attr(&node, "values", py_values);
             node
         }
     }
@@ -619,7 +635,7 @@ fn ast_parse(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let internal_ast = parser::parse_program(&source_string)
         .map_err(|err| vm.new_value_error(format!("{}", err)))?;
     // source.clone();
-    let ast_node = program_to_ast(&vm.ctx, &internal_ast);
+    let ast_node = program_to_ast(&vm, &internal_ast);
     Ok(ast_node)
 }
 
@@ -628,6 +644,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "parse" => ctx.new_rustfunc(ast_parse),
         "Module" => py_class!(ctx, "_ast.Module", ctx.object(), {}),
         "FunctionDef" => py_class!(ctx, "_ast.FunctionDef", ctx.object(), {}),
-        "Call" => py_class!(ctx, "_ast.Call", ctx.object(), {})
+        "Call" => py_class!(ctx, "_ast.Call", ctx.object(), {}),
+        "AST" => py_class!(ctx, "_ast.AST", ctx.object(), {}),
     })
 }

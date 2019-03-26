@@ -11,7 +11,6 @@ use num_traits::{Signed, ToPrimitive};
 use crate::compile;
 use crate::import::import_module;
 use crate::obj::objbool;
-use crate::obj::objdict;
 use crate::obj::objint;
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyStringRef};
@@ -29,14 +28,7 @@ use crate::obj::objcode::PyCodeRef;
 use crate::stdlib::io::io_open;
 
 fn get_locals(vm: &VirtualMachine) -> PyObjectRef {
-    let d = vm.new_dict();
-    // TODO: implement dict_iter_items?
-    let locals = vm.get_locals();
-    let key_value_pairs = objdict::get_key_value_pairs(&locals);
-    for (key, value) in key_value_pairs {
-        objdict::set_item(&d, vm, &key, &value);
-    }
-    d
+    vm.get_locals()
 }
 
 fn dir_locals(vm: &VirtualMachine) -> PyObjectRef {
@@ -823,9 +815,9 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
-    let cells = vm.new_dict();
+    let cells = vm.ctx.new_dict();
 
-    vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
+    vm.invoke_with_locals(function, cells.clone().into_object(), namespace.clone())?;
     let class = vm.call_method(
         metaclass.as_object(),
         "__call__",

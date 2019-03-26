@@ -1,3 +1,4 @@
+use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use num_bigint::{BigInt, ToBigInt};
@@ -18,8 +19,13 @@ use crate::obj::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyInt {
-    // TODO: shouldn't be public
-    pub value: BigInt,
+    value: BigInt,
+}
+
+impl fmt::Display for PyInt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        BigInt::fmt(&self.value, f)
+    }
 }
 
 pub type PyIntRef = PyRef<PyInt>;
@@ -27,6 +33,10 @@ pub type PyIntRef = PyRef<PyInt>;
 impl PyInt {
     pub fn new<T: Into<BigInt>>(i: T) -> Self {
         PyInt { value: i.into() }
+    }
+
+    pub fn as_bigint(&self) -> &BigInt {
+        &self.value
     }
 }
 

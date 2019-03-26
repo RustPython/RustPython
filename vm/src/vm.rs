@@ -141,10 +141,6 @@ impl VirtualMachine {
         self.ctx.new_bool(b)
     }
 
-    pub fn new_dict(&self) -> PyObjectRef {
-        self.ctx.new_dict()
-    }
-
     pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
         info!("New exception created: no msg");
         let args = PyFuncArgs::default();
@@ -454,11 +450,11 @@ impl VirtualMachine {
         // Do we support `**kwargs` ?
         let kwargs = match code_object.varkeywords {
             bytecode::Varargs::Named(ref kwargs_name) => {
-                let d = self.new_dict();
+                let d = self.ctx.new_dict().into_object();
                 locals.set_item(&self.ctx, kwargs_name, d.clone());
                 Some(d)
             }
-            bytecode::Varargs::Unnamed => Some(self.new_dict()),
+            bytecode::Varargs::Unnamed => Some(self.ctx.new_dict().into_object()),
             bytecode::Varargs::None => None,
         };
 

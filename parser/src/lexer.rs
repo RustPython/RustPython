@@ -1,12 +1,17 @@
 //! This module takes care of lexing python source text. This means source
 //! code is translated into separate tokens.
 
+extern crate unic_emoji_char;
+extern crate unicode_xid;
+
 pub use super::token::Tok;
 use num_bigint::BigInt;
 use num_traits::Num;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
+use unic_emoji_char::is_emoji_presentation;
+use unicode_xid::UnicodeXID;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct IndentationLevel {
@@ -300,7 +305,7 @@ where
             }
         }
 
-        while self.is_char() {
+        while self.is_identifier_continuation() {
             name.push(self.next_char().unwrap());
         }
         let end_pos = self.get_pos();
@@ -540,10 +545,21 @@ where
         Ok((start_pos, tok, end_pos))
     }
 
-    fn is_char(&self) -> bool {
-        match self.chr0 {
-            Some('a'..='z') | Some('A'..='Z') | Some('_') | Some('0'..='9') => true,
-            _ => false,
+    fn is_identifier_start(&self, c: char) -> bool {
+        match c {
+            '_' => true,
+            c => UnicodeXID::is_xid_start(c),
+        }
+    }
+
+    fn is_identifier_continuation(&self) -> bool {
+        if let Some(c) = self.chr0 {
+            match c {
+                '_' | '0'..='9' => true,
+                c => UnicodeXID::is_xid_continue(c),
+            }
+        } else {
+            false
         }
     }
 
@@ -686,347 +702,380 @@ where
                 }
             }
 
-            match self.chr0 {
-                Some('0'..='9') => return Some(self.lex_number()),
-                Some('_') | Some('a'..='z') | Some('A'..='Z') => {
+            // Check if we have some character:
+            if let Some(c) = self.chr0 {
+                // First check identifier:
+                if self.is_identifier_start(c) {
                     return Some(self.lex_identifier());
-                }
-                Some('#') => {
-                    self.lex_comment();
-                    continue;
-                }
-                Some('"') => {
-                    return Some(self.lex_string(false, false, false, false));
-                }
-                Some('\'') => {
-                    return Some(self.lex_string(false, false, false, false));
-                }
-                Some('=') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::EqEqual, tok_end)));
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Equal, tok_end)));
-                        }
-                    }
-                }
-                Some('+') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::PlusEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Plus, tok_end)));
-                    }
-                }
-                Some('*') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::StarEqual, tok_end)));
-                        }
-                        Some('*') => {
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleStarEqual, tok_end)));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleStar, tok_end)));
-                                }
-                            }
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Star, tok_end)));
-                        }
-                    }
-                }
-                Some('/') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::SlashEqual, tok_end)));
-                        }
-                        Some('/') => {
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleSlashEqual, tok_end)));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleSlash, tok_end)));
-                                }
-                            }
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Slash, tok_end)));
-                        }
-                    }
-                }
-                Some('%') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::PercentEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Percent, tok_end)));
-                    }
-                }
-                Some('|') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::VbarEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Vbar, tok_end)));
-                    }
-                }
-                Some('^') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::CircumflexEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::CircumFlex, tok_end)));
-                    }
-                }
-                Some('&') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::AmperEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Amper, tok_end)));
-                    }
-                }
-                Some('-') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::MinusEqual, tok_end)));
-                        }
-                        Some('>') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Rarrow, tok_end)));
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Minus, tok_end)));
-                        }
-                    }
-                }
-                Some('@') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::AtEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::At, tok_end)));
-                    }
-                }
-                Some('!') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::NotEqual, tok_end)));
-                        }
-                        _ => panic!("Invalid token '!'"),
-                    }
-                }
-                Some('~') => {
-                    return Some(self.eat_single_char(Tok::Tilde));
-                }
-                Some('(') => {
-                    let result = self.eat_single_char(Tok::Lpar);
-                    self.nesting += 1;
-                    return Some(result);
-                }
-                Some(')') => {
-                    let result = self.eat_single_char(Tok::Rpar);
-                    if self.nesting == 0 {
-                        return Some(Err(LexicalError::NestingError));
-                    }
-                    self.nesting -= 1;
-                    return Some(result);
-                }
-                Some('[') => {
-                    let result = self.eat_single_char(Tok::Lsqb);
-                    self.nesting += 1;
-                    return Some(result);
-                }
-                Some(']') => {
-                    let result = self.eat_single_char(Tok::Rsqb);
-                    if self.nesting == 0 {
-                        return Some(Err(LexicalError::NestingError));
-                    }
-                    self.nesting -= 1;
-                    return Some(result);
-                }
-                Some('{') => {
-                    let result = self.eat_single_char(Tok::Lbrace);
-                    self.nesting += 1;
-                    return Some(result);
-                }
-                Some('}') => {
-                    let result = self.eat_single_char(Tok::Rbrace);
-                    if self.nesting == 0 {
-                        return Some(Err(LexicalError::NestingError));
-                    }
-                    self.nesting -= 1;
-                    return Some(result);
-                }
-                Some(':') => {
-                    return Some(self.eat_single_char(Tok::Colon));
-                }
-                Some(';') => {
-                    return Some(self.eat_single_char(Tok::Semi));
-                }
-                Some('<') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('<') => {
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::LeftShiftEqual, tok_end)));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::LeftShift, tok_end)));
-                                }
-                            }
-                        }
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::LessEqual, tok_end)));
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Less, tok_end)));
-                        }
-                    }
-                }
-                Some('>') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('>') => {
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::RightShiftEqual, tok_end)));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::RightShift, tok_end)));
-                                }
-                            }
-                        }
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::GreaterEqual, tok_end)));
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Greater, tok_end)));
-                        }
-                    }
-                }
-                Some(',') => {
+                } else if is_emoji_presentation(c) {
                     let tok_start = self.get_pos();
                     self.next_char();
                     let tok_end = self.get_pos();
-                    return Some(Ok((tok_start, Tok::Comma, tok_end)));
-                }
-                Some('.') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
-                        self.next_char();
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Ellipsis, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Dot, tok_end)));
-                    }
-                }
-                Some('\n') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    let tok_end = self.get_pos();
-                    self.new_line();
+                    println!("Emoji: {}", c);
+                    return Some(Ok((
+                        tok_start,
+                        Tok::Name {
+                            name: c.to_string(),
+                        },
+                        tok_end,
+                    )));
+                } else {
+                    match c {
+                        '0'..='9' => return Some(self.lex_number()),
+                        '#' => {
+                            self.lex_comment();
+                            continue;
+                        }
+                        '"' => {
+                            return Some(self.lex_string(false, false, false, false));
+                        }
+                        '\'' => {
+                            return Some(self.lex_string(false, false, false, false));
+                        }
+                        '=' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::EqEqual, tok_end)));
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Equal, tok_end)));
+                                }
+                            }
+                        }
+                        '+' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::PlusEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Plus, tok_end)));
+                            }
+                        }
+                        '*' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::StarEqual, tok_end)));
+                                }
+                                Some('*') => {
+                                    self.next_char();
+                                    match self.chr0 {
+                                        Some('=') => {
+                                            self.next_char();
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::DoubleStarEqual,
+                                                tok_end,
+                                            )));
+                                        }
+                                        _ => {
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((tok_start, Tok::DoubleStar, tok_end)));
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Star, tok_end)));
+                                }
+                            }
+                        }
+                        '/' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::SlashEqual, tok_end)));
+                                }
+                                Some('/') => {
+                                    self.next_char();
+                                    match self.chr0 {
+                                        Some('=') => {
+                                            self.next_char();
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::DoubleSlashEqual,
+                                                tok_end,
+                                            )));
+                                        }
+                                        _ => {
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((tok_start, Tok::DoubleSlash, tok_end)));
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Slash, tok_end)));
+                                }
+                            }
+                        }
+                        '%' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::PercentEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Percent, tok_end)));
+                            }
+                        }
+                        '|' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::VbarEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Vbar, tok_end)));
+                            }
+                        }
+                        '^' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::CircumflexEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::CircumFlex, tok_end)));
+                            }
+                        }
+                        '&' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::AmperEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Amper, tok_end)));
+                            }
+                        }
+                        '-' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::MinusEqual, tok_end)));
+                                }
+                                Some('>') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Rarrow, tok_end)));
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Minus, tok_end)));
+                                }
+                            }
+                        }
+                        '@' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::AtEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::At, tok_end)));
+                            }
+                        }
+                        '!' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::NotEqual, tok_end)));
+                            } else {
+                                return Some(Err(LexicalError::UnrecognizedToken { tok: '!' }));
+                            }
+                        }
+                        '~' => {
+                            return Some(self.eat_single_char(Tok::Tilde));
+                        }
+                        '(' => {
+                            let result = self.eat_single_char(Tok::Lpar);
+                            self.nesting += 1;
+                            return Some(result);
+                        }
+                        ')' => {
+                            let result = self.eat_single_char(Tok::Rpar);
+                            if self.nesting == 0 {
+                                return Some(Err(LexicalError::NestingError));
+                            }
+                            self.nesting -= 1;
+                            return Some(result);
+                        }
+                        '[' => {
+                            let result = self.eat_single_char(Tok::Lsqb);
+                            self.nesting += 1;
+                            return Some(result);
+                        }
+                        ']' => {
+                            let result = self.eat_single_char(Tok::Rsqb);
+                            if self.nesting == 0 {
+                                return Some(Err(LexicalError::NestingError));
+                            }
+                            self.nesting -= 1;
+                            return Some(result);
+                        }
+                        '{' => {
+                            let result = self.eat_single_char(Tok::Lbrace);
+                            self.nesting += 1;
+                            return Some(result);
+                        }
+                        '}' => {
+                            let result = self.eat_single_char(Tok::Rbrace);
+                            if self.nesting == 0 {
+                                return Some(Err(LexicalError::NestingError));
+                            }
+                            self.nesting -= 1;
+                            return Some(result);
+                        }
+                        ':' => {
+                            return Some(self.eat_single_char(Tok::Colon));
+                        }
+                        ';' => {
+                            return Some(self.eat_single_char(Tok::Semi));
+                        }
+                        '<' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('<') => {
+                                    self.next_char();
+                                    match self.chr0 {
+                                        Some('=') => {
+                                            self.next_char();
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::LeftShiftEqual,
+                                                tok_end,
+                                            )));
+                                        }
+                                        _ => {
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((tok_start, Tok::LeftShift, tok_end)));
+                                        }
+                                    }
+                                }
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::LessEqual, tok_end)));
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Less, tok_end)));
+                                }
+                            }
+                        }
+                        '>' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('>') => {
+                                    self.next_char();
+                                    match self.chr0 {
+                                        Some('=') => {
+                                            self.next_char();
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::RightShiftEqual,
+                                                tok_end,
+                                            )));
+                                        }
+                                        _ => {
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((tok_start, Tok::RightShift, tok_end)));
+                                        }
+                                    }
+                                }
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::GreaterEqual, tok_end)));
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Greater, tok_end)));
+                                }
+                            }
+                        }
+                        ',' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            let tok_end = self.get_pos();
+                            return Some(Ok((tok_start, Tok::Comma, tok_end)));
+                        }
+                        '.' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
+                                self.next_char();
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Ellipsis, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Dot, tok_end)));
+                            }
+                        }
+                        '\n' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            let tok_end = self.get_pos();
+                            self.new_line();
 
-                    // Depending on the nesting level, we emit newline or not:
-                    if self.nesting == 0 {
-                        self.at_begin_of_line = true;
-                        return Some(Ok((tok_start, Tok::Newline, tok_end)));
-                    } else {
-                        continue;
+                            // Depending on the nesting level, we emit newline or not:
+                            if self.nesting == 0 {
+                                self.at_begin_of_line = true;
+                                return Some(Ok((tok_start, Tok::Newline, tok_end)));
+                            } else {
+                                continue;
+                            }
+                        }
+                        ' ' => {
+                            // Skip whitespaces
+                            self.next_char();
+                            continue;
+                        }
+                        _ => {
+                            let c = self.next_char();
+                            return Some(Err(LexicalError::UnrecognizedToken { tok: c.unwrap() }));
+                        } // Ignore all the rest..
                     }
                 }
-                Some(' ') => {
-                    // Skip whitespaces
-                    self.next_char();
-                    continue;
-                }
-                None => return None,
-                _ => {
-                    let c = self.next_char();
-                    return Some(Err(LexicalError::UnrecognizedToken { tok: c.unwrap() }));
-                } // Ignore all the rest..
+            } else {
+                return None;
             }
         }
     }

@@ -200,7 +200,7 @@ impl<'a> PropertyBuilder<'a> {
                 deleter: None,
             };
 
-            PyObject::new(payload, self.ctx.property_type())
+            PyObject::new(payload, self.ctx.property_type(), None)
         } else {
             let payload = PyReadOnlyProperty {
                 getter: self.getter.expect(
@@ -208,7 +208,7 @@ impl<'a> PropertyBuilder<'a> {
                 ),
             };
 
-            PyObject::new(payload, self.ctx.readonly_property_type())
+            PyObject::new(payload, self.ctx.readonly_property_type(), None)
         }
     }
 }

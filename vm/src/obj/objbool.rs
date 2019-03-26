@@ -25,7 +25,7 @@ pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
     Ok(if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
         let bool_res = vm.invoke(f, PyFuncArgs::default())?;
         match bool_res.payload::<PyInt>() {
-            Some(i) => !i.value.is_zero(),
+            Some(i) => !i.as_bigint().is_zero(),
             None => return Err(vm.new_type_error(String::from("TypeError"))),
         }
     } else {
@@ -59,7 +59,7 @@ pub fn not(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult {
 
 // Retrieve inner int value:
 pub fn get_value(obj: &PyObjectRef) -> bool {
-    !obj.payload::<PyInt>().unwrap().value.is_zero()
+    !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
 }
 
 fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {

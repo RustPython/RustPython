@@ -17,7 +17,6 @@ import compile_code
 
 class _TestType(enum.Enum):
     functional = 1
-    benchmark = 2
 
 
 logger = logging.getLogger('tests')
@@ -25,7 +24,6 @@ ROOT_DIR = '..'
 TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, 'tests'))
 TEST_DIRS = {
     _TestType.functional: os.path.join(TEST_ROOT, 'snippets'),
-    _TestType.benchmark: os.path.join(TEST_ROOT, 'benchmarks'),
 }
 CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'py_code_object'))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
@@ -65,8 +63,7 @@ def run_via_cpython_bytecode(filename, test_type):
 
     # Step2: run cpython bytecode:
     env = os.environ.copy()
-    log_level = 'info' if test_type == _TestType.benchmark else 'debug'
-    env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
+    env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
     env['RUST_BACKTRACE'] = '1'
     with pushd(CPYTHON_RUNNER_DIR):
         subprocess.check_call(['cargo', 'run', bytecode_filename], env=env)
@@ -74,15 +71,15 @@ def run_via_cpython_bytecode(filename, test_type):
 
 def run_via_rustpython(filename, test_type):
     env = os.environ.copy()
-    log_level = 'info' if test_type == _TestType.benchmark else 'trace'
-    env['RUST_LOG'] = '{},cargo=error,jobserver=error'.format(log_level)
+    env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
     env['RUST_BACKTRACE'] = '1'
+
+    target = 'release'
     if env.get('CODE_COVERAGE', 'false') == 'true':
-        subprocess.check_call(
-            ['cargo', 'run', filename], env=env)
-    else:
-        subprocess.check_call(
-            ['cargo', 'run', '--release', filename], env=env)
+        target = 'debug'
+    binary = os.path.abspath(os.path.join(ROOT_DIR, 'target', target, 'rustpython'))
+
+    subprocess.check_call([binary, filename], env=env)
 
 
 def create_test_function(cls, filename, method, test_type):
@@ -124,4 +121,7 @@ def get_test_files():
 # @populate('cpython_bytecode')
 @populate('rustpython')
 class SampleTestCase(unittest.TestCase):
-    pass
+    @classmethod
+    def setUpClass(cls):
+        subprocess.check_call(['cargo', 'build'])
+        subprocess.check_call(['cargo', 'build', '--release'])

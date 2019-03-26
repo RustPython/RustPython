@@ -247,6 +247,15 @@ where
     }
 }
 
+impl<T> IntoIterator for KwArgs<T> {
+    type Item = (String, T);
+    type IntoIter = std::collections::hash_map::IntoIter<String, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 /// A list of positional argument values.
 ///
 /// A built-in function with a `Args` parameter is analagous to a Python

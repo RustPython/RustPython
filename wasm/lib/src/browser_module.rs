@@ -363,6 +363,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
             doc: window().document().expect("Document missing from window"),
         },
         document_class.clone(),
+        None,
     );
 
     let element = py_class!(ctx, "Element", ctx.object(), {

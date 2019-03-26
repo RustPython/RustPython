@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    PyAttributes, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    DictProtocol, PyAttributes, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -124,57 +124,48 @@ pub fn py_dict_to_attributes(dict: &PyObjectRef) -> PyAttributes {
     attrs
 }
 
-pub fn attributes_to_py_dict(vm: &VirtualMachine, attributes: PyAttributes) -> PyResult {
-    let dict = vm.ctx.new_dict();
-    for (key, value) in attributes {
-        let key = vm.ctx.new_str(key);
-        set_item(&dict, vm, &key, &value);
-    }
-    Ok(dict)
-}
-
 // Python dict methods:
-fn dict_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(_ty, Some(vm.ctx.type_type()))],
-        optional = [(dict_obj, None)]
-    );
-    let dict = vm.ctx.new_dict();
-    if let Some(dict_obj) = dict_obj {
-        if objtype::isinstance(&dict_obj, &vm.ctx.dict_type()) {
-            for (needle, value) in get_key_value_pairs(&dict_obj) {
-                set_item(&dict, vm, &needle, &value);
-            }
-        } else {
-            let iter = objiter::get_iter(vm, dict_obj)?;
-            loop {
-                fn err(vm: &VirtualMachine) -> PyObjectRef {
-                    vm.new_type_error("Iterator must have exactly two elements".to_string())
+impl PyDictRef {
+    fn new(
+        _class: PyClassRef, // TODO Support subclasses of int.
+        dict_obj: OptionalArg<PyObjectRef>,
+        kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyDictRef> {
+        let dict = vm.ctx.new_dict();
+        if let OptionalArg::Present(dict_obj) = dict_obj {
+            if objtype::isinstance(&dict_obj, &vm.ctx.dict_type()) {
+                for (needle, value) in get_key_value_pairs(&dict_obj) {
+                    set_item(dict.as_object(), vm, &needle, &value);
                 }
-                let element = match objiter::get_next_object(vm, &iter)? {
-                    Some(obj) => obj,
-                    None => break,
-                };
-                let elem_iter = objiter::get_iter(vm, &element)?;
-                let needle = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
-                if objiter::get_next_object(vm, &elem_iter)?.is_some() {
-                    return Err(err(vm));
+            } else {
+                let iter = objiter::get_iter(vm, &dict_obj)?;
+                loop {
+                    fn err(vm: &VirtualMachine) -> PyObjectRef {
+                        vm.new_type_error("Iterator must have exactly two elements".to_string())
+                    }
+                    let element = match objiter::get_next_object(vm, &iter)? {
+                        Some(obj) => obj,
+                        None => break,
+                    };
+                    let elem_iter = objiter::get_iter(vm, &element)?;
+                    let needle =
+                        objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    if objiter::get_next_object(vm, &elem_iter)?.is_some() {
+                        return Err(err(vm));
+                    }
+                    set_item(dict.as_object(), vm, &needle, &value);
                 }
-                set_item(&dict, vm, &needle, &value);
             }
         }
+        for (needle, value) in kwargs.into_iter() {
+            let py_needle = vm.new_str(needle);
+            set_item(&dict.as_object(), vm, &py_needle, &value);
+        }
+        Ok(dict)
     }
-    for (needle, value) in args.kwargs {
-        let py_needle = vm.new_str(needle);
-        set_item(&dict, vm, &py_needle, &value);
-    }
-    Ok(dict)
-}
 
-impl PyDictRef {
     fn bool(self, _vm: &VirtualMachine) -> bool {
         !self.entries.borrow().is_empty()
     }
@@ -302,6 +293,31 @@ impl PyDictRef {
     }
 }
 
+impl DictProtocol for PyDictRef {
+    fn contains_key(&self, k: &str) -> bool {
+        content_contains_key_str(&self.entries.borrow(), k)
+    }
+
+    fn get_item(&self, k: &str) -> Option<PyObjectRef> {
+        content_get_key_str(&self.entries.borrow(), k)
+    }
+
+    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
+        get_key_value_pairs(self.as_object())
+    }
+
+    // Item set/get:
+    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
+        let key = ctx.new_str(key.to_string());
+        set_item_in_content(&mut self.entries.borrow_mut(), &key, &v);
+    }
+
+    fn del_item(&self, key: &str) {
+        let mut elements = get_mut_elements(self.as_object());
+        elements.remove(key).unwrap();
+    }
+}
+
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.dict_type, {
         "__bool__" => context.new_rustfunc(PyDictRef::bool),
@@ -310,7 +326,7 @@ pub fn init(context: &PyContext) {
         "__delitem__" => context.new_rustfunc(PyDictRef::delitem),
         "__getitem__" => context.new_rustfunc(PyDictRef::getitem),
         "__iter__" => context.new_rustfunc(PyDictRef::iter),
-        "__new__" => context.new_rustfunc(dict_new),
+        "__new__" => context.new_rustfunc(PyDictRef::new),
         "__repr__" => context.new_rustfunc(PyDictRef::repr),
         "__setitem__" => context.new_rustfunc(PyDictRef::setitem),
         "clear" => context.new_rustfunc(PyDictRef::clear),
