@@ -76,7 +76,7 @@ fn bind_method(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(function, None), (obj, None), (cls, None)]
     );
 
-    if obj.is(&vm.get_none()) && !cls.is(&obj.typ()) {
+    if obj.is(&vm.get_none()) && !cls.is(&obj.class()) {
         Ok(function.clone())
     } else {
         Ok(vm.ctx.new_bound_method(function.clone(), obj.clone()))

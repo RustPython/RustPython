@@ -21,7 +21,7 @@ use crate::obj::objtype::PyClassRef;
  */
 pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     vm.call_method(iter_target, "__iter__", vec![])
-    // let type_str = objstr::get_value(&vm.to_str(iter_target.typ()).unwrap());
+    // let type_str = objstr::get_value(&vm.to_str(iter_target.class()).unwrap());
     // let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
     // return Err(type_error);
 }
