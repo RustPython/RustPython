@@ -368,7 +368,7 @@ fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(value) => vm.invoke(value, PyFuncArgs::default()),
         Err(..) => Err(vm.new_type_error(format!(
             "object of type '{}' has no method {:?}",
-            objtype::get_type_name(&obj.class()),
+            obj.class(),
             len_method_name
         ))),
     }
@@ -605,10 +605,7 @@ fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     match vm.get_method(obj.clone(), "__reversed__") {
         Ok(value) => vm.invoke(value, PyFuncArgs::default()),
         // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
-        Err(..) => Err(vm.new_type_error(format!(
-            "'{}' object is not reversible",
-            objtype::get_type_name(&obj.class()),
-        ))),
+        Err(..) => Err(vm.new_type_error(format!("'{}' object is not reversible", obj.class()))),
     }
 }
 // builtin_reversed

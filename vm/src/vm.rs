@@ -174,11 +174,11 @@ impl VirtualMachine {
         b: PyObjectRef,
         op: &str,
     ) -> PyObjectRef {
-        let a_type_name = objtype::get_type_name(&a.class());
-        let b_type_name = objtype::get_type_name(&b.class());
         self.new_type_error(format!(
             "Unsupported operand types for '{}': '{}' and '{}'",
-            op, a_type_name, b_type_name
+            op,
+            a.class(),
+            b.class()
         ))
     }
 

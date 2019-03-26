@@ -88,7 +88,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
-            let type_name = objtype::get_type_name(&self.class());
+            let type_name = self.class().name.clone();
             // We don't have access to a vm, so just assume that if its parent's name
             // is type, it's a type
             if type_name == "type" {
@@ -101,7 +101,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
         if let Some(PyModule { ref name, .. }) = self.payload::<PyModule>() {
             return write!(f, "module '{}'", name);
         }
-        write!(f, "'{}' object", objtype::get_type_name(&self.class()))
+        write!(f, "'{}' object", self.class())
     }
 }
 
@@ -956,7 +956,7 @@ pub trait BufferProtocol {
 
 impl BufferProtocol for PyObjectRef {
     fn readonly(&self) -> bool {
-        match objtype::get_type_name(&self.class()).as_ref() {
+        match self.class().name.as_str() {
             "bytes" => false,
             "bytearray" | "memoryview" => true,
             _ => panic!("Bytes-Like type expected not {:?}", self),

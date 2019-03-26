@@ -211,11 +211,7 @@ impl PyIntRef {
 
     fn lshift(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
-            return Err(vm.new_type_error(format!(
-                "unsupported operand type(s) for << '{}' and '{}'",
-                objtype::get_type_name(&self.as_object().class()),
-                objtype::get_type_name(&other.class())
-            )));
+            return Ok(vm.ctx.not_implemented());
         }
 
         if let Some(n_bits) = get_value(&other).to_usize() {
@@ -234,11 +230,7 @@ impl PyIntRef {
 
     fn rshift(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
-            return Err(vm.new_type_error(format!(
-                "unsupported operand type(s) for >> '{}' and '{}'",
-                objtype::get_type_name(&self.as_object().class()),
-                objtype::get_type_name(&other.class())
-            )));
+            return Ok(vm.ctx.not_implemented());
         }
 
         if let Some(n_bits) = get_value(&other).to_usize() {
@@ -420,10 +412,9 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
             }
         }
     } else {
-        let type_name = objtype::get_type_name(&obj.class());
         return Err(vm.new_type_error(format!(
             "int() argument must be a string or a number, not '{}'",
-            type_name
+            obj.class()
         )));
     };
     Ok(val)

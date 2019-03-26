@@ -68,7 +68,6 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         args,
         required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
     );
-    let type_name = objtype::get_type_name(&exc.class());
     let msg = if let Ok(m) = vm.get_attribute(exc.clone(), "msg") {
         match vm.to_pystr(&m) {
             Ok(msg) => msg,
@@ -77,7 +76,7 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         panic!("Error message must be set");
     };
-    let s = format!("{}: {}", type_name, msg);
+    let s = format!("{}: {}", exc.class(), msg);
     Ok(vm.new_str(s))
 }
 

@@ -118,10 +118,10 @@ fn object_setattr(
         dict.set_item(&vm.ctx, &attr_name.value, value);
         Ok(())
     } else {
-        let type_name = objtype::get_type_name(&obj.class());
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            type_name, &attr_name.value
+            obj.class(),
+            &attr_name.value
         )))
     }
 }
@@ -139,10 +139,10 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
         dict.del_item(&attr_name.value);
         Ok(())
     } else {
-        let type_name = objtype::get_type_name(&obj.class());
         Err(vm.new_attribute_error(format!(
             "'{}' object has no attribute '{}'",
-            type_name, &attr_name.value
+            obj.class(),
+            &attr_name.value
         )))
     }
 }
@@ -154,9 +154,8 @@ fn object_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn object_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, Some(vm.ctx.object()))]);
-    let type_name = objtype::get_type_name(&obj.class());
     let address = obj.get_id();
-    Ok(vm.new_str(format!("<{} object at 0x{:x}>", type_name, address)))
+    Ok(vm.new_str(format!("<{} object at 0x{:x}>", obj.class(), address)))
 }
 
 pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyList {
