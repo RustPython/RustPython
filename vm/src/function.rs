@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
 
-use crate::obj::objtype;
+use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use self::OptionalArg::*;
-use crate::obj::objtype::PyClassRef;
 
 /// The `PyFuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
@@ -95,7 +94,7 @@ impl PyFuncArgs {
     ) -> Result<Option<PyObjectRef>, PyObjectRef> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if objtype::isinstance(&kwarg, &ty) {
+                if isinstance(&kwarg, &ty) {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = vm.to_pystr(&ty)?;
@@ -118,7 +117,7 @@ impl PyFuncArgs {
         }
     }
 
-    pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
+    fn extract_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
         // TODO: change kwarg representation so this scan isn't necessary
         if let Some(index) = self
             .kwargs
@@ -128,6 +127,49 @@ impl PyFuncArgs {
             Some(self.kwargs.remove(index).1)
         } else {
             None
+        }
+    }
+
+    pub fn take_positional<H: ArgHandler>(
+        &mut self,
+        vm: &VirtualMachine,
+    ) -> Result<H, ArgumentError> {
+        if let Some(arg) = self.next_positional() {
+            H::from_arg(vm, arg).map_err(|err| ArgumentError::Exception(err))
+        } else if let Some(default) = H::DEFAULT {
+            Ok(default)
+        } else {
+            Err(ArgumentError::TooFewArgs)
+        }
+    }
+
+    pub fn take_positional_keyword<H: ArgHandler>(
+        &mut self,
+        vm: &VirtualMachine,
+        name: &str,
+    ) -> Result<H, ArgumentError> {
+        if let Some(arg) = self.next_positional() {
+            H::from_arg(vm, arg).map_err(|err| ArgumentError::Exception(err))
+        } else if let Some(arg) = self.extract_keyword(name) {
+            H::from_arg(vm, arg).map_err(|err| ArgumentError::Exception(err))
+        } else if let Some(default) = H::DEFAULT {
+            Ok(default)
+        } else {
+            Err(ArgumentError::TooFewArgs)
+        }
+    }
+
+    pub fn take_keyword<H: ArgHandler>(
+        &mut self,
+        vm: &VirtualMachine,
+        name: &str,
+    ) -> Result<H, ArgumentError> {
+        if let Some(arg) = self.extract_keyword(name) {
+            H::from_arg(vm, arg).map_err(|err| ArgumentError::Exception(err))
+        } else if let Some(default) = H::DEFAULT {
+            Ok(default)
+        } else {
+            Err(ArgumentError::RequiredKeywordArgument(name.to_string()))
         }
     }
 
@@ -164,6 +206,9 @@ impl PyFuncArgs {
             Err(ArgumentError::InvalidKeywordArgument(name)) => {
                 return Err(vm.new_type_error(format!("{} is an invalid keyword argument", name)));
             }
+            Err(ArgumentError::RequiredKeywordArgument(name)) => {
+                return Err(vm.new_type_error(format!("Required keyqord only argument {}", name)));
+            }
             Err(ArgumentError::Exception(ex)) => {
                 return Err(ex);
             }
@@ -192,6 +237,8 @@ pub enum ArgumentError {
     TooManyArgs,
     /// The function doesn't accept a keyword argument with the given name.
     InvalidKeywordArgument(String),
+    /// The function require a keyword argument with the given name, but one wasn't provided
+    RequiredKeywordArgument(String),
     /// An exception was raised while binding arguments to the function
     /// parameters.
     Exception(PyObjectRef),
@@ -216,6 +263,32 @@ pub trait FromArgs: Sized {
 
     /// Extracts this item from the next argument(s).
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
+}
+
+/// Handling behaviour when the argument is and isn't present, used to implement OptionalArg.
+pub trait ArgHandler: Sized {
+    /// Default value that will be used if the argument isn't present, or None in which case the a
+    /// appropriate error is returned.
+    const DEFAULT: Option<Self>;
+
+    /// Converts the arg argument when it is present
+    fn from_arg(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self>;
+}
+
+impl<T: TryFromObject> ArgHandler for OptionalArg<T> {
+    const DEFAULT: Option<Self> = Some(Missing);
+
+    fn from_arg(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        T::try_from_object(vm, object).map(|x| Present(x))
+    }
+}
+
+impl<T: TryFromObject> ArgHandler for T {
+    const DEFAULT: Option<Self> = None;
+
+    fn from_arg(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        T::try_from_object(vm, object)
+    }
 }
 
 /// A map of keyword arguments to their values.
@@ -308,6 +381,7 @@ where
 /// An argument that may or may not be provided by the caller.
 ///
 /// This style of argument is not possible in pure Python.
+#[derive(Debug)]
 pub enum OptionalArg<T> {
     Present(T),
     Missing,

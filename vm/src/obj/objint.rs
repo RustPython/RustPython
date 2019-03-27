@@ -6,7 +6,7 @@ use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::pyobject::{
     IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
@@ -380,25 +380,37 @@ impl PyIntRef {
     }
 }
 
-fn int_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(cls, None)],
-        optional = [(val_option, None)]
-    );
+#[derive(FromArgs)]
+struct IntOptions {
+    #[positional]
+    val_options: OptionalArg<PyObjectRef>,
+    base: OptionalArg<u32>,
+}
 
-    let base = match args.get_optional_kwarg("base") {
-        Some(argument) => get_value(&argument).to_u32().unwrap(),
-        None => 10,
-    };
-    let val = match val_option {
-        Some(val) => to_int(vm, val, base)?,
-        None => Zero::zero(),
-    };
-    Ok(PyInt::new(val)
-        .into_ref_with_type(vm, cls.clone().downcast().unwrap())?
-        .into_object())
+impl IntOptions {
+    fn get_int_value(self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        if let OptionalArg::Present(val) = self.val_options {
+            let base = if let OptionalArg::Present(base) = self.base {
+                if !objtype::isinstance(&val, &vm.ctx.str_type) {
+                    return Err(vm.new_type_error(
+                        "int() can't convert non-string with explicit base".to_string(),
+                    ));
+                }
+                base
+            } else {
+                10
+            };
+            to_int(vm, &val, base)
+        } else if let OptionalArg::Present(_) = self.base {
+            Err(vm.new_type_error("int() missing string argument".to_string()))
+        } else {
+            Ok(Zero::zero())
+        }
+    }
+}
+
+fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+    PyInt::new(options.get_int_value(vm)?).into_ref_with_type(vm, cls)
 }
 
 // Casting function:
