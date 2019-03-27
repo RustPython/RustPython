@@ -451,11 +451,11 @@ impl VirtualMachine {
         // Do we support `**kwargs` ?
         let kwargs = match code_object.varkeywords {
             bytecode::Varargs::Named(ref kwargs_name) => {
-                let d = self.ctx.new_dict().into_object();
-                locals.set_item(&self.ctx, kwargs_name, d.clone());
+                let d = self.ctx.new_dict();
+                locals.set_item(&self.ctx, kwargs_name, d.as_object().clone());
                 Some(d)
             }
-            bytecode::Varargs::Unnamed => Some(self.ctx.new_dict().into_object()),
+            bytecode::Varargs::Unnamed => Some(self.ctx.new_dict()),
             bytecode::Varargs::None => None,
         };
 
