@@ -66,38 +66,25 @@ fn slice_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     .map(|x| x.into_object())
 }
 
-fn get_property_value(vm: &VirtualMachine, value: &Option<BigInt>) -> PyResult {
+fn get_property_value(vm: &VirtualMachine, value: &Option<BigInt>) -> PyObjectRef {
     if let Some(value) = value {
-        Ok(vm.ctx.new_int(value.clone()))
+        vm.ctx.new_int(value.clone())
     } else {
-        Ok(vm.get_none())
+        vm.get_none()
     }
 }
 
-fn slice_start(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let Some(PySlice { start, .. }) = &slice.payload() {
-        get_property_value(vm, start)
-    } else {
-        panic!("Slice has incorrect payload.");
+impl PySliceRef {
+    fn start(self, vm: &VirtualMachine) -> PyObjectRef {
+        get_property_value(vm, &self.start)
     }
-}
 
-fn slice_stop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let Some(PySlice { stop, .. }) = &slice.payload() {
-        get_property_value(vm, stop)
-    } else {
-        panic!("Slice has incorrect payload.");
+    fn stop(self, vm: &VirtualMachine) -> PyObjectRef {
+        get_property_value(vm, &self.stop)
     }
-}
 
-fn slice_step(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(slice, Some(vm.ctx.slice_type()))]);
-    if let Some(PySlice { step, .. }) = &slice.payload() {
-        get_property_value(vm, step)
-    } else {
-        panic!("Slice has incorrect payload.");
+    fn step(self, vm: &VirtualMachine) -> PyObjectRef {
+        get_property_value(vm, &self.step)
     }
 }
 
@@ -106,8 +93,8 @@ pub fn init(context: &PyContext) {
 
     extend_class!(context, slice_type, {
         "__new__" => context.new_rustfunc(slice_new),
-        "start" => context.new_property(slice_start),
-        "stop" => context.new_property(slice_stop),
-        "step" => context.new_property(slice_step)
+        "start" => context.new_property(PySliceRef::start),
+        "stop" => context.new_property(PySliceRef::stop),
+        "step" => context.new_property(PySliceRef::step)
     });
 }
