@@ -146,14 +146,19 @@ fn generate_field(field: &Field) -> TokenStream2 {
         quote! {
             .unwrap_or_else(|| #default)
         }
+    } else if attr.optional {
+        quote! {
+            .map(crate::function::OptionalArg::Present)
+            .unwrap_or(crate::function::OptionalArg::Missing)
+        }
     } else {
         let err = match attr.kind {
-            ArgKind::Positional | ArgKind::PositionalKeyword => {
-                quote!(crate::function::ArgumentError::TooFewArgs)
-            }
-            ArgKind::Keyword => quote!(crate::function::ArgumentError::RequiredKeywordArgument(
-                stringify!(#name)
-            )),
+            ArgKind::Positional | ArgKind::PositionalKeyword => quote! {
+                crate::function::ArgumentError::TooFewArgs
+            },
+            ArgKind::Keyword => quote! {
+                crate::function::ArgumentError::RequiredKeywordArgument(tringify!(#name))
+            },
         };
         quote! {
             .ok_or_else(|| #err)?
