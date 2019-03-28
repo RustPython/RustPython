@@ -382,8 +382,9 @@ impl PyIntRef {
 
 #[derive(FromArgs)]
 struct IntOptions {
-    #[positional]
+    #[pyarg(positional, optional = true)]
     val_options: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_keyword, optional = true)]
     base: OptionalArg<u32>,
 }
 

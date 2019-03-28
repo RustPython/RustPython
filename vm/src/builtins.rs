@@ -559,22 +559,14 @@ fn builtin_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-// Idea: Should we have a 'default' attribute, so we don't have to use OptionalArg's in this case
-//#[derive(Debug, FromArgs)]
-//pub struct PrintOptions {
-//    #[keyword] #[default(None)] sep: Option<PyStringRef>,
-//    #[keyword] #[default(None)] end: Option<PyStringRef>,
-//    #[keyword] #[default(flush)] flush: bool,
-//}
-
 #[derive(Debug, FromArgs)]
 pub struct PrintOptions {
-    #[keyword]
-    sep: OptionalArg<Option<PyStringRef>>,
-    #[keyword]
-    end: OptionalArg<Option<PyStringRef>>,
-    #[keyword]
-    flush: OptionalArg<bool>,
+    #[pyarg(keyword, default = "None")]
+    sep: Option<PyStringRef>,
+    #[pyarg(keyword, default = "None")]
+    end: Option<PyStringRef>,
+    #[pyarg(keyword, default = "false")]
+    flush: bool,
 }
 
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
@@ -584,7 +576,7 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
     for object in objects {
         if first {
             first = false;
-        } else if let OptionalArg::Present(Some(ref sep)) = options.sep {
+        } else if let Some(ref sep) = options.sep {
             write!(stdout_lock, "{}", sep.value).unwrap();
         } else {
             write!(stdout_lock, " ").unwrap();
@@ -593,13 +585,13 @@ pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) 
         write!(stdout_lock, "{}", s).unwrap();
     }
 
-    if let OptionalArg::Present(Some(end)) = options.end {
+    if let Some(end) = options.end {
         write!(stdout_lock, "{}", end.value).unwrap();
     } else {
         writeln!(stdout_lock).unwrap();
     }
 
-    if options.flush.into_option().unwrap_or(false) {
+    if options.flush {
         stdout_lock.flush().unwrap();
     }
 

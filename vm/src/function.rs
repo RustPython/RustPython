@@ -109,7 +109,7 @@ impl PyFuncArgs {
         }
     }
 
-    pub fn next_positional(&mut self) -> Option<PyObjectRef> {
+    pub fn take_positional(&mut self) -> Option<PyObjectRef> {
         if self.args.is_empty() {
             None
         } else {
@@ -117,7 +117,11 @@ impl PyFuncArgs {
         }
     }
 
-    fn extract_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
+    pub fn take_positional_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
+        self.take_positional().or_else(|| self.take_keyword(name))
+    }
+
+    pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
         // TODO: change kwarg representation so this scan isn't necessary
         if let Some(index) = self
             .kwargs
@@ -127,49 +131,6 @@ impl PyFuncArgs {
             Some(self.kwargs.remove(index).1)
         } else {
             None
-        }
-    }
-
-    pub fn take_positional<H: ArgHandler>(
-        &mut self,
-        vm: &VirtualMachine,
-    ) -> Result<H, ArgumentError> {
-        if let Some(arg) = self.next_positional() {
-            H::from_arg(vm, arg).map_err(|err| ArgumentError::Exception(err))
-        } else if let Some(default) = H::DEFAULT {
-            Ok(default)
-        } else {
-            Err(ArgumentError::TooFewArgs)
-        }
-    }
-
-    pub fn take_positional_keyword<H: ArgHandler>(
-        &mut self,
-        vm: &VirtualMachine,
-        name: &str,
-    ) -> Result<H, ArgumentError> {
-        if let Some(arg) = self.next_positional() {
-            H::from_arg(vm, arg).map_err(|err| ArgumentError::Exception(err))
-        } else if let Some(arg) = self.extract_keyword(name) {
-            H::from_arg(vm, arg).map_err(|err| ArgumentError::Exception(err))
-        } else if let Some(default) = H::DEFAULT {
-            Ok(default)
-        } else {
-            Err(ArgumentError::TooFewArgs)
-        }
-    }
-
-    pub fn take_keyword<H: ArgHandler>(
-        &mut self,
-        vm: &VirtualMachine,
-        name: &str,
-    ) -> Result<H, ArgumentError> {
-        if let Some(arg) = self.extract_keyword(name) {
-            H::from_arg(vm, arg).map_err(|err| ArgumentError::Exception(err))
-        } else if let Some(default) = H::DEFAULT {
-            Ok(default)
-        } else {
-            Err(ArgumentError::RequiredKeywordArgument(name.to_string()))
         }
     }
 
@@ -265,32 +226,6 @@ pub trait FromArgs: Sized {
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError>;
 }
 
-/// Handling behaviour when the argument is and isn't present, used to implement OptionalArg.
-pub trait ArgHandler: Sized {
-    /// Default value that will be used if the argument isn't present, or None in which case the a
-    /// appropriate error is returned.
-    const DEFAULT: Option<Self>;
-
-    /// Converts the arg argument when it is present
-    fn from_arg(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self>;
-}
-
-impl<T: TryFromObject> ArgHandler for OptionalArg<T> {
-    const DEFAULT: Option<Self> = Some(Missing);
-
-    fn from_arg(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        T::try_from_object(vm, object).map(|x| Present(x))
-    }
-}
-
-impl<T: TryFromObject> ArgHandler for T {
-    const DEFAULT: Option<Self> = None;
-
-    fn from_arg(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        T::try_from_object(vm, object)
-    }
-}
-
 /// A map of keyword arguments to their values.
 ///
 /// A built-in function with a `KwArgs` parameter is analagous to a Python
@@ -345,7 +280,7 @@ where
 {
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
-        while let Some(value) = args.next_positional() {
+        while let Some(value) = args.take_positional() {
             varargs.push(T::try_from_object(vm, value)?);
         }
         Ok(Args(varargs))
@@ -370,7 +305,7 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.next_positional() {
+        if let Some(value) = args.take_positional() {
             Ok(T::try_from_object(vm, value)?)
         } else {
             Err(ArgumentError::TooFewArgs)
@@ -414,7 +349,7 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.next_positional() {
+        if let Some(value) = args.take_positional() {
             Ok(Present(T::try_from_object(vm, value)?))
         } else {
             Ok(Missing)
