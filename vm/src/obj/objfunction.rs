@@ -1,5 +1,4 @@
 use crate::frame::Scope;
-use crate::function::PyFuncArgs;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
@@ -69,16 +68,15 @@ pub fn init(context: &PyContext) {
     });
 }
 
-fn bind_method(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(function, None), (obj, None), (cls, None)]
-    );
-
+fn bind_method(
+    function: PyObjectRef,
+    obj: PyObjectRef,
+    cls: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult {
     if obj.is(&vm.get_none()) && !cls.is(&obj.class()) {
-        Ok(function.clone())
+        Ok(function)
     } else {
-        Ok(vm.ctx.new_bound_method(function.clone(), obj.clone()))
+        Ok(vm.ctx.new_bound_method(function, obj))
     }
 }
