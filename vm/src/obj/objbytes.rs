@@ -1,17 +1,16 @@
 use std::cell::Cell;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 
 use num_traits::ToPrimitive;
 
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::function::OptionalArg;
+use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint;
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyBytes {
@@ -94,102 +93,60 @@ fn bytes_new(
 }
 
 impl PyBytesRef {
-    fn eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-        );
-
-        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-            get_value(a).to_vec() == get_value(b).to_vec()
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Ok(other) = other.downcast::<PyBytes>() {
+            vm.ctx.new_bool(self.value == other.value)
         } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-        Ok(vm.ctx.new_bool(result))
+            vm.ctx.not_implemented()
+        }
     }
 
-    fn ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-        );
-
-        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-            get_value(a).to_vec() >= get_value(b).to_vec()
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Ok(other) = other.downcast::<PyBytes>() {
+            vm.ctx.new_bool(self.value >= other.value)
         } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-        Ok(vm.ctx.new_bool(result))
+            vm.ctx.not_implemented()
+        }
     }
 
-    fn gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-        );
-
-        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-            get_value(a).to_vec() > get_value(b).to_vec()
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Ok(other) = other.downcast::<PyBytes>() {
+            vm.ctx.new_bool(self.value > other.value)
         } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-        Ok(vm.ctx.new_bool(result))
+            vm.ctx.not_implemented()
+        }
     }
 
-    fn le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-        );
-
-        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-            get_value(a).to_vec() <= get_value(b).to_vec()
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Ok(other) = other.downcast::<PyBytes>() {
+            vm.ctx.new_bool(self.value <= other.value)
         } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-        Ok(vm.ctx.new_bool(result))
+            vm.ctx.not_implemented()
+        }
     }
 
-    fn lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-        );
-
-        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-            get_value(a).to_vec() < get_value(b).to_vec()
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Ok(other) = other.downcast::<PyBytes>() {
+            vm.ctx.new_bool(self.value < other.value)
         } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-        Ok(vm.ctx.new_bool(result))
+            vm.ctx.not_implemented()
+        }
     }
 
-    fn len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(a, Some(vm.ctx.bytes_type()))]);
-
-        let byte_vec = get_value(a).to_vec();
-        Ok(vm.ctx.new_int(byte_vec.len()))
+    fn len(self, _vm: &VirtualMachine) -> usize {
+        self.value.len()
     }
 
-    fn hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);
-        let data = get_value(zelf);
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        data.hash(&mut hasher);
-        let hash = hasher.finish();
-        Ok(vm.ctx.new_int(hash))
+    fn hash(self, _vm: &VirtualMachine) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.value.hash(&mut hasher);
+        hasher.finish()
     }
 
-    fn repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
-        let value = get_value(obj);
-        let data = String::from_utf8(value.to_vec()).unwrap();
-        Ok(vm.new_str(format!("b'{}'", data)))
+    fn repr(self, _vm: &VirtualMachine) -> String {
+        // TODO: don't just unwrap
+        let data = String::from_utf8(self.value.clone()).unwrap();
+        format!("b'{}'", data)
     }
 
     fn iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
