@@ -715,7 +715,7 @@ fn str_format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     let zelf = &args.args[0];
     if !objtype::isinstance(&zelf, &vm.ctx.str_type()) {
-        let zelf_typ = zelf.typ();
+        let zelf_typ = zelf.class();
         let actual_type = vm.to_pystr(&zelf_typ)?;
         return Err(vm.new_type_error(format!(
             "descriptor 'format' requires a 'str' object but received a '{}'",
@@ -738,7 +738,7 @@ fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &
     let returned_type = vm.ctx.new_str(format_spec.to_string());
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
-        let result_type = result.typ();
+        let result_type = result.class();
         let actual_type = vm.to_pystr(&result_type)?;
         return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
     }
@@ -809,7 +809,7 @@ fn str_new(
         OptionalArg::Present(ref input) => vm.to_str(input)?.into_object(),
         OptionalArg::Missing => vm.new_str("".to_string()),
     };
-    if string.typ().is(&cls) {
+    if string.class().is(&cls) {
         TryFromObject::try_from_object(vm, string)
     } else {
         let payload = string.payload::<PyString>().unwrap();

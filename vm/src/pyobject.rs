@@ -88,7 +88,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::TypeProtocol;
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
-            let type_name = objtype::get_type_name(&self.typ());
+            let type_name = self.class().name.clone();
             // We don't have access to a vm, so just assume that if its parent's name
             // is type, it's a type
             if type_name == "type" {
@@ -101,7 +101,7 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
         if let Some(PyModule { ref name, .. }) = self.payload::<PyModule>() {
             return write!(f, "module '{}'", name);
         }
-        write!(f, "'{}' object", objtype::get_type_name(&self.typ()))
+        write!(f, "'{}' object", self.class().name)
     }
 }
 
@@ -163,7 +163,7 @@ pub struct PyNotImplemented;
 
 impl PyValue for PyNotImplemented {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.not_implemented().type_pyref()
+        vm.ctx.not_implemented().class()
     }
 }
 
@@ -582,7 +582,7 @@ impl PyContext {
     }
 
     pub fn new_scope(&self) -> Scope {
-        Scope::new(None, self.new_dict().into_object())
+        Scope::new(None, self.new_dict())
     }
 
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
@@ -613,8 +613,10 @@ impl PyContext {
         PropertyBuilder::new(self).add_getter(f).create()
     }
 
-    pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyObjectRef {
+    pub fn new_code_object(&self, code: bytecode::CodeObject) -> PyCodeRef {
         PyObject::new(objcode::PyCode::new(code), self.code_type(), None)
+            .downcast()
+            .unwrap()
     }
 
     pub fn new_function(
@@ -683,7 +685,9 @@ impl PyContext {
             bytecode::Constant::String { ref value } => self.new_str(value.clone()),
             bytecode::Constant::Bytes { ref value } => self.new_bytes(value.clone()),
             bytecode::Constant::Boolean { ref value } => self.new_bool(value.clone()),
-            bytecode::Constant::Code { ref code } => self.new_code_object(*code.clone()),
+            bytecode::Constant::Code { ref code } => {
+                self.new_code_object(*code.clone()).into_object()
+            }
             bytecode::Constant::Tuple { ref elements } => {
                 let elements = elements
                     .iter()
@@ -772,7 +776,7 @@ impl<T: PyValue> PyRef<T> {
 
     pub fn typ(&self) -> PyClassRef {
         PyRef {
-            obj: self.obj.typ(),
+            obj: self.obj.class().into_object(),
             _payload: PhantomData,
         }
     }
@@ -802,7 +806,7 @@ where
         } else {
             let class = T::class(vm);
             let expected_type = vm.to_pystr(&class)?;
-            let actual_type = vm.to_pystr(&obj.typ())?;
+            let actual_type = vm.to_pystr(&obj.class())?;
             Err(vm.new_type_error(format!(
                 "Expected type {}, not {}",
                 expected_type, actual_type,
@@ -877,18 +881,12 @@ impl<T: PyObjectPayload> IdProtocol for PyRef<T> {
 }
 
 pub trait TypeProtocol {
-    fn typ(&self) -> PyObjectRef {
-        self.type_ref().clone()
-    }
-    fn type_pyref(&self) -> PyClassRef {
-        self.typ().downcast().unwrap()
-    }
-    fn type_ref(&self) -> &PyObjectRef;
+    fn class(&self) -> PyClassRef;
 }
 
 impl TypeProtocol for PyObjectRef {
-    fn type_ref(&self) -> &PyObjectRef {
-        (**self).type_ref()
+    fn class(&self) -> PyClassRef {
+        (**self).class()
     }
 }
 
@@ -896,8 +894,14 @@ impl<T> TypeProtocol for PyObject<T>
 where
     T: ?Sized + PyObjectPayload,
 {
-    fn type_ref(&self) -> &PyObjectRef {
-        self.typ.as_object()
+    fn class(&self) -> PyClassRef {
+        self.typ.clone()
+    }
+}
+
+impl<T> TypeProtocol for PyRef<T> {
+    fn class(&self) -> PyClassRef {
+        self.obj.typ.clone()
     }
 }
 
@@ -956,7 +960,7 @@ pub trait BufferProtocol {
 
 impl BufferProtocol for PyObjectRef {
     fn readonly(&self) -> bool {
-        match objtype::get_type_name(&self.typ()).as_ref() {
+        match self.class().name.as_str() {
             "bytes" => false,
             "bytearray" | "memoryview" => true,
             _ => panic!("Bytes-Like type expected not {:?}", self),
@@ -1249,7 +1253,7 @@ where
                     "must be {} or {}, not {}",
                     A::class(vm),
                     B::class(vm),
-                    obj.type_pyref()
+                    obj.class()
                 ))
             })
     }

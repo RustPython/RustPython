@@ -13,6 +13,7 @@ pip install pipenv
 if [ $CODE_COVERAGE = "true" ]
 then
     find . -name '*.gcda' -delete
+    find . -name '*.gcno' -delete
 
     export CARGO_INCREMENTAL=0
     export RUSTFLAGS="-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Zno-landing-pads"

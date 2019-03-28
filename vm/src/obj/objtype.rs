@@ -39,12 +39,6 @@ impl PyValue for PyClass {
     }
 }
 
-impl TypeProtocol for PyClassRef {
-    fn type_ref(&self) -> &PyObjectRef {
-        &self.as_object().type_ref()
-    }
-}
-
 struct IterMro<'a> {
     cls: &'a PyClassRef,
     offset: Option<usize>,
@@ -117,10 +111,10 @@ impl PyClassRef {
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let name = &name_ref.value;
         trace!("type.__getattribute__({:?}, {:?})", self, name);
-        let mcl = self.type_pyref();
+        let mcl = self.class();
 
         if let Some(attr) = class_get_attr(&mcl, &name) {
-            let attr_class = attr.type_pyref();
+            let attr_class = attr.class();
             if class_has_attr(&attr_class, "__set__") {
                 if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
                     return vm.invoke(
@@ -132,7 +126,7 @@ impl PyClassRef {
         }
 
         if let Some(attr) = class_get_attr(&self, &name) {
-            let attr_class = attr.type_pyref();
+            let attr_class = attr.class();
             if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
                 let none = vm.get_none();
                 return vm.invoke(descriptor, vec![attr, none, self.into_object()]);
@@ -156,8 +150,8 @@ impl PyClassRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let Some(attr) = class_get_attr(&self.type_pyref(), &attr_name.value) {
-            if let Some(descriptor) = class_get_attr(&attr.type_pyref(), "__set__") {
+        if let Some(attr) = class_get_attr(&self.class(), &attr_name.value) {
+            if let Some(descriptor) = class_get_attr(&attr.class(), "__set__") {
                 vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
                 return Ok(());
             }
@@ -218,7 +212,7 @@ fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 pub fn isinstance(obj: &PyObjectRef, cls: &PyClassRef) -> bool {
-    issubclass(&obj.type_pyref(), &cls)
+    issubclass(&obj.class(), &cls)
 }
 
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
@@ -229,18 +223,10 @@ pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
     subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
 }
 
-pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let Some(PyClass { name, .. }) = &typ.payload::<PyClass>() {
-        name.clone()
-    } else {
-        panic!("Cannot get type_name of non-type type {:?}", typ);
-    }
-}
-
 pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     debug!("type.__new__ {:?}", args);
     if args.args.len() == 2 {
-        Ok(args.args[1].typ())
+        Ok(args.args[1].class().into_object())
     } else if args.args.len() == 4 {
         let (typ, name, bases, dict) = args.bind(vm)?;
         type_new_class(vm, typ, name, bases, dict).map(|x| x.into_object())

@@ -74,7 +74,7 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
         } else {
             Err(serde::ser::Error::custom(format!(
                 "Object of type '{:?}' is not serializable",
-                self.pyobject.typ()
+                self.pyobject.class()
             )))
         }
     }
@@ -199,8 +199,7 @@ pub fn de_pyobject(vm: &VirtualMachine, s: &str) -> PyResult {
     de.deserialize(&mut serde_json::Deserializer::from_str(s))
         .map_err(|err| {
             let json_decode_error = vm
-                .sys_module
-                .get_item("modules")
+                .get_attribute(vm.sys_module.clone(), "modules")
                 .unwrap()
                 .get_item("json")
                 .unwrap()

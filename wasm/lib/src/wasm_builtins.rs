@@ -25,7 +25,7 @@ pub fn format_print_args(vm: &VirtualMachine, args: PyFuncArgs) -> Result<String
         if !objtype::isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
                 "sep must be None or a string, not {}",
-                objtype::get_type_name(&obj.typ())
+                obj.class().name
             )));
         }
     }
@@ -39,7 +39,7 @@ pub fn format_print_args(vm: &VirtualMachine, args: PyFuncArgs) -> Result<String
         if !objtype::isinstance(obj, &vm.ctx.str_type()) {
             return Err(vm.new_type_error(format!(
                 "end must be None or a string, not {}",
-                objtype::get_type_name(&obj.typ())
+                obj.class().name
             )));
         }
     }
