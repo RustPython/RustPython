@@ -57,16 +57,16 @@ pub fn init(context: &PyContext) {
          - an integer";
 
     extend_class!(context, bytes_type, {
-        "__eq__" => context.new_rustfunc(bytes_eq),
-        "__lt__" => context.new_rustfunc(bytes_lt),
-        "__le__" => context.new_rustfunc(bytes_le),
-        "__gt__" => context.new_rustfunc(bytes_gt),
-        "__ge__" => context.new_rustfunc(bytes_ge),
-        "__hash__" => context.new_rustfunc(bytes_hash),
         "__new__" => context.new_rustfunc(bytes_new),
-        "__repr__" => context.new_rustfunc(bytes_repr),
-        "__len__" => context.new_rustfunc(bytes_len),
-        "__iter__" => context.new_rustfunc(bytes_iter),
+        "__eq__" => context.new_rustfunc(PyBytesRef::eq),
+        "__lt__" => context.new_rustfunc(PyBytesRef::lt),
+        "__le__" => context.new_rustfunc(PyBytesRef::le),
+        "__gt__" => context.new_rustfunc(PyBytesRef::gt),
+        "__ge__" => context.new_rustfunc(PyBytesRef::ge),
+        "__hash__" => context.new_rustfunc(PyBytesRef::hash),
+        "__repr__" => context.new_rustfunc(PyBytesRef::repr),
+        "__len__" => context.new_rustfunc(PyBytesRef::len),
+        "__iter__" => context.new_rustfunc(PyBytesRef::iter),
         "__doc__" => context.new_str(bytes_doc.to_string())
     });
 }
@@ -93,111 +93,113 @@ fn bytes_new(
     PyBytes::new(value).into_ref_with_type(vm, cls)
 }
 
-fn bytes_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
+impl PyBytesRef {
+    fn eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(
+            vm,
+            args,
+            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
+        );
 
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() == get_value(b).to_vec()
-    } else {
-        false
-    };
-    Ok(vm.ctx.new_bool(result))
-}
+        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
+            get_value(a).to_vec() == get_value(b).to_vec()
+        } else {
+            false
+        };
+        Ok(vm.ctx.new_bool(result))
+    }
 
-fn bytes_ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
+    fn ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(
+            vm,
+            args,
+            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
+        );
 
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() >= get_value(b).to_vec()
-    } else {
-        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>'", a, b)));
-    };
-    Ok(vm.ctx.new_bool(result))
-}
+        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
+            get_value(a).to_vec() >= get_value(b).to_vec()
+        } else {
+            return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>'", a, b)));
+        };
+        Ok(vm.ctx.new_bool(result))
+    }
 
-fn bytes_gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
+    fn gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(
+            vm,
+            args,
+            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
+        );
 
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() > get_value(b).to_vec()
-    } else {
-        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>='", a, b)));
-    };
-    Ok(vm.ctx.new_bool(result))
-}
+        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
+            get_value(a).to_vec() > get_value(b).to_vec()
+        } else {
+            return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>='", a, b)));
+        };
+        Ok(vm.ctx.new_bool(result))
+    }
 
-fn bytes_le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
+    fn le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(
+            vm,
+            args,
+            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
+        );
 
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() <= get_value(b).to_vec()
-    } else {
-        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<'", a, b)));
-    };
-    Ok(vm.ctx.new_bool(result))
-}
+        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
+            get_value(a).to_vec() <= get_value(b).to_vec()
+        } else {
+            return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<'", a, b)));
+        };
+        Ok(vm.ctx.new_bool(result))
+    }
 
-fn bytes_lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
+    fn lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(
+            vm,
+            args,
+            required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
+        );
 
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() < get_value(b).to_vec()
-    } else {
-        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<='", a, b)));
-    };
-    Ok(vm.ctx.new_bool(result))
-}
+        let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
+            get_value(a).to_vec() < get_value(b).to_vec()
+        } else {
+            return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<='", a, b)));
+        };
+        Ok(vm.ctx.new_bool(result))
+    }
 
-fn bytes_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(a, Some(vm.ctx.bytes_type()))]);
+    fn len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(vm, args, required = [(a, Some(vm.ctx.bytes_type()))]);
 
-    let byte_vec = get_value(a).to_vec();
-    Ok(vm.ctx.new_int(byte_vec.len()))
-}
+        let byte_vec = get_value(a).to_vec();
+        Ok(vm.ctx.new_int(byte_vec.len()))
+    }
 
-fn bytes_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);
-    let data = get_value(zelf);
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    data.hash(&mut hasher);
-    let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash))
+    fn hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);
+        let data = get_value(zelf);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        data.hash(&mut hasher);
+        let hash = hasher.finish();
+        Ok(vm.ctx.new_int(hash))
+    }
+
+    fn repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+        arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
+        let value = get_value(obj);
+        let data = String::from_utf8(value.to_vec()).unwrap();
+        Ok(vm.new_str(format!("b'{}'", data)))
+    }
+
+    fn iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: obj.into_object(),
+        }
+    }
 }
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
     &obj.payload::<PyBytes>().unwrap().value
-}
-
-fn bytes_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
-    let value = get_value(obj);
-    let data = String::from_utf8(value.to_vec()).unwrap();
-    Ok(vm.new_str(format!("b'{}'", data)))
-}
-
-fn bytes_iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
-    PyIteratorValue {
-        position: Cell::new(0),
-        iterated_obj: obj.into_object(),
-    }
 }
