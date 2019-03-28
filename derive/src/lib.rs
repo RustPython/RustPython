@@ -13,20 +13,22 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
     gen.to_string().parse().unwrap()
 }
 
-enum ArgKind {
-    Positional,
-    PositionalKeyword,
-    Keyword,
+/// The kind of the python parameter, this corresponds to the value of Parameter.kind
+/// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
+enum ParameterKind {
+    PositionalOnly,
+    PositionalOrKeyword,
+    KeywordOnly,
 }
 
-impl ArgKind {
-    fn from_ident(ident: &Ident) -> ArgKind {
+impl ParameterKind {
+    fn from_ident(ident: &Ident) -> ParameterKind {
         if ident == "positional" {
-            ArgKind::Positional
+            ParameterKind::PositionalOnly
         } else if ident == "positional_keyword" {
-            ArgKind::PositionalKeyword
+            ParameterKind::PositionalOrKeyword
         } else if ident == "keyword" {
-            ArgKind::Keyword
+            ParameterKind::KeywordOnly
         } else {
             panic!("Unrecognised attribute")
         }
@@ -34,7 +36,7 @@ impl ArgKind {
 }
 
 struct ArgAttribute {
-    kind: ArgKind,
+    kind: ParameterKind,
     default: Option<Expr>,
     optional: bool,
 }
@@ -50,7 +52,7 @@ impl ArgAttribute {
                 let mut iter = list.nested.iter();
                 let first_arg = iter.next().expect("at least one argument in pyarg list");
                 let kind = match first_arg {
-                    NestedMeta::Meta(Meta::Word(ident)) => ArgKind::from_ident(ident),
+                    NestedMeta::Meta(Meta::Word(ident)) => ParameterKind::from_ident(ident),
                     _ => panic!("Bad syntax for first pyarg attribute argument"),
                 };
 
@@ -125,7 +127,7 @@ fn generate_field(field: &Field) -> TokenStream2 {
         .collect::<Vec<_>>();
     let attr = if pyarg_attrs.is_empty() {
         ArgAttribute {
-            kind: ArgKind::PositionalKeyword,
+            kind: ParameterKind::PositionalOrKeyword,
             default: None,
             optional: false,
         }
@@ -153,10 +155,10 @@ fn generate_field(field: &Field) -> TokenStream2 {
         }
     } else {
         let err = match attr.kind {
-            ArgKind::Positional | ArgKind::PositionalKeyword => quote! {
+            ParameterKind::PositionalOnly | ParameterKind::PositionalOrKeyword => quote! {
                 crate::function::ArgumentError::TooFewArgs
             },
-            ArgKind::Keyword => quote! {
+            ParameterKind::KeywordOnly => quote! {
                 crate::function::ArgumentError::RequiredKeywordArgument(tringify!(#name))
             },
         };
@@ -166,17 +168,17 @@ fn generate_field(field: &Field) -> TokenStream2 {
     };
 
     match attr.kind {
-        ArgKind::Positional => {
+        ParameterKind::PositionalOnly => {
             quote! {
                 #name: args.take_positional()#middle#ending,
             }
         }
-        ArgKind::PositionalKeyword => {
+        ParameterKind::PositionalOrKeyword => {
             quote! {
                 #name: args.take_positional_keyword(stringify!(#name))#middle#ending,
             }
         }
-        ArgKind::Keyword => {
+        ParameterKind::KeywordOnly => {
             quote! {
                 #name: args.take_keyword(stringify!(#name))#middle#ending,
             }
