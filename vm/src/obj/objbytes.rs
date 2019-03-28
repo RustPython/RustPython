@@ -104,7 +104,7 @@ impl PyBytesRef {
         let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
             get_value(a).to_vec() == get_value(b).to_vec()
         } else {
-            false
+            return Ok(vm.ctx.not_implemented());
         };
         Ok(vm.ctx.new_bool(result))
     }
@@ -119,7 +119,7 @@ impl PyBytesRef {
         let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
             get_value(a).to_vec() >= get_value(b).to_vec()
         } else {
-            return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>'", a, b)));
+            return Ok(vm.ctx.not_implemented());
         };
         Ok(vm.ctx.new_bool(result))
     }
@@ -134,7 +134,7 @@ impl PyBytesRef {
         let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
             get_value(a).to_vec() > get_value(b).to_vec()
         } else {
-            return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>='", a, b)));
+            return Ok(vm.ctx.not_implemented());
         };
         Ok(vm.ctx.new_bool(result))
     }
@@ -149,7 +149,7 @@ impl PyBytesRef {
         let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
             get_value(a).to_vec() <= get_value(b).to_vec()
         } else {
-            return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<'", a, b)));
+            return Ok(vm.ctx.not_implemented());
         };
         Ok(vm.ctx.new_bool(result))
     }
@@ -164,7 +164,7 @@ impl PyBytesRef {
         let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
             get_value(a).to_vec() < get_value(b).to_vec()
         } else {
-            return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<='", a, b)));
+            return Ok(vm.ctx.not_implemented());
         };
         Ok(vm.ctx.new_bool(result))
     }
