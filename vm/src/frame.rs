@@ -568,6 +568,8 @@ impl Frame {
                     .downcast()
                     .expect("Second to top value on the stack must be a code object");
 
+                let doc = self.pop_value();
+
                 let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
                     self.pop_value()
                 } else {
@@ -586,6 +588,7 @@ impl Frame {
                 let obj = vm.ctx.new_function(code_obj, scope, defaults);
 
                 vm.ctx.set_attr(&obj, "__annotations__", annotations);
+                vm.ctx.set_attr(&obj, "__doc__", doc);
 
                 self.push_value(obj);
                 Ok(None)

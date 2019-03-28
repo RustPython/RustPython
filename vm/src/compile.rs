@@ -597,7 +597,20 @@ impl Compiler {
         self.in_loop = false;
         self.in_function_def = true;
         let mut flags = self.enter_function(name, args)?;
-        self.compile_statements(body)?;
+
+        let doc = get_doc(body);
+        let (new_body, doc_str) = match doc {
+            Some(val) => {
+                if let Some((_, body_rest)) = body.split_first() {
+                    (body_rest, val)
+                } else {
+                    (body, "".to_string())
+                }
+            }
+            None => (body, "".to_string()),
+        };
+
+        self.compile_statements(new_body)?;
 
         // Emit None at end:
         self.emit(Instruction::LoadConst {
@@ -643,6 +656,10 @@ impl Compiler {
                 unpack: false,
             });
         }
+
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String { value: doc_str },
+        });
 
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
@@ -1509,6 +1526,19 @@ impl Compiler {
     fn mark_generator(&mut self) {
         self.current_code_object().is_generator = true;
     }
+}
+
+fn get_doc(body: &[ast::LocatedStatement]) -> Option<String> {
+    if let Some(val) = body.get(0) {
+        if let ast::Statement::Expression { ref expression } = val.node {
+            if let ast::Expression::String { ref value } = expression {
+                if let ast::StringGroup::Constant { ref value } = value {
+                    return Some(value.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
