@@ -37,8 +37,7 @@ class Bar:
         assert x == 3
 
 
-# TODO:
-# assert Bar.__doc__ == " W00t "
+assert Bar.__doc__ == " W00t "
 
 bar = Bar(42)
 

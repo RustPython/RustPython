@@ -706,13 +706,34 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
-        self.compile_statements(body)?;
+
+        let doc = get_doc(body);
+        let (new_body, doc_str) = match doc {
+            Some(val) => {
+                if let Some((_, body_rest)) = body.split_first() {
+                    (body_rest, val)
+                } else {
+                    (body, "".to_string())
+                }
+            }
+            None => (body, "".to_string()),
+        };
+
+        self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::None,
         });
         self.emit(Instruction::ReturnValue);
 
         let code = self.pop_code_object();
+
+        // function doc
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String {
+                value: "".to_string(),
+            },
+        });
+
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
                 code: Box::new(code),
@@ -733,6 +754,11 @@ impl Compiler {
             value: bytecode::Constant::String {
                 value: name.to_string(),
             },
+        });
+
+        // class doc
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String { value: doc_str },
         });
 
         for base in bases {
@@ -759,11 +785,11 @@ impl Compiler {
                 },
             });
             self.emit(Instruction::CallFunction {
-                typ: CallType::Keyword(2 + keywords.len() + bases.len()),
+                typ: CallType::Keyword(3 + keywords.len() + bases.len()),
             });
         } else {
             self.emit(Instruction::CallFunction {
-                typ: CallType::Positional(2 + bases.len()),
+                typ: CallType::Positional(3 + bases.len()),
             });
         }
 
@@ -1142,6 +1168,14 @@ impl Compiler {
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
+
+                // function doc
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: "".to_string(),
+                    },
+                });
+
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code {
                         code: Box::new(code),
@@ -1427,6 +1461,13 @@ impl Compiler {
 
         // Fetch code for listcomp function:
         let code = self.pop_code_object();
+
+        // function doc
+        self.emit(Instruction::LoadConst {
+            value: bytecode::Constant::String {
+                value: "".to_string(),
+            },
+        });
 
         // List comprehension code:
         self.emit(Instruction::LoadConst {
