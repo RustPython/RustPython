@@ -466,8 +466,16 @@ where
         loop {
             match self.next_char() {
                 Some('\\') => {
-                    if is_raw {
+                    if self.chr0 == Some(quote_char) {
+                        string_content.push(quote_char);
+                        self.next_char();
+                    } else if is_raw {
                         string_content.push('\\');
+                        if let Some(c) = self.next_char() {
+                            string_content.push(c)
+                        } else {
+                            return Err(LexicalError::StringError);
+                        }
                     } else {
                         match self.next_char() {
                             Some('\\') => {
@@ -711,7 +719,6 @@ where
                     let tok_start = self.get_pos();
                     self.next_char();
                     let tok_end = self.get_pos();
-                    println!("Emoji: {}", c);
                     return Some(Ok((
                         tok_start,
                         Tok::Name {
@@ -1438,7 +1445,7 @@ mod tests {
 
     #[test]
     fn test_string() {
-        let source = String::from(r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g'"#);
+        let source = String::from(r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g' r'raw\''"#);
         let tokens = lex_source(&source);
         assert_eq!(
             tokens,
@@ -1465,6 +1472,10 @@ mod tests {
                 },
                 Tok::String {
                     value: String::from("\\g"),
+                    is_fstring: false,
+                },
+                Tok::String {
+                    value: String::from("raw\'"),
                     is_fstring: false,
                 },
             ]
