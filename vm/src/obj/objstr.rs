@@ -60,20 +60,17 @@ fn get_fill_char<'a>(rep: &'a OptionalArg<PyStringRef>, vm: &VirtualMachine) -> 
     }
 }
 
-#[py_class(
-    __inside_vm,
-    name = "str",
-    doc = "str(object='') -> str\n\
-           str(bytes_or_buffer[, encoding[, errors]]) -> str\n\
-           \n\
-           Create a new string object from the given object. If encoding or\n\
-           errors is specified, then the object must expose a data buffer\n\
-           that will be decoded using the given encoding and error handler.\n\
-           Otherwise, returns the result of object.__str__() (if defined)\n\
-           or repr(object).\n\
-           encoding defaults to sys.getdefaultencoding().\n\
-           errors defaults to 'strict'."
-)]
+#[py_class(__inside_vm, name = "str")]
+/// str(object='') -> str
+/// str(bytes_or_buffer[, encoding[, errors]]) -> str
+///
+/// Create a new string object from the given object. If encoding or
+/// errors is specified, then the object must expose a data buffer
+/// that will be decoded using the given encoding and error handler.
+/// Otherwise, returns the result of object.__str__() (if defined)
+/// or repr(object).
+/// encoding defaults to sys.getdefaultencoding().
+/// errors defaults to 'strict'."
 impl PyStringRef {
     // TODO: should with following format
     // class str(object='')

@@ -340,7 +340,6 @@ fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
     };
     let rp_path = rustpython_path_attr(&attr);
     let mut class_name = None;
-    let mut doc = None;
     for attr in attr {
         if let NestedMeta::Meta(meta) = attr {
             if let Meta::NameValue(name_value) = meta {
@@ -350,19 +349,35 @@ fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
                     } else {
                         panic!("#[py_class(name = ...)] must be a string");
                     }
-                } else if name_value.ident == "doc" {
-                    if let Lit::Str(s) = name_value.lit {
-                        doc = Some(s.value());
-                    } else {
-                        panic!("#[py_class(name = ...)] must be a string");
-                    }
                 }
             }
         }
     }
     let class_name = class_name.expect("#[py_class] must have a name");
+    let mut doc: Option<Vec<String>> = None;
+    for attr in imp.attrs.iter() {
+        if attr.path.is_ident("doc") {
+            let meta = attr.parse_meta().expect("expected doc attr to be a meta");
+            if let Meta::NameValue(name_value) = meta {
+                if let Lit::Str(s) = name_value.lit {
+                    let val = s.value().trim().to_string();
+                    match doc {
+                        Some(ref mut doc) => doc.push(val),
+                        None => doc = Some(vec![val]),
+                    }
+                } else {
+                    panic!("expected #[doc = ...] to be a string")
+                }
+            } else {
+                panic!("expected #[doc] to be a NameValue, e.g. #[doc = \"...\"");
+            }
+        }
+    }
     let doc = match doc {
-        Some(doc) => quote!(Some(#doc)),
+        Some(doc) => {
+            let doc = doc.join("\n");
+            quote!(Some(#doc))
+        }
         None => quote!(None),
     };
     let ty = &imp.self_ty;
