@@ -62,12 +62,76 @@ where
     Self: Sized,
 {
     fn get_elements(&self) -> HashMap<u64, PyObjectRef>;
+    fn as_object(&self) -> &PyObjectRef;
     fn create(&self, vm: &VirtualMachine, elements: HashMap<u64, PyObjectRef>) -> PyResult;
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.get_elements().len()
     }
     fn copy(self, vm: &VirtualMachine) -> PyResult {
         self.create(vm, self.get_elements())
+    }
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        for element in self.get_elements().iter() {
+            match vm._eq(needle.clone(), element.1.clone()) {
+                Ok(value) => {
+                    if objbool::get_value(&value) {
+                        return Ok(vm.new_bool(true));
+                    }
+                }
+                Err(_) => return Err(vm.new_type_error("".to_string())),
+            }
+        }
+        Ok(vm.new_bool(false))
+    }
+
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        set_compare_inner(
+            vm,
+            self.as_object(),
+            &other,
+            &|zelf: usize, other: usize| -> bool { zelf != other },
+            false,
+        )
+    }
+
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        set_compare_inner(
+            vm,
+            self.as_object(),
+            &other,
+            &|zelf: usize, other: usize| -> bool { zelf < other },
+            false,
+        )
+    }
+
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        set_compare_inner(
+            vm,
+            self.as_object(),
+            &other,
+            &|zelf: usize, other: usize| -> bool { zelf <= other },
+            false,
+        )
+    }
+
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        set_compare_inner(
+            vm,
+            self.as_object(),
+            &other,
+            &|zelf: usize, other: usize| -> bool { zelf < other },
+            true,
+        )
+    }
+
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        set_compare_inner(
+            vm,
+            self.as_object(),
+            &other,
+            &|zelf: usize, other: usize| -> bool { zelf <= other },
+            true,
+        )
     }
 }
 
@@ -84,6 +148,9 @@ impl SetProtocol for PySetRef {
             None,
         ))
     }
+    fn as_object(&self) -> &PyObjectRef {
+        self.as_object()
+    }
 }
 
 impl SetProtocol for PyFrozenSetRef {
@@ -96,6 +163,9 @@ impl SetProtocol for PyFrozenSetRef {
             PyFrozenSet::class(vm),
             None,
         ))
+    }
+    fn as_object(&self) -> &PyObjectRef {
+        self.as_object()
     }
 }
 
@@ -290,76 +360,13 @@ fn set_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
-pub fn set_contains(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(set, None), (needle, None)]);
-    validate_set_or_frozenset(vm, set.class())?;
-    for element in get_elements(set).iter() {
-        match vm._eq(needle.clone(), element.1.clone()) {
-            Ok(value) => {
-                if objbool::get_value(&value) {
-                    return Ok(vm.new_bool(true));
-                }
-            }
-            Err(_) => return Err(vm.new_type_error("".to_string())),
-        }
-    }
-
-    Ok(vm.new_bool(false))
-}
-
-fn set_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_compare_inner(
-        vm,
-        args,
-        &|zelf: usize, other: usize| -> bool { zelf != other },
-        false,
-    )
-}
-
-fn set_ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_compare_inner(
-        vm,
-        args,
-        &|zelf: usize, other: usize| -> bool { zelf < other },
-        false,
-    )
-}
-
-fn set_gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_compare_inner(
-        vm,
-        args,
-        &|zelf: usize, other: usize| -> bool { zelf <= other },
-        false,
-    )
-}
-
-fn set_le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_compare_inner(
-        vm,
-        args,
-        &|zelf: usize, other: usize| -> bool { zelf < other },
-        true,
-    )
-}
-
-fn set_lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_compare_inner(
-        vm,
-        args,
-        &|zelf: usize, other: usize| -> bool { zelf <= other },
-        true,
-    )
-}
-
 fn set_compare_inner(
     vm: &VirtualMachine,
-    args: PyFuncArgs,
+    zelf: &PyObjectRef,
+    other: &PyObjectRef,
     size_func: &Fn(usize, usize) -> bool,
     swap: bool,
 ) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, None), (other, None)]);
-
     validate_set_or_frozenset(vm, zelf.class())?;
     validate_set_or_frozenset(vm, other.class())?;
 
@@ -623,17 +630,17 @@ pub fn init(context: &PyContext) {
                    Build an unordered collection of unique elements.";
 
     extend_class!(context, set_type, {
-        "__contains__" => context.new_rustfunc(set_contains),
+        "__contains__" => context.new_rustfunc(PySetRef::contains),
         "__len__" => context.new_rustfunc(PySetRef::len),
         "__new__" => context.new_rustfunc(set_new),
         "__repr__" => context.new_rustfunc(set_repr),
-        "__eq__" => context.new_rustfunc(set_eq),
-        "__ge__" => context.new_rustfunc(set_ge),
-        "__gt__" => context.new_rustfunc(set_gt),
-        "__le__" => context.new_rustfunc(set_le),
-        "__lt__" => context.new_rustfunc(set_lt),
-        "issubset" => context.new_rustfunc(set_le),
-        "issuperset" => context.new_rustfunc(set_ge),
+        "__eq__" => context.new_rustfunc(PySetRef::eq),
+        "__ge__" => context.new_rustfunc(PySetRef::ge),
+        "__gt__" => context.new_rustfunc(PySetRef::gt),
+        "__le__" => context.new_rustfunc(PySetRef::le),
+        "__lt__" => context.new_rustfunc(PySetRef::lt),
+        "issubset" => context.new_rustfunc(PySetRef::le),
+        "issuperset" => context.new_rustfunc(PySetRef::ge),
         "union" => context.new_rustfunc(set_union),
         "__or__" => context.new_rustfunc(set_union),
         "intersection" => context.new_rustfunc(set_intersection),
@@ -668,13 +675,13 @@ pub fn init(context: &PyContext) {
 
     extend_class!(context, frozenset_type, {
         "__new__" => context.new_rustfunc(set_new),
-        "__eq__" => context.new_rustfunc(set_eq),
-        "__ge__" => context.new_rustfunc(set_ge),
-        "__gt__" => context.new_rustfunc(set_gt),
-        "__le__" => context.new_rustfunc(set_le),
-        "__lt__" => context.new_rustfunc(set_lt),
-        "issubset" => context.new_rustfunc(set_le),
-        "issuperset" => context.new_rustfunc(set_ge),
+        "__eq__" => context.new_rustfunc(PyFrozenSetRef::eq),
+        "__ge__" => context.new_rustfunc(PyFrozenSetRef::ge),
+        "__gt__" => context.new_rustfunc(PyFrozenSetRef::gt),
+        "__le__" => context.new_rustfunc(PyFrozenSetRef::le),
+        "__lt__" => context.new_rustfunc(PyFrozenSetRef::lt),
+        "issubset" => context.new_rustfunc(PyFrozenSetRef::le),
+        "issuperset" => context.new_rustfunc(PyFrozenSetRef::ge),
         "union" => context.new_rustfunc(set_union),
         "__or__" => context.new_rustfunc(set_union),
         "intersection" => context.new_rustfunc(set_intersection),
@@ -683,7 +690,7 @@ pub fn init(context: &PyContext) {
         "__sub__" => context.new_rustfunc(set_difference),
         "symmetric_difference" => context.new_rustfunc(set_symmetric_difference),
         "__xor__" => context.new_rustfunc(set_symmetric_difference),
-        "__contains__" => context.new_rustfunc(set_contains),
+        "__contains__" => context.new_rustfunc(PyFrozenSetRef::contains),
         "__len__" => context.new_rustfunc(PyFrozenSetRef::len),
         "__doc__" => context.new_str(frozenset_doc.to_string()),
         "__repr__" => context.new_rustfunc(frozenset_repr),
