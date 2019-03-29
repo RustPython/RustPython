@@ -195,6 +195,15 @@ where
 
         self.create(vm, elements)
     }
+
+    fn iter(self, vm: &VirtualMachine) -> PyIteratorValue {
+        let items = self.get_elements().values().cloned().collect();
+        let set_list = vm.ctx.new_list(items);
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: set_list,
+        }
+    }
 }
 
 impl SetProtocol for PySetRef {
@@ -514,15 +523,6 @@ enum SetCombineOperation {
     Difference,
 }
 
-fn set_iter(zelf: PySetRef, vm: &VirtualMachine) -> PyIteratorValue {
-    let items = zelf.elements.borrow().values().cloned().collect();
-    let set_list = vm.ctx.new_list(items);
-    PyIteratorValue {
-        position: Cell::new(0),
-        iterated_obj: set_list,
-    }
-}
-
 fn frozenset_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
 
@@ -583,7 +583,7 @@ pub fn init(context: &PyContext) {
         "__isub__" => context.new_rustfunc(PySetRef::isub),
         "symmetric_difference_update" => context.new_rustfunc(PySetRef::symmetric_difference_update),
         "__ixor__" => context.new_rustfunc(PySetRef::ixor),
-        "__iter__" => context.new_rustfunc(set_iter)
+        "__iter__" => context.new_rustfunc(PySetRef::iter)
     });
 
     let frozenset_type = &context.frozenset_type;
@@ -613,6 +613,7 @@ pub fn init(context: &PyContext) {
         "__len__" => context.new_rustfunc(PyFrozenSetRef::len),
         "__doc__" => context.new_str(frozenset_doc.to_string()),
         "__repr__" => context.new_rustfunc(frozenset_repr),
-        "copy" => context.new_rustfunc(PyFrozenSetRef::copy)
+        "copy" => context.new_rustfunc(PyFrozenSetRef::copy),
+        "__iter__" => context.new_rustfunc(PyFrozenSetRef::iter)
     });
 }
