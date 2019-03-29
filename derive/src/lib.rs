@@ -374,7 +374,7 @@ fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
          }| {
             let constructor_fn = kind.to_ctx_constructor_fn();
             quote! {
-                ctx.set_attr(class, #py_name, ctx.#constructor_fn(#ty::#fn_name));
+                ctx.set_attr(class, #py_name, ctx.#constructor_fn(Self::#fn_name));
             }
         },
     );
