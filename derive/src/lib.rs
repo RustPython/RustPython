@@ -249,7 +249,7 @@ fn impl_from_args(input: DeriveInput) -> TokenStream2 {
 }
 
 #[proc_macro_attribute]
-pub fn py_class(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as Item);
     impl_py_class(attr, item).into()
@@ -276,31 +276,37 @@ struct Method {
     kind: MethodKind,
 }
 
-fn item_impl_to_methods<'a>(imp: &'a syn::ItemImpl) -> impl Iterator<Item = Method> + 'a {
-    imp.items.iter().filter_map(|item| {
+/// Parse an impl block into an iterator of methods
+fn item_impl_to_methods<'a>(imp: &'a mut syn::ItemImpl) -> impl Iterator<Item = Method> + 'a {
+    imp.items.iter_mut().filter_map(|item| {
         if let ImplItem::Method(meth) = item {
             let mut py_name = None;
             let mut kind = MethodKind::Method;
-            let metas_iter = meth
+            let mut pymethod_to_remove = Vec::new();
+            let metas = meth
                 .attrs
                 .iter()
-                .filter_map(|attr| {
-                    if attr.path.is_ident("py_class") {
+                .enumerate()
+                .filter_map(|(i, attr)| {
+                    if attr.path.is_ident("pymethod") {
                         let meta = attr.parse_meta().expect("Invalid attribute");
-                        if let Meta::List(list) = meta {
-                            Some(list)
-                        } else {
-                            panic!(
-                                "#[py_class] attribute on a method should be a list, like \
-                                 #[py_class(...)]"
-                            )
+                        // remove #[pymethod] because there's no actual proc macro
+                        // implementation for it
+                        pymethod_to_remove.push(i);
+                        match meta {
+                            Meta::List(list) => Some(list),
+                            Meta::Word(_) => None,
+                            Meta::NameValue(_) => panic!(
+                                "#[pymethod = ...] attribute on a method should be a list, like \
+                                 #[pymethod(...)]"
+                            ),
                         }
                     } else {
                         None
                     }
                 })
                 .flat_map(|attr| attr.nested);
-            for meta in metas_iter {
+            for meta in metas {
                 if let NestedMeta::Meta(meta) = meta {
                     match meta {
                         Meta::NameValue(name_value) => {
@@ -308,17 +314,26 @@ fn item_impl_to_methods<'a>(imp: &'a syn::ItemImpl) -> impl Iterator<Item = Meth
                                 if let Lit::Str(s) = &name_value.lit {
                                     py_name = Some(s.value());
                                 } else {
-                                    panic!("#[py_class(name = ...)] must be a string");
+                                    panic!("#[pymethod(name = ...)] must be a string");
                                 }
                             }
                         }
-                        Meta::Word(ident) => match ident.to_string().as_str() {
-                            "property" => kind = MethodKind::Property,
-                            _ => {}
-                        },
+                        Meta::Word(ident) => {
+                            if ident == "property" {
+                                kind = MethodKind::Property
+                            }
+                        }
                         _ => {}
                     }
                 }
+            }
+            // if there are no #[pymethods]s, then it's not a method, so exclude it from
+            // the final result
+            if pymethod_to_remove.is_empty() {
+                return None;
+            }
+            for i in pymethod_to_remove {
+                meth.attrs.remove(i);
             }
             let py_name = py_name.unwrap_or_else(|| meth.sig.ident.to_string());
             Some(Method {
@@ -333,7 +348,7 @@ fn item_impl_to_methods<'a>(imp: &'a syn::ItemImpl) -> impl Iterator<Item = Meth
 }
 
 fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
-    let imp = if let Item::Impl(imp) = item {
+    let mut imp = if let Item::Impl(imp) = item {
         imp
     } else {
         return quote!(#item);
@@ -347,13 +362,13 @@ fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
                     if let Lit::Str(s) = name_value.lit {
                         class_name = Some(s.value());
                     } else {
-                        panic!("#[py_class(name = ...)] must be a string");
+                        panic!("#[pyclass(name = ...)] must be a string");
                     }
                 }
             }
         }
     }
-    let class_name = class_name.expect("#[py_class] must have a name");
+    let class_name = class_name.expect("#[pyclass] must have a name");
     let mut doc: Option<Vec<String>> = None;
     for attr in imp.attrs.iter() {
         if attr.path.is_ident("doc") {
@@ -380,8 +395,9 @@ fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
         }
         None => quote!(None),
     };
+    let methods: Vec<_> = item_impl_to_methods(&mut imp).collect();
     let ty = &imp.self_ty;
-    let methods = item_impl_to_methods(&imp).map(
+    let methods = methods.iter().map(
         |Method {
              py_name,
              fn_name,
