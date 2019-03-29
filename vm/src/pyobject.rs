@@ -1259,6 +1259,26 @@ where
     }
 }
 
+pub trait IntoPyClass {
+    const NAME: &'static str;
+    const DOC: Option<&'static str> = None;
+
+    fn _extend_class(ctx: &PyContext, class: &PyClassRef);
+
+    fn extend_class(ctx: &PyContext, class: &PyClassRef) {
+        Self::_extend_class(ctx, class);
+        if let Some(doc) = Self::DOC {
+            ctx.set_attr(class, "__doc__", ctx.new_str(doc.into()));
+        }
+    }
+
+    fn make_class(ctx: &PyContext) -> PyClassRef {
+        let py_class = ctx.new_class(Self::NAME, ctx.object());
+        Self::extend_class(ctx, &py_class);
+        py_class
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
