@@ -7,7 +7,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::OptionalArg;
 use crate::pyobject::{
     PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
@@ -64,6 +64,7 @@ where
     fn get_elements(&self) -> HashMap<u64, PyObjectRef>;
     fn as_object(&self) -> &PyObjectRef;
     fn create(&self, vm: &VirtualMachine, elements: HashMap<u64, PyObjectRef>) -> PyResult;
+    fn name(&self) -> &str;
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.get_elements().len()
     }
@@ -204,6 +205,24 @@ where
             iterated_obj: set_list,
         }
     }
+
+    fn repr(self, vm: &VirtualMachine) -> PyResult {
+        let elements = self.get_elements();
+        let s = if elements.is_empty() {
+            format!("{}()", self.name())
+        } else if let Some(_guard) = ReprGuard::enter(self.as_object()) {
+            let mut str_parts = vec![];
+            for elem in elements.values() {
+                let part = vm.to_repr(elem)?;
+                str_parts.push(part.value.clone());
+            }
+
+            format!("{{{}}}", str_parts.join(", "))
+        } else {
+            format!("{}(...)", self.name())
+        };
+        Ok(vm.new_str(s))
+    }
 }
 
 impl SetProtocol for PySetRef {
@@ -222,6 +241,9 @@ impl SetProtocol for PySetRef {
     fn as_object(&self) -> &PyObjectRef {
         self.as_object()
     }
+    fn name(&self) -> &str {
+        "set"
+    }
 }
 
 impl SetProtocol for PyFrozenSetRef {
@@ -237,6 +259,9 @@ impl SetProtocol for PyFrozenSetRef {
     }
     fn as_object(&self) -> &PyObjectRef {
         self.as_object()
+    }
+    fn name(&self) -> &str {
+        "frozenset"
     }
 }
 
@@ -455,26 +480,6 @@ fn set_new(cls: PyClassRef, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMach
     create_set(vm, elements, cls.clone())
 }
 
-fn set_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(o, Some(vm.ctx.set_type()))]);
-
-    let elements = get_elements(o);
-    let s = if elements.is_empty() {
-        "set()".to_string()
-    } else if let Some(_guard) = ReprGuard::enter(o) {
-        let mut str_parts = vec![];
-        for elem in elements.values() {
-            let part = vm.to_repr(elem)?;
-            str_parts.push(part.value.clone());
-        }
-
-        format!("{{{}}}", str_parts.join(", "))
-    } else {
-        "set(...)".to_string()
-    };
-    Ok(vm.new_str(s))
-}
-
 fn set_compare_inner(
     vm: &VirtualMachine,
     zelf: &PyObjectRef,
@@ -523,24 +528,6 @@ enum SetCombineOperation {
     Difference,
 }
 
-fn frozenset_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(o, Some(vm.ctx.frozenset_type()))]);
-
-    let elements = get_elements(o);
-    let s = if elements.is_empty() {
-        "frozenset()".to_string()
-    } else {
-        let mut str_parts = vec![];
-        for elem in elements.values() {
-            let part = vm.to_repr(elem)?;
-            str_parts.push(part.value.clone());
-        }
-
-        format!("frozenset({{{}}})", str_parts.join(", "))
-    };
-    Ok(vm.new_str(s))
-}
-
 pub fn init(context: &PyContext) {
     let set_type = &context.set_type;
 
@@ -552,7 +539,7 @@ pub fn init(context: &PyContext) {
         "__contains__" => context.new_rustfunc(PySetRef::contains),
         "__len__" => context.new_rustfunc(PySetRef::len),
         "__new__" => context.new_rustfunc(set_new),
-        "__repr__" => context.new_rustfunc(set_repr),
+        "__repr__" => context.new_rustfunc(PySetRef::repr),
         "__eq__" => context.new_rustfunc(PySetRef::eq),
         "__ge__" => context.new_rustfunc(PySetRef::ge),
         "__gt__" => context.new_rustfunc(PySetRef::gt),
@@ -612,7 +599,7 @@ pub fn init(context: &PyContext) {
         "__contains__" => context.new_rustfunc(PyFrozenSetRef::contains),
         "__len__" => context.new_rustfunc(PyFrozenSetRef::len),
         "__doc__" => context.new_str(frozenset_doc.to_string()),
-        "__repr__" => context.new_rustfunc(frozenset_repr),
+        "__repr__" => context.new_rustfunc(PyFrozenSetRef::repr),
         "copy" => context.new_rustfunc(PyFrozenSetRef::copy),
         "__iter__" => context.new_rustfunc(PyFrozenSetRef::iter)
     });
