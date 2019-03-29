@@ -538,8 +538,11 @@ fn builtin_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 #[derive(Debug, FromArgs)]
 #[__inside_vm]
 pub struct PrintOptions {
+    #[pyarg(keyword_only, default = "None")]
     sep: Option<PyStringRef>,
+    #[pyarg(keyword_only, default = "None")]
     end: Option<PyStringRef>,
+    #[pyarg(keyword_only, default = "false")]
     flush: bool,
 }
 
