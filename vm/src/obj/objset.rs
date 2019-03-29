@@ -271,6 +271,86 @@ impl PySetRef {
         self.elements.borrow_mut().clear();
         Ok(vm.get_none())
     }
+
+    fn pop(self, vm: &VirtualMachine) -> PyResult {
+        let mut elements = self.elements.borrow_mut();
+        match elements.clone().keys().next() {
+            Some(key) => Ok(elements.remove(key).unwrap()),
+            None => Err(vm.new_key_error("pop from an empty set".to_string())),
+        }
+    }
+
+    fn ior(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let iterator = objiter::get_iter(vm, &iterable)?;
+        while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+            insert_into_set(vm, &mut self.elements.borrow_mut(), &v)?;
+        }
+        Ok(self.as_object().clone())
+    }
+
+    fn update(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.ior(iterable, vm)?;
+        Ok(vm.get_none())
+    }
+
+    fn intersection_update(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.combine_update_inner(&iterable, vm, SetCombineOperation::Intersection)?;
+        Ok(vm.get_none())
+    }
+
+    fn iand(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.combine_update_inner(&iterable, vm, SetCombineOperation::Intersection)
+    }
+
+    fn difference_update(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.combine_update_inner(&iterable, vm, SetCombineOperation::Difference)?;
+        Ok(vm.get_none())
+    }
+
+    fn isub(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.combine_update_inner(&iterable, vm, SetCombineOperation::Difference)
+    }
+
+    fn combine_update_inner(
+        self,
+        iterable: &PyObjectRef,
+        vm: &VirtualMachine,
+        op: SetCombineOperation,
+    ) -> PyResult {
+        let mut elements = self.elements.borrow_mut();
+        for element in elements.clone().iter() {
+            let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
+            let should_remove = match op {
+                SetCombineOperation::Intersection => !objbool::get_value(&value),
+                SetCombineOperation::Difference => objbool::get_value(&value),
+            };
+            if should_remove {
+                elements.remove(&element.0.clone());
+            }
+        }
+        Ok(self.as_object().clone())
+    }
+
+    fn symmetric_difference_update(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.ixor(iterable, vm)?;
+        Ok(vm.get_none())
+    }
+
+    fn ixor(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let elements_original = self.elements.borrow().clone();
+        let iterator = objiter::get_iter(vm, &iterable)?;
+        while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+            insert_into_set(vm, &mut self.elements.borrow_mut(), &v)?;
+        }
+        for element in elements_original.iter() {
+            let value = vm.call_method(&iterable, "__contains__", vec![element.1.clone()])?;
+            if objbool::get_value(&value) {
+                self.elements.borrow_mut().remove(&element.0.clone());
+            }
+        }
+
+        Ok(self.as_object().clone())
+    }
 }
 
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
@@ -434,125 +514,6 @@ enum SetCombineOperation {
     Difference,
 }
 
-fn set_pop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
-
-    match s.payload::<PySet>() {
-        Some(set) => {
-            let mut elements = set.elements.borrow_mut();
-            match elements.clone().keys().next() {
-                Some(key) => Ok(elements.remove(key).unwrap()),
-                None => Err(vm.new_key_error("pop from an empty set".to_string())),
-            }
-        }
-        _ => Err(vm.new_type_error("".to_string())),
-    }
-}
-
-fn set_update(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_ior(vm, args)?;
-    Ok(vm.get_none())
-}
-
-fn set_ior(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
-    );
-
-    match zelf.payload::<PySet>() {
-        Some(set) => {
-            let iterator = objiter::get_iter(vm, iterable)?;
-            while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                insert_into_set(vm, &mut set.elements.borrow_mut(), &v)?;
-            }
-        }
-        _ => return Err(vm.new_type_error("set.update is called with no other".to_string())),
-    }
-    Ok(zelf.clone())
-}
-
-fn set_intersection_update(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_combine_update_inner(vm, args, SetCombineOperation::Intersection)?;
-    Ok(vm.get_none())
-}
-
-fn set_iand(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_combine_update_inner(vm, args, SetCombineOperation::Intersection)
-}
-
-fn set_difference_update(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_combine_update_inner(vm, args, SetCombineOperation::Difference)?;
-    Ok(vm.get_none())
-}
-
-fn set_isub(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_combine_update_inner(vm, args, SetCombineOperation::Difference)
-}
-
-fn set_combine_update_inner(
-    vm: &VirtualMachine,
-    args: PyFuncArgs,
-    op: SetCombineOperation,
-) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
-    );
-
-    match zelf.payload::<PySet>() {
-        Some(set) => {
-            let mut elements = set.elements.borrow_mut();
-            for element in elements.clone().iter() {
-                let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
-                let should_remove = match op {
-                    SetCombineOperation::Intersection => !objbool::get_value(&value),
-                    SetCombineOperation::Difference => objbool::get_value(&value),
-                };
-                if should_remove {
-                    elements.remove(&element.0.clone());
-                }
-            }
-        }
-        _ => return Err(vm.new_type_error("".to_string())),
-    }
-    Ok(zelf.clone())
-}
-
-fn set_symmetric_difference_update(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    set_ixor(vm, args)?;
-    Ok(vm.get_none())
-}
-
-fn set_ixor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.set_type())), (iterable, None)]
-    );
-
-    match zelf.payload::<PySet>() {
-        Some(set) => {
-            let elements_original = set.elements.borrow().clone();
-            let iterator = objiter::get_iter(vm, iterable)?;
-            while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                insert_into_set(vm, &mut set.elements.borrow_mut(), &v)?;
-            }
-            for element in elements_original.iter() {
-                let value = vm.call_method(iterable, "__contains__", vec![element.1.clone()])?;
-                if objbool::get_value(&value) {
-                    set.elements.borrow_mut().remove(&element.0.clone());
-                }
-            }
-        }
-        _ => return Err(vm.new_type_error("".to_string())),
-    }
-
-    Ok(zelf.clone())
-}
-
 fn set_iter(zelf: PySetRef, vm: &VirtualMachine) -> PyIteratorValue {
     let items = zelf.elements.borrow().values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
@@ -613,15 +574,15 @@ pub fn init(context: &PyContext) {
         "discard" => context.new_rustfunc(PySetRef::discard),
         "clear" => context.new_rustfunc(PySetRef::clear),
         "copy" => context.new_rustfunc(PySetRef::copy),
-        "pop" => context.new_rustfunc(set_pop),
-        "update" => context.new_rustfunc(set_update),
-        "__ior__" => context.new_rustfunc(set_ior),
-        "intersection_update" => context.new_rustfunc(set_intersection_update),
-        "__iand__" => context.new_rustfunc(set_iand),
-        "difference_update" => context.new_rustfunc(set_difference_update),
-        "__isub__" => context.new_rustfunc(set_isub),
-        "symmetric_difference_update" => context.new_rustfunc(set_symmetric_difference_update),
-        "__ixor__" => context.new_rustfunc(set_ixor),
+        "pop" => context.new_rustfunc(PySetRef::pop),
+        "update" => context.new_rustfunc(PySetRef::update),
+        "__ior__" => context.new_rustfunc(PySetRef::ior),
+        "intersection_update" => context.new_rustfunc(PySetRef::intersection_update),
+        "__iand__" => context.new_rustfunc(PySetRef::iand),
+        "difference_update" => context.new_rustfunc(PySetRef::difference_update),
+        "__isub__" => context.new_rustfunc(PySetRef::isub),
+        "symmetric_difference_update" => context.new_rustfunc(PySetRef::symmetric_difference_update),
+        "__ixor__" => context.new_rustfunc(PySetRef::ixor),
         "__iter__" => context.new_rustfunc(set_iter)
     });
 
