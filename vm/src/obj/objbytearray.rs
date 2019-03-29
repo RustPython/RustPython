@@ -6,12 +6,12 @@ use std::ops::{Deref, DerefMut};
 
 use num_traits::ToPrimitive;
 
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::function::OptionalArg;
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint;
-use super::objtype::{self, PyClassRef};
+use super::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyByteArray {
@@ -63,22 +63,22 @@ pub fn init(context: &PyContext) {
 
     extend_class!(context, bytearray_type, {
         "__doc__" => context.new_str(bytearray_doc.to_string()),
-        "__eq__" => context.new_rustfunc(bytearray_eq),
-        "__len__" => context.new_rustfunc(bytesarray_len),
         "__new__" => context.new_rustfunc(bytearray_new),
-        "__repr__" => context.new_rustfunc(bytearray_repr),
-        "clear" => context.new_rustfunc(bytearray_clear),
-        "isalnum" => context.new_rustfunc(bytearray_isalnum),
-        "isalpha" => context.new_rustfunc(bytearray_isalpha),
-        "isascii" => context.new_rustfunc(bytearray_isascii),
-        "isdigit" => context.new_rustfunc(bytearray_isdigit),
-        "islower" => context.new_rustfunc(bytearray_islower),
-        "isspace" => context.new_rustfunc(bytearray_isspace),
-        "istitle" =>context.new_rustfunc(bytearray_istitle),
-        "isupper" => context.new_rustfunc(bytearray_isupper),
-        "lower" => context.new_rustfunc(bytearray_lower),
-        "pop" => context.new_rustfunc(bytearray_pop),
-        "upper" => context.new_rustfunc(bytearray_upper)
+        "__eq__" => context.new_rustfunc(PyByteArrayRef::eq),
+        "__len__" => context.new_rustfunc(PyByteArrayRef::len),
+        "__repr__" => context.new_rustfunc(PyByteArrayRef::repr),
+        "clear" => context.new_rustfunc(PyByteArrayRef::clear),
+        "isalnum" => context.new_rustfunc(PyByteArrayRef::isalnum),
+        "isalpha" => context.new_rustfunc(PyByteArrayRef::isalpha),
+        "isascii" => context.new_rustfunc(PyByteArrayRef::isascii),
+        "isdigit" => context.new_rustfunc(PyByteArrayRef::isdigit),
+        "islower" => context.new_rustfunc(PyByteArrayRef::islower),
+        "isspace" => context.new_rustfunc(PyByteArrayRef::isspace),
+        "istitle" =>context.new_rustfunc(PyByteArrayRef::istitle),
+        "isupper" => context.new_rustfunc(PyByteArrayRef::isupper),
+        "lower" => context.new_rustfunc(PyByteArrayRef::lower),
+        "pop" => context.new_rustfunc(PyByteArrayRef::pop),
+        "upper" => context.new_rustfunc(PyByteArrayRef::upper)
     });
 }
 
@@ -107,89 +107,69 @@ fn bytearray_new(
     PyByteArray::new(value).into_ref_with_type(vm, cls.clone())
 }
 
-fn bytesarray_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(a, Some(vm.ctx.bytearray_type()))]);
+impl PyByteArrayRef {
+    fn len(self, _vm: &VirtualMachine) -> usize {
+        self.value.borrow().len()
+    }
 
-    let byte_vec = get_value(a).to_vec();
-    Ok(vm.ctx.new_int(byte_vec.len()))
-}
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Ok(other) = other.downcast::<PyByteArray>() {
+            vm.ctx
+                .new_bool(self.value.borrow().as_slice() == other.value.borrow().as_slice())
+        } else {
+            vm.ctx.not_implemented()
+        }
+    }
 
-fn bytearray_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytearray_type())), (b, None)]
-    );
+    fn isalnum(self, _vm: &VirtualMachine) -> bool {
+        let bytes = self.value.borrow();
+        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_alphanumeric())
+    }
 
-    let result = if objtype::isinstance(b, &vm.ctx.bytearray_type()) {
-        get_value(a).to_vec() == get_value(b).to_vec()
-    } else {
-        false
-    };
-    Ok(vm.ctx.new_bool(result))
-}
+    fn isalpha(self, _vm: &VirtualMachine) -> bool {
+        let bytes = self.value.borrow();
+        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_alphabetic())
+    }
 
-fn bytearray_isalnum(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let bytes = get_value(zelf);
-    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_alphanumeric())))
-}
+    fn isascii(self, _vm: &VirtualMachine) -> bool {
+        let bytes = self.value.borrow();
+        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_ascii())
+    }
 
-fn bytearray_isalpha(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let bytes = get_value(zelf);
-    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_alphabetic())))
-}
+    fn isdigit(self, _vm: &VirtualMachine) -> bool {
+        let bytes = self.value.borrow();
+        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_digit(10))
+    }
 
-fn bytearray_isascii(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let bytes = get_value(zelf);
-    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_ascii())))
-}
-
-fn bytearray_isdigit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let bytes = get_value(zelf);
-    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_digit(10))))
-}
-
-fn bytearray_islower(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let bytes = get_value(zelf);
-    Ok(vm.new_bool(
+    fn islower(self, _vm: &VirtualMachine) -> bool {
+        let bytes = self.value.borrow();
         !bytes.is_empty()
             && bytes
                 .iter()
                 .filter(|x| !char::from(**x).is_whitespace())
-                .all(|x| char::from(*x).is_lowercase()),
-    ))
-}
+                .all(|x| char::from(*x).is_lowercase())
+    }
 
-fn bytearray_isspace(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let bytes = get_value(zelf);
-    Ok(vm.new_bool(!bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_whitespace())))
-}
+    fn isspace(self, _vm: &VirtualMachine) -> bool {
+        let bytes = self.value.borrow();
+        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_whitespace())
+    }
 
-fn bytearray_isupper(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let bytes = get_value(zelf);
-    Ok(vm.new_bool(
+    fn isupper(self, _vm: &VirtualMachine) -> bool {
+        let bytes = self.value.borrow();
         !bytes.is_empty()
             && bytes
                 .iter()
                 .filter(|x| !char::from(**x).is_whitespace())
-                .all(|x| char::from(*x).is_uppercase()),
-    ))
-}
+                .all(|x| char::from(*x).is_uppercase())
+    }
 
-fn bytearray_istitle(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    let bytes = get_value(zelf);
+    fn istitle(self, _vm: &VirtualMachine) -> bool {
+        let bytes = self.value.borrow();
+        if bytes.is_empty() {
+            return false;
+        }
 
-    if bytes.is_empty() {
-        Ok(vm.new_bool(false))
-    } else {
         let mut iter = bytes.iter().peekable();
         let mut prev_cased = false;
 
@@ -198,21 +178,52 @@ fn bytearray_istitle(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             let next = if let Some(k) = iter.peek() {
                 char::from(**k)
             } else if current.is_uppercase() {
-                return Ok(vm.new_bool(!prev_cased));
+                return !prev_cased;
             } else {
-                return Ok(vm.new_bool(prev_cased));
+                return prev_cased;
             };
 
             if (is_cased(current) && next.is_uppercase() && !prev_cased)
                 || (!is_cased(current) && next.is_lowercase())
             {
-                return Ok(vm.new_bool(false));
+                return false;
             }
 
             prev_cased = is_cased(current);
         }
 
-        Ok(vm.new_bool(true))
+        true
+    }
+
+    fn repr(self, _vm: &VirtualMachine) -> String {
+        let bytes = self.value.borrow();
+        let data = String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| to_hex(&bytes.to_vec()));
+        format!("bytearray(b'{}')", data)
+    }
+
+    fn clear(self, _vm: &VirtualMachine) {
+        self.value.borrow_mut().clear();
+    }
+
+    fn pop(self, vm: &VirtualMachine) -> PyResult<u8> {
+        let mut bytes = self.value.borrow_mut();
+        bytes
+            .pop()
+            .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_string()))
+    }
+
+    fn lower(self, _vm: &VirtualMachine) -> PyByteArray {
+        let bytes = self.value.borrow().clone().to_ascii_lowercase();
+        PyByteArray {
+            value: RefCell::new(bytes),
+        }
+    }
+
+    fn upper(self, _vm: &VirtualMachine) -> PyByteArray {
+        let bytes = self.value.borrow().clone().to_ascii_uppercase();
+        PyByteArray {
+            value: RefCell::new(bytes),
+        }
     }
 }
 
@@ -222,7 +233,7 @@ fn is_cased(c: char) -> bool {
 }
 
 /*
-fn bytearray_getitem(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+fn getitem(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
@@ -239,48 +250,11 @@ fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
 */
 
 /// Return a lowercase hex representation of a bytearray
-fn bytearray_to_hex(bytearray: &[u8]) -> String {
+fn to_hex(bytearray: &[u8]) -> String {
     bytearray.iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "\\x{:02x}", b);
         s
     })
-}
-
-fn bytearray_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
-    let value = get_value(obj);
-    let data =
-        String::from_utf8(value.to_vec()).unwrap_or_else(|_| bytearray_to_hex(&value.to_vec()));
-    Ok(vm.new_str(format!("bytearray(b'{}')", data)))
-}
-
-fn bytearray_clear(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytearray_type()))]);
-    get_mut_value(zelf).clear();
-    Ok(vm.get_none())
-}
-
-fn bytearray_pop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
-    let mut value = get_mut_value(obj);
-
-    if let Some(i) = value.pop() {
-        Ok(vm.ctx.new_int(i))
-    } else {
-        Err(vm.new_index_error("pop from empty bytearray".to_string()))
-    }
-}
-
-fn bytearray_lower(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
-    let value = get_value(obj).to_vec().to_ascii_lowercase();
-    Ok(vm.ctx.new_bytearray(value))
-}
-
-fn bytearray_upper(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytearray_type()))]);
-    let value = get_value(obj).to_vec().to_ascii_uppercase();
-    Ok(vm.ctx.new_bytearray(value))
 }
 
 #[cfg(test)]
@@ -289,6 +263,6 @@ mod tests {
 
     #[test]
     fn bytearray_to_hex_formatting() {
-        assert_eq!(&bytearray_to_hex(&[11u8, 222u8]), "\\x0b\\xde");
+        assert_eq!(&to_hex(&[11u8, 222u8]), "\\x0b\\xde");
     }
 }

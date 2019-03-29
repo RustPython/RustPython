@@ -6,20 +6,22 @@ use std::char;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use num_traits::{Signed, ToPrimitive};
+use num_traits::Signed;
 
 use crate::compile;
 use crate::import::import_module;
 use crate::obj::objbool;
-use crate::obj::objint;
+use crate::obj::objdict::PyDictRef;
+use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
-use crate::obj::objstr::{self, PyStringRef};
+use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 
 use crate::frame::Scope;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
+    DictProtocol, IdProtocol, PyContext, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -27,82 +29,53 @@ use crate::obj::objcode::PyCodeRef;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
-fn get_locals(vm: &VirtualMachine) -> PyObjectRef {
-    vm.get_locals()
-}
-
-fn dir_locals(vm: &VirtualMachine) -> PyObjectRef {
-    get_locals(vm)
-}
-
-fn builtin_abs(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, None)]);
+fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     match vm.get_method(x.clone(), "__abs__") {
         Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![], vec![])),
         Err(..) => Err(vm.new_type_error("bad operand for abs".to_string())),
     }
 }
 
-fn builtin_all(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iterable, None)]);
-    let items = vm.extract_elements(iterable)?;
-    for item in items {
-        let result = objbool::boolval(vm, item)?;
-        if !result {
-            return Ok(vm.new_bool(false));
+fn builtin_all(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
+    for item in iterable.iter(vm)? {
+        if !item? {
+            return Ok(false);
         }
     }
-    Ok(vm.new_bool(true))
+    Ok(true)
 }
 
-fn builtin_any(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iterable, None)]);
-    let iterator = objiter::get_iter(vm, iterable)?;
-
-    while let Some(item) = objiter::get_next_object(vm, &iterator)? {
-        let result = objbool::boolval(vm, item)?;
-        if result {
-            return Ok(vm.new_bool(true));
+fn builtin_any(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
+    for item in iterable.iter(vm)? {
+        if item? {
+            return Ok(true);
         }
     }
-
-    Ok(vm.new_bool(false))
+    Ok(false)
 }
 
 // builtin_ascii
 
-fn builtin_bin(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(number, Some(vm.ctx.int_type()))]);
-
-    let n = objint::get_value(number);
-    let s = if n.is_negative() {
-        format!("-0b{:b}", n.abs())
+fn builtin_bin(x: PyIntRef, _vm: &VirtualMachine) -> String {
+    let x = x.as_bigint();
+    if x.is_negative() {
+        format!("-0b{:b}", x.abs())
     } else {
-        format!("0b{:b}", n)
-    };
-
-    Ok(vm.new_str(s))
+        format!("0b{:b}", x)
+    }
 }
 
 // builtin_breakpoint
 
-fn builtin_callable(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, None)]);
-    let is_callable = objtype::class_has_attr(&obj.type_pyref(), "__call__");
-    Ok(vm.new_bool(is_callable))
+fn builtin_callable(obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    objtype::class_has_attr(&obj.class(), "__call__")
 }
 
-fn builtin_chr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(i, Some(vm.ctx.int_type()))]);
-
-    let code_point = objint::get_value(i).to_u32().unwrap();
-
-    let txt = match char::from_u32(code_point) {
+fn builtin_chr(i: u32, _vm: &VirtualMachine) -> String {
+    match char::from_u32(i) {
         Some(value) => value.to_string(),
         None => '_'.to_string(),
-    };
-
-    Ok(vm.new_str(txt))
+    }
 }
 
 fn builtin_compile(
@@ -135,18 +108,13 @@ fn builtin_compile(
     })
 }
 
-fn builtin_delattr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None), (attr, Some(vm.ctx.str_type()))]
-    );
-    vm.del_attr(obj, attr.clone())
+fn builtin_delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    vm.del_attr(&obj, attr.into_object())
 }
 
 fn builtin_dir(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.is_empty() {
-        Ok(dir_locals(vm))
+        Ok(vm.get_locals().into_object())
     } else {
         let obj = args.args.into_iter().next().unwrap();
         let seq = vm.call_method(&obj, "__dir__", vec![])?;
@@ -240,7 +208,7 @@ fn make_scope(
             } else if vm.isinstance(arg, &dict_type)? {
                 Some(arg)
             } else {
-                let arg_typ = arg.typ();
+                let arg_typ = arg.class();
                 let actual_type = vm.to_pystr(&arg_typ)?;
                 let expected_type_name = vm.to_pystr(&dict_type)?;
                 return Err(vm.new_type_error(format!(
@@ -254,28 +222,37 @@ fn make_scope(
 
     let current_scope = vm.current_scope();
     let globals = match globals {
-        Some(dict) => dict.clone(),
+        Some(dict) => dict.clone().downcast().unwrap(),
         None => current_scope.globals.clone(),
     };
     let locals = match locals {
-        Some(dict) => Some(dict.clone()),
+        Some(dict) => dict.clone().downcast().ok(),
         None => current_scope.get_only_locals(),
     };
 
     Ok(Scope::new(locals, globals))
 }
 
-fn builtin_format(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, None)],
-        optional = [(format_spec, Some(vm.ctx.str_type()))]
-    );
-    let format_spec = format_spec
-        .cloned()
-        .unwrap_or_else(|| vm.new_str("".to_string()));
-    vm.call_method(obj, "__format__", vec![format_spec])
+fn builtin_format(
+    value: PyObjectRef,
+    format_spec: OptionalArg<PyStringRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyStringRef> {
+    let format_spec = format_spec.into_option().unwrap_or_else(|| {
+        PyString {
+            value: "".to_string(),
+        }
+        .into_ref(vm)
+    });
+
+    vm.call_method(&value, "__format__", vec![format_spec.into_object()])?
+        .downcast()
+        .map_err(|obj| {
+            vm.new_type_error(format!(
+                "__format__ must return a str, not {}",
+                obj.class().name
+            ))
+        })
 }
 
 fn catch_attr_exception<T>(ex: PyObjectRef, default: T, vm: &VirtualMachine) -> PyResult<T> {
@@ -300,7 +277,7 @@ fn builtin_getattr(
     }
 }
 
-fn builtin_globals(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+fn builtin_globals(vm: &VirtualMachine) -> PyResult<PyDictRef> {
     Ok(vm.current_scope().globals.clone())
 }
 
@@ -368,15 +345,14 @@ fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(value) => vm.invoke(value, PyFuncArgs::default()),
         Err(..) => Err(vm.new_type_error(format!(
             "object of type '{}' has no method {:?}",
-            objtype::get_type_name(&obj.typ()),
+            obj.class().name,
             len_method_name
         ))),
     }
 }
 
-fn builtin_locals(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    Ok(vm.get_locals())
+fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
+    vm.get_locals()
 }
 
 fn builtin_max(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -608,10 +584,9 @@ fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     match vm.get_method(obj.clone(), "__reversed__") {
         Ok(value) => vm.invoke(value, PyFuncArgs::default()),
         // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
-        Err(..) => Err(vm.new_type_error(format!(
-            "'{}' object is not reversible",
-            objtype::get_type_name(&obj.typ()),
-        ))),
+        Err(..) => {
+            Err(vm.new_type_error(format!("'{}' object is not reversible", obj.class().name)))
+        }
     }
 }
 // builtin_reversed
@@ -656,14 +631,11 @@ fn builtin_sorted(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     Ok(lst)
 }
 
-fn builtin_sum(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iterable, None)]);
-    let items = vm.extract_elements(iterable)?;
-
+fn builtin_sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) -> PyResult {
     // Start with zero and add at will:
-    let mut sum = vm.ctx.new_int(0);
-    for item in items {
-        sum = vm._add(sum, item)?;
+    let mut sum = start.into_option().unwrap_or_else(|| vm.ctx.new_int(0));
+    for item in iterable.iter(vm)? {
+        sum = vm._add(sum, item?)?;
     }
     Ok(sum)
 }
@@ -805,9 +777,9 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     };
 
     for base in bases.clone() {
-        if objtype::issubclass(&base.type_pyref(), &metaclass) {
-            metaclass = base.type_pyref();
-        } else if !objtype::issubclass(&metaclass, &base.type_pyref()) {
+        if objtype::issubclass(&base.class(), &metaclass) {
+            metaclass = base.class();
+        } else if !objtype::issubclass(&metaclass, &base.class()) {
             return Err(vm.new_type_error("metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases".to_string()));
         }
     }
@@ -818,13 +790,15 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
     let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
     let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
 
+    let namespace: PyDictRef = TryFromObject::try_from_object(vm, namespace)?;
+
     let cells = vm.ctx.new_dict();
 
-    vm.invoke_with_locals(function, cells.clone().into_object(), namespace.clone())?;
+    vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
     let class = vm.call_method(
         metaclass.as_object(),
         "__call__",
-        vec![name_arg, bases, namespace],
+        vec![name_arg, bases, namespace.into_object()],
     )?;
     cells.set_item(&vm.ctx, "__class__", class.clone());
     Ok(class)

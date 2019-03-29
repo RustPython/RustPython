@@ -98,7 +98,7 @@ impl PyFuncArgs {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = vm.to_pystr(&ty)?;
-                    let actual_ty_name = vm.to_pystr(&kwarg.typ())?;
+                    let actual_ty_name = vm.to_pystr(&kwarg.class())?;
                     Err(vm.new_type_error(format!(
                         "argument of type {} is required for named parameter `{}` (got: {})",
                         expected_ty_name, key, actual_ty_name
@@ -317,7 +317,7 @@ where
 ///
 /// This style of argument is not possible in pure Python.
 #[derive(Debug)]
-pub enum OptionalArg<T> {
+pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
 }

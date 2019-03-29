@@ -231,16 +231,16 @@ fn set_new(cls: PyClassRef, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMach
 fn set_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     trace!("set.len called with: {:?}", args);
     arg_check!(vm, args, required = [(s, None)]);
-    validate_set_or_frozenset(vm, s.type_pyref())?;
+    validate_set_or_frozenset(vm, s.class())?;
     let elements = get_elements(s);
     Ok(vm.context().new_int(elements.len()))
 }
 
 fn set_copy(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     trace!("set.copy called with: {:?}", obj);
-    validate_set_or_frozenset(vm, obj.type_pyref())?;
+    validate_set_or_frozenset(vm, obj.class())?;
     let elements = get_elements(&obj).clone();
-    create_set(vm, elements, obj.type_pyref())
+    create_set(vm, elements, obj.class())
 }
 
 fn set_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -265,7 +265,7 @@ fn set_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 pub fn set_contains(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(set, None), (needle, None)]);
-    validate_set_or_frozenset(vm, set.type_pyref())?;
+    validate_set_or_frozenset(vm, set.class())?;
     for element in get_elements(set).iter() {
         match vm._eq(needle.clone(), element.1.clone()) {
             Ok(value) => {
@@ -333,8 +333,8 @@ fn set_compare_inner(
 ) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None), (other, None)]);
 
-    validate_set_or_frozenset(vm, zelf.type_pyref())?;
-    validate_set_or_frozenset(vm, other.type_pyref())?;
+    validate_set_or_frozenset(vm, zelf.class())?;
+    validate_set_or_frozenset(vm, other.class())?;
 
     let get_zelf = |swap: bool| -> &PyObjectRef {
         if swap {
@@ -370,13 +370,13 @@ fn set_compare_inner(
 }
 
 fn set_union(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    validate_set_or_frozenset(vm, zelf.type_pyref())?;
-    validate_set_or_frozenset(vm, other.type_pyref())?;
+    validate_set_or_frozenset(vm, zelf.class())?;
+    validate_set_or_frozenset(vm, other.class())?;
 
     let mut elements = get_elements(&zelf).clone();
     elements.extend(get_elements(&other).clone());
 
-    create_set(vm, elements, zelf.type_pyref())
+    create_set(vm, elements, zelf.class())
 }
 
 fn set_intersection(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -392,8 +392,8 @@ fn set_symmetric_difference(
     other: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult {
-    validate_set_or_frozenset(vm, zelf.type_pyref())?;
-    validate_set_or_frozenset(vm, other.type_pyref())?;
+    validate_set_or_frozenset(vm, zelf.class())?;
+    validate_set_or_frozenset(vm, other.class())?;
     let mut elements = HashMap::new();
 
     for element in get_elements(&zelf).iter() {
@@ -410,7 +410,7 @@ fn set_symmetric_difference(
         }
     }
 
-    create_set(vm, elements, zelf.type_pyref())
+    create_set(vm, elements, zelf.class())
 }
 
 enum SetCombineOperation {
@@ -424,8 +424,8 @@ fn set_combine_inner(
     vm: &VirtualMachine,
     op: SetCombineOperation,
 ) -> PyResult {
-    validate_set_or_frozenset(vm, zelf.type_pyref())?;
-    validate_set_or_frozenset(vm, other.type_pyref())?;
+    validate_set_or_frozenset(vm, zelf.class())?;
+    validate_set_or_frozenset(vm, other.class())?;
     let mut elements = HashMap::new();
 
     for element in get_elements(&zelf).iter() {
@@ -439,7 +439,7 @@ fn set_combine_inner(
         }
     }
 
-    create_set(vm, elements, zelf.type_pyref())
+    create_set(vm, elements, zelf.class())
 }
 
 fn set_pop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

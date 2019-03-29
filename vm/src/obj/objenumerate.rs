@@ -4,8 +4,8 @@ use std::ops::AddAssign;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::function::OptionalArg;
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint::PyIntRef;
@@ -44,18 +44,10 @@ fn enumerate_new(
     .into_ref_with_type(vm, cls)
 }
 
-fn enumerate_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(enumerate, Some(vm.ctx.enumerate_type()))]
-    );
-
-    if let Some(PyEnumerate {
-        ref counter,
-        ref iterator,
-    }) = enumerate.payload()
-    {
+impl PyEnumerateRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult {
+        let iterator = &self.iterator;
+        let counter = &self.counter;
         let next_obj = objiter::call_next(vm, iterator)?;
         let result = vm
             .ctx
@@ -64,8 +56,6 @@ fn enumerate_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         AddAssign::add_assign(&mut counter.borrow_mut() as &mut BigInt, 1);
 
         Ok(result)
-    } else {
-        panic!("enumerate doesn't have correct payload");
     }
 }
 
@@ -74,6 +64,6 @@ pub fn init(context: &PyContext) {
     objiter::iter_type_init(context, enumerate_type);
     extend_class!(context, enumerate_type, {
         "__new__" => context.new_rustfunc(enumerate_new),
-        "__next__" => context.new_rustfunc(enumerate_next)
+        "__next__" => context.new_rustfunc(PyEnumerateRef::next)
     });
 }

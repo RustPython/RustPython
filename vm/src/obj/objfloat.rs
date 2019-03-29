@@ -190,8 +190,7 @@ impl PyFloatRef {
                 }
             }
         } else {
-            let type_name = objtype::get_type_name(&arg.typ());
-            return Err(vm.new_type_error(format!("can't convert {} to float", type_name)));
+            return Err(vm.new_type_error(format!("can't convert {} to float", arg.class().name)));
         };
         PyFloat { value }.into_ref_with_type(vm, cls)
     }

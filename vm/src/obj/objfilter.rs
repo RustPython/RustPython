@@ -1,5 +1,4 @@
-use crate::function::PyFuncArgs;
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
 use super::objbool;
@@ -35,14 +34,10 @@ fn filter_new(
     .into_ref_with_type(vm, cls)
 }
 
-fn filter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(filter, Some(vm.ctx.filter_type()))]);
-
-    if let Some(PyFilter {
-        ref predicate,
-        ref iterator,
-    }) = filter.payload()
-    {
+impl PyFilterRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult {
+        let predicate = &self.predicate;
+        let iterator = &self.iterator;
         loop {
             let next_obj = objiter::call_next(vm, iterator)?;
             let predicate_value = if predicate.is(&vm.get_none()) {
@@ -56,8 +51,6 @@ fn filter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 return Ok(next_obj);
             }
         }
-    } else {
-        panic!("filter doesn't have correct payload");
     }
 }
 
@@ -74,6 +67,6 @@ pub fn init(context: &PyContext) {
     extend_class!(context, filter_type, {
         "__new__" => context.new_rustfunc(filter_new),
         "__doc__" => context.new_str(filter_doc.to_string()),
-        "__next__" => context.new_rustfunc(filter_next)
+        "__next__" => context.new_rustfunc(PyFilterRef::next)
     });
 }
