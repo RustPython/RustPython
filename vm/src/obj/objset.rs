@@ -57,6 +57,48 @@ impl PyValue for PyFrozenSet {
     }
 }
 
+trait SetProtocol
+where
+    Self: Sized,
+{
+    fn get_elements(&self) -> HashMap<u64, PyObjectRef>;
+    fn create(&self, vm: &VirtualMachine, elements: HashMap<u64, PyObjectRef>) -> PyResult;
+    fn len(self, _vm: &VirtualMachine) -> usize {
+        self.get_elements().len()
+    }
+    fn copy(self, vm: &VirtualMachine) -> PyResult {
+        self.create(vm, self.get_elements())
+    }
+}
+
+impl SetProtocol for PySetRef {
+    fn get_elements(&self) -> HashMap<u64, PyObjectRef> {
+        self.elements.borrow().clone()
+    }
+    fn create(&self, vm: &VirtualMachine, elements: HashMap<u64, PyObjectRef>) -> PyResult {
+        Ok(PyObject::new(
+            PySet {
+                elements: RefCell::new(elements),
+            },
+            PySet::class(vm),
+            None,
+        ))
+    }
+}
+
+impl SetProtocol for PyFrozenSetRef {
+    fn get_elements(&self) -> HashMap<u64, PyObjectRef> {
+        self.elements.clone()
+    }
+    fn create(&self, vm: &VirtualMachine, elements: HashMap<u64, PyObjectRef>) -> PyResult {
+        Ok(PyObject::new(
+            PyFrozenSet { elements: elements },
+            PyFrozenSet::class(vm),
+            None,
+        ))
+    }
+}
+
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
     if let Some(set) = obj.payload::<PySet>() {
         return set.elements.borrow().clone();
@@ -226,21 +268,6 @@ fn set_new(cls: PyClassRef, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMach
     };
 
     create_set(vm, elements, cls.clone())
-}
-
-fn set_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("set.len called with: {:?}", args);
-    arg_check!(vm, args, required = [(s, None)]);
-    validate_set_or_frozenset(vm, s.class())?;
-    let elements = get_elements(s);
-    Ok(vm.context().new_int(elements.len()))
-}
-
-fn set_copy(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    trace!("set.copy called with: {:?}", obj);
-    validate_set_or_frozenset(vm, obj.class())?;
-    let elements = get_elements(&obj).clone();
-    create_set(vm, elements, obj.class())
 }
 
 fn set_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -597,7 +624,7 @@ pub fn init(context: &PyContext) {
 
     extend_class!(context, set_type, {
         "__contains__" => context.new_rustfunc(set_contains),
-        "__len__" => context.new_rustfunc(set_len),
+        "__len__" => context.new_rustfunc(PySetRef::len),
         "__new__" => context.new_rustfunc(set_new),
         "__repr__" => context.new_rustfunc(set_repr),
         "__eq__" => context.new_rustfunc(set_eq),
@@ -620,7 +647,7 @@ pub fn init(context: &PyContext) {
         "remove" => context.new_rustfunc(set_remove),
         "discard" => context.new_rustfunc(set_discard),
         "clear" => context.new_rustfunc(set_clear),
-        "copy" => context.new_rustfunc(set_copy),
+        "copy" => context.new_rustfunc(PySetRef::copy),
         "pop" => context.new_rustfunc(set_pop),
         "update" => context.new_rustfunc(set_update),
         "__ior__" => context.new_rustfunc(set_ior),
@@ -657,9 +684,9 @@ pub fn init(context: &PyContext) {
         "symmetric_difference" => context.new_rustfunc(set_symmetric_difference),
         "__xor__" => context.new_rustfunc(set_symmetric_difference),
         "__contains__" => context.new_rustfunc(set_contains),
-        "__len__" => context.new_rustfunc(set_len),
+        "__len__" => context.new_rustfunc(PyFrozenSetRef::len),
         "__doc__" => context.new_str(frozenset_doc.to_string()),
         "__repr__" => context.new_rustfunc(frozenset_repr),
-        "copy" => context.new_rustfunc(set_copy)
+        "copy" => context.new_rustfunc(PyFrozenSetRef::copy)
     });
 }
