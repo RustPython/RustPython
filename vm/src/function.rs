@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::ops::RangeInclusive;
 
-use crate::obj::objtype;
+use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use self::OptionalArg::*;
-use crate::obj::objtype::PyClassRef;
 
 /// The `PyFuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
@@ -95,7 +94,7 @@ impl PyFuncArgs {
     ) -> Result<Option<PyObjectRef>, PyObjectRef> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if objtype::isinstance(&kwarg, &ty) {
+                if isinstance(&kwarg, &ty) {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = vm.to_pystr(&ty)?;
@@ -110,12 +109,16 @@ impl PyFuncArgs {
         }
     }
 
-    pub fn next_positional(&mut self) -> Option<PyObjectRef> {
+    pub fn take_positional(&mut self) -> Option<PyObjectRef> {
         if self.args.is_empty() {
             None
         } else {
             Some(self.args.remove(0))
         }
+    }
+
+    pub fn take_positional_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
+        self.take_positional().or_else(|| self.take_keyword(name))
     }
 
     pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
@@ -164,6 +167,9 @@ impl PyFuncArgs {
             Err(ArgumentError::InvalidKeywordArgument(name)) => {
                 return Err(vm.new_type_error(format!("{} is an invalid keyword argument", name)));
             }
+            Err(ArgumentError::RequiredKeywordArgument(name)) => {
+                return Err(vm.new_type_error(format!("Required keyqord only argument {}", name)));
+            }
             Err(ArgumentError::Exception(ex)) => {
                 return Err(ex);
             }
@@ -192,6 +198,8 @@ pub enum ArgumentError {
     TooManyArgs,
     /// The function doesn't accept a keyword argument with the given name.
     InvalidKeywordArgument(String),
+    /// The function require a keyword argument with the given name, but one wasn't provided
+    RequiredKeywordArgument(String),
     /// An exception was raised while binding arguments to the function
     /// parameters.
     Exception(PyObjectRef),
@@ -272,7 +280,7 @@ where
 {
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
-        while let Some(value) = args.next_positional() {
+        while let Some(value) = args.take_positional() {
             varargs.push(T::try_from_object(vm, value)?);
         }
         Ok(Args(varargs))
@@ -297,7 +305,7 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.next_positional() {
+        if let Some(value) = args.take_positional() {
             Ok(T::try_from_object(vm, value)?)
         } else {
             Err(ArgumentError::TooFewArgs)
@@ -308,6 +316,7 @@ where
 /// An argument that may or may not be provided by the caller.
 ///
 /// This style of argument is not possible in pure Python.
+#[derive(Debug)]
 pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
@@ -340,7 +349,7 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.next_positional() {
+        if let Some(value) = args.take_positional() {
             Ok(Present(T::try_from_object(vm, value)?))
         } else {
             Ok(Missing)
