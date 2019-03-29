@@ -133,6 +133,68 @@ where
             true,
         )
     }
+
+    fn union(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        validate_set_or_frozenset(vm, other.class())?;
+
+        let mut elements = self.get_elements().clone();
+        elements.extend(get_elements(&other).clone());
+
+        self.create(vm, elements)
+    }
+
+    fn intersection(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.combine_inner(&other, vm, SetCombineOperation::Intersection)
+    }
+
+    fn difference(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.combine_inner(&other, vm, SetCombineOperation::Difference)
+    }
+
+    fn combine_inner(
+        self,
+        other: &PyObjectRef,
+        vm: &VirtualMachine,
+        op: SetCombineOperation,
+    ) -> PyResult {
+        validate_set_or_frozenset(vm, other.class())?;
+        let mut elements = HashMap::new();
+
+        for element in self.get_elements().iter() {
+            let value = vm.call_method(other, "__contains__", vec![element.1.clone()])?;
+            let should_add = match op {
+                SetCombineOperation::Intersection => objbool::get_value(&value),
+                SetCombineOperation::Difference => !objbool::get_value(&value),
+            };
+            if should_add {
+                elements.insert(element.0.clone(), element.1.clone());
+            }
+        }
+
+        self.create(vm, elements)
+    }
+
+    fn symmetric_difference(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        validate_set_or_frozenset(vm, other.class())?;
+        let mut elements = HashMap::new();
+
+        for element in self.get_elements().iter() {
+            let value = vm.call_method(&other, "__contains__", vec![element.1.clone()])?;
+            if !objbool::get_value(&value) {
+                elements.insert(element.0.clone(), element.1.clone());
+            }
+        }
+
+        for element in get_elements(&other).iter() {
+            let value =
+                vm.call_method(self.as_object(), "__contains__", vec![element.1.clone()])?;
+            if !objbool::get_value(&value) {
+                elements.insert(element.0.clone(), element.1.clone());
+            }
+        }
+
+        self.create(vm, elements)
+    }
 }
 
 impl SetProtocol for PySetRef {
@@ -403,77 +465,9 @@ fn set_compare_inner(
     Ok(vm.new_bool(true))
 }
 
-fn set_union(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    validate_set_or_frozenset(vm, zelf.class())?;
-    validate_set_or_frozenset(vm, other.class())?;
-
-    let mut elements = get_elements(&zelf).clone();
-    elements.extend(get_elements(&other).clone());
-
-    create_set(vm, elements, zelf.class())
-}
-
-fn set_intersection(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    set_combine_inner(zelf, other, vm, SetCombineOperation::Intersection)
-}
-
-fn set_difference(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    set_combine_inner(zelf, other, vm, SetCombineOperation::Difference)
-}
-
-fn set_symmetric_difference(
-    zelf: PyObjectRef,
-    other: PyObjectRef,
-    vm: &VirtualMachine,
-) -> PyResult {
-    validate_set_or_frozenset(vm, zelf.class())?;
-    validate_set_or_frozenset(vm, other.class())?;
-    let mut elements = HashMap::new();
-
-    for element in get_elements(&zelf).iter() {
-        let value = vm.call_method(&other, "__contains__", vec![element.1.clone()])?;
-        if !objbool::get_value(&value) {
-            elements.insert(element.0.clone(), element.1.clone());
-        }
-    }
-
-    for element in get_elements(&other).iter() {
-        let value = vm.call_method(&zelf, "__contains__", vec![element.1.clone()])?;
-        if !objbool::get_value(&value) {
-            elements.insert(element.0.clone(), element.1.clone());
-        }
-    }
-
-    create_set(vm, elements, zelf.class())
-}
-
 enum SetCombineOperation {
     Intersection,
     Difference,
-}
-
-fn set_combine_inner(
-    zelf: PyObjectRef,
-    other: PyObjectRef,
-    vm: &VirtualMachine,
-    op: SetCombineOperation,
-) -> PyResult {
-    validate_set_or_frozenset(vm, zelf.class())?;
-    validate_set_or_frozenset(vm, other.class())?;
-    let mut elements = HashMap::new();
-
-    for element in get_elements(&zelf).iter() {
-        let value = vm.call_method(&other, "__contains__", vec![element.1.clone()])?;
-        let should_add = match op {
-            SetCombineOperation::Intersection => objbool::get_value(&value),
-            SetCombineOperation::Difference => !objbool::get_value(&value),
-        };
-        if should_add {
-            elements.insert(element.0.clone(), element.1.clone());
-        }
-    }
-
-    create_set(vm, elements, zelf.class())
 }
 
 fn set_pop(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -641,14 +635,14 @@ pub fn init(context: &PyContext) {
         "__lt__" => context.new_rustfunc(PySetRef::lt),
         "issubset" => context.new_rustfunc(PySetRef::le),
         "issuperset" => context.new_rustfunc(PySetRef::ge),
-        "union" => context.new_rustfunc(set_union),
-        "__or__" => context.new_rustfunc(set_union),
-        "intersection" => context.new_rustfunc(set_intersection),
-        "__and__" => context.new_rustfunc(set_intersection),
-        "difference" => context.new_rustfunc(set_difference),
-        "__sub__" => context.new_rustfunc(set_difference),
-        "symmetric_difference" => context.new_rustfunc(set_symmetric_difference),
-        "__xor__" => context.new_rustfunc(set_symmetric_difference),
+        "union" => context.new_rustfunc(PySetRef::union),
+        "__or__" => context.new_rustfunc(PySetRef::union),
+        "intersection" => context.new_rustfunc(PySetRef::intersection),
+        "__and__" => context.new_rustfunc(PySetRef::intersection),
+        "difference" => context.new_rustfunc(PySetRef::difference),
+        "__sub__" => context.new_rustfunc(PySetRef::difference),
+        "symmetric_difference" => context.new_rustfunc(PySetRef::symmetric_difference),
+        "__xor__" => context.new_rustfunc(PySetRef::symmetric_difference),
         "__doc__" => context.new_str(set_doc.to_string()),
         "add" => context.new_rustfunc(set_add),
         "remove" => context.new_rustfunc(set_remove),
@@ -682,14 +676,14 @@ pub fn init(context: &PyContext) {
         "__lt__" => context.new_rustfunc(PyFrozenSetRef::lt),
         "issubset" => context.new_rustfunc(PyFrozenSetRef::le),
         "issuperset" => context.new_rustfunc(PyFrozenSetRef::ge),
-        "union" => context.new_rustfunc(set_union),
-        "__or__" => context.new_rustfunc(set_union),
-        "intersection" => context.new_rustfunc(set_intersection),
-        "__and__" => context.new_rustfunc(set_intersection),
-        "difference" => context.new_rustfunc(set_difference),
-        "__sub__" => context.new_rustfunc(set_difference),
-        "symmetric_difference" => context.new_rustfunc(set_symmetric_difference),
-        "__xor__" => context.new_rustfunc(set_symmetric_difference),
+        "union" => context.new_rustfunc(PyFrozenSetRef::union),
+        "__or__" => context.new_rustfunc(PyFrozenSetRef::union),
+        "intersection" => context.new_rustfunc(PyFrozenSetRef::intersection),
+        "__and__" => context.new_rustfunc(PyFrozenSetRef::intersection),
+        "difference" => context.new_rustfunc(PyFrozenSetRef::difference),
+        "__sub__" => context.new_rustfunc(PyFrozenSetRef::difference),
+        "symmetric_difference" => context.new_rustfunc(PyFrozenSetRef::symmetric_difference),
+        "__xor__" => context.new_rustfunc(PyFrozenSetRef::symmetric_difference),
         "__contains__" => context.new_rustfunc(PyFrozenSetRef::contains),
         "__len__" => context.new_rustfunc(PyFrozenSetRef::len),
         "__doc__" => context.new_str(frozenset_doc.to_string()),
