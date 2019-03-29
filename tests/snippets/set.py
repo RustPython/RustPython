@@ -205,6 +205,13 @@ assert frozenset([1,2,3]) ^ frozenset([1,2,3,4,5]) == frozenset([4,5])
 
 assert_raises(TypeError, lambda: frozenset([[]]))
 
+a = frozenset([1,2,3])
+b = set()
+for e in a:
+	assert e == 1 or e == 2 or e == 3
+	b.add(e)
+assert a == b
+
 # set and frozen set
 assert frozenset([1,2,3]).union(set([4,5])) == frozenset([1,2,3,4,5])
 assert set([1,2,3]).union(frozenset([4,5])) == set([1,2,3,4,5])
