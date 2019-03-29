@@ -23,11 +23,11 @@ enum ParameterKind {
 
 impl ParameterKind {
     fn from_ident(ident: &Ident) -> ParameterKind {
-        if ident == "positional" {
+        if ident == "positional_only" {
             ParameterKind::PositionalOnly
-        } else if ident == "positional_keyword" {
+        } else if ident == "positional_or_keyword" {
             ParameterKind::PositionalOrKeyword
-        } else if ident == "keyword" {
+        } else if ident == "keyword_only" {
             ParameterKind::KeywordOnly
         } else {
             panic!("Unrecognised attribute")
