@@ -231,6 +231,48 @@ impl SetProtocol for PyFrozenSetRef {
     }
 }
 
+impl PySetRef {
+    fn add(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        insert_into_set(vm, &mut self.elements.borrow_mut(), &item)
+    }
+
+    fn remove(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn remove(
+            vm: &VirtualMachine,
+            elements: &mut HashMap<u64, PyObjectRef>,
+            key: u64,
+            value: &PyObjectRef,
+        ) -> PyResult {
+            match elements.remove(&key) {
+                None => {
+                    let item_str = format!("{:?}", value);
+                    Err(vm.new_key_error(item_str))
+                }
+                Some(_) => Ok(vm.get_none()),
+            }
+        }
+        perform_action_with_hash(vm, &mut self.elements.borrow_mut(), &item, &remove)
+    }
+
+    fn discard(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        fn discard(
+            vm: &VirtualMachine,
+            elements: &mut HashMap<u64, PyObjectRef>,
+            key: u64,
+            _value: &PyObjectRef,
+        ) -> PyResult {
+            elements.remove(&key);
+            Ok(vm.get_none())
+        }
+        perform_action_with_hash(vm, &mut self.elements.borrow_mut(), &item, &discard)
+    }
+
+    fn clear(self, vm: &VirtualMachine) -> PyResult {
+        self.elements.borrow_mut().clear();
+        Ok(vm.get_none())
+    }
+}
+
 pub fn get_elements(obj: &PyObjectRef) -> HashMap<u64, PyObjectRef> {
     if let Some(set) = obj.payload::<PySet>() {
         return set.elements.borrow().clone();
@@ -303,84 +345,6 @@ fn insert_into_set(
         Ok(vm.get_none())
     }
     perform_action_with_hash(vm, elements, item, &insert)
-}
-
-fn set_add(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("set.add called with: {:?}", args);
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.set_type())), (item, None)]
-    );
-    match zelf.payload::<PySet>() {
-        Some(set) => insert_into_set(vm, &mut set.elements.borrow_mut(), item),
-        _ => Err(vm.new_type_error("set.add is called with no item".to_string())),
-    }
-}
-
-fn set_remove(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("set.remove called with: {:?}", args);
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.set_type())), (item, None)]
-    );
-    match s.payload::<PySet>() {
-        Some(set) => {
-            fn remove(
-                vm: &VirtualMachine,
-                elements: &mut HashMap<u64, PyObjectRef>,
-                key: u64,
-                value: &PyObjectRef,
-            ) -> PyResult {
-                match elements.remove(&key) {
-                    None => {
-                        let item_str = format!("{:?}", value);
-                        Err(vm.new_key_error(item_str))
-                    }
-                    Some(_) => Ok(vm.get_none()),
-                }
-            }
-            perform_action_with_hash(vm, &mut set.elements.borrow_mut(), item, &remove)
-        }
-        _ => Err(vm.new_type_error("set.remove is called with no item".to_string())),
-    }
-}
-
-fn set_discard(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("set.discard called with: {:?}", args);
-    arg_check!(
-        vm,
-        args,
-        required = [(s, Some(vm.ctx.set_type())), (item, None)]
-    );
-    match s.payload::<PySet>() {
-        Some(set) => {
-            fn discard(
-                vm: &VirtualMachine,
-                elements: &mut HashMap<u64, PyObjectRef>,
-                key: u64,
-                _value: &PyObjectRef,
-            ) -> PyResult {
-                elements.remove(&key);
-                Ok(vm.get_none())
-            }
-            perform_action_with_hash(vm, &mut set.elements.borrow_mut(), item, &discard)
-        }
-        None => Err(vm.new_type_error("set.discard is called with no item".to_string())),
-    }
-}
-
-fn set_clear(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    trace!("set.clear called");
-    arg_check!(vm, args, required = [(s, Some(vm.ctx.set_type()))]);
-    match s.payload::<PySet>() {
-        Some(set) => {
-            set.elements.borrow_mut().clear();
-            Ok(vm.get_none())
-        }
-        None => Err(vm.new_type_error("".to_string())),
-    }
 }
 
 /* Create a new object of sub-type of set */
@@ -644,10 +608,10 @@ pub fn init(context: &PyContext) {
         "symmetric_difference" => context.new_rustfunc(PySetRef::symmetric_difference),
         "__xor__" => context.new_rustfunc(PySetRef::symmetric_difference),
         "__doc__" => context.new_str(set_doc.to_string()),
-        "add" => context.new_rustfunc(set_add),
-        "remove" => context.new_rustfunc(set_remove),
-        "discard" => context.new_rustfunc(set_discard),
-        "clear" => context.new_rustfunc(set_clear),
+        "add" => context.new_rustfunc(PySetRef::add),
+        "remove" => context.new_rustfunc(PySetRef::remove),
+        "discard" => context.new_rustfunc(PySetRef::discard),
+        "clear" => context.new_rustfunc(PySetRef::clear),
         "copy" => context.new_rustfunc(PySetRef::copy),
         "pop" => context.new_rustfunc(set_pop),
         "update" => context.new_rustfunc(set_update),
