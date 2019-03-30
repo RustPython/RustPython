@@ -30,7 +30,9 @@ extern crate statrs;
 
 extern crate rustpython_parser;
 #[macro_use]
-pub extern crate rustpython_derive;
+extern crate rustpython_derive;
+
+pub use rustpython_derive::*;
 
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
