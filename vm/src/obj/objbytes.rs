@@ -66,7 +66,8 @@ pub fn init(context: &PyContext) {
         "__repr__" => context.new_rustfunc(PyBytesRef::repr),
         "__len__" => context.new_rustfunc(PyBytesRef::len),
         "__iter__" => context.new_rustfunc(PyBytesRef::iter),
-        "__doc__" => context.new_str(bytes_doc.to_string())
+        "__doc__" => context.new_str(bytes_doc.to_string()),
+        "__add__" => context.new_rustfunc(PyBytesRef::add),
     });
 }
 
@@ -153,6 +154,16 @@ impl PyBytesRef {
         PyIteratorValue {
             position: Cell::new(0),
             iterated_obj: obj.into_object(),
+        }
+    }
+
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if let Ok(other) = other.downcast::<PyBytes>() {
+            let rhs = &other.value;
+            let elements: Vec<u8> = self.value.iter().chain(rhs.iter()).cloned().collect();
+            vm.ctx.new_bytes(elements)
+        } else {
+            vm.ctx.not_implemented()
         }
     }
 }
