@@ -72,6 +72,7 @@ pub fn init(context: &PyContext) {
         "__add__" => context.new_rustfunc(PyBytesRef::add),
         "__contains__" => context.new_rustfunc(PyBytesRef::contains),
         "__getitem__" => context.new_rustfunc(PyBytesRef::getitem),
+        "capitalize" => context.new_rustfunc(PyBytesRef::capitalize),
     });
 }
 
@@ -212,6 +213,12 @@ impl PyBytesRef {
                 needle
             ))
         }
+    }
+
+    fn capitalize(self, vm: &VirtualMachine) -> PyObjectRef {
+        let mut new = vec![self.value[0].to_ascii_uppercase()];
+        new.extend(&self.value[1..]);
+        vm.ctx.new_bytes(new)
     }
 }
 
