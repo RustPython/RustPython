@@ -10,6 +10,7 @@ use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, 
 use crate::vm::VirtualMachine;
 
 use super::objint;
+use super::objtype;
 use super::objtype::PyClassRef;
 
 #[derive(Debug)]
@@ -68,6 +69,7 @@ pub fn init(context: &PyContext) {
         "__iter__" => context.new_rustfunc(PyBytesRef::iter),
         "__doc__" => context.new_str(bytes_doc.to_string()),
         "__add__" => context.new_rustfunc(PyBytesRef::add),
+        "__contains__" => context.new_rustfunc(PyBytesRef::contains),
     });
 }
 
@@ -166,8 +168,37 @@ impl PyBytesRef {
             vm.ctx.not_implemented()
         }
     }
+
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        // no new style since objint is not.
+        if objtype::isinstance(&needle, &vm.ctx.bytes_type()) {
+            let result = vec_contains(&self.value, &get_value(&needle));
+            vm.ctx.new_bool(result)
+        } else if objtype::isinstance(&needle, &vm.ctx.int_type()) {
+            let result = self
+                .value
+                .contains(&objint::get_value(&needle).to_u8().unwrap());
+            vm.ctx.new_bool(result)
+        } else {
+            vm.new_type_error(format!("Cannot add {:?} and {:?}", self, needle))
+        }
+    }
 }
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
     &obj.payload::<PyBytes>().unwrap().value
+}
+
+/// return true if b is a subset of a.
+fn vec_contains(a: &Vec<u8>, b: &Vec<u8>) -> bool {
+    let a_len = a.len();
+    let b_len = b.len();
+    for (n, i) in a.iter().enumerate() {
+        if n + b_len <= a_len && *i == b[0] {
+            if &a[n..n + b_len] == b.as_slice() {
+                return true;
+            }
+        }
+    }
+    false
 }
