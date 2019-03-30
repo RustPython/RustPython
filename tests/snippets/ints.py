@@ -1,4 +1,4 @@
-from testutils import assert_raises
+from testutils import assert_raises, assertRaises
 
 # int to int comparisons
 
@@ -58,3 +58,19 @@ assert (2).__mul__(1.0) == NotImplemented
 assert (2).__rmul__(1.0) == NotImplemented
 assert (2).__truediv__(1.0) == NotImplemented
 assert (2).__rtruediv__(1.0) == NotImplemented
+
+
+assert int() == 0
+assert int("101", 2) == 5
+assert int("101", base=2) == 5
+assert int(1) == 1
+
+with assertRaises(TypeError):
+    int(base=2)
+
+with assertRaises(TypeError):
+    int(1, base=2)
+
+with assertRaises(TypeError):
+    # check that first parameter is truly positional only
+    int(val_options=1)

@@ -125,12 +125,14 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         || objtype::isinstance(&py_obj, &vm.ctx.bytearray_type())
     {
         let bytes = objbytes::get_value(&py_obj);
-        let arr = Uint8Array::new_with_length(bytes.len() as u32);
-        for (i, byte) in bytes.iter().enumerate() {
-            Reflect::set(&arr, &(i as u32).into(), &(*byte).into())
-                .expect("setting Uint8Array value failed");
+        unsafe {
+            // `Uint8Array::view` is an `unsafe fn` because it provides
+            // a direct view into the WASM linear memory; if you were to allocate
+            // something with Rust that view would probably become invalid. It's safe
+            // because we then copy the array using `Uint8Array::slice`.
+            let view = Uint8Array::view(&bytes);
+            view.slice(0, bytes.len() as u32).into()
         }
-        arr.into()
     } else {
         match vm.serialize(&py_obj) {
             Ok(json) => js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED),
@@ -182,9 +184,8 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                     .cloned()
                     .unwrap_or_else(|| js_val.unchecked_ref::<Uint8Array>().buffer()),
             );
-            let mut vec = Vec::with_capacity(u8_array.length() as usize);
-            // TODO: use Uint8Array::copy_to once updating js_sys doesn't break everything
-            u8_array.for_each(&mut |byte, _, _| vec.push(byte));
+            let mut vec = vec![0; u8_array.length() as usize];
+            u8_array.copy_to(&mut vec);
             vm.ctx.new_bytes(vec)
         } else {
             let dict = vm.ctx.new_dict();
