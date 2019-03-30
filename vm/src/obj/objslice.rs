@@ -24,25 +24,22 @@ impl PyValue for PySlice {
 
 pub type PySliceRef = PyRef<PySlice>;
 
-fn slice_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let (cls, slice): (PyClassRef, PySlice) = match args.args.len() {
-        0 | 1 => {
+fn slice_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PySliceRef> {
+    let slice: PySlice = match args.args.len() {
+        0 => {
             return Err(vm.new_type_error("slice() must have at least one arguments.".to_owned()));
         }
-        2 => {
-            let (cls, stop) = args.bind(vm)?;
-            (
-                cls,
-                PySlice {
-                    start: None,
-                    stop: Some(stop),
-                    step: None,
-                },
-            )
+        1 => {
+            let stop = args.bind(vm)?;
+            PySlice {
+                start: None,
+                stop: Some(stop),
+                step: None,
+            }
         }
         _ => args.bind(vm)?,
     };
-    slice.into_ref_with_type(vm, cls).map(|x| x.into_object())
+    slice.into_ref_with_type(vm, cls)
 }
 
 fn get_property_value(vm: &VirtualMachine, value: &Option<PyObjectRef>) -> PyObjectRef {

@@ -11,6 +11,7 @@ assert a[-20:-10] == []
 b = [1, 2]
 
 assert b[:] == [1, 2]
+assert b[slice(None)] == [1, 2]
 assert b[:2**100] == [1, 2]
 assert b[-2**100:] == [1, 2]
 assert b[2**100:] == []
@@ -77,3 +78,15 @@ class SubScript(object):
 ss = SubScript()
 _ = ss[:]
 ss[:1] = 1
+
+
+class CustomIndex:
+    def __init__(self, x):
+        self.x = x
+
+    def __index__(self):
+        return self.x
+
+
+assert c[CustomIndex(1):CustomIndex(3)] == [1, 2]
+assert d[CustomIndex(1):CustomIndex(3)] == "23"
