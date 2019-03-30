@@ -1,4 +1,4 @@
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -6,13 +6,10 @@ use crate::obj::objint::PyInt;
 use crate::obj::objtype::{class_has_attr, PyClassRef};
 use num_bigint::BigInt;
 
-#[derive(Debug, FromArgs)]
+#[derive(Debug)]
 pub struct PySlice {
-    #[pyarg(positional_only)]
     pub start: Option<PyObjectRef>,
-    #[pyarg(positional_only)]
     pub stop: Option<PyObjectRef>,
-    #[pyarg(positional_only, default)]
     pub step: Option<PyObjectRef>,
 }
 
@@ -37,7 +34,15 @@ fn slice_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult
                 step: None,
             }
         }
-        _ => args.bind(vm)?,
+        _ => {
+            let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<PyObjectRef>) =
+                args.bind(vm)?;
+            PySlice {
+                start: Some(start),
+                stop: Some(stop),
+                step: step.into_option(),
+            }
+        }
     };
     slice.into_ref_with_type(vm, cls)
 }
