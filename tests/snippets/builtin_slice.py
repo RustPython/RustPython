@@ -59,6 +59,12 @@ assert slice_c.start == 1
 assert slice_c.stop == 5
 assert slice_c.step == 2
 
+a = object()
+slice_d = slice(a, "v", 1.0)
+assert slice_d.start is a
+assert slice_d.stop == "v"
+assert slice_d.step == 1.0
+
 
 class SubScript(object):
     def __getitem__(self, item):

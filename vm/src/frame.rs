@@ -2,8 +2,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use num_bigint::BigInt;
-
 use rustpython_parser::ast;
 
 use crate::builtins;
@@ -13,7 +11,6 @@ use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::{self, PyDictRef};
-use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
@@ -404,24 +401,14 @@ impl Frame {
             }
             bytecode::Instruction::BuildSlice { size } => {
                 assert!(*size == 2 || *size == 3);
-                let elements = self.pop_multiple(*size);
 
-                let mut out: Vec<Option<BigInt>> = elements
-                    .into_iter()
-                    .map(|x| {
-                        if x.is(&vm.ctx.none()) {
-                            None
-                        } else if let Some(i) = x.payload::<PyInt>() {
-                            Some(i.as_bigint().clone())
-                        } else {
-                            panic!("Expect Int or None as BUILD_SLICE arguments")
-                        }
-                    })
-                    .collect();
-
-                let start = out[0].take();
-                let stop = out[1].take();
-                let step = if out.len() == 3 { out[2].take() } else { None };
+                let step = if *size == 3 {
+                    Some(self.pop_value())
+                } else {
+                    None
+                };
+                let stop = Some(self.pop_value());
+                let start = Some(self.pop_value());
 
                 let obj = PySlice { start, stop, step }.into_ref(vm);
                 self.push_value(obj.into_object());
