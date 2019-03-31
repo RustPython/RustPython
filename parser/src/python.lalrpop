@@ -2,7 +2,6 @@
 // See also: https://github.com/antlr/grammars-v4/blob/master/python3/Python3.g4
 // See also: file:///usr/share/doc/python/html/reference/compound_stmts.html#function-definitions
 // See also: https://greentreesnakes.readthedocs.io/en/latest/nodes.html#keyword
-#![allow(unknown_lints,clippy)]
 
 use std::iter::FromIterator;
 
