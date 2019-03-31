@@ -769,7 +769,6 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
 pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
     let function = args.shift();
     let name_arg = args.shift();
-    let doc = args.shift();
     let bases = args.args.clone();
     let mut metaclass = if let Some(metaclass) = args.get_optional_kwarg("metaclass") {
         PyClassRef::try_from_object(vm, metaclass)?
@@ -802,6 +801,5 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
         vec![name_arg, bases, namespace.into_object()],
     )?;
     cells.set_item(&vm.ctx, "__class__", class.clone());
-    vm.ctx.set_attr(&class, "__doc__", doc);
     Ok(class)
 }

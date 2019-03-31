@@ -598,17 +598,7 @@ impl Compiler {
         self.in_function_def = true;
         let mut flags = self.enter_function(name, args)?;
 
-        let doc = get_doc(body);
-        let (new_body, doc_str) = match doc {
-            Some(val) => {
-                if let Some((_, body_rest)) = body.split_first() {
-                    (body_rest, val)
-                } else {
-                    (body, "".to_string())
-                }
-            }
-            None => (body, "".to_string()),
-        };
+        let (new_body, doc_str) = get_doc(body);
 
         self.compile_statements(new_body)?;
 
@@ -658,10 +648,6 @@ impl Compiler {
         }
 
         self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::String { value: doc_str },
-        });
-
-        self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
                 code: Box::new(code),
             },
@@ -679,6 +665,20 @@ impl Compiler {
         self.emit(Instruction::StoreName {
             name: name.to_string(),
         });
+
+        if let Some(doc_string) = doc_str {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: doc_string.to_string(),
+                },
+            });
+            self.emit(Instruction::LoadName {
+                name: name.to_string(),
+            });
+            self.emit(Instruction::StoreAttr {
+                name: "__doc__".to_string(),
+            });
+        }
         self.in_loop = was_in_loop;
         self.in_function_def = was_in_function_def;
         Ok(())
@@ -707,17 +707,7 @@ impl Compiler {
             name.to_string(),
         ));
 
-        let doc = get_doc(body);
-        let (new_body, doc_str) = match doc {
-            Some(val) => {
-                if let Some((_, body_rest)) = body.split_first() {
-                    (body_rest, val)
-                } else {
-                    (body, "".to_string())
-                }
-            }
-            None => (body, "".to_string()),
-        };
+        let (new_body, doc_str) = get_doc(body);
 
         self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
@@ -726,13 +716,6 @@ impl Compiler {
         self.emit(Instruction::ReturnValue);
 
         let code = self.pop_code_object();
-
-        // function doc
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::String {
-                value: "".to_string(),
-            },
-        });
 
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
@@ -754,11 +737,6 @@ impl Compiler {
             value: bytecode::Constant::String {
                 value: name.to_string(),
             },
-        });
-
-        // class doc
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::String { value: doc_str },
         });
 
         for base in bases {
@@ -785,11 +763,11 @@ impl Compiler {
                 },
             });
             self.emit(Instruction::CallFunction {
-                typ: CallType::Keyword(3 + keywords.len() + bases.len()),
+                typ: CallType::Keyword(2 + keywords.len() + bases.len()),
             });
         } else {
             self.emit(Instruction::CallFunction {
-                typ: CallType::Positional(3 + bases.len()),
+                typ: CallType::Positional(2 + bases.len()),
             });
         }
 
@@ -798,6 +776,19 @@ impl Compiler {
         self.emit(Instruction::StoreName {
             name: name.to_string(),
         });
+        if let Some(doc_string) = doc_str {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: doc_string.to_string(),
+                },
+            });
+            self.emit(Instruction::LoadName {
+                name: name.to_string(),
+            });
+            self.emit(Instruction::StoreAttr {
+                name: "__doc__".to_string(),
+            });
+        }
         self.in_loop = was_in_loop;
         Ok(())
     }
@@ -1168,14 +1159,6 @@ impl Compiler {
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
-
-                // function doc
-                self.emit(Instruction::LoadConst {
-                    value: bytecode::Constant::String {
-                        value: "".to_string(),
-                    },
-                });
-
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code {
                         code: Box::new(code),
@@ -1462,13 +1445,6 @@ impl Compiler {
         // Fetch code for listcomp function:
         let code = self.pop_code_object();
 
-        // function doc
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::String {
-                value: "".to_string(),
-            },
-        });
-
         // List comprehension code:
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
@@ -1569,17 +1545,19 @@ impl Compiler {
     }
 }
 
-fn get_doc(body: &[ast::LocatedStatement]) -> Option<String> {
+fn get_doc(body: &[ast::LocatedStatement]) -> (&[ast::LocatedStatement], Option<String>) {
     if let Some(val) = body.get(0) {
         if let ast::Statement::Expression { ref expression } = val.node {
             if let ast::Expression::String { ref value } = expression {
                 if let ast::StringGroup::Constant { ref value } = value {
-                    return Some(value.to_string());
+                    if let Some((_, body_rest)) = body.split_first() {
+                        return (body_rest, Some(value.to_string()));
+                    }
                 }
             }
         }
     }
-    None
+    (body, None)
 }
 
 #[cfg(test)]
