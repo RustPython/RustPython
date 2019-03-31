@@ -1,20 +1,17 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fmt;
 
 use num_traits::ToPrimitive;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
-use super::objsequence::{
-    get_elements, get_elements_cell, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
-    PySliceableSequence,
-};
+use super::objsequence::{get_elements, get_elements_cell, PySliceableSequence, SequenceProtocol};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
 
@@ -46,6 +43,30 @@ impl PyValue for PyList {
 }
 
 pub type PyListRef = PyRef<PyList>;
+
+impl SequenceProtocol for PyListRef {
+    fn get_elements(&self) -> Vec<PyObjectRef> {
+        self.elements.borrow().clone()
+    }
+    fn create(&self, vm: &VirtualMachine, elements: Vec<PyObjectRef>) -> PyResult {
+        Ok(PyObject::new(
+            PyList {
+                elements: RefCell::new(elements),
+            },
+            PyList::class(vm),
+            None,
+        ))
+    }
+    fn as_object(&self) -> &PyObjectRef {
+        self.as_object()
+    }
+    fn into_object(self) -> PyObjectRef {
+        self.into_object()
+    }
+    fn class(&self) -> PyClassRef {
+        self.typ()
+    }
+}
 
 impl PyListRef {
     pub fn append(self, x: PyObjectRef, _vm: &VirtualMachine) {
@@ -94,40 +115,12 @@ impl PyListRef {
         }
     }
 
-    fn bool(self, _vm: &VirtualMachine) -> bool {
-        !self.elements.borrow().is_empty()
-    }
-
     fn clear(self, _vm: &VirtualMachine) {
         self.elements.borrow_mut().clear();
     }
 
-    fn copy(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_list(self.elements.borrow().clone())
-    }
-
-    fn len(self, _vm: &VirtualMachine) -> usize {
-        self.elements.borrow().len()
-    }
-
     fn reverse(self, _vm: &VirtualMachine) {
         self.elements.borrow_mut().reverse();
-    }
-
-    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(
-            vm,
-            self.as_object(),
-            &self.elements.borrow(),
-            needle.clone(),
-        )
-    }
-
-    fn iter(self, _vm: &VirtualMachine) -> PyIteratorValue {
-        PyIteratorValue {
-            position: Cell::new(0),
-            iterated_obj: self.into_object(),
-        }
     }
 
     fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -161,54 +154,6 @@ impl PyListRef {
             "[...]".to_string()
         };
         Ok(s)
-    }
-
-    fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements.borrow(), counter);
-        vm.ctx.new_list(new_elements)
-    }
-
-    fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut count: usize = 0;
-        for element in self.elements.borrow().iter() {
-            if needle.is(element) {
-                count += 1;
-            } else {
-                let py_equal = vm._eq(element.clone(), needle.clone())?;
-                if objbool::boolval(vm, py_equal)? {
-                    count += 1;
-                }
-            }
-        }
-        Ok(count)
-    }
-
-    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.elements.borrow().iter() {
-            if needle.is(element) {
-                return Ok(true);
-            }
-            let py_equal = vm._eq(element.clone(), needle.clone())?;
-            if objbool::boolval(vm, py_equal)? {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
-    }
-
-    fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        for (index, element) in self.elements.borrow().iter().enumerate() {
-            if needle.is(element) {
-                return Ok(index);
-            }
-            let py_equal = vm._eq(needle.clone(), element.clone())?;
-            if objbool::boolval(vm, py_equal)? {
-                return Ok(index);
-            }
-        }
-        let needle_str = &vm.to_str(&needle)?.value;
-        Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
     }
 
     fn pop(self, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
@@ -246,65 +191,6 @@ impl PyListRef {
         } else {
             let needle_str = &vm.to_str(&needle)?.value;
             Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
-        }
-    }
-
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if self.as_object().is(&other) {
-            return Ok(vm.new_bool(true));
-        }
-
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_equal(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_lt(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_gt(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_ge(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.list_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_le(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
         }
     }
 }

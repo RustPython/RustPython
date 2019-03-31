@@ -1,11 +1,11 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
 use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{IdProtocol, PyIteratorValue, PyObject, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objbool;
@@ -13,6 +13,8 @@ use super::objint::PyInt;
 use super::objlist::PyList;
 use super::objslice::PySlice;
 use super::objtuple::PyTuple;
+use super::objtype;
+use super::objtype::PyClassRef;
 
 pub trait PySliceableSequence {
     fn do_slice(&self, range: Range<usize>) -> Self;
@@ -137,7 +139,154 @@ impl<T: Clone> PySliceableSequence for Vec<T> {
     }
 }
 
-pub fn get_item(
+pub trait SequenceProtocol
+where
+    Self: Sized,
+{
+    fn get_elements(&self) -> Vec<PyObjectRef>;
+    fn as_object(&self) -> &PyObjectRef;
+    fn into_object(self) -> PyObjectRef;
+    fn create(&self, vm: &VirtualMachine, elements: Vec<PyObjectRef>) -> PyResult;
+    fn class(&self) -> PyClassRef;
+
+    fn bool(self, _vm: &VirtualMachine) -> bool {
+        !self.get_elements().is_empty()
+    }
+
+    fn copy(self, vm: &VirtualMachine) -> PyResult {
+        self.create(vm, self.get_elements())
+    }
+
+    fn len(self, _vm: &VirtualMachine) -> usize {
+        self.get_elements().len()
+    }
+
+    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        get_item(vm, self.as_object(), &self.get_elements(), needle.clone())
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> PyIteratorValue {
+        PyIteratorValue {
+            position: Cell::new(0),
+            iterated_obj: self.into_object(),
+        }
+    }
+
+    fn mul(self, counter: isize, vm: &VirtualMachine) -> PyResult {
+        let elements = self.get_elements();
+        let current_len = elements.len();
+        let new_len = counter.max(0) as usize * current_len;
+        let mut new_elements = Vec::with_capacity(new_len);
+
+        for _ in 0..counter {
+            new_elements.extend(elements.to_owned());
+        }
+
+        self.create(vm, new_elements)
+    }
+
+    fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let mut count: usize = 0;
+        for element in self.get_elements().iter() {
+            if needle.is(element) {
+                count += 1;
+            } else {
+                let py_equal = vm._eq(element.clone(), needle.clone())?;
+                if objbool::boolval(vm, py_equal)? {
+                    count += 1;
+                }
+            }
+        }
+        Ok(count)
+    }
+
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        for element in self.get_elements().iter() {
+            if needle.is(element) {
+                return Ok(true);
+            }
+            let py_equal = vm._eq(element.clone(), needle.clone())?;
+            if objbool::boolval(vm, py_equal)? {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        for (index, element) in self.get_elements().iter().enumerate() {
+            if needle.is(element) {
+                return Ok(index);
+            }
+            let py_equal = vm._eq(needle.clone(), element.clone())?;
+            if objbool::boolval(vm, py_equal)? {
+                return Ok(index);
+            }
+        }
+        let needle_str = &vm.to_str(&needle)?.value;
+        Err(vm.new_value_error(format!("'{}' is not in list", needle_str)))
+    }
+
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if self.as_object().is(&other) {
+            return Ok(vm.new_bool(true));
+        }
+
+        if objtype::isinstance(&other, &self.class()) {
+            let zelf = self.get_elements();
+            let other = get_elements(&other);
+            let res = seq_equal(vm, &zelf, &other)?;
+            Ok(vm.new_bool(res))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &self.class()) {
+            let zelf = self.get_elements();
+            let other = get_elements(&other);
+            let res = seq_lt(vm, &zelf, &other)?;
+            Ok(vm.new_bool(res))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &self.class()) {
+            let zelf = self.get_elements();
+            let other = get_elements(&other);
+            let res = seq_gt(vm, &zelf, &other)?;
+            Ok(vm.new_bool(res))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &self.class()) {
+            let zelf = &self.get_elements();
+            let other = &get_elements(&other);
+            Ok(vm.new_bool(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &self.class()) {
+            let zelf = &self.get_elements();
+            let other = &get_elements(&other);
+            Ok(vm.new_bool(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+}
+
+fn get_item(
     vm: &VirtualMachine,
     sequence: &PyObjectRef,
     elements: &[PyObjectRef],
@@ -183,7 +332,7 @@ pub fn get_item(
     }
 }
 
-pub fn seq_equal(
+fn seq_equal(
     vm: &VirtualMachine,
     zelf: &[PyObjectRef],
     other: &[PyObjectRef],
@@ -204,7 +353,7 @@ pub fn seq_equal(
     }
 }
 
-pub fn seq_lt(
+fn seq_lt(
     vm: &VirtualMachine,
     zelf: &[PyObjectRef],
     other: &[PyObjectRef],
@@ -244,7 +393,7 @@ pub fn seq_lt(
     }
 }
 
-pub fn seq_gt(
+fn seq_gt(
     vm: &VirtualMachine,
     zelf: &[PyObjectRef],
     other: &[PyObjectRef],
@@ -281,34 +430,6 @@ pub fn seq_gt(
             Ok(true)
         }
     }
-}
-
-pub fn seq_ge(
-    vm: &VirtualMachine,
-    zelf: &[PyObjectRef],
-    other: &[PyObjectRef],
-) -> Result<bool, PyObjectRef> {
-    Ok(seq_gt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
-}
-
-pub fn seq_le(
-    vm: &VirtualMachine,
-    zelf: &[PyObjectRef],
-    other: &[PyObjectRef],
-) -> Result<bool, PyObjectRef> {
-    Ok(seq_lt(vm, zelf, other)? || seq_equal(vm, zelf, other)?)
-}
-
-pub fn seq_mul(elements: &[PyObjectRef], counter: isize) -> Vec<PyObjectRef> {
-    let current_len = elements.len();
-    let new_len = counter.max(0) as usize * current_len;
-    let mut new_elements = Vec::with_capacity(new_len);
-
-    for _ in 0..counter {
-        new_elements.extend(elements.to_owned());
-    }
-
-    new_elements
 }
 
 pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRef>> {

@@ -1,18 +1,13 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    IdProtocol, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue,
-};
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::{ReprGuard, VirtualMachine};
 
-use super::objbool;
 use super::objint;
-use super::objsequence::{
-    get_elements, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
-};
+use super::objsequence::{get_elements, SequenceProtocol};
 use super::objtype::{self, PyClassRef};
 
 pub struct PyTuple {
@@ -44,87 +39,37 @@ impl PyValue for PyTuple {
 
 pub type PyTupleRef = PyRef<PyTuple>;
 
+impl SequenceProtocol for PyTupleRef {
+    fn get_elements(&self) -> Vec<PyObjectRef> {
+        self.elements.borrow().clone()
+    }
+    fn create(&self, vm: &VirtualMachine, elements: Vec<PyObjectRef>) -> PyResult {
+        Ok(PyObject::new(
+            PyTuple {
+                elements: RefCell::new(elements),
+            },
+            PyTuple::class(vm),
+            None,
+        ))
+    }
+    fn as_object(&self) -> &PyObjectRef {
+        self.as_object()
+    }
+    fn into_object(self) -> PyObjectRef {
+        self.into_object()
+    }
+    fn class(&self) -> PyClassRef {
+        self.typ()
+    }
+}
+
 impl PyTupleRef {
-    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_lt(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_gt(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_ge(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_le(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
             let e1 = self.elements.borrow();
             let e2 = get_elements(&other);
             let elements = e1.iter().chain(e2.iter()).cloned().collect();
             Ok(vm.ctx.new_tuple(elements))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn bool(self, _vm: &VirtualMachine) -> bool {
-        !self.elements.borrow().is_empty()
-    }
-
-    fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut count: usize = 0;
-        for element in self.elements.borrow().iter() {
-            if element.is(&needle) {
-                count += 1;
-            } else {
-                let is_eq = vm._eq(element.clone(), needle.clone())?;
-                if objbool::boolval(vm, is_eq)? {
-                    count += 1;
-                }
-            }
-        }
-        Ok(count)
-    }
-
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = &self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_equal(vm, &zelf, &other)?;
-            Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
         }
@@ -138,17 +83,6 @@ impl PyTupleRef {
             element_hash.hash(&mut hasher);
         }
         Ok(hasher.finish())
-    }
-
-    fn iter(self, _vm: &VirtualMachine) -> PyIteratorValue {
-        PyIteratorValue {
-            position: Cell::new(0),
-            iterated_obj: self.into_object(),
-        }
-    }
-
-    fn len(self, _vm: &VirtualMachine) -> usize {
-        self.elements.borrow().len()
     }
 
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
@@ -168,46 +102,6 @@ impl PyTupleRef {
             "(...)".to_string()
         };
         Ok(s)
-    }
-
-    fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements.borrow(), counter);
-        vm.ctx.new_tuple(new_elements)
-    }
-
-    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(
-            vm,
-            self.as_object(),
-            &self.elements.borrow(),
-            needle.clone(),
-        )
-    }
-
-    fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        for (index, element) in self.elements.borrow().iter().enumerate() {
-            if element.is(&needle) {
-                return Ok(index);
-            }
-            let is_eq = vm._eq(needle.clone(), element.clone())?;
-            if objbool::boolval(vm, is_eq)? {
-                return Ok(index);
-            }
-        }
-        Err(vm.new_value_error("tuple.index(x): x not in tuple".to_string()))
-    }
-
-    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.elements.borrow().iter() {
-            if element.is(&needle) {
-                return Ok(true);
-            }
-            let is_eq = vm._eq(needle.clone(), element.clone())?;
-            if objbool::boolval(vm, is_eq)? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 }
 
