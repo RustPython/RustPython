@@ -748,69 +748,8 @@ impl IntoPyObject for String {
     }
 }
 
-#[rustfmt::skip] // to avoid line splitting
-pub fn init(context: &PyContext) {
-    let str_type = &context.str_type;
-
-    PyStringRef::extend_class(context, str_type);
-    // extend_class!(context, str_type, {
-    //     "__add__" => context.new_rustfunc(PyStringRef::add),
-    //     "__bool__" => context.new_rustfunc(PyStringRef::bool),
-    //     "__contains__" => context.new_rustfunc(PyStringRef::contains),
-    //     "__doc__" => context.new_str(str_doc.to_string()),
-    //     "__eq__" => context.new_rustfunc(PyStringRef::eq),
-    //     "__ge__" => context.new_rustfunc(PyStringRef::ge),
-    //     "__getitem__" => context.new_rustfunc(PyStringRef::getitem),
-    //     "__gt__" => context.new_rustfunc(PyStringRef::gt),
-    //     "__hash__" => context.new_rustfunc(PyStringRef::hash),
-    //     "__lt__" => context.new_rustfunc(PyStringRef::lt),
-    //     "__le__" => context.new_rustfunc(PyStringRef::le),
-    //     "__len__" => context.new_rustfunc(PyStringRef::len),
-    //     "__mul__" => context.new_rustfunc(PyStringRef::mul),
-    //     "__new__" => context.new_rustfunc(str_new),
-    //     "__repr__" => context.new_rustfunc(PyStringRef::repr),
-    //     "__str__" => context.new_rustfunc(PyStringRef::str),
-    //     "capitalize" => context.new_rustfunc(PyStringRef::capitalize),
-    //     "casefold" => context.new_rustfunc(PyStringRef::casefold),
-    //     "center" => context.new_rustfunc(PyStringRef::center),
-    //     "count" => context.new_rustfunc(PyStringRef::count),
-    //     "endswith" => context.new_rustfunc(PyStringRef::endswith),
-    //     "expandtabs" => context.new_rustfunc(PyStringRef::expandtabs),
-    //     "find" => context.new_rustfunc(PyStringRef::find),
-    //     "format" => context.new_rustfunc(str_format),
-    //     "index" => context.new_rustfunc(PyStringRef::index),
-    //     "isalnum" => context.new_rustfunc(PyStringRef::isalnum),
-    //     "isalpha" => context.new_rustfunc(PyStringRef::isalpha),
-    //     "isascii" => context.new_rustfunc(PyStringRef::isascii),
-    //     "isdecimal" => context.new_rustfunc(PyStringRef::isdecimal),
-    //     "isdigit" => context.new_rustfunc(PyStringRef::isdigit),
-    //     "isidentifier" => context.new_rustfunc(PyStringRef::isidentifier),
-    //     "islower" => context.new_rustfunc(PyStringRef::islower),
-    //     "isnumeric" => context.new_rustfunc(PyStringRef::isnumeric),
-    //     "isspace" => context.new_rustfunc(PyStringRef::isspace),
-    //     "isupper" => context.new_rustfunc(PyStringRef::isupper),
-    //     "istitle" => context.new_rustfunc(PyStringRef::istitle),
-    //     "join" => context.new_rustfunc(PyStringRef::join),
-    //     "lower" => context.new_rustfunc(PyStringRef::lower),
-    //     "ljust" => context.new_rustfunc(PyStringRef::ljust),
-    //     "lstrip" => context.new_rustfunc(PyStringRef::lstrip),
-    //     "partition" => context.new_rustfunc(PyStringRef::partition),
-    //     "replace" => context.new_rustfunc(PyStringRef::replace),
-    //     "rfind" => context.new_rustfunc(PyStringRef::rfind),
-    //     "rindex" => context.new_rustfunc(PyStringRef::rindex),
-    //     "rjust" => context.new_rustfunc(PyStringRef::rjust),
-    //     "rpartition" => context.new_rustfunc(PyStringRef::rpartition),
-    //     "rsplit" => context.new_rustfunc(PyStringRef::rsplit),
-    //     "rstrip" => context.new_rustfunc(PyStringRef::rstrip),
-    //     "split" => context.new_rustfunc(PyStringRef::split),
-    //     "splitlines" => context.new_rustfunc(PyStringRef::splitlines),
-    //     "startswith" => context.new_rustfunc(PyStringRef::startswith),
-    //     "strip" => context.new_rustfunc(PyStringRef::strip),
-    //     "swapcase" => context.new_rustfunc(PyStringRef::swapcase),
-    //     "title" => context.new_rustfunc(PyStringRef::title),
-    //     "upper" => context.new_rustfunc(PyStringRef::upper),
-    //     "zfill" => context.new_rustfunc(PyStringRef::zfill),
-    // });
+pub fn init(ctx: &PyContext) {
+    PyStringRef::extend_class(ctx, &ctx.str_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> String {

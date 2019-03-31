@@ -89,17 +89,6 @@ impl Method {
     }
 }
 
-/// Parse an impl block into an iterator of methods
-fn item_impl_to_methods<'a>(imp: &'a mut syn::ItemImpl) -> impl Iterator<Item = Method> + 'a {
-    imp.items.iter_mut().filter_map(|item| {
-        if let ImplItem::Method(meth) = item {
-            Method::from_syn(&mut meth.attrs, &meth.sig)
-        } else {
-            None
-        }
-    })
-}
-
 pub fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
     let mut imp = if let Item::Impl(imp) = item {
         imp
@@ -148,7 +137,17 @@ pub fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
         }
         None => quote!(None),
     };
-    let methods: Vec<_> = item_impl_to_methods(&mut imp).collect();
+    let methods = imp
+        .items
+        .iter_mut()
+        .filter_map(|item| {
+            if let ImplItem::Method(meth) = item {
+                Method::from_syn(&mut meth.attrs, &meth.sig)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
     let ty = &imp.self_ty;
     let methods = methods.iter().map(
         |Method {
