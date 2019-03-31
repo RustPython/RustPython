@@ -7,5 +7,8 @@ pub mod error;
 mod fstring;
 pub mod lexer;
 pub mod parser;
-lalrpop_mod!(python);
+lalrpop_mod!(
+    #[allow(clippy::all)]
+    python
+);
 pub mod token;
