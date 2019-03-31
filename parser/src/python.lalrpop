@@ -336,10 +336,7 @@ CompoundStatement: ast::LocatedStatement = {
 IfStatement: ast::LocatedStatement = {
     <loc:@L> "if" <t:Test> ":" <s1:Suite> <s2:(@L "elif" Test ":" Suite)*> <s3:("else" ":" Suite)?> => {
         // Determine last else:
-        let mut last = match s3 {
-            Some(s) => Some(s.2),
-            None => None,
-        };
+        let mut last = s3.map(|s| s.2);
 
         // handle elif:
         for i in s2.into_iter().rev() {
@@ -359,10 +356,7 @@ IfStatement: ast::LocatedStatement = {
 
 WhileStatement: ast::LocatedStatement = {
     <loc:@L> "while" <e:Test> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
-        let or_else = match s2 {
-            Some(s) => Some(s.2),
-            None => None,
-        };
+        let or_else = s2.map(|s| s.2);
         ast::LocatedStatement {
             location: loc,
             node: ast::Statement::While { test: e, body: s, orelse: or_else },
@@ -372,10 +366,7 @@ WhileStatement: ast::LocatedStatement = {
 
 ForStatement: ast::LocatedStatement = {
     <loc:@L> "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
-        let or_else = match s2 {
-            Some(s) => Some(s.2),
-            None => None,
-        };
+        let or_else = s2.map(|s| s.2);
         ast::LocatedStatement {
             location: loc,
             node: ast::Statement::For {
@@ -388,14 +379,8 @@ ForStatement: ast::LocatedStatement = {
 
 TryStatement: ast::LocatedStatement = {
     <loc:@L> "try" ":" <body:Suite> <handlers:ExceptClause*> <else_suite:("else" ":" Suite)?> <finally:("finally" ":" Suite)?> => {
-        let or_else = match else_suite {
-            Some(s) => Some(s.2),
-            None => None,
-        };
-        let finalbody = match finally {
-            Some(s) => Some(s.2),
-            None => None,
-        };
+        let or_else = else_suite.map(|s| s.2);
+        let finalbody = finally.map(|s| s.2);
         ast::LocatedStatement {
             location: loc,
             node: ast::Statement::Try {
@@ -436,10 +421,7 @@ WithStatement: ast::LocatedStatement = {
 
 WithItem: ast::WithItem = {
     <t:Test> <n:("as" Expression)?> => {
-        let optional_vars = match n {
-            Some(val) => Some(val.1),
-            None => None,
-        };
+        let optional_vars = n.map(|val| val.1);
         ast::WithItem { context_expr: t, optional_vars }
     },
 };
@@ -460,27 +442,19 @@ FuncDef: ast::LocatedStatement = {
 };
 
 Parameters: ast::Parameters = {
-    "(" <a: (TypedArgsList<TypedParameter>)?> ")" => {
-        match a {
-            Some(a) => a,
-            None => Default::default(),
-        }
+    "(" <a: (ParameterList<TypedParameter>)?> ")" => {
+        a.unwrap_or_else(Default::default)
     },
 };
 
-// parameters are (String, None), kwargs are (String, Some(Test)) where Test is
-// the default
 // Note that this is a macro which is used once for function defs, and
 // once for lambda defs.
-TypedArgsList<ArgType>: ast::Parameters = {
-    <param1:TypedParameters<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> => {
+ParameterList<ArgType>: ast::Parameters = {
+    <param1:ParameterDefs<ArgType>> <args2:("," ParameterListStarArgs<ArgType>)?> ","? => {
         let (names, default_elements) = param1;
 
         // Now gather rest of parameters:
-        let (vararg, kwonlyargs, kw_defaults, kwarg) = match args2 {
-            Some((_, x)) => x,
-            None => (None, vec![], vec![], None),
-        };
+        let (vararg, kwonlyargs, kw_defaults, kwarg) = args2.map_or((None, vec![], vec![], None), |x| x.1);
 
         ast::Parameters {
             args: names,
@@ -491,7 +465,7 @@ TypedArgsList<ArgType>: ast::Parameters = {
             kw_defaults: kw_defaults,
         }
     },
-    <param1:TypedParameters<ArgType>> <kw:("," KwargParameter<ArgType>)> => {
+    <param1:ParameterDefs<ArgType>> <kw:("," KwargParameter<ArgType>)> ","? => {
         let (names, default_elements) = param1;
 
         // Now gather rest of parameters:
@@ -509,7 +483,7 @@ TypedArgsList<ArgType>: ast::Parameters = {
             kw_defaults: kw_defaults,
         }
     },
-    <params:ParameterListStarArgs<ArgType>> => {
+    <params:ParameterListStarArgs<ArgType>> ","? => {
         let (vararg, kwonlyargs, kw_defaults, kwarg) = params;
         ast::Parameters {
             args: vec![],
@@ -520,7 +494,7 @@ TypedArgsList<ArgType>: ast::Parameters = {
             kw_defaults: kw_defaults,
         }
     },
-    <kw:KwargParameter<ArgType>> => {
+    <kw:KwargParameter<ArgType>> ","? => {
         ast::Parameters {
             args: vec![],
             kwonlyargs: vec![],
@@ -534,8 +508,8 @@ TypedArgsList<ArgType>: ast::Parameters = {
 
 // Use inline here to make sure the "," is not creating an ambiguity.
 #[inline]
-TypedParameters<ArgType>: (Vec<ast::Parameter>, Vec<ast::Expression>) = {
-    <param1:TypedParameterDef<ArgType>> <param2:("," TypedParameterDef<ArgType>)*> => {
+ParameterDefs<ArgType>: (Vec<ast::Parameter>, Vec<ast::Expression>) = {
+    <param1:ParameterDef<ArgType>> <param2:("," ParameterDef<ArgType>)*> => {
         // Combine first parameters:
         let mut args = vec![param1];
         args.extend(param2.into_iter().map(|x| x.1));
@@ -563,7 +537,7 @@ TypedParameters<ArgType>: (Vec<ast::Parameter>, Vec<ast::Expression>) = {
     }
 };
 
-TypedParameterDef<ArgType>: (ast::Parameter, Option<ast::Expression>) = {
+ParameterDef<ArgType>: (ast::Parameter, Option<ast::Expression>) = {
     <i:ArgType> => (i, None),
     <i:ArgType> "=" <e:Test> => (i, Some(e)),
 };
@@ -579,8 +553,11 @@ TypedParameter: ast::Parameter = {
     },
 };
 
+// Use inline here to make sure the "," is not creating an ambiguity.
+// TODO: figure out another grammar that makes this inline no longer required.
+#[inline]
 ParameterListStarArgs<ArgType>: (Option<Option<ast::Parameter>>, Vec<ast::Parameter>, Vec<Option<ast::Expression>>, Option<Option<ast::Parameter>>) = {
-    "*" <va:ArgType?> <kw:("," TypedParameterDef<ArgType>)*> <kwarg:("," KwargParameter<ArgType>)?> => {
+    "*" <va:ArgType?> <kw:("," ParameterDef<ArgType>)*> <kwarg:("," KwargParameter<ArgType>)?> => {
         // Extract keyword arguments:
         let mut kwonlyargs = vec![];
         let mut kw_defaults = vec![];
@@ -589,10 +566,7 @@ ParameterListStarArgs<ArgType>: (Option<Option<ast::Parameter>>, Vec<ast::Parame
             kw_defaults.push(value);
         }
 
-        let kwarg = match kwarg {
-            Some((_, name)) => Some(name),
-            None => None,
-        };
+        let kwarg = kwarg.map(|n| n.1);
 
         (Some(va), kwonlyargs, kw_defaults, kwarg)
     }
@@ -683,7 +657,7 @@ Test: ast::Expression = {
 };
 
 LambdaDef: ast::Expression = {
-    "lambda" <p:TypedArgsList<UntypedParameter>?> ":" <b:Test> =>
+    "lambda" <p:ParameterList<UntypedParameter>?> ":" <b:Test> =>
         ast::Expression::Lambda {
             args: p.unwrap_or(Default::default()),
             body:Box::new(b)
