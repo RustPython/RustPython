@@ -54,3 +54,4 @@ assert d[1:8:2] == b"bdfh"
 assert d[8:1:-2] == b"igec" 
 
 assert b"abcd".capitalize() == b"Abcd"
+assert bytes([0, 1]).capitalize() == bytes([0, 1])

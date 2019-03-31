@@ -216,8 +216,10 @@ impl PyBytesRef {
     }
 
     fn capitalize(self, vm: &VirtualMachine) -> PyObjectRef {
-        let mut new = vec![self.value[0].to_ascii_uppercase()];
-        new.extend(&self.value[1..]);
+        let mut new = self.value.clone();
+        if let Some(elem) = new.get_mut(0) {
+            *elem = elem.to_ascii_uppercase();
+        }
         vm.ctx.new_bytes(new)
     }
 }
