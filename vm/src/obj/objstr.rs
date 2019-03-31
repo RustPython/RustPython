@@ -10,7 +10,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyClass, IntoPyObject, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
     PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -20,6 +20,17 @@ use super::objsequence::PySliceableSequence;
 use super::objslice::PySlice;
 use super::objtype::{self, PyClassRef};
 
+/// str(object='') -> str
+/// str(bytes_or_buffer[, encoding[, errors]]) -> str
+///
+/// Create a new string object from the given object. If encoding or
+/// errors is specified, then the object must expose a data buffer
+/// that will be decoded using the given encoding and error handler.
+/// Otherwise, returns the result of object.__str__() (if defined)
+/// or repr(object).
+/// encoding defaults to sys.getdefaultencoding().
+/// errors defaults to 'strict'."
+#[pyclass(name = "str", __inside_vm)]
 #[derive(Clone, Debug)]
 pub struct PyString {
     // TODO: shouldn't be public
@@ -48,17 +59,7 @@ impl TryIntoRef<PyString> for &str {
     }
 }
 
-#[pyclass(__inside_vm, name = "str")]
-/// str(object='') -> str
-/// str(bytes_or_buffer[, encoding[, errors]]) -> str
-///
-/// Create a new string object from the given object. If encoding or
-/// errors is specified, then the object must expose a data buffer
-/// that will be decoded using the given encoding and error handler.
-/// Otherwise, returns the result of object.__str__() (if defined)
-/// or repr(object).
-/// encoding defaults to sys.getdefaultencoding().
-/// errors defaults to 'strict'."
+#[pyimpl(__inside_vm)]
 impl PyStringRef {
     // TODO: should with following format
     // class str(object='')

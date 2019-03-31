@@ -52,5 +52,12 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as Item);
-    pyclass::impl_py_class(attr, item).into()
+    pyclass::impl_pyclass(attr, item).into()
+}
+
+#[proc_macro_attribute]
+pub fn pyimpl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr as AttributeArgs);
+    let item = parse_macro_input!(item as Item);
+    pyclass::impl_pyimpl(attr, item).into()
 }

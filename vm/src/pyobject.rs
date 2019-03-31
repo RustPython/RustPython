@@ -1259,14 +1259,24 @@ where
     }
 }
 
-pub trait IntoPyClass {
+pub trait PyClassDef {
     const NAME: &'static str;
     const DOC: Option<&'static str> = None;
+}
 
-    fn _extend_class(ctx: &PyContext, class: &PyClassRef);
+impl<T> PyClassDef for PyRef<T>
+where
+    T: PyClassDef,
+{
+    const NAME: &'static str = T::NAME;
+    const DOC: Option<&'static str> = T::DOC;
+}
+
+pub trait PyClassImpl: PyClassDef {
+    fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
 
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
-        Self::_extend_class(ctx, class);
+        Self::impl_extend_class(ctx, class);
         if let Some(doc) = Self::DOC {
             ctx.set_attr(class, "__doc__", ctx.new_str(doc.into()));
         }

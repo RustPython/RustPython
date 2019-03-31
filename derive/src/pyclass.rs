@@ -89,54 +89,15 @@ impl Method {
     }
 }
 
-pub fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
+pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
     let mut imp = if let Item::Impl(imp) = item {
         imp
     } else {
         return quote!(#item);
     };
+
     let rp_path = rustpython_path_attr(&attr);
-    let mut class_name = None;
-    for attr in attr {
-        if let NestedMeta::Meta(meta) = attr {
-            if let Meta::NameValue(name_value) = meta {
-                if name_value.ident == "name" {
-                    if let Lit::Str(s) = name_value.lit {
-                        class_name = Some(s.value());
-                    } else {
-                        panic!("#[pyclass(name = ...)] must be a string");
-                    }
-                }
-            }
-        }
-    }
-    let class_name = class_name.expect("#[pyclass] must have a name");
-    let mut doc: Option<Vec<String>> = None;
-    for attr in imp.attrs.iter() {
-        if attr.path.is_ident("doc") {
-            let meta = attr.parse_meta().expect("expected doc attr to be a meta");
-            if let Meta::NameValue(name_value) = meta {
-                if let Lit::Str(s) = name_value.lit {
-                    let val = s.value().trim().to_string();
-                    match doc {
-                        Some(ref mut doc) => doc.push(val),
-                        None => doc = Some(vec![val]),
-                    }
-                } else {
-                    panic!("expected #[doc = ...] to be a string")
-                }
-            } else {
-                panic!("expected #[doc] to be a NameValue, e.g. #[doc = \"...\"");
-            }
-        }
-    }
-    let doc = match doc {
-        Some(doc) => {
-            let doc = doc.join("\n");
-            quote!(Some(#doc))
-        }
-        None => quote!(None),
-    };
+
     let methods = imp
         .items
         .iter_mut()
@@ -164,15 +125,74 @@ pub fn impl_py_class(attr: AttributeArgs, item: Item) -> TokenStream2 {
 
     quote! {
         #imp
-        impl #rp_path::pyobject::IntoPyClass for #ty {
-            const NAME: &'static str = #class_name;
-            const DOC: Option<&'static str> = #doc;
-            fn _extend_class(
+        impl #rp_path::pyobject::PyClassImpl for #ty {
+            fn impl_extend_class(
                 ctx: &#rp_path::pyobject::PyContext,
                 class: &#rp_path::obj::objtype::PyClassRef,
             ) {
                 #(#methods)*
             }
+        }
+    }
+}
+
+pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
+    let struc = if let Item::Struct(struc) = item {
+        struc
+    } else {
+        panic!("#[pyclass] can only be on a struct declaration");
+    };
+
+    let rp_path = rustpython_path_attr(&attr);
+
+    let mut class_name = None;
+    for attr in attr {
+        if let NestedMeta::Meta(meta) = attr {
+            if let Meta::NameValue(name_value) = meta {
+                if name_value.ident == "name" {
+                    if let Lit::Str(s) = name_value.lit {
+                        class_name = Some(s.value());
+                    } else {
+                        panic!("#[pyclass(name = ...)] must be a string");
+                    }
+                }
+            }
+        }
+    }
+    let class_name = class_name.unwrap_or_else(|| struc.ident.to_string());
+
+    let mut doc: Option<Vec<String>> = None;
+    for attr in struc.attrs.iter() {
+        if attr.path.is_ident("doc") {
+            let meta = attr.parse_meta().expect("expected doc attr to be a meta");
+            if let Meta::NameValue(name_value) = meta {
+                if let Lit::Str(s) = name_value.lit {
+                    let val = s.value().trim().to_string();
+                    match doc {
+                        Some(ref mut doc) => doc.push(val),
+                        None => doc = Some(vec![val]),
+                    }
+                } else {
+                    panic!("expected #[doc = ...] to be a string")
+                }
+            }
+        }
+    }
+    let doc = match doc {
+        Some(doc) => {
+            let doc = doc.join("\n");
+            quote!(Some(#doc))
+        }
+        None => quote!(None),
+    };
+
+    let ty = &struc.ident;
+
+    quote! {
+        #struc
+        impl #rp_path::pyobject::PyClassDef for #ty {
+            const NAME: &'static str = #class_name;
+            const DOC: Option<&'static str> = #doc;
         }
     }
 }
