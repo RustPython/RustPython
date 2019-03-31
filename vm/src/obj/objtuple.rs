@@ -3,7 +3,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objint;
@@ -44,13 +44,7 @@ impl SequenceProtocol for PyTupleRef {
         self.elements.borrow().clone()
     }
     fn create(&self, vm: &VirtualMachine, elements: Vec<PyObjectRef>) -> PyResult {
-        Ok(PyObject::new(
-            PyTuple {
-                elements: RefCell::new(elements),
-            },
-            PyTuple::class(vm),
-            None,
-        ))
+        Ok(vm.ctx.new_tuple(elements))
     }
     fn as_object(&self) -> &PyObjectRef {
         self.as_object()

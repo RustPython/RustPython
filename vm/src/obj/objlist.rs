@@ -4,9 +4,7 @@ use std::fmt;
 use num_traits::ToPrimitive;
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
@@ -49,13 +47,7 @@ impl SequenceProtocol for PyListRef {
         self.elements.borrow().clone()
     }
     fn create(&self, vm: &VirtualMachine, elements: Vec<PyObjectRef>) -> PyResult {
-        Ok(PyObject::new(
-            PyList {
-                elements: RefCell::new(elements),
-            },
-            PyList::class(vm),
-            None,
-        ))
+        Ok(vm.ctx.new_list(elements))
     }
     fn as_object(&self) -> &PyObjectRef {
         self.as_object()
