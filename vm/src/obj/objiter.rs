@@ -2,8 +2,7 @@
  * Various types to support iteration.
  */
 
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
 use super::objbytearray::PyByteArray;
@@ -11,7 +10,6 @@ use super::objbytes::PyBytes;
 use super::objrange::PyRange;
 use super::objsequence;
 use super::objtype;
-use crate::obj::objtype::PyClassRef;
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -73,41 +71,12 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
 }
 
-/// Common setup for iter types, adds __iter__ method
-pub fn iter_type_init(context: &PyContext, iter_type: &PyClassRef) {
-    let iter_func = {
-        let cloned_iter_type = iter_type.clone();
-        move |vm: &VirtualMachine, args: PyFuncArgs| {
-            arg_check!(
-                vm,
-                args,
-                required = [(iter, Some(cloned_iter_type.clone()))]
-            );
-            // Return self:
-            Ok(iter.clone())
-        }
-    };
+type PyIteratorValueRef = PyRef<PyIteratorValue>;
 
-    extend_class!(context, iter_type, {
-        "__iter__" => context.new_rustfunc(iter_func)
-    });
-}
-
-// Sequence iterator:
-fn iter_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iter_target, None)]);
-
-    get_iter(vm, iter_target)
-}
-
-fn iter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(iter, Some(vm.ctx.iter_type()))]);
-
-    if let Some(PyIteratorValue {
-        ref position,
-        iterated_obj: ref iterated_obj_ref,
-    }) = iter.payload()
-    {
+impl PyIteratorValueRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult {
+        let position = &self.position;
+        let iterated_obj_ref = &self.iterated_obj;
         if let Some(range) = iterated_obj_ref.payload::<PyRange>() {
             if let Some(int) = range.get(position.get()) {
                 position.set(position.get() + 1);
@@ -141,8 +110,10 @@ fn iter_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 Err(new_stop_iteration(vm))
             }
         }
-    } else {
-        panic!("NOT IMPL");
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
     }
 }
 
@@ -155,10 +126,9 @@ pub fn init(context: &PyContext) {
                     supply its own iterator, or be a sequence.\n\
                     In the second form, the callable is called until it returns the sentinel.";
 
-    iter_type_init(context, iter_type);
     extend_class!(context, iter_type, {
-        "__new__" => context.new_rustfunc(iter_new),
-        "__next__" => context.new_rustfunc(iter_next),
-        "__doc__" => context.new_str(iter_doc.to_string())
+        "__next__" => context.new_rustfunc(PyIteratorValueRef::next),
+        "__iter__" => context.new_rustfunc(PyIteratorValueRef::iter),
+        "__doc__" => context.new_str(iter_doc.to_string()),
     });
 }

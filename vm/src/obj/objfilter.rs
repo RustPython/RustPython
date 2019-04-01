@@ -52,12 +52,14 @@ impl PyFilterRef {
             }
         }
     }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
 }
 
 pub fn init(context: &PyContext) {
     let filter_type = &context.filter_type;
-
-    objiter::iter_type_init(context, filter_type);
 
     let filter_doc =
         "filter(function or None, iterable) --> filter object\n\n\
@@ -67,6 +69,7 @@ pub fn init(context: &PyContext) {
     extend_class!(context, filter_type, {
         "__new__" => context.new_rustfunc(filter_new),
         "__doc__" => context.new_str(filter_doc.to_string()),
-        "__next__" => context.new_rustfunc(PyFilterRef::next)
+        "__next__" => context.new_rustfunc(PyFilterRef::next),
+        "__iter__" => context.new_rustfunc(PyFilterRef::iter),
     });
 }

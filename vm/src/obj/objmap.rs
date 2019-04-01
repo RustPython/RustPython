@@ -46,6 +46,10 @@ impl PyMapRef {
         // the mapper itself can raise StopIteration which does stop the map iteration
         vm.invoke(self.mapper.clone(), next_objs)
     }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
 }
 
 pub fn init(context: &PyContext) {
@@ -55,10 +59,10 @@ pub fn init(context: &PyContext) {
                    Make an iterator that computes the function using arguments from\n\
                    each of the iterables.  Stops when the shortest iterable is exhausted.";
 
-    objiter::iter_type_init(context, map_type);
     extend_class!(context, map_type, {
         "__new__" => context.new_rustfunc(map_new),
         "__next__" => context.new_rustfunc(PyMapRef::next),
+        "__iter__" => context.new_rustfunc(PyMapRef::iter),
         "__doc__" => context.new_str(map_doc.to_string())
     });
 }
