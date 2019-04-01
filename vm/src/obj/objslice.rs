@@ -9,7 +9,7 @@ use num_bigint::BigInt;
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
-    pub stop: Option<PyObjectRef>,
+    pub stop: PyObjectRef,
     pub step: Option<PyObjectRef>,
 }
 
@@ -30,7 +30,7 @@ fn slice_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult
             let stop = args.bind(vm)?;
             PySlice {
                 start: None,
-                stop: Some(stop),
+                stop,
                 step: None,
             }
         }
@@ -39,7 +39,7 @@ fn slice_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult
                 args.bind(vm)?;
             PySlice {
                 start: Some(start),
-                stop: Some(stop),
+                stop,
                 step: step.into_option(),
             }
         }
@@ -60,8 +60,8 @@ impl PySliceRef {
         get_property_value(vm, &self.start)
     }
 
-    fn stop(self, vm: &VirtualMachine) -> PyObjectRef {
-        get_property_value(vm, &self.stop)
+    fn stop(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.stop.clone()
     }
 
     fn step(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -77,11 +77,7 @@ impl PySliceRef {
     }
 
     pub fn stop_index(&self, vm: &VirtualMachine) -> PyResult<Option<BigInt>> {
-        if let Some(obj) = &self.stop {
-            to_index_value(vm, obj)
-        } else {
-            Ok(None)
-        }
+        to_index_value(vm, &self.stop)
     }
 
     pub fn step_index(&self, vm: &VirtualMachine) -> PyResult<Option<BigInt>> {

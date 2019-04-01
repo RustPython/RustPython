@@ -407,10 +407,15 @@ impl Frame {
                 } else {
                     None
                 };
-                let stop = Some(self.pop_value());
-                let start = Some(self.pop_value());
+                let stop = self.pop_value();
+                let start = self.pop_value();
 
-                let obj = PySlice { start, stop, step }.into_ref(vm);
+                let obj = PySlice {
+                    start: Some(start),
+                    stop,
+                    step,
+                }
+                .into_ref(vm);
                 self.push_value(obj.into_object());
                 Ok(None)
             }
