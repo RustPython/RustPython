@@ -40,13 +40,17 @@ impl PyZipRef {
             Ok(vm.ctx.new_tuple(next_objs))
         }
     }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
 }
 
 pub fn init(context: &PyContext) {
     let zip_type = &context.zip_type;
-    objiter::iter_type_init(context, zip_type);
     extend_class!(context, zip_type, {
         "__new__" => context.new_rustfunc(zip_new),
-        "__next__" => context.new_rustfunc(PyZipRef::next)
+        "__next__" => context.new_rustfunc(PyZipRef::next),
+        "__iter__" => context.new_rustfunc(PyZipRef::iter),
     });
 }

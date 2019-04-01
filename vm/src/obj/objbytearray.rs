@@ -1,6 +1,6 @@
 //! Implementation of the python bytearray object.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt::Write;
 use std::ops::{Deref, DerefMut};
 
@@ -11,6 +11,7 @@ use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint;
+use super::objiter;
 use super::objtype::PyClassRef;
 
 #[derive(Debug)]
@@ -67,6 +68,7 @@ pub fn init(context: &PyContext) {
         "__eq__" => context.new_rustfunc(PyByteArrayRef::eq),
         "__len__" => context.new_rustfunc(PyByteArrayRef::len),
         "__repr__" => context.new_rustfunc(PyByteArrayRef::repr),
+        "__iter__" => context.new_rustfunc(PyByteArrayRef::iter),
         "clear" => context.new_rustfunc(PyByteArrayRef::clear),
         "isalnum" => context.new_rustfunc(PyByteArrayRef::isalnum),
         "isalpha" => context.new_rustfunc(PyByteArrayRef::isalpha),
@@ -79,6 +81,12 @@ pub fn init(context: &PyContext) {
         "lower" => context.new_rustfunc(PyByteArrayRef::lower),
         "pop" => context.new_rustfunc(PyByteArrayRef::pop),
         "upper" => context.new_rustfunc(PyByteArrayRef::upper)
+    });
+
+    let bytearrayiterator_type = &context.bytearrayiterator_type;
+    extend_class!(context, bytearrayiterator_type, {
+        "__next__" => context.new_rustfunc(PyByteArrayIteratorRef::next),
+        "__iter__" => context.new_rustfunc(PyByteArrayIteratorRef::iter),
     });
 }
 
@@ -225,6 +233,13 @@ impl PyByteArrayRef {
             value: RefCell::new(bytes),
         }
     }
+
+    fn iter(self, _vm: &VirtualMachine) -> PyByteArrayIterator {
+        PyByteArrayIterator {
+            position: Cell::new(0),
+            bytearray: self,
+        }
+    }
 }
 
 // helper function for istitle
@@ -264,5 +279,35 @@ mod tests {
     #[test]
     fn bytearray_to_hex_formatting() {
         assert_eq!(&to_hex(&[11u8, 222u8]), "\\x0b\\xde");
+    }
+}
+
+#[derive(Debug)]
+pub struct PyByteArrayIterator {
+    position: Cell<usize>,
+    bytearray: PyByteArrayRef,
+}
+
+impl PyValue for PyByteArrayIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.bytearrayiterator_type()
+    }
+}
+
+type PyByteArrayIteratorRef = PyRef<PyByteArrayIterator>;
+
+impl PyByteArrayIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult<u8> {
+        if self.position.get() < self.bytearray.value.borrow().len() {
+            let ret = self.bytearray.value.borrow()[self.position.get()];
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
     }
 }

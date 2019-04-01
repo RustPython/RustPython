@@ -6,10 +6,11 @@ use std::ops::Deref;
 use num_traits::ToPrimitive;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint;
+use super::objiter;
 use super::objtype::PyClassRef;
 
 #[derive(Debug)]
@@ -67,6 +68,12 @@ pub fn init(context: &PyContext) {
         "__len__" => context.new_rustfunc(PyBytesRef::len),
         "__iter__" => context.new_rustfunc(PyBytesRef::iter),
         "__doc__" => context.new_str(bytes_doc.to_string())
+    });
+
+    let bytesiterator_type = &context.bytesiterator_type;
+    extend_class!(context, bytesiterator_type, {
+        "__next__" => context.new_rustfunc(PyBytesIteratorRef::next),
+        "__iter__" => context.new_rustfunc(PyBytesIteratorRef::iter),
     });
 }
 
@@ -149,14 +156,44 @@ impl PyBytesRef {
         format!("b'{}'", data)
     }
 
-    fn iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
-        PyIteratorValue {
+    fn iter(self, _vm: &VirtualMachine) -> PyBytesIterator {
+        PyBytesIterator {
             position: Cell::new(0),
-            iterated_obj: obj.into_object(),
+            bytes: self,
         }
     }
 }
 
 pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
     &obj.payload::<PyBytes>().unwrap().value
+}
+
+#[derive(Debug)]
+pub struct PyBytesIterator {
+    position: Cell<usize>,
+    bytes: PyBytesRef,
+}
+
+impl PyValue for PyBytesIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.bytesiterator_type()
+    }
+}
+
+type PyBytesIteratorRef = PyRef<PyBytesIterator>;
+
+impl PyBytesIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult<u8> {
+        if self.position.get() < self.bytes.value.len() {
+            let ret = self.bytes[self.position.get()];
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
 }

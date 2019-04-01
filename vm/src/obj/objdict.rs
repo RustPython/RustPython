@@ -5,11 +5,12 @@ use std::ops::{Deref, DerefMut};
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    DictProtocol, PyAttributes, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue,
+    DictProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objiter;
+use super::objlist::PyListIterator;
 use super::objstr::{self, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -210,7 +211,8 @@ impl PyDictRef {
     }
 
     /// When iterating over a dictionary, we iterate over the keys of it.
-    fn iter(self, vm: &VirtualMachine) -> PyIteratorValue {
+    fn iter(self, vm: &VirtualMachine) -> PyListIterator {
+        // TODO: separate type, not a list iterator
         let keys = self
             .entries
             .borrow()
@@ -219,13 +221,14 @@ impl PyDictRef {
             .collect();
         let key_list = vm.ctx.new_list(keys);
 
-        PyIteratorValue {
+        PyListIterator {
             position: Cell::new(0),
-            iterated_obj: key_list,
+            list: key_list.downcast().unwrap(),
         }
     }
 
-    fn values(self, vm: &VirtualMachine) -> PyIteratorValue {
+    fn values(self, vm: &VirtualMachine) -> PyListIterator {
+        // TODO: separate type. `values` should be a live view over the collection, not an iterator.
         let values = self
             .entries
             .borrow()
@@ -234,13 +237,14 @@ impl PyDictRef {
             .collect();
         let values_list = vm.ctx.new_list(values);
 
-        PyIteratorValue {
+        PyListIterator {
             position: Cell::new(0),
-            iterated_obj: values_list,
+            list: values_list.downcast().unwrap(),
         }
     }
 
-    fn items(self, vm: &VirtualMachine) -> PyIteratorValue {
+    fn items(self, vm: &VirtualMachine) -> PyListIterator {
+        // TODO: separate type. `items` should be a live view over the collection, not an iterator.
         let items = self
             .entries
             .borrow()
@@ -249,9 +253,9 @@ impl PyDictRef {
             .collect();
         let items_list = vm.ctx.new_list(items);
 
-        PyIteratorValue {
+        PyListIterator {
             position: Cell::new(0),
-            iterated_obj: items_list,
+            list: items_list.downcast().unwrap(),
         }
     }
 
@@ -332,6 +336,7 @@ pub fn init(context: &PyContext) {
         "clear" => context.new_rustfunc(PyDictRef::clear),
         "values" => context.new_rustfunc(PyDictRef::values),
         "items" => context.new_rustfunc(PyDictRef::items),
+        // TODO: separate type. `keys` should be a live view over the collection, not an iterator.
         "keys" => context.new_rustfunc(PyDictRef::iter),
         "get" => context.new_rustfunc(PyDictRef::get),
     });

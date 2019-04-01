@@ -4,13 +4,12 @@ use std::fmt;
 use num_traits::ToPrimitive;
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    IdProtocol, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
+use super::objiter;
 use super::objsequence::{
     get_elements, get_elements_cell, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
     PySliceableSequence,
@@ -123,10 +122,10 @@ impl PyListRef {
         )
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> PyIteratorValue {
-        PyIteratorValue {
+    fn iter(self, _vm: &VirtualMachine) -> PyListIterator {
+        PyListIterator {
             position: Cell::new(0),
-            iterated_obj: self.into_object(),
+            list: self,
         }
     }
 
@@ -412,6 +411,36 @@ fn list_sort(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+#[derive(Debug)]
+pub struct PyListIterator {
+    pub position: Cell<usize>,
+    pub list: PyListRef,
+}
+
+impl PyValue for PyListIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.listiterator_type()
+    }
+}
+
+type PyListIteratorRef = PyRef<PyListIterator>;
+
+impl PyListIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() < self.list.elements.borrow().len() {
+            let ret = self.list.elements.borrow()[self.position.get()].clone();
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     let list_type = &context.list_type;
@@ -449,5 +478,11 @@ pub fn init(context: &PyContext) {
         "sort" => context.new_rustfunc(list_sort),
         "pop" => context.new_rustfunc(PyListRef::pop),
         "remove" => context.new_rustfunc(PyListRef::remove)
+    });
+
+    let listiterator_type = &context.listiterator_type;
+    extend_class!(context, listiterator_type, {
+        "__next__" => context.new_rustfunc(PyListIteratorRef::next),
+        "__iter__" => context.new_rustfunc(PyListIteratorRef::iter),
     });
 }

@@ -6,10 +6,11 @@ use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{Either, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{Either, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint::{PyInt, PyIntRef};
+use super::objiter;
 use super::objslice::PySliceRef;
 use super::objtype::PyClassRef;
 
@@ -113,6 +114,12 @@ pub fn init(context: &PyContext) {
         "stop" => context.new_property(PyRangeRef::stop),
         "step" => context.new_property(PyRangeRef::step),
     });
+
+    let rangeiterator_type = &context.rangeiterator_type;
+    extend_class!(context, rangeiterator_type, {
+        "__next__" => context.new_rustfunc(PyRangeIteratorRef::next),
+        "__iter__" => context.new_rustfunc(PyRangeIteratorRef::iter),
+    });
 }
 
 type PyRangeRef = PyRef<PyRange>;
@@ -156,14 +163,14 @@ impl PyRangeRef {
         self.step.clone()
     }
 
-    fn iter(self: PyRangeRef, _vm: &VirtualMachine) -> PyIteratorValue {
-        PyIteratorValue {
+    fn iter(self: PyRangeRef, _vm: &VirtualMachine) -> PyRangeIterator {
+        PyRangeIterator {
             position: Cell::new(0),
-            iterated_obj: self.into_object(),
+            range: self,
         }
     }
 
-    fn reversed(self: PyRangeRef, vm: &VirtualMachine) -> PyIteratorValue {
+    fn reversed(self: PyRangeRef, vm: &VirtualMachine) -> PyRangeIterator {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
@@ -189,9 +196,9 @@ impl PyRangeRef {
             step: PyInt::new(-step).into_ref(vm),
         };
 
-        PyIteratorValue {
+        PyRangeIterator {
             position: Cell::new(0),
-            iterated_obj: reversed.into_ref(vm).into_object(),
+            range: reversed.into_ref(vm),
         }
     }
 
@@ -312,4 +319,33 @@ fn range_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }?;
 
     Ok(range.into_object())
+}
+
+#[derive(Debug)]
+pub struct PyRangeIterator {
+    position: Cell<usize>,
+    range: PyRangeRef,
+}
+
+impl PyValue for PyRangeIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.rangeiterator_type()
+    }
+}
+
+type PyRangeIteratorRef = PyRef<PyRangeIterator>;
+
+impl PyRangeIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        if let Some(int) = self.range.get(self.position.get()) {
+            self.position.set(self.position.get() + 1);
+            Ok(int)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
 }

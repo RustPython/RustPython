@@ -8,14 +8,13 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    PyContext, PyIteratorValue, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
 use super::objiter;
+use super::objlist::PyListIterator;
 use super::objtype;
 use super::objtype::PyClassRef;
 
@@ -561,12 +560,13 @@ fn set_ixor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(zelf.clone())
 }
 
-fn set_iter(zelf: PySetRef, vm: &VirtualMachine) -> PyIteratorValue {
+fn set_iter(zelf: PySetRef, vm: &VirtualMachine) -> PyListIterator {
+    // TODO: separate type
     let items = zelf.elements.borrow().values().cloned().collect();
     let set_list = vm.ctx.new_list(items);
-    PyIteratorValue {
+    PyListIterator {
         position: Cell::new(0),
-        iterated_obj: set_list,
+        list: set_list.downcast().unwrap(),
     }
 }
 

@@ -1075,36 +1075,14 @@ impl Frame {
         a.get_id()
     }
 
-    // https://docs.python.org/3/reference/expressions.html#membership-test-operations
-    fn _membership(
-        &self,
-        vm: &VirtualMachine,
-        needle: PyObjectRef,
-        haystack: &PyObjectRef,
-    ) -> PyResult {
-        vm.call_method(&haystack, "__contains__", vec![needle])
-        // TODO: implement __iter__ and __getitem__ cases when __contains__ is
-        // not implemented.
-    }
-
     fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
-        match self._membership(vm, needle, &haystack) {
-            Ok(found) => Ok(found),
-            Err(_) => Err(vm.new_type_error(format!(
-                "{} has no __contains__ method",
-                haystack.class().name
-            ))),
-        }
+        let found = vm._membership(haystack.clone(), needle)?;
+        Ok(vm.ctx.new_bool(objbool::boolval(vm, found)?))
     }
 
     fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
-        match self._membership(vm, needle, &haystack) {
-            Ok(found) => Ok(vm.ctx.new_bool(!objbool::get_value(&found))),
-            Err(_) => Err(vm.new_type_error(format!(
-                "{} has no __contains__ method",
-                haystack.class().name
-            ))),
-        }
+        let found = vm._membership(haystack.clone(), needle)?;
+        Ok(vm.ctx.new_bool(!objbool::boolval(vm, found)?))
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
