@@ -597,7 +597,10 @@ impl Compiler {
         self.in_loop = false;
         self.in_function_def = true;
         let mut flags = self.enter_function(name, args)?;
-        self.compile_statements(body)?;
+
+        let (new_body, doc_str) = get_doc(body);
+
+        self.compile_statements(new_body)?;
 
         // Emit None at end:
         self.emit(Instruction::LoadConst {
@@ -662,6 +665,20 @@ impl Compiler {
         self.emit(Instruction::StoreName {
             name: name.to_string(),
         });
+
+        if let Some(doc_string) = doc_str {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: doc_string.to_string(),
+                },
+            });
+            self.emit(Instruction::LoadName {
+                name: name.to_string(),
+            });
+            self.emit(Instruction::StoreAttr {
+                name: "__doc__".to_string(),
+            });
+        }
         self.in_loop = was_in_loop;
         self.in_function_def = was_in_function_def;
         Ok(())
@@ -689,13 +706,17 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
-        self.compile_statements(body)?;
+
+        let (new_body, doc_str) = get_doc(body);
+
+        self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::None,
         });
         self.emit(Instruction::ReturnValue);
 
         let code = self.pop_code_object();
+
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
                 code: Box::new(code),
@@ -755,6 +776,19 @@ impl Compiler {
         self.emit(Instruction::StoreName {
             name: name.to_string(),
         });
+        if let Some(doc_string) = doc_str {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: doc_string.to_string(),
+                },
+            });
+            self.emit(Instruction::LoadName {
+                name: name.to_string(),
+            });
+            self.emit(Instruction::StoreAttr {
+                name: "__doc__".to_string(),
+            });
+        }
         self.in_loop = was_in_loop;
         Ok(())
     }
@@ -1509,6 +1543,21 @@ impl Compiler {
     fn mark_generator(&mut self) {
         self.current_code_object().is_generator = true;
     }
+}
+
+fn get_doc(body: &[ast::LocatedStatement]) -> (&[ast::LocatedStatement], Option<String>) {
+    if let Some(val) = body.get(0) {
+        if let ast::Statement::Expression { ref expression } = val.node {
+            if let ast::Expression::String { ref value } = expression {
+                if let ast::StringGroup::Constant { ref value } = value {
+                    if let Some((_, body_rest)) = body.split_first() {
+                        return (body_rest, Some(value.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    (body, None)
 }
 
 #[cfg(test)]
