@@ -5,11 +5,12 @@ use std::ops::{Deref, DerefMut};
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    DictProtocol, PyAttributes, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue,
+    DictProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objiter;
+use super::objiter::PyIteratorValue;
 use super::objstr::{self, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;

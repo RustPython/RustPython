@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -1124,20 +1124,6 @@ where
 {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
         Ok(PyObject::new(self, T::class(vm), None))
-    }
-}
-
-// TODO: This is a workaround and shouldn't exist.
-//       Each iterable type should have its own distinct iterator type.
-#[derive(Debug)]
-pub struct PyIteratorValue {
-    pub position: Cell<usize>,
-    pub iterated_obj: PyObjectRef,
-}
-
-impl PyValue for PyIteratorValue {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.iter_type()
     }
 }
 

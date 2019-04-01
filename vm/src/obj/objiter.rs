@@ -2,7 +2,9 @@
  * Various types to support iteration.
  */
 
-use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult};
+use std::cell::Cell;
+
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objbytearray::PyByteArray;
@@ -10,6 +12,7 @@ use super::objbytes::PyBytes;
 use super::objrange::PyRange;
 use super::objsequence;
 use super::objtype;
+use super::objtype::PyClassRef;
 
 /*
  * This helper function is called at multiple places. First, it is called
@@ -69,6 +72,21 @@ pub fn get_all(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult<Vec<PyOb
 pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     let stop_iteration_type = vm.ctx.exceptions.stop_iteration.clone();
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
+}
+
+// TODO: This is a workaround and shouldn't exist.
+//       Each iterable type should have its own distinct iterator type.
+// (however, this boilerplate can be reused for "generic iterator" for types with only __getiter__)
+#[derive(Debug)]
+pub struct PyIteratorValue {
+    pub position: Cell<usize>,
+    pub iterated_obj: PyObjectRef,
+}
+
+impl PyValue for PyIteratorValue {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.iter_type()
+    }
 }
 
 type PyIteratorValueRef = PyRef<PyIteratorValue>;

@@ -6,10 +6,11 @@ use std::ops::Deref;
 use num_traits::ToPrimitive;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint;
+use super::objiter::PyIteratorValue;
 use super::objtype::PyClassRef;
 
 #[derive(Debug)]

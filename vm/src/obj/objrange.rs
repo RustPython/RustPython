@@ -6,10 +6,11 @@ use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{Either, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{Either, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint::{PyInt, PyIntRef};
+use super::objiter::PyIteratorValue;
 use super::objslice::PySliceRef;
 use super::objtype::PyClassRef;
 

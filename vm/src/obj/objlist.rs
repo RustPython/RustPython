@@ -4,13 +4,12 @@ use std::fmt;
 use num_traits::ToPrimitive;
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    IdProtocol, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
+use super::objiter::PyIteratorValue;
 use super::objsequence::{
     get_elements, get_elements_cell, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
     PySliceableSequence,
