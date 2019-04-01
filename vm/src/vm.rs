@@ -867,6 +867,31 @@ impl VirtualMachine {
             Err(vm.new_unsupported_operand_error(a, b, ">="))
         })
     }
+
+    // https://docs.python.org/3/reference/expressions.html#membership-test-operations
+    fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
+        let iter = objiter::get_iter(self, &haystack)?;
+        loop {
+            if let Some(element) = objiter::get_next_object(self, &iter)? {
+                let equal = self._eq(needle.clone(), element.clone())?;
+                if objbool::get_value(&equal) {
+                    return Ok(self.new_bool(true));
+                } else {
+                    continue;
+                }
+            } else {
+                return Ok(self.new_bool(false));
+            }
+        }
+    }
+
+    pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
+        if let Ok(method) = self.get_method(haystack.clone(), "__contains__") {
+            self.invoke(method, vec![needle])
+        } else {
+            self._membership_iter_search(haystack, needle)
+        }
+    }
 }
 
 impl Default for VirtualMachine {

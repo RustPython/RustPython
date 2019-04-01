@@ -6,7 +6,6 @@ use crate::function::PyFuncArgs;
 use crate::pyobject::{PyContext, PyIteratorValue, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-use super::objbool;
 use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
 use super::objrange::PyRange;
@@ -24,6 +23,10 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
     // let type_str = objstr::get_value(&vm.to_str(iter_target.class()).unwrap());
     // let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
     // return Err(type_error);
+
+    // TODO: special case when iter_target only has __getitem__
+    // see: https://docs.python.org/3/library/functions.html#iter
+    // also https://docs.python.org/3.8/reference/datamodel.html#special-method-names
 }
 
 pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
@@ -70,33 +73,8 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
 }
 
-fn contains(vm: &VirtualMachine, args: PyFuncArgs, iter_type: PyClassRef) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(iter, Some(iter_type)), (needle, None)]
-    );
-    loop {
-        if let Some(element) = get_next_object(vm, iter)? {
-            let equal = vm._eq(needle.clone(), element.clone())?;
-            if objbool::get_value(&equal) {
-                return Ok(vm.new_bool(true));
-            } else {
-                continue;
-            }
-        } else {
-            return Ok(vm.new_bool(false));
-        }
-    }
-}
-
-/// Common setup for iter types, adds __iter__ and __contains__ methods
+/// Common setup for iter types, adds __iter__ method
 pub fn iter_type_init(context: &PyContext, iter_type: &PyClassRef) {
-    let contains_func = {
-        let cloned_iter_type = iter_type.clone();
-        move |vm: &VirtualMachine, args: PyFuncArgs| contains(vm, args, cloned_iter_type.clone())
-    };
-
     let iter_func = {
         let cloned_iter_type = iter_type.clone();
         move |vm: &VirtualMachine, args: PyFuncArgs| {
@@ -111,7 +89,6 @@ pub fn iter_type_init(context: &PyContext, iter_type: &PyClassRef) {
     };
 
     extend_class!(context, iter_type, {
-        "__contains__" => context.new_rustfunc(contains_func),
         "__iter__" => context.new_rustfunc(iter_func)
     });
 }
