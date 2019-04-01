@@ -137,9 +137,9 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
 }
 
 pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
-    let (ident, attrs) = match item.clone() {
-        Item::Struct(struc) => (struc.ident, struc.attrs),
-        Item::Enum(enu) => (enu.ident, enu.attrs),
+    let (item, ident, attrs) = match item {
+        Item::Struct(struc) => (quote!(#struc), struc.ident, struc.attrs),
+        Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
         _ => panic!("#[pyclass] can only be on a struct or enum declaration"),
     };
 
