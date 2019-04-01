@@ -137,10 +137,10 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
 }
 
 pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
-    let struc = if let Item::Struct(struc) = item {
-        struc
-    } else {
-        panic!("#[pyclass] can only be on a struct declaration");
+    let (ident, attrs) = match item.clone() {
+        Item::Struct(struc) => (struc.ident, struc.attrs),
+        Item::Enum(enu) => (enu.ident, enu.attrs),
+        _ => panic!("#[pyclass] can only be on a struct or enum declaration"),
     };
 
     let rp_path = rustpython_path_attr(&attr);
@@ -159,10 +159,10 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
             }
         }
     }
-    let class_name = class_name.unwrap_or_else(|| struc.ident.to_string());
+    let class_name = class_name.unwrap_or_else(|| ident.to_string());
 
     let mut doc: Option<Vec<String>> = None;
-    for attr in struc.attrs.iter() {
+    for attr in attrs.iter() {
         if attr.path.is_ident("doc") {
             let meta = attr.parse_meta().expect("expected doc attr to be a meta");
             if let Meta::NameValue(name_value) = meta {
@@ -186,11 +186,9 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
         None => quote!(None),
     };
 
-    let ty = &struc.ident;
-
     quote! {
-        #struc
-        impl #rp_path::pyobject::PyClassDef for #ty {
+        #item
+        impl #rp_path::pyobject::PyClassDef for #ident {
             const NAME: &'static str = #class_name;
             const DOC: Option<&'static str> = #doc;
         }
