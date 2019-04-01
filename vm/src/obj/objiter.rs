@@ -7,10 +7,6 @@ use std::cell::Cell;
 use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-use super::objbytearray::PyByteArray;
-use super::objbytes::PyBytes;
-use super::objrange::PyRange;
-use super::objsequence;
 use super::objtype;
 use super::objtype::PyClassRef;
 
@@ -92,42 +88,8 @@ impl PyValue for PyIteratorValue {
 type PyIteratorValueRef = PyRef<PyIteratorValue>;
 
 impl PyIteratorValueRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
-        let position = &self.position;
-        let iterated_obj_ref = &self.iterated_obj;
-        if let Some(range) = iterated_obj_ref.payload::<PyRange>() {
-            if let Some(int) = range.get(position.get()) {
-                position.set(position.get() + 1);
-                Ok(vm.ctx.new_int(int))
-            } else {
-                Err(new_stop_iteration(vm))
-            }
-        } else if let Some(bytes) = iterated_obj_ref.payload::<PyBytes>() {
-            if position.get() < bytes.len() {
-                let obj_ref = vm.ctx.new_int(bytes[position.get()]);
-                position.set(position.get() + 1);
-                Ok(obj_ref)
-            } else {
-                Err(new_stop_iteration(vm))
-            }
-        } else if let Some(bytes) = iterated_obj_ref.payload::<PyByteArray>() {
-            if position.get() < bytes.value.borrow().len() {
-                let obj_ref = vm.ctx.new_int(bytes.value.borrow()[position.get()]);
-                position.set(position.get() + 1);
-                Ok(obj_ref)
-            } else {
-                Err(new_stop_iteration(vm))
-            }
-        } else {
-            let elements = objsequence::get_elements(iterated_obj_ref);
-            if position.get() < elements.len() {
-                let obj_ref = elements[position.get()].clone();
-                position.set(position.get() + 1);
-                Ok(obj_ref)
-            } else {
-                Err(new_stop_iteration(vm))
-            }
-        }
+    fn next(self, _vm: &VirtualMachine) -> PyResult {
+        unimplemented!()
     }
 
     fn iter(self, _vm: &VirtualMachine) -> Self {
@@ -138,15 +100,8 @@ impl PyIteratorValueRef {
 pub fn init(context: &PyContext) {
     let iter_type = &context.iter_type;
 
-    let iter_doc = "iter(iterable) -> iterator\n\
-                    iter(callable, sentinel) -> iterator\n\n\
-                    Get an iterator from an object.  In the first form, the argument must\n\
-                    supply its own iterator, or be a sequence.\n\
-                    In the second form, the callable is called until it returns the sentinel.";
-
     extend_class!(context, iter_type, {
         "__next__" => context.new_rustfunc(PyIteratorValueRef::next),
         "__iter__" => context.new_rustfunc(PyIteratorValueRef::iter),
-        "__doc__" => context.new_str(iter_doc.to_string()),
     });
 }

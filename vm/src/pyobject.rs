@@ -108,7 +108,9 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
 #[derive(Debug)]
 pub struct PyContext {
     pub bytes_type: PyClassRef,
+    pub bytesiterator_type: PyClassRef,
     pub bytearray_type: PyClassRef,
+    pub bytearrayiterator_type: PyClassRef,
     pub bool_type: PyClassRef,
     pub classmethod_type: PyClassRef,
     pub code_type: PyClassRef,
@@ -126,17 +128,20 @@ pub struct PyContext {
     pub true_value: PyIntRef,
     pub false_value: PyIntRef,
     pub list_type: PyClassRef,
+    pub listiterator_type: PyClassRef,
     pub map_type: PyClassRef,
     pub memoryview_type: PyClassRef,
     pub none: PyNoneRef,
     pub ellipsis: PyEllipsisRef,
     pub not_implemented: PyNotImplementedRef,
     pub tuple_type: PyClassRef,
+    pub tupleiterator_type: PyClassRef,
     pub set_type: PyClassRef,
     pub staticmethod_type: PyClassRef,
     pub super_type: PyClassRef,
     pub str_type: PyClassRef,
     pub range_type: PyClassRef,
+    pub rangeiterator_type: PyClassRef,
     pub slice_type: PyClassRef,
     pub type_type: PyClassRef,
     pub zip_type: PyClassRef,
@@ -248,6 +253,7 @@ impl PyContext {
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
+        let listiterator_type = create_type("list_iterator", &type_type, &object_type);
         let set_type = create_type("set", &type_type, &object_type);
         let frozenset_type = create_type("frozenset", &type_type, &object_type);
         let int_type = create_type("int", &type_type, &object_type);
@@ -255,8 +261,11 @@ impl PyContext {
         let frame_type = create_type("frame", &type_type, &object_type);
         let complex_type = create_type("complex", &type_type, &object_type);
         let bytes_type = create_type("bytes", &type_type, &object_type);
+        let bytesiterator_type = create_type("bytes_iterator", &type_type, &object_type);
         let bytearray_type = create_type("bytearray", &type_type, &object_type);
+        let bytearrayiterator_type = create_type("bytearray_iterator", &type_type, &object_type);
         let tuple_type = create_type("tuple", &type_type, &object_type);
+        let tupleiterator_type = create_type("tuple_iterator", &type_type, &object_type);
         let iter_type = create_type("iter", &type_type, &object_type);
         let enumerate_type = create_type("enumerate", &type_type, &object_type);
         let filter_type = create_type("filter", &type_type, &object_type);
@@ -266,6 +275,7 @@ impl PyContext {
         let memoryview_type = create_type("memoryview", &type_type, &object_type);
         let code_type = create_type("code", &type_type, &int_type);
         let range_type = create_type("range", &type_type, &object_type);
+        let rangeiterator_type = create_type("range_iterator", &type_type, &object_type);
         let slice_type = create_type("slice", &type_type, &object_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type);
 
@@ -291,7 +301,9 @@ impl PyContext {
             bool_type,
             memoryview_type,
             bytearray_type,
+            bytearrayiterator_type,
             bytes_type,
+            bytesiterator_type,
             code_type,
             complex_type,
             classmethod_type,
@@ -300,11 +312,13 @@ impl PyContext {
             frame_type,
             staticmethod_type,
             list_type,
+            listiterator_type,
             set_type,
             frozenset_type,
             true_value,
             false_value,
             tuple_type,
+            tupleiterator_type,
             iter_type,
             ellipsis_type,
             enumerate_type,
@@ -317,6 +331,7 @@ impl PyContext {
             not_implemented,
             str_type,
             range_type,
+            rangeiterator_type,
             slice_type,
             object: object_type,
             function_type,
@@ -373,8 +388,16 @@ impl PyContext {
         self.bytearray_type.clone()
     }
 
+    pub fn bytearrayiterator_type(&self) -> PyClassRef {
+        self.bytearrayiterator_type.clone()
+    }
+
     pub fn bytes_type(&self) -> PyClassRef {
         self.bytes_type.clone()
+    }
+
+    pub fn bytesiterator_type(&self) -> PyClassRef {
+        self.bytesiterator_type.clone()
     }
 
     pub fn code_type(&self) -> PyClassRef {
@@ -405,6 +428,10 @@ impl PyContext {
         self.list_type.clone()
     }
 
+    pub fn listiterator_type(&self) -> PyClassRef {
+        self.listiterator_type.clone()
+    }
+
     pub fn module_type(&self) -> PyClassRef {
         self.module_type.clone()
     }
@@ -415,6 +442,10 @@ impl PyContext {
 
     pub fn range_type(&self) -> PyClassRef {
         self.range_type.clone()
+    }
+
+    pub fn rangeiterator_type(&self) -> PyClassRef {
+        self.rangeiterator_type.clone()
     }
 
     pub fn slice_type(&self) -> PyClassRef {
@@ -435,6 +466,10 @@ impl PyContext {
 
     pub fn tuple_type(&self) -> PyClassRef {
         self.tuple_type.clone()
+    }
+
+    pub fn tupleiterator_type(&self) -> PyClassRef {
+        self.tupleiterator_type.clone()
     }
 
     pub fn iter_type(&self) -> PyClassRef {
