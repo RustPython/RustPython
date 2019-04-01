@@ -1,7 +1,7 @@
 import platform
 
 expected_methods = {
-    'bool': (bool, [
+    'bool': (True, [
         '__abs__',
         '__add__',
         '__and__',
@@ -73,7 +73,7 @@ expected_methods = {
         'real',
         'to_bytes',
     ]),
-    'bytearray': (bytearray, [
+    'bytearray': (bytearray(), [
         '__add__',
         '__alloc__',
         '__class__',
@@ -128,7 +128,6 @@ expected_methods = {
         'insert',
         'isalnum',
         'isalpha',
-        'isascii',
         'isdigit',
         'islower',
         'isspace',
@@ -160,7 +159,7 @@ expected_methods = {
         'upper',
         'zfill',
     ]),
-    'bytes': (bytes, [
+    'bytes': (b'', [
         '__add__',
         '__class__',
         '__contains__',
@@ -206,7 +205,6 @@ expected_methods = {
         'index',
         'isalnum',
         'isalpha',
-        'isascii',
         'isdigit',
         'islower',
         'isspace',
@@ -235,7 +233,7 @@ expected_methods = {
         'upper',
         'zfill',
     ]),
-    'complex': (complex, [
+    'complex': (0j, [
         '__abs__',
         '__add__',
         '__bool__',
@@ -286,7 +284,7 @@ expected_methods = {
         'imag',
         'real',
     ]),
-    'dict': (dict, [
+    'dict': ({}, [
         '__class__',
         '__contains__',
         '__delattr__',
@@ -328,7 +326,7 @@ expected_methods = {
         'update',
         'values',
     ]),
-    'float': (float, [
+    'float': (0.0, [
         '__abs__',
         '__add__',
         '__bool__',
@@ -371,7 +369,6 @@ expected_methods = {
         '__rpow__',
         '__rsub__',
         '__rtruediv__',
-        '__set_format__',
         '__setattr__',
         '__sizeof__',
         '__str__',
@@ -387,7 +384,7 @@ expected_methods = {
         'is_integer',
         'real',
     ]),
-    'frozenset': (frozenset, [
+    'frozenset': (frozenset(), [
         '__and__',
         '__class__',
         '__contains__',
@@ -431,7 +428,7 @@ expected_methods = {
         'symmetric_difference',
         'union',
     ]),
-    'int': (int, [
+    'int': (0, [
         '__abs__',
         '__add__',
         '__and__',
@@ -503,7 +500,7 @@ expected_methods = {
         'real',
         'to_bytes',
     ]),
-    'iter': (iter, [
+    'iter': ([].__iter__(), [
         '__class__',
         '__delattr__',
         '__dir__',
@@ -532,7 +529,7 @@ expected_methods = {
         '__str__',
         '__subclasshook__',
     ]),
-    'list': (list, [
+    'list': ([], [
         '__add__',
         '__class__',
         '__contains__',
@@ -580,7 +577,7 @@ expected_methods = {
         'reverse',
         'sort',
     ]),
-    'memoryview': (memoryview, [
+    'memoryview': (memoryview(b''), [
         '__class__',
         '__delattr__',
         '__delitem__',
@@ -628,7 +625,7 @@ expected_methods = {
         'tobytes',
         'tolist',
     ]),
-    'range': (range, [
+    'range': (range(0), [
         '__bool__',
         '__class__',
         '__contains__',
@@ -664,7 +661,7 @@ expected_methods = {
         'step',
         'stop',
     ]),
-    'set': (set, [
+    'set': (set(), [
         '__and__',
         '__class__',
         '__contains__',
@@ -721,7 +718,7 @@ expected_methods = {
         'union',
         'update',
     ]),
-    'str': (str, [
+    'str': ('', [
         '__add__',
         '__class__',
         '__contains__',
@@ -768,7 +765,6 @@ expected_methods = {
         'index',
         'isalnum',
         'isalpha',
-        'isascii',
         'isdecimal',
         'isdigit',
         'isidentifier',
@@ -801,7 +797,7 @@ expected_methods = {
         'upper',
         'zfill'
     ]),
-    'tuple': (tuple, [
+    'tuple': ((), [
         '__add__',
         '__class__',
         '__contains__',
@@ -836,7 +832,7 @@ expected_methods = {
         'count',
         'index',
     ]),
-    'object': (object, [
+    'object': (object(), [
         '__repr__',
         '__hash__',
         '__str__',
@@ -863,15 +859,10 @@ expected_methods = {
     ]),
 }
 
-not_implemented = []
-
-for name, (ty, methods) in expected_methods.items():
-    for method in methods:
-        try:
-            if not hasattr(ty, method):
-                not_implemented.append((name, method))
-        except NameError:
-            not_implemented.append((name, method))
+not_implemented = [(name, method)
+                   for name, (val, methods) in expected_methods.items()
+                   for method in methods
+                   if not hasattr(val, method)]
 
 if not_implemented:
     for r in not_implemented:
