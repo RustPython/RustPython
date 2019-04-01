@@ -4,7 +4,7 @@
 
 use std::cell::Cell;
 
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objtype;
@@ -16,14 +16,19 @@ use super::objtype::PyClassRef;
  * function 'iter' is called.
  */
 pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
-    vm.call_method(iter_target, "__iter__", vec![])
-    // let type_str = objstr::get_value(&vm.to_str(iter_target.class()).unwrap());
-    // let type_error = vm.new_type_error(format!("Cannot iterate over {}", type_str));
-    // return Err(type_error);
-
-    // TODO: special case when iter_target only has __getitem__
-    // see: https://docs.python.org/3/library/functions.html#iter
-    // also https://docs.python.org/3.8/reference/datamodel.html#special-method-names
+    if let Ok(method) = vm.get_method(iter_target.clone(), "__iter__") {
+        vm.invoke(method, vec![])
+    } else if vm.get_method(iter_target.clone(), "__getitem__").is_ok() {
+        Ok(PySequenceIterator {
+            position: Cell::new(0),
+            obj: iter_target.clone(),
+        }
+        .into_ref(vm)
+        .into_object())
+    } else {
+        let message = format!("Cannot iterate over {}", iter_target.class().name);
+        return Err(vm.new_type_error(message));
+    }
 }
 
 pub fn call_next(vm: &VirtualMachine, iter_obj: &PyObjectRef) -> PyResult {
@@ -70,26 +75,34 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
 }
 
-// TODO: This is a workaround and shouldn't exist.
-//       Each iterable type should have its own distinct iterator type.
-// (however, this boilerplate can be reused for "generic iterator" for types with only __getiter__)
 #[derive(Debug)]
-pub struct PyIteratorValue {
+pub struct PySequenceIterator {
     pub position: Cell<usize>,
-    pub iterated_obj: PyObjectRef,
+    pub obj: PyObjectRef,
 }
 
-impl PyValue for PyIteratorValue {
+impl PyValue for PySequenceIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.iter_type()
     }
 }
 
-type PyIteratorValueRef = PyRef<PyIteratorValue>;
+type PySequenceIteratorRef = PyRef<PySequenceIterator>;
 
-impl PyIteratorValueRef {
-    fn next(self, _vm: &VirtualMachine) -> PyResult {
-        unimplemented!()
+impl PySequenceIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult {
+        let number = vm.ctx.new_int(self.position.get());
+        match vm.call_method(&self.obj, "__getitem__", vec![number]) {
+            Ok(val) => {
+                self.position.set(self.position.get() + 1);
+                Ok(val)
+            }
+            Err(ref e) if objtype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
+                Err(new_stop_iteration(vm))
+            }
+            // also catches stop_iteration => stop_iteration
+            Err(e) => Err(e),
+        }
     }
 
     fn iter(self, _vm: &VirtualMachine) -> Self {
@@ -101,7 +114,7 @@ pub fn init(context: &PyContext) {
     let iter_type = &context.iter_type;
 
     extend_class!(context, iter_type, {
-        "__next__" => context.new_rustfunc(PyIteratorValueRef::next),
-        "__iter__" => context.new_rustfunc(PyIteratorValueRef::iter),
+        "__next__" => context.new_rustfunc(PySequenceIteratorRef::next),
+        "__iter__" => context.new_rustfunc(PySequenceIteratorRef::iter),
     });
 }
