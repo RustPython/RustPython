@@ -1280,6 +1280,36 @@ where
     }
 }
 
+pub trait PyClassDef {
+    const NAME: &'static str;
+    const DOC: Option<&'static str> = None;
+}
+
+impl<T> PyClassDef for PyRef<T>
+where
+    T: PyClassDef,
+{
+    const NAME: &'static str = T::NAME;
+    const DOC: Option<&'static str> = T::DOC;
+}
+
+pub trait PyClassImpl: PyClassDef {
+    fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
+
+    fn extend_class(ctx: &PyContext, class: &PyClassRef) {
+        Self::impl_extend_class(ctx, class);
+        if let Some(doc) = Self::DOC {
+            ctx.set_attr(class, "__doc__", ctx.new_str(doc.into()));
+        }
+    }
+
+    fn make_class(ctx: &PyContext) -> PyClassRef {
+        let py_class = ctx.new_class(Self::NAME, ctx.object());
+        Self::extend_class(ctx, &py_class);
+        py_class
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

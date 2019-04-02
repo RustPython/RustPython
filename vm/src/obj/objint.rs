@@ -373,6 +373,7 @@ impl PyIntRef {
 }
 
 #[derive(FromArgs)]
+#[__inside_vm]
 struct IntOptions {
     #[pyarg(positional_only, optional = true)]
     val_options: OptionalArg<PyObjectRef>,
