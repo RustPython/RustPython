@@ -159,9 +159,8 @@ pub enum Expression {
         value: Box<Expression>,
     },
     Compare {
-        a: Box<Expression>,
-        op: Comparison,
-        b: Box<Expression>,
+        vals: Vec<Expression>,
+        ops: Vec<Comparison>,
     },
     Attribute {
         value: Box<Expression>,

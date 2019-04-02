@@ -680,7 +680,15 @@ NotTest: ast::Expression = {
 };
 
 Comparison: ast::Expression = {
-    <e1:Comparison> <op:CompOp> <e2:Expression> => ast::Expression::Compare { a: Box::new(e1), op: op, b: Box::new(e2) },
+    <e:Expression> <comparisons:(CompOp Expression)+> => {
+        let mut vals = vec![e];
+        let mut ops = vec![];
+        for x in comparisons {
+            ops.push(x.0);
+            vals.push(x.1);
+        }
+        ast::Expression::Compare { vals, ops }
+    },
     <e:Expression> => e,
 };
 
