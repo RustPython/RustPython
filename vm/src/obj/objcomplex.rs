@@ -1,11 +1,11 @@
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::function::OptionalArg;
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-use super::objfloat;
+use super::objfloat::{self, PyFloat};
 use super::objint;
 use super::objtype::{self, PyClassRef};
 
@@ -74,109 +74,74 @@ impl PyComplexRef {
         PyComplex { value }.into_ref_with_type(vm, cls)
     }
 
-    fn real(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-        let Complex64 { re, .. } = get_value(zelf);
-        Ok(vm.ctx.new_float(re))
+    fn real(self, _vm: &VirtualMachine) -> PyFloat {
+        self.value.re.into()
     }
 
-    fn imag(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-        let Complex64 { im, .. } = get_value(zelf);
-        Ok(vm.ctx.new_float(im))
+    fn imag(self, _vm: &VirtualMachine) -> PyFloat {
+        self.value.im.into()
     }
 
-    fn abs(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-
-        let Complex64 { re, im } = get_value(zelf);
-        Ok(vm.ctx.new_float(re.hypot(im)))
+    fn abs(self, _vm: &VirtualMachine) -> PyFloat {
+        let Complex64 { im, re } = self.value;
+        re.hypot(im).into()
     }
 
-    fn add(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(i, Some(vm.ctx.complex_type())), (i2, None)]
-        );
-
-        let v1 = get_value(i);
-        if objtype::isinstance(i2, &vm.ctx.complex_type()) {
-            Ok(vm.ctx.new_complex(v1 + get_value(i2)))
-        } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-            Ok(vm.ctx.new_complex(Complex64::new(
-                v1.re + objint::get_value(i2).to_f64().unwrap(),
-                v1.im,
-            )))
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if objtype::isinstance(&other, &vm.ctx.complex_type()) {
+            vm.ctx.new_complex(self.value + get_value(&other))
+        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            vm.ctx.new_complex(Complex64::new(
+                self.value.re + objint::get_value(&other).to_f64().unwrap(),
+                self.value.im,
+            ))
         } else {
-            Err(vm.new_type_error(format!("Cannot add {} and {}", i, i2)))
+            vm.ctx.not_implemented()
         }
     }
 
-    fn radd(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(i, Some(vm.ctx.complex_type())), (i2, None)]
-        );
-
-        let v1 = get_value(i);
-
-        if objtype::isinstance(i2, &vm.ctx.int_type()) {
-            Ok(vm.ctx.new_complex(Complex64::new(
-                v1.re + objint::get_value(i2).to_f64().unwrap(),
-                v1.im,
-            )))
+    fn radd(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            vm.ctx.new_complex(Complex64::new(
+                self.value.re + objint::get_value(&other).to_f64().unwrap(),
+                self.value.im,
+            ))
         } else {
-            Err(vm.new_type_error(format!("Cannot add {} and {}", i, i2)))
+            vm.ctx.not_implemented()
         }
     }
 
-    fn conjugate(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(i, Some(vm.ctx.complex_type()))]);
-
-        let v1 = get_value(i);
-        Ok(vm.ctx.new_complex(v1.conj()))
+    fn conjugate(self, _vm: &VirtualMachine) -> PyComplex {
+        self.value.conj().into()
     }
 
-    fn eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(
-            vm,
-            args,
-            required = [(zelf, Some(vm.ctx.complex_type())), (other, None)]
-        );
-
-        let z = get_value(zelf);
-
-        let result = if objtype::isinstance(other, &vm.ctx.complex_type()) {
-            z == get_value(other)
-        } else if objtype::isinstance(other, &vm.ctx.int_type()) {
-            match objint::get_value(other).to_f64() {
-                Some(f) => z.im == 0.0f64 && z.re == f,
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        let result = if objtype::isinstance(&other, &vm.ctx.complex_type()) {
+            self.value == get_value(&other)
+        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            match objint::get_value(&other).to_f64() {
+                Some(f) => self.value.im == 0.0f64 && self.value.re == f,
                 None => false,
             }
-        } else if objtype::isinstance(other, &vm.ctx.float_type()) {
-            z.im == 0.0 && z.re == objfloat::get_value(other)
+        } else if objtype::isinstance(&other, &vm.ctx.float_type()) {
+            self.value.im == 0.0 && self.value.re == objfloat::get_value(&other)
         } else {
-            return Ok(vm.ctx.not_implemented());
+            return vm.ctx.not_implemented();
         };
 
-        Ok(vm.ctx.new_bool(result))
+        vm.ctx.new_bool(result)
     }
 
-    fn neg(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-        Ok(vm.ctx.new_complex(-get_value(zelf)))
+    fn neg(self, _vm: &VirtualMachine) -> PyComplex {
+        PyComplex::from(-self.value)
     }
 
-    fn repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-        arg_check!(vm, args, required = [(obj, Some(vm.ctx.complex_type()))]);
-        let v = get_value(obj);
-        let repr = if v.re == 0. {
-            format!("{}j", v.im)
+    fn repr(self, _vm: &VirtualMachine) -> String {
+        let Complex64 { re, im } = self.value;
+        if re == 0.0 {
+            format!("{}j", im)
         } else {
-            format!("({}+{}j)", v.re, v.im)
-        };
-        Ok(vm.new_str(repr))
+            format!("({}+{}j)", re, im)
+        }
     }
 }
