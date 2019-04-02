@@ -12,8 +12,8 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objfloat;
-use super::objstr;
+use super::objfloat::{self, PyFloat};
+use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
 
@@ -351,7 +351,7 @@ impl PyIntRef {
         self.value.to_string()
     }
 
-    fn format(self, spec: PyRef<objstr::PyString>, vm: &VirtualMachine) -> PyResult<String> {
+    fn format(self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
         let format_spec = FormatSpec::parse(&spec.value);
         match format_spec.format_int(&self.value) {
             Ok(string) => Ok(string),
@@ -408,29 +408,22 @@ fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResul
 
 // Casting function:
 pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
-    let val = if objtype::isinstance(obj, &vm.ctx.int_type()) {
-        get_value(obj).clone()
-    } else if objtype::isinstance(obj, &vm.ctx.float_type()) {
-        objfloat::get_value(obj).to_bigint().unwrap()
-    } else if objtype::isinstance(obj, &vm.ctx.str_type()) {
-        let s = objstr::get_value(obj);
-        match i32::from_str_radix(&s, base) {
-            Ok(v) => v.to_bigint().unwrap(),
-            Err(err) => {
-                trace!("Error occurred during int conversion {:?}", err);
-                return Err(vm.new_value_error(format!(
+    match_class!(obj.clone(),
+        i @ PyInt => Ok(i.as_bigint().clone()),
+        f @ PyFloat => Ok(f.to_f64().to_bigint().unwrap()),
+        s @ PyString => {
+            i32::from_str_radix(s.as_str(), base)
+                .map(|i| BigInt::from(i))
+                .map_err(|_|vm.new_value_error(format!(
                     "invalid literal for int() with base {}: '{}'",
                     base, s
-                )));
-            }
-        }
-    } else {
-        return Err(vm.new_type_error(format!(
+                )))
+        },
+        obj => Err(vm.new_type_error(format!(
             "int() argument must be a string or a number, not '{}'",
             obj.class().name
-        )));
-    };
-    Ok(val)
+        )))
+    )
 }
 
 // Retrieve inner int value:
