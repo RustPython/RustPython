@@ -102,7 +102,7 @@ ExpressionStatement: ast::LocatedStatement = {
           }
         }
     },
-    <loc:@L> <expr:TestOrStarExprList> <op:AugAssign> <e2:TestList> => {
+    <loc:@L> <expr:TestOrStarExprList> <op:AugAssign> <e2:TestList2> => {
         // TODO: this works in most cases:
         let rhs = e2.into_iter().next().unwrap();
         ast::LocatedStatement {
@@ -117,15 +117,7 @@ ExpressionStatement: ast::LocatedStatement = {
 };
 
 AssignSuffix: ast::Expression = {
-    "=" <e:TestList> => {
-        if e.len() > 1 {
-            ast::Expression::Tuple {
-                elements: e
-            }
-        } else {
-            e.into_iter().next().unwrap()
-        }
-    },
+    "=" <e:TestList> => e,
     "=" <e:YieldExpr> => e,
 };
 
@@ -182,7 +174,7 @@ FlowStatement: ast::LocatedStatement = {
     <loc:@L> "return" <t:TestList?> => {
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::Return { value: t },
+            node: ast::Statement::Return { value: t.map(Box::new) },
         }
     },
     <loc:@L> <y:YieldExpr> => {
@@ -622,22 +614,8 @@ Decorator: ast::Expression = {
 };
 
 YieldExpr: ast::Expression = {
-    "yield" <ex:TestList?> => {
-        ast::Expression::Yield {
-            value: ex.map(|expr| Box::new(
-                if expr.len() > 1 {
-                    ast::Expression::Tuple { elements: expr }
-                } else {
-                    expr.into_iter().next().unwrap()
-                })
-            )
-        }
-    },
-    "yield" "from" <e:Test> => {
-        ast::Expression::YieldFrom {
-            value: Box::new(e),
-        }
-    },
+    "yield" <value:TestList?> => ast::Expression::Yield { value: value.map(Box::new) },
+    "yield" "from" <e:Test> => ast::Expression::YieldFrom { value: Box::new(e) },
 };
 
 Test: ast::Expression = {
@@ -660,7 +638,7 @@ LambdaDef: ast::Expression = {
     "lambda" <p:ParameterList<UntypedParameter>?> ":" <b:Test> =>
         ast::Expression::Lambda {
             args: p.unwrap_or(Default::default()),
-            body:Box::new(b)
+            body: Box::new(b)
        }
 }
 
@@ -817,7 +795,7 @@ Atom: ast::Expression = {
         // List comprehension:
         e
     },
-    "(" <e:TestList?> <trailing_comma:","?> ")" => {
+    "(" <e:TestList2?> <trailing_comma:","?> ")" => {
          match e {
              None => ast::Expression::Tuple { elements: Vec::new() },
              Some(elements) => {
@@ -913,13 +891,26 @@ ExpressionList2: Vec<ast::Expression> = {
     },
 };
 
+// TODO: this TestList2 should be renamed or removed.
 #[inline]
-TestList: Vec<ast::Expression> = {
-  <e1:Test> <e2: ("," Test)*> => {
-    let mut l = vec![e1];
-    l.extend(e2.into_iter().map(|x| x.1));
-    l
-  }
+TestList2: Vec<ast::Expression> = {
+  <elements:OneOrMore<Test>> => elements,
+};
+
+// A test list is one of:
+// - a list of expressions
+// - a single expression
+// - a single expression followed by a trailing comma
+TestList: ast::Expression = {
+    <e:OneOrMore<Test>> <trailing_comma: ","?> => {
+        if e.len() == 1 && trailing_comma.is_none() {
+            e.into_iter().next().unwrap()
+        } else {
+            ast::Expression::Tuple {
+                elements: e
+            }
+        }
+    }
 };
 
 // Test

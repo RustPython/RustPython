@@ -353,19 +353,8 @@ impl Compiler {
                     return Err(CompileError::InvalidReturn);
                 }
                 match value {
-                    Some(e) => {
-                        let size = e.len();
-                        for v in e {
-                            self.compile_expression(v)?;
-                        }
-
-                        // If we have more than 1 return value, make it a tuple:
-                        if size > 1 {
-                            self.emit(Instruction::BuildTuple {
-                                size,
-                                unpack: false,
-                            });
-                        }
+                    Some(v) => {
+                        self.compile_expression(v)?;
                     }
                     None => {
                         self.emit(Instruction::LoadConst {
@@ -796,7 +785,7 @@ impl Compiler {
     fn compile_for(
         &mut self,
         target: &ast::Expression,
-        iter: &[ast::Expression],
+        iter: &ast::Expression,
         body: &[ast::LocatedStatement],
         orelse: &Option<Vec<ast::LocatedStatement>>,
     ) -> Result<(), CompileError> {
@@ -810,9 +799,7 @@ impl Compiler {
         });
 
         // The thing iterated:
-        for i in iter {
-            self.compile_expression(i)?;
-        }
+        self.compile_expression(iter)?;
 
         // Retrieve Iterator
         self.emit(Instruction::GetIter);

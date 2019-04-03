@@ -47,7 +47,7 @@ pub enum Statement {
     Break,
     Continue,
     Return {
-        value: Option<Vec<Expression>>,
+        value: Option<Box<Expression>>,
     },
     Import {
         import_parts: Vec<SingleImport>,
@@ -94,7 +94,7 @@ pub enum Statement {
     },
     For {
         target: Expression,
-        iter: Vec<Expression>,
+        iter: Expression,
         body: Vec<LocatedStatement>,
         orelse: Option<Vec<LocatedStatement>>,
     },
@@ -114,12 +114,10 @@ pub enum Statement {
         bases: Vec<Expression>,
         keywords: Vec<Keyword>,
         decorator_list: Vec<Expression>,
-        // TODO: docstring: String,
     },
     FunctionDef {
         name: String,
         args: Parameters,
-        // docstring: String,
         body: Vec<LocatedStatement>,
         decorator_list: Vec<Expression>,
         returns: Option<Expression>,
