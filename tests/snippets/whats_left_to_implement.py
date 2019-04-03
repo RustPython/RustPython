@@ -1,7 +1,7 @@
 import platform
 
 expected_methods = {
-    'bool': (True, [
+    'bool': (bool, [
         '__abs__',
         '__add__',
         '__and__',
@@ -73,7 +73,7 @@ expected_methods = {
         'real',
         'to_bytes',
     ]),
-    'bytearray': (bytearray(), [
+    'bytearray': (bytearray, [
         '__add__',
         '__alloc__',
         '__class__',
@@ -159,7 +159,7 @@ expected_methods = {
         'upper',
         'zfill',
     ]),
-    'bytes': (b'', [
+    'bytes': (bytes, [
         '__add__',
         '__class__',
         '__contains__',
@@ -233,7 +233,7 @@ expected_methods = {
         'upper',
         'zfill',
     ]),
-    'complex': (0j, [
+    'complex': (complex, [
         '__abs__',
         '__add__',
         '__bool__',
@@ -284,7 +284,7 @@ expected_methods = {
         'imag',
         'real',
     ]),
-    'dict': ({}, [
+    'dict': (dict, [
         '__class__',
         '__contains__',
         '__delattr__',
@@ -326,7 +326,7 @@ expected_methods = {
         'update',
         'values',
     ]),
-    'float': (0.0, [
+    'float': (float, [
         '__abs__',
         '__add__',
         '__bool__',
@@ -384,7 +384,7 @@ expected_methods = {
         'is_integer',
         'real',
     ]),
-    'frozenset': (frozenset(), [
+    'frozenset': (frozenset, [
         '__and__',
         '__class__',
         '__contains__',
@@ -428,7 +428,7 @@ expected_methods = {
         'symmetric_difference',
         'union',
     ]),
-    'int': (0, [
+    'int': (int, [
         '__abs__',
         '__add__',
         '__and__',
@@ -529,7 +529,7 @@ expected_methods = {
         '__str__',
         '__subclasshook__',
     ]),
-    'list': ([], [
+    'list': (list, [
         '__add__',
         '__class__',
         '__contains__',
@@ -577,7 +577,7 @@ expected_methods = {
         'reverse',
         'sort',
     ]),
-    'memoryview': (memoryview(b''), [
+    'memoryview': (memoryview, [
         '__class__',
         '__delattr__',
         '__delitem__',
@@ -625,7 +625,7 @@ expected_methods = {
         'tobytes',
         'tolist',
     ]),
-    'range': (range(0), [
+    'range': (range, [
         '__bool__',
         '__class__',
         '__contains__',
@@ -661,7 +661,7 @@ expected_methods = {
         'step',
         'stop',
     ]),
-    'set': (set(), [
+    'set': (set, [
         '__and__',
         '__class__',
         '__contains__',
@@ -718,7 +718,7 @@ expected_methods = {
         'union',
         'update',
     ]),
-    'str': ('', [
+    'str': (str, [
         '__add__',
         '__class__',
         '__contains__',
@@ -797,7 +797,7 @@ expected_methods = {
         'upper',
         'zfill'
     ]),
-    'tuple': ((), [
+    'tuple': (tuple, [
         '__add__',
         '__class__',
         '__contains__',
@@ -832,7 +832,7 @@ expected_methods = {
         'count',
         'index',
     ]),
-    'object': (object(), [
+    'object': (object, [
         '__repr__',
         '__hash__',
         '__str__',
@@ -864,10 +864,9 @@ not_implemented = [(name, method)
                    for method in methods
                    if not hasattr(val, method)]
 
-if not_implemented:
-    for r in not_implemented:
-        print(r[0], ".", r[1], sep="")
-else:
+for r in not_implemented:
+    print(r[0], ".", r[1], sep="")
+if not not_implemented:
     print("Not much \\o/")
 
 if platform.python_implementation() == "CPython":
