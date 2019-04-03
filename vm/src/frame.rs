@@ -385,21 +385,21 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let map_obj = vm.ctx.new_dict().into_object();
+                let map_obj = vm.ctx.new_dict();
                 for _x in 0..*size {
                     let obj = self.pop_value();
                     if *unpack {
                         // Take all key-value pairs from the dict:
                         let dict_elements = objdict::get_key_value_pairs(&obj);
                         for (key, value) in dict_elements.iter() {
-                            objdict::set_item(&map_obj, vm, key, value);
+                            map_obj.set_item(&vm.ctx, &objstr::get_value(key), value.clone());
                         }
                     } else {
                         let key = self.pop_value();
-                        objdict::set_item(&map_obj, vm, &key, &obj);
+                        map_obj.set_item(&vm.ctx, &objstr::get_value(&key), obj)
                     }
                 }
-                self.push_value(map_obj);
+                self.push_value(map_obj.into_object());
                 Ok(None)
             }
             bytecode::Instruction::BuildSlice { size } => {
@@ -613,10 +613,10 @@ impl Frame {
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
                             let kw_dict = self.pop_value();
-                            let dict_elements = objdict::get_elements(&kw_dict).clone();
+                            let dict_elements = objdict::get_key_value_pairs(&kw_dict).clone();
                             dict_elements
                                 .into_iter()
-                                .map(|elem| (elem.0, (elem.1).1))
+                                .map(|elem| (objstr::get_value(&elem.0), elem.1))
                                 .collect()
                         } else {
                             vec![]
@@ -1210,7 +1210,8 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
         let dict = self.scope.get_locals();
-        let local_str = objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
+        let local_str = dict
+            .get_key_value_pairs()
             .iter()
             .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
             .collect::<String>();

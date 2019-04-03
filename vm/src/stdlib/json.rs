@@ -12,7 +12,8 @@ use crate::obj::{
     objtype,
 };
 use crate::pyobject::{
-    create_type, DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol,
+    create_type, DictProtocol, IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult,
+    TypeProtocol,
 };
 use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;
@@ -63,10 +64,10 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             let elements = objsequence::get_elements(self.pyobject);
             serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.dict_type()) {
-            let pairs = objdict::get_elements(self.pyobject);
+            let pairs = objdict::get_key_value_pairs(self.pyobject);
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
             for (key, e) in pairs.iter() {
-                map.serialize_entry(&key, &self.clone_with_object(&e.1))?;
+                map.serialize_entry(&self.clone_with_object(key), &self.clone_with_object(&e))?;
             }
             map.end()
         } else if self.pyobject.is(&self.vm.get_none()) {
@@ -201,9 +202,9 @@ pub fn de_pyobject(vm: &VirtualMachine, s: &str) -> PyResult {
             let json_decode_error = vm
                 .get_attribute(vm.sys_module.clone(), "modules")
                 .unwrap()
-                .get_item("json")
+                .get_item("json", vm)
                 .unwrap()
-                .get_item("JSONDecodeError")
+                .get_item("JSONDecodeError", vm)
                 .unwrap();
             let json_decode_error = json_decode_error.downcast().unwrap();
             let exc = vm.new_exception(json_decode_error, format!("{}", err));

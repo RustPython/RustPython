@@ -1,4 +1,4 @@
-use super::objdict::{self, PyDictRef};
+use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype;
@@ -233,7 +233,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
 
     // Get instance attributes:
     if let Some(dict) = &obj.dict {
-        for (key, value) in objdict::get_key_value_pairs(dict.as_object()) {
+        for (key, value) in dict.get_key_value_pairs() {
             attributes.insert(key.to_string(), value.clone());
         }
     }

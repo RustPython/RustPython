@@ -9,7 +9,6 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objdict;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objproperty::PropertyBuilder;
@@ -244,12 +243,7 @@ pub fn type_new_class(
 ) -> PyResult<PyClassRef> {
     let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
     bases.push(vm.ctx.object());
-    new(
-        typ.clone(),
-        &name.value,
-        bases,
-        objdict::py_dict_to_attributes(dict.as_object()),
-    )
+    new(typ.clone(), &name.value, bases, dict.to_attributes())
 }
 
 pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {

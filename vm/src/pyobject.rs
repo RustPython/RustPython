@@ -684,16 +684,6 @@ impl PyContext {
         .into_ref()
     }
 
-    // Item set/get:
-    pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
-        if let Some(dict) = obj.payload::<PyDict>() {
-            let key = self.new_str(key.to_string());
-            objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
-        } else {
-            unimplemented!()
-        };
-    }
-
     pub fn set_attr<'a, T: Into<&'a PyObjectRef>, V: Into<PyObjectRef>>(
         &'a self,
         obj: T,
@@ -948,44 +938,35 @@ pub trait DictProtocol {
     fn del_item(&self, key: &str);
 }
 
-impl DictProtocol for PyObjectRef {
-    fn contains_key(&self, k: &str) -> bool {
-        if let Some(dict) = self.payload::<PyDict>() {
-            objdict::content_contains_key_str(&dict.entries.borrow(), k)
-        } else {
-            unimplemented!()
-        }
+pub trait ItemProtocol {
+    // // Move: doesn't really belong in this protocol.
+    // fn get_key_value_pairs(&self, vm: &VirtualMachine) -> PyResult<PyListIterator>;
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+    fn set_item<T: IntoPyObject>(
+        &self,
+        key: T,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef>;
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+}
+
+impl ItemProtocol for PyObjectRef {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        vm.call_method(self, "__getitem__", key.into_pyobject(vm)?)
     }
 
-    fn get_item(&self, k: &str) -> Option<PyObjectRef> {
-        if let Some(dict) = self.payload::<PyDict>() {
-            objdict::content_get_key_str(&dict.entries.borrow(), k)
-        } else {
-            panic!("TODO {:?}", k)
-        }
+    fn set_item<T: IntoPyObject>(
+        &self,
+        key: T,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        vm.call_method(self, "__setitem__", vec![key.into_pyobject(vm)?, value])
     }
 
-    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        if self.payload_is::<PyDict>() {
-            objdict::get_key_value_pairs(self)
-        } else {
-            panic!("TODO")
-        }
-    }
-
-    // Item set/get:
-    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
-        if let Some(dict) = self.payload::<PyDict>() {
-            let key = ctx.new_str(key.to_string());
-            objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
-        } else {
-            panic!("TODO {:?}", self);
-        }
-    }
-
-    fn del_item(&self, key: &str) {
-        let mut elements = objdict::get_mut_elements(self);
-        elements.remove(key).unwrap();
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        vm.call_method(self, "__delitem__", key.into_pyobject(vm)?)
     }
 }
 
