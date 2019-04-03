@@ -460,26 +460,30 @@ mod tests {
                         },
                         ifs: vec![
                             ast::Expression::Compare {
-                                a: Box::new(ast::Expression::Identifier {
-                                    name: "a".to_string()
-                                }),
-                                op: ast::Comparison::Less,
-                                b: Box::new(ast::Expression::Number {
-                                    value: ast::Number::Integer {
-                                        value: BigInt::from(5)
+                                vals: vec![
+                                    ast::Expression::Identifier {
+                                        name: "a".to_string()
+                                    },
+                                    ast::Expression::Number {
+                                        value: ast::Number::Integer {
+                                            value: BigInt::from(5)
+                                        }
                                     }
-                                }),
+                                ],
+                                ops: vec![ast::Comparison::Less],
                             },
                             ast::Expression::Compare {
-                                a: Box::new(ast::Expression::Identifier {
-                                    name: "a".to_string()
-                                }),
-                                op: ast::Comparison::Greater,
-                                b: Box::new(ast::Expression::Number {
-                                    value: ast::Number::Integer {
-                                        value: BigInt::from(10)
+                                vals: vec![
+                                    ast::Expression::Identifier {
+                                        name: "a".to_string()
+                                    },
+                                    ast::Expression::Number {
+                                        value: ast::Number::Integer {
+                                            value: BigInt::from(10)
+                                        }
                                     }
-                                }),
+                                ],
+                                ops: vec![ast::Comparison::Greater],
                             },
                         ],
                     }
