@@ -85,7 +85,7 @@ impl Dict {
             }
         } else {
             let key_repr = vm.to_pystr(key)?;
-            Err(vm.new_value_error(format!("Key not found: {}", key_repr)))
+            Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
         }
     }
 
@@ -103,7 +103,7 @@ impl Dict {
             Ok(())
         } else {
             let key_repr = vm.to_pystr(key)?;
-            Err(vm.new_value_error(format!("Key not found: {}", key_repr)))
+            Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
         }
     }
 
