@@ -58,18 +58,22 @@ impl VirtualMachine {
         let ctx = PyContext::new();
 
         // Hard-core modules:
-        let builtins = builtins::make_module(&ctx);
-        let sysmod = sysmodule::make_module(&ctx, builtins.clone());
+        let builtins = ctx.new_module("builtins", ctx.new_dict());
+        let sysmod = ctx.new_module("sys", ctx.new_dict());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
-        VirtualMachine {
-            builtins,
-            sys_module: sysmod,
+        let vm = VirtualMachine {
+            builtins: builtins.clone(),
+            sys_module: sysmod.clone(),
             stdlib_inits,
             ctx,
             frames: RefCell::new(vec![]),
             wasm_id: None,
-        }
+        };
+
+        builtins::make_module(&vm, builtins.clone());
+        sysmodule::make_module(&vm, sysmod, builtins);
+        vm
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
@@ -564,15 +568,16 @@ impl VirtualMachine {
         self.call_method(&obj, "__getattribute__", vec![attr_name.into_object()])
     }
 
-    pub fn set_attr<K>(&self, obj: &PyObjectRef, attr_name: K, attr_value: PyObjectRef) -> PyResult
+    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
     where
         K: TryIntoRef<PyString>,
+        V: Into<PyObjectRef>,
     {
         let attr_name = attr_name.try_into_ref(self)?;
         self.call_method(
             obj,
             "__setattr__",
-            vec![attr_name.into_object(), attr_value],
+            vec![attr_name.into_object(), attr_value.into()],
         )
     }
 

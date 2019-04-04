@@ -7,7 +7,7 @@ use num_traits::cast::ToPrimitive;
 use crate::function::PyFuncArgs;
 use crate::obj::objint;
 use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -113,14 +113,16 @@ fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_os_error(msg))
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     let os_name = if cfg!(windows) {
         "nt".to_string()
     } else {
         "posix".to_string()
     };
 
-    py_module!(ctx, "os", {
+    py_module!(vm, "os", {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),

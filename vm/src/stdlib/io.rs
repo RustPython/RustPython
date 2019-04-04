@@ -20,9 +20,7 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{
-    BufferProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {
@@ -365,7 +363,9 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     //IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "IOBase", ctx.object(), {
         "__enter__" => ctx.new_rustfunc(io_base_cm_enter),
@@ -421,7 +421,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "getvalue" => ctx.new_rustfunc(bytes_io_getvalue)
     });
 
-    py_module!(ctx, "io", {
+    py_module!(vm, "io", {
         "open" => ctx.new_rustfunc(io_open),
         "IOBase" => io_base,
         "RawIOBase" => raw_io_base,

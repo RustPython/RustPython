@@ -15,7 +15,7 @@ use crate::vm::VirtualMachine;
 fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &str) -> PyResult {
     // Check for Rust-native modules
     if let Some(module) = vm.stdlib_inits.borrow().get(module) {
-        return Ok(module(&vm.ctx).clone());
+        return Ok(module(vm).clone());
     }
 
     let notfound_error = vm.context().exceptions.module_not_found_error.clone();

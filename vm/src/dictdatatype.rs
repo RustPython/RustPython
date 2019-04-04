@@ -9,6 +9,7 @@ use num_traits::ToPrimitive;
 /// And: http://code.activestate.com/recipes/578375/
 use std::collections::HashMap;
 
+#[derive(Default)]
 pub struct Dict {
     size: usize,
     indices: HashMap<usize, usize>,
@@ -86,6 +87,12 @@ impl Dict {
             let key_repr = vm.to_pystr(key)?;
             Err(vm.new_value_error(format!("Key not found: {}", key_repr)))
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.indices.clear();
+        self.size = 0
     }
 
     /// Delete a key
@@ -175,12 +182,8 @@ fn calc_hash(vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<usize> {
 }
 
 /// Invoke __eq__ on two keys
-fn do_eq(
-    vm: &VirtualMachine,
-    key1: &PyObjectRef,
-    key2: &PyObjectRef,
-) -> Result<bool, PyObjectRef> {
-    let result = vm._eq(key1, key2.clone())?;
+fn do_eq(vm: &VirtualMachine, key1: &PyObjectRef, key2: &PyObjectRef) -> Result<bool, PyObjectRef> {
+    let result = vm._eq(key1.clone(), key2.clone())?;
     Ok(objbool::get_value(&result))
 }
 

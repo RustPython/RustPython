@@ -215,23 +215,6 @@ impl PyDictRef {
         }
     }
 
-    // Used during module initialisation when vm isn't available.
-    pub fn from_attributes(ctx: &PyContext, attributes: PyAttributes) -> PyDictRef {
-        let dict = ctx.new_dict();
-        for (key_str, value) in attributes.into_iter() {
-            dict.unsafe_str_insert(&key_str, value, ctx);
-        }
-        dict
-    }
-
-    // Pub needed for some nasty edge cases.
-    // It will be unsafe if there are entries in the dictionary that compare equal.
-    pub fn unsafe_str_insert(&self, key: &str, value: PyObjectRef, ctx: &PyContext) {
-        self.entries
-            .borrow_mut()
-            .insert(key.to_string(), (ctx.new_str(key.to_string()), value));
-    }
-
     /// Take a python dictionary and convert it to attributes.
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::new();

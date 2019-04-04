@@ -12,7 +12,7 @@ use rustpython_parser::{ast, parser};
 use crate::function::PyFuncArgs;
 use crate::obj::objstr;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -656,8 +656,10 @@ fn ast_parse(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(ast_node)
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "ast", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "ast", {
         "parse" => ctx.new_rustfunc(ast_parse),
         "Module" => py_class!(ctx, "_ast.Module", ctx.object(), {}),
         "FunctionDef" => py_class!(ctx, "_ast.FunctionDef", ctx.object(), {}),

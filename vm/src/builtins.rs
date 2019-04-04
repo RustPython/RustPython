@@ -20,7 +20,7 @@ use crate::obj::objtype::{self, PyClassRef};
 use crate::frame::Scope;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+    DictProtocol, IdProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -668,13 +668,15 @@ fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_vars
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    #[cfg(target_arch = "wasm32")]
-    let open = ctx.none();
-    #[cfg(not(target_arch = "wasm32"))]
-    let open = ctx.new_rustfunc(io_open);
+pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
+    let ctx = &vm.ctx;
 
-    py_module!(ctx, "__builtins__", {
+    #[cfg(target_arch = "wasm32")]
+    let open = vm.ctx.none();
+    #[cfg(not(target_arch = "wasm32"))]
+    let open = vm.ctx.new_rustfunc(io_open);
+
+    extend_module!(vm, module, {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
 
@@ -765,7 +767,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
-    })
+    });
 }
 
 pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {

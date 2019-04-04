@@ -12,9 +12,7 @@ use rustpython_vm::obj::{
     objstr::{self, PyStringRef},
     objtype::PyClassRef,
 };
-use rustpython_vm::pyobject::{
-    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use rustpython_vm::pyobject::{PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use rustpython_vm::VirtualMachine;
 
 use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
@@ -348,7 +346,9 @@ fn browser_prompt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(result)
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     let promise = py_class!(ctx, "Promise", ctx.object(), {
         "then" => ctx.new_rustfunc(PyPromise::then),
         "catch" => ctx.new_rustfunc(PyPromise::catch),
@@ -371,7 +371,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "set_attr" => ctx.new_rustfunc(Element::set_attr),
     });
 
-    py_module!(ctx, "browser", {
+    py_module!(vm, "browser", {
         "fetch" => ctx.new_rustfunc(browser_fetch),
         "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),

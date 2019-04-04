@@ -12,8 +12,7 @@ use crate::obj::{
     objtype,
 };
 use crate::pyobject::{
-    create_type, DictProtocol, IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult,
-    TypeProtocol,
+    create_type, DictProtocol, IdProtocol, ItemProtocol, PyObjectRef, PyResult, TypeProtocol,
 };
 use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;
@@ -232,7 +231,9 @@ fn json_loads(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     de_pyobject(vm, &objstr::get_value(&string))
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     // TODO: Make this a proper type with a constructor
     let json_decode_error = create_type(
         "JSONDecodeError",
@@ -240,7 +241,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         &ctx.exceptions.exception_type,
     );
 
-    py_module!(ctx, "json", {
+    py_module!(vm, "json", {
         "dumps" => ctx.new_rustfunc(json_dumps),
         "loads" => ctx.new_rustfunc(json_loads),
         "JSONDecodeError" => json_decode_error
