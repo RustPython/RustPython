@@ -251,10 +251,7 @@ impl DictProtocol for PyDictRef {
 
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef> {
         let key_str = &objstr::get_value(&key.into_pyobject(vm).unwrap());
-        match self.entries.borrow().get(key_str) {
-            Some(v) => Some(v.1.clone()),
-            None => None,
-        }
+        self.entries.borrow().get(key_str).map(|v| v.1.clone())
     }
 
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {

@@ -921,18 +921,18 @@ pub trait DictProtocol {
 }
 
 pub trait ItemProtocol {
-    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
     fn set_item<T: IntoPyObject>(
         &self,
         key: T,
         value: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef>;
-    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
+    ) -> PyResult;
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
 }
 
 impl ItemProtocol for PyObjectRef {
-    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
         vm.call_method(self, "__getitem__", key.into_pyobject(vm)?)
     }
 
@@ -941,11 +941,11 @@ impl ItemProtocol for PyObjectRef {
         key: T,
         value: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
+    ) -> PyResult {
         vm.call_method(self, "__setitem__", vec![key.into_pyobject(vm)?, value])
     }
 
-    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
         vm.call_method(self, "__delitem__", key.into_pyobject(vm)?)
     }
 }
