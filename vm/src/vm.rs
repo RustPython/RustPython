@@ -568,13 +568,16 @@ impl VirtualMachine {
         self.call_method(&obj, "__getattribute__", vec![attr_name.into_object()])
     }
 
-    pub fn set_attr(
-        &self,
-        obj: &PyObjectRef,
-        attr_name: PyObjectRef,
-        attr_value: PyObjectRef,
-    ) -> PyResult {
-        self.call_method(&obj, "__setattr__", vec![attr_name, attr_value])
+    pub fn set_attr<K>(&self, obj: &PyObjectRef, attr_name: K, attr_value: PyObjectRef) -> PyResult
+    where
+        K: TryIntoRef<PyString>,
+    {
+        let attr_name = attr_name.try_into_ref(self)?;
+        self.call_method(
+            obj,
+            "__setattr__",
+            vec![attr_name.into_object(), attr_value],
+        )
     }
 
     pub fn del_attr(&self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult<()> {
