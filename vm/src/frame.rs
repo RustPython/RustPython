@@ -157,8 +157,8 @@ impl NameProtocol for Scope {
         self.get_locals().set_item(key, value, vm)
     }
 
-    fn delete_name(&self, _vm: &VirtualMachine, key: &str) {
-        self.get_locals().del_item(key)
+    fn delete_name(&self, vm: &VirtualMachine, key: &str) {
+        self.get_locals().del_item(key, vm)
     }
 }
 

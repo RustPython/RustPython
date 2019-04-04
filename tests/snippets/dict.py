@@ -34,3 +34,7 @@ res = set()
 for key in a.keys():
 	res.add(key)
 assert res == set(['a','b'])
+
+x = {}
+x[1] = 1
+assert x[1] == 1

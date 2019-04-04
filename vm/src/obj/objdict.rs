@@ -1,20 +1,22 @@
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::fmt;
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    DictProtocol, IntoPyObject, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    DictProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef,
+    PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
+use crate::dictdatatype;
+
 use super::objiter;
 use super::objlist::PyListIterator;
-use super::objstr::{self, PyStringRef};
+use super::objstr;
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
 
-pub type DictContentType = HashMap<String, (PyObjectRef, PyObjectRef)>;
+pub type DictContentType = dictdatatype::Dict;
 
 #[derive(Default)]
 pub struct PyDict {
@@ -37,13 +39,11 @@ impl PyValue for PyDict {
 }
 
 pub fn get_key_value_pairs(dict: &PyObjectRef) -> Vec<(PyObjectRef, PyObjectRef)> {
-    let dict_elements = dict.payload::<PyDict>().unwrap().entries.borrow();
-    let mut pairs: Vec<(PyObjectRef, PyObjectRef)> = Vec::new();
-    for (_str_key, pair) in dict_elements.iter() {
-        let (key, obj) = pair;
-        pairs.push((key.clone(), obj.clone()));
-    }
-    pairs
+    dict.payload::<PyDict>()
+        .unwrap()
+        .entries
+        .borrow()
+        .get_items()
 }
 
 // Python dict methods:
@@ -112,18 +112,12 @@ impl PyDictRef {
         Ok(vm.new_str(s))
     }
 
-    fn contains(self, key: PyStringRef, _vm: &VirtualMachine) -> bool {
-        self.entries.borrow().contains_key(&key.value)
+    fn contains(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.entries.borrow().contains(vm, &key)
     }
 
-    fn delitem(self, key: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-        let key = &key.value;
-        // Delete the item:
-        let mut elements = self.entries.borrow_mut();
-        match elements.remove(key) {
-            Some(_) => Ok(()),
-            None => Err(vm.new_value_error(format!("Key not found: {}", key))),
-        }
+    fn delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.entries.borrow_mut().delete(vm, &key)
     }
 
     fn clear(self, _vm: &VirtualMachine) {
@@ -136,7 +130,8 @@ impl PyDictRef {
         let keys = self
             .entries
             .borrow()
-            .values()
+            .get_items()
+            .iter()
             .map(|(k, _v)| k.clone())
             .collect();
         let key_list = vm.ctx.new_list(keys);
@@ -152,7 +147,8 @@ impl PyDictRef {
         let values = self
             .entries
             .borrow()
-            .values()
+            .get_items()
+            .iter()
             .map(|(_k, v)| v.clone())
             .collect();
         let values_list = vm.ctx.new_list(values);
@@ -168,7 +164,8 @@ impl PyDictRef {
         let items = self
             .entries
             .borrow()
-            .values()
+            .get_items()
+            .iter()
             .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone(), v.clone()]))
             .collect();
         let items_list = vm.ctx.new_list(items);
@@ -183,35 +180,22 @@ impl PyDictRef {
         self.set_item(needle, value, vm)
     }
 
-    fn getitem(self, key: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        let key = &key.value;
-
-        // What we are looking for:
-        let elements = self.entries.borrow();
-        if elements.contains_key(key) {
-            Ok(elements[key].1.clone())
-        } else {
-            Err(vm.new_value_error(format!("Key not found: {}", key)))
-        }
+    fn getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.entries.borrow().get(vm, &key)
     }
 
     fn get(
         self,
-        key: PyStringRef,
+        key: PyObjectRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        // What we are looking for:
-        let key = &key.value;
-
-        let elements = self.entries.borrow();
-        if elements.contains_key(key) {
-            elements[key].1.clone()
-        } else {
-            match default {
+        match self.into_object().get_item(key, vm) {
+            Ok(value) => value,
+            Err(_) => match default {
                 OptionalArg::Present(value) => value,
                 OptionalArg::Missing => vm.ctx.none(),
-            }
+            },
         }
     }
 
@@ -228,13 +212,13 @@ impl PyDictRef {
 
 impl DictProtocol for PyDictRef {
     fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
-        let key_str = &objstr::get_value(&key.into_pyobject(vm).unwrap());
-        self.entries.borrow().get(key_str).is_some()
+        let key = key.into_pyobject(vm).unwrap();
+        self.entries.borrow().contains(vm, &key).unwrap()
     }
 
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let key_str = &objstr::get_value(&key.into_pyobject(vm).unwrap());
-        self.entries.borrow().get(key_str).map(|v| v.1.clone())
+        let key = key.into_pyobject(vm).unwrap();
+        self.entries.borrow().get(vm, &key).ok()
     }
 
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
@@ -244,14 +228,12 @@ impl DictProtocol for PyDictRef {
     // Item set/get:
     fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) {
         let key = key.into_pyobject(vm).unwrap();
-        let key_str = &objstr::get_value(&key);
-        let elements = &mut self.entries.borrow_mut();
-        elements.insert(key_str.to_string(), (key.clone(), value));
+        self.entries.borrow_mut().insert(vm, &key, value).unwrap()
     }
 
-    fn del_item(&self, key: &str) {
-        let elements = &mut self.entries.borrow_mut();
-        elements.remove(key).unwrap();
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) {
+        let key = key.into_pyobject(vm).unwrap();
+        self.entries.borrow_mut().delete(vm, &key).unwrap();
     }
 }
 

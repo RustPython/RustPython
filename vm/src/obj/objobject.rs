@@ -98,7 +98,7 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
     }
 
     if let Some(ref dict) = obj.dict {
-        dict.del_item(&attr_name.value);
+        dict.del_item(attr_name, vm);
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(

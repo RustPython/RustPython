@@ -917,7 +917,7 @@ pub trait DictProtocol {
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef>;
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
     fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine);
-    fn del_item(&self, key: &str);
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine);
 }
 
 pub trait ItemProtocol {

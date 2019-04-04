@@ -243,7 +243,8 @@ impl WASMVirtualMachine {
                 } else {
                     return Err(error());
                 };
-            vm.set_attr(&vm.builtins, "print", vm.ctx.new_rustfunc(print_fn))?;
+            vm.set_attr(&vm.builtins, "print", vm.ctx.new_rustfunc(print_fn))
+                .unwrap();
             Ok(())
         })?
     }
