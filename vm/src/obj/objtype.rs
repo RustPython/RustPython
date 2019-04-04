@@ -162,6 +162,13 @@ impl PyClassRef {
         Ok(())
     }
 
+    // This is used for class initialisation where the vm is not yet available.
+    pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
+        self.attributes
+            .borrow_mut()
+            .insert(attr_name.to_string(), value.into());
+    }
+
     fn subclasses(self, _vm: &VirtualMachine) -> PyList {
         let mut subclasses = self.subclasses.borrow_mut();
         subclasses.retain(|x| x.upgrade().is_some());

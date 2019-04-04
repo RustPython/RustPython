@@ -3,7 +3,7 @@ use std::{env, mem};
 
 use crate::frame::FrameRef;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 /*
@@ -124,8 +124,7 @@ setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
     let modules = ctx.new_dict();
-    let sys_name = "sys";
-    let sys_mod = py_module!(ctx, sys_name, {
+    let sys_mod = py_module!(ctx, "sys", {
       "argv" => argv(ctx),
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
@@ -135,11 +134,11 @@ settrace() -- set the global debug tracing function
       "ps2" => ctx.new_str("..... ".to_string()),
       "__doc__" => ctx.new_str(sys_doc.to_string()),
       "_getframe" => ctx.new_rustfunc(getframe),
+      "modules" => modules.clone(),
     });
 
-    modules.set_item(&ctx, sys_name, sys_mod.clone());
-    modules.set_item(&ctx, "builtins", builtins);
-    ctx.set_attr(&sys_mod, "modules", modules);
+    modules.unsafe_str_insert("sys", sys_mod.clone(), &ctx);
+    modules.unsafe_str_insert("builtins", builtins, &ctx);
 
     sys_mod
 }

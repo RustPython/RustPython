@@ -684,24 +684,6 @@ impl PyContext {
         .into_ref()
     }
 
-    pub fn set_attr<'a, T: Into<&'a PyObjectRef>, V: Into<PyObjectRef>>(
-        &'a self,
-        obj: T,
-        attr_name: &str,
-        value: V,
-    ) {
-        let obj = obj.into();
-        if let Some(PyClass { ref attributes, .. }) = obj.payload::<PyClass>() {
-            attributes
-                .borrow_mut()
-                .insert(attr_name.to_string(), value.into());
-        } else if let Some(ref dict) = obj.dict {
-            dict.set_item(self, attr_name, value.into());
-        } else {
-            unimplemented!("set_attr unimplemented for: {:?}", obj);
-        };
-    }
-
     pub fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
             bytecode::Constant::Integer { ref value } => self.new_int(value.clone()),
@@ -931,16 +913,14 @@ impl<T> TypeProtocol for PyRef<T> {
 }
 
 pub trait DictProtocol {
-    fn contains_key(&self, k: &str) -> bool;
-    fn get_item(&self, k: &str) -> Option<PyObjectRef>;
+    fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool;
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef>;
     fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
-    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef);
+    fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine);
     fn del_item(&self, key: &str);
 }
 
 pub trait ItemProtocol {
-    // // Move: doesn't really belong in this protocol.
-    // fn get_key_value_pairs(&self, vm: &VirtualMachine) -> PyResult<PyListIterator>;
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult<PyObjectRef>;
     fn set_item<T: IntoPyObject>(
         &self,
@@ -1280,7 +1260,7 @@ pub trait PyClassImpl: PyClassDef {
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         Self::impl_extend_class(ctx, class);
         if let Some(doc) = Self::DOC {
-            ctx.set_attr(class, "__doc__", ctx.new_str(doc.into()));
+            class.set_str_attr("__doc__", ctx.new_str(doc.into()));
         }
     }
 

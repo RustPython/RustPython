@@ -176,7 +176,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
                 Some(PyString { ref value }) => value.clone(),
                 _ => unimplemented!("map keys must be strings"),
             };
-            dict.set_item(&self.vm.ctx, &key, value);
+            dict.set_item(&key, value, self.vm);
         }
         Ok(dict.into_object())
     }
@@ -208,8 +208,10 @@ pub fn de_pyobject(vm: &VirtualMachine, s: &str) -> PyResult {
                 .unwrap();
             let json_decode_error = json_decode_error.downcast().unwrap();
             let exc = vm.new_exception(json_decode_error, format!("{}", err));
-            vm.ctx.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()));
-            vm.ctx.set_attr(&exc, "colno", vm.ctx.new_int(err.column()));
+            vm.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()))
+                .unwrap();
+            vm.set_attr(&exc, "colno", vm.ctx.new_int(err.column()))
+                .unwrap();
             exc
         })
 }

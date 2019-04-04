@@ -3,8 +3,7 @@ use crate::pyobject::{PyContext, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
-    let ellipsis_type = context.ellipsis_type.as_object();
-    extend_class!(context, ellipsis_type, {
+    extend_class!(context, &context.ellipsis_type, {
         "__new__" => context.new_rustfunc(ellipsis_new),
         "__repr__" => context.new_rustfunc(ellipsis_repr)
     });

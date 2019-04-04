@@ -132,21 +132,21 @@ pub trait NameProtocol {
 impl NameProtocol for Scope {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item(name, vm) {
                 return Some(value);
             }
         }
 
-        if let Some(value) = self.globals.get_item(name) {
+        if let Some(value) = self.globals.get_item(name, vm) {
             return Some(value);
         }
 
         vm.get_attribute(vm.builtins.clone(), name).ok()
     }
 
-    fn load_cell(&self, _vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item(name, vm) {
                 return Some(value);
             }
         }
@@ -154,7 +154,7 @@ impl NameProtocol for Scope {
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
-        self.get_locals().set_item(&vm.ctx, key, value)
+        self.get_locals().set_item(key, value, vm)
     }
 
     fn delete_name(&self, _vm: &VirtualMachine, key: &str) {
@@ -392,11 +392,11 @@ impl Frame {
                         // Take all key-value pairs from the dict:
                         let dict_elements = objdict::get_key_value_pairs(&obj);
                         for (key, value) in dict_elements.iter() {
-                            map_obj.set_item(&vm.ctx, &objstr::get_value(key), value.clone());
+                            map_obj.set_item(key.clone(), value.clone(), vm);
                         }
                     } else {
                         let key = self.pop_value();
-                        map_obj.set_item(&vm.ctx, &objstr::get_value(&key), obj)
+                        map_obj.set_item(key, obj, vm)
                     }
                 }
                 self.push_value(map_obj.into_object());
@@ -585,7 +585,7 @@ impl Frame {
                 let scope = self.scope.clone();
                 let obj = vm.ctx.new_function(code_obj, scope, defaults);
 
-                vm.ctx.set_attr(&obj, "__annotations__", annotations);
+                vm.set_attr(&obj, "__annotations__", annotations)?;
 
                 self.push_value(obj);
                 Ok(None)

@@ -114,15 +114,15 @@ macro_rules! no_kwargs {
 
 #[macro_export]
 macro_rules! py_module {
-    ( $ctx:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {
-        {
-            let py_mod = $ctx.new_module($module_name, $ctx.new_dict());
-            $(
-                $ctx.set_attr(&py_mod, $name, $value);
-            )*
-            py_mod
-        }
-    }
+    ( $ctx:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {{
+        let mut attributes = $crate::pyobject::PyAttributes::new();
+        $(
+            let value: PyObjectRef = $value.into();
+            attributes.insert($name.to_string(), value);
+        )*
+        let module_dict = $crate::obj::objdict::PyDictRef::from_attributes($ctx, attributes);
+        $ctx.new_module($module_name, module_dict)
+    }};
 }
 
 #[macro_export]
@@ -131,7 +131,7 @@ macro_rules! py_class {
         {
             let py_class = $ctx.new_class($class_name, $class_base);
             $(
-                $ctx.set_attr(&py_class, $name, $value);
+                py_class.set_str_attr($name, $value);
             )*
             py_class
         }
@@ -143,7 +143,7 @@ macro_rules! extend_class {
     ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         let class = $class;
         $(
-            $ctx.set_attr(class, $name, $value);
+            class.set_str_attr($name, $value);
         )*
     }
 }

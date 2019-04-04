@@ -762,6 +762,12 @@ impl IntoPyObject for &str {
     }
 }
 
+impl IntoPyObject for &String {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_str(self.clone()))
+    }
+}
+
 pub fn init(ctx: &PyContext) {
     PyStringRef::extend_class(ctx, &ctx.str_type);
 }

@@ -4,7 +4,7 @@ use std::fmt;
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    DictProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    DictProtocol, IntoPyObject, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -58,7 +58,7 @@ impl PyDictRef {
         if let OptionalArg::Present(dict_obj) = dict_obj {
             if objtype::isinstance(&dict_obj, &vm.ctx.dict_type()) {
                 for (needle, value) in get_key_value_pairs(&dict_obj) {
-                    dict.set_item(&vm.ctx, &objstr::get_value(&needle), value);
+                    dict.set_item(needle, value, vm);
                 }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
@@ -77,13 +77,12 @@ impl PyDictRef {
                     if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                         return Err(err(vm));
                     }
-                    dict.set_item(&vm.ctx, &objstr::get_value(&needle), value);
+                    dict.set_item(needle, value, vm);
                 }
             }
         }
         for (needle, value) in kwargs.into_iter() {
-            let py_needle = vm.new_str(needle);
-            dict.set_item(&vm.ctx, &objstr::get_value(&py_needle), value);
+            dict.set_item(vm.new_str(needle), value, vm);
         }
         Ok(dict)
     }
@@ -181,7 +180,7 @@ impl PyDictRef {
     }
 
     fn setitem(self, needle: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) {
-        self.set_item(&vm.ctx, &objstr::get_value(&needle), value)
+        self.set_item(needle, value, vm)
     }
 
     fn getitem(self, key: PyStringRef, vm: &VirtualMachine) -> PyResult {
@@ -216,6 +215,23 @@ impl PyDictRef {
         }
     }
 
+    // Used during module initialisation when vm isn't available.
+    pub fn from_attributes(ctx: &PyContext, attributes: PyAttributes) -> PyDictRef {
+        let dict = ctx.new_dict();
+        for (key_str, value) in attributes.into_iter() {
+            dict.unsafe_str_insert(&key_str, value, ctx);
+        }
+        dict
+    }
+
+    // Pub needed for some nasty edge cases.
+    // It will be unsafe if there are entries in the dictionary that compare equal.
+    pub fn unsafe_str_insert(&self, key: &str, value: PyObjectRef, ctx: &PyContext) {
+        self.entries
+            .borrow_mut()
+            .insert(key.to_string(), (ctx.new_str(key.to_string()), value));
+    }
+
     /// Take a python dictionary and convert it to attributes.
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::new();
@@ -228,12 +244,14 @@ impl PyDictRef {
 }
 
 impl DictProtocol for PyDictRef {
-    fn contains_key(&self, k: &str) -> bool {
-        self.entries.borrow().get(k).is_some()
+    fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
+        let key_str = &objstr::get_value(&key.into_pyobject(vm).unwrap());
+        self.entries.borrow().get(key_str).is_some()
     }
 
-    fn get_item(&self, k: &str) -> Option<PyObjectRef> {
-        match self.entries.borrow().get(k) {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        let key_str = &objstr::get_value(&key.into_pyobject(vm).unwrap());
+        match self.entries.borrow().get(key_str) {
             Some(v) => Some(v.1.clone()),
             None => None,
         }
@@ -244,10 +262,11 @@ impl DictProtocol for PyDictRef {
     }
 
     // Item set/get:
-    fn set_item(&self, ctx: &PyContext, key_str: &str, v: PyObjectRef) {
-        let key = ctx.new_str(key_str.to_string());
+    fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) {
+        let key = key.into_pyobject(vm).unwrap();
+        let key_str = &objstr::get_value(&key);
         let elements = &mut self.entries.borrow_mut();
-        elements.insert(key_str.to_string(), (key.clone(), v.clone()));
+        elements.insert(key_str.to_string(), (key.clone(), value));
     }
 
     fn del_item(&self, key: &str) {

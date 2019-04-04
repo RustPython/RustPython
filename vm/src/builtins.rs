@@ -669,7 +669,12 @@ fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 // builtin_vars
 
 pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = py_module!(ctx, "__builtins__", {
+    #[cfg(target_arch = "wasm32")]
+    let open = ctx.none();
+    #[cfg(not(target_arch = "wasm32"))]
+    let open = ctx.new_rustfunc(io_open);
+
+    py_module!(ctx, "__builtins__", {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
 
@@ -715,6 +720,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "min" => ctx.new_rustfunc(builtin_min),
         "object" => ctx.object(),
         "oct" => ctx.new_rustfunc(builtin_oct),
+        "open" => open,
         "ord" => ctx.new_rustfunc(builtin_ord),
         "next" => ctx.new_rustfunc(builtin_next),
         "pow" => ctx.new_rustfunc(builtin_pow),
@@ -759,12 +765,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
-    });
-
-    #[cfg(not(target_arch = "wasm32"))]
-    ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(io_open));
-
-    py_mod
+    })
 }
 
 pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
@@ -801,6 +802,6 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
         "__call__",
         vec![name_arg, bases, namespace.into_object()],
     )?;
-    cells.set_item(&vm.ctx, "__class__", class.clone());
+    cells.set_item("__class__", class.clone(), vm);
     Ok(class)
 }

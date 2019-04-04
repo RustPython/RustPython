@@ -77,7 +77,7 @@ fn object_setattr(
     }
 
     if let Some(ref dict) = obj.clone().dict {
-        dict.set_item(&vm.ctx, &attr_name.value, value);
+        dict.set_item(attr_name, value, vm);
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -208,7 +208,7 @@ fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMach
         }
     }
 
-    if let Some(obj_attr) = object_getattr(&obj, &name) {
+    if let Some(obj_attr) = object_getattr(&obj, &name, &vm) {
         Ok(obj_attr)
     } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
         vm.call_get_descriptor(attr, obj)
@@ -219,9 +219,9 @@ fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMach
     }
 }
 
-fn object_getattr(obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+fn object_getattr(obj: &PyObjectRef, attr_name: &str, vm: &VirtualMachine) -> Option<PyObjectRef> {
     if let Some(ref dict) = obj.dict {
-        dict.get_item(attr_name)
+        dict.get_item(attr_name, vm)
     } else {
         None
     }
