@@ -43,7 +43,7 @@ class ABCMeta(type):
                 value = getattr(cls, name, None)
                 if getattr(value, "__isabstractmethod__", False):
                     abstracts.add(name)
-        cls.__abstractmethods__ = frozenset(abstracts)
+        cls.__abstractmethods__ = set(abstracts)
         # Set up inheritance registry
         cls._abc_registry = WeakSet()
         cls._abc_cache = WeakSet()
