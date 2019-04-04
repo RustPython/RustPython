@@ -150,9 +150,8 @@ macro_rules! extend_class {
 
 /// Macro to match on the built-in class of a Python object.
 ///
-/// Like `match`, `match_object!` is an expression, and so must have a default
-/// arm that will be evaluated when the object was not an instance of any of
-/// the classes specified in other arms.
+/// Like `match`, `match_class!` must be exhaustive, so a default arm with
+/// the uncasted object is required.
 ///
 /// # Examples
 ///
@@ -173,7 +172,7 @@ macro_rules! extend_class {
 ///     match_class!(obj.clone(),
 ///         PyInt => "int",
 ///         PyFloat => "float",
-///         _ => "neither"
+///         _ => "neither",
 ///     )
 /// );
 ///
@@ -197,7 +196,7 @@ macro_rules! extend_class {
 /// let int_value = match_class!(obj,
 ///     i @ PyInt => i.as_bigint().clone(),
 ///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
-///     obj => panic!("non-numeric object {}", obj)
+///     obj => panic!("non-numeric object {}", obj),
 /// );
 ///
 /// assert!(int_value.is_zero());
@@ -205,12 +204,12 @@ macro_rules! extend_class {
 #[macro_export]
 macro_rules! match_class {
     // The default arm.
-    ($obj:expr, _ => $default:expr) => {
+    ($obj:expr, _ => $default:expr $(,)?) => {
         $default
     };
 
     // The default arm, binding the original object to the specified identifier.
-    ($obj:expr, $binding:ident => $default:expr) => {{
+    ($obj:expr, $binding:ident => $default:expr $(,)?) => {{
         let $binding = $obj;
         $default
     }};

@@ -407,6 +407,7 @@ fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResul
 }
 
 // Casting function:
+// TODO: this should just call `__int__` on the object
 pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
     match_class!(obj.clone(),
         i @ PyInt => Ok(i.as_bigint().clone()),
