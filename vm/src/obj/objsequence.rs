@@ -11,7 +11,7 @@ use crate::vm::VirtualMachine;
 use super::objbool;
 use super::objint::PyInt;
 use super::objlist::PyList;
-use super::objslice::PySlice;
+use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 
 pub trait PySliceableSequence {
@@ -147,64 +147,64 @@ pub trait PySliceableSequenceMut: PySliceableSequence {
     fn del_stepped_slice(&mut self, range: Range<usize>, step: usize);
     fn del_index(&mut self, index: usize);
 
-    fn del_slice_items(&mut self, vm: &VirtualMachine, slice: &PyObjectRef) -> PyResult {
-        // TODO: we could potentially avoid this copy and use slice
-        match slice.payload() {
-            Some(PySlice { start, stop, step }) => {
-                let step = step.clone().unwrap_or_else(BigInt::one);
-                if step.is_zero() {
-                    Err(vm.new_value_error("slice step cannot be zero".to_string()))
-                } else if step.is_positive() {
-                    let range = self.get_slice_range(start, stop);
-                    if range.start < range.end {
-                        #[allow(clippy::range_plus_one)]
-                        match step.to_i32() {
-                            Some(1) => {
-                                self.del_slice(range);
-                                Ok(vm.get_none())
-                            }
-                            Some(num) => {
-                                self.del_stepped_slice(range, num as usize);
-                                Ok(vm.get_none())
-                            }
-                            None => {
-                                self.del_slice(range.start..range.start + 1);
-                                Ok(vm.get_none())
-                            }
-                        }
-                    } else {
-                        // TODO what to delete here?
+    fn del_slice_items(&mut self, vm: &VirtualMachine, slice: &PySliceRef) -> PyResult {
+
+        let start = &slice.start;
+        let stop = &slice.stop;
+
+        let step = slice.step.clone().unwrap_or_else(BigInt::one);
+
+        if step.is_zero() {
+            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+        } else if step.is_positive() {
+            let range = self.get_slice_range(start, stop);
+            if range.start < range.end {
+                #[allow(clippy::range_plus_one)]
+                match step.to_i32() {
+                    Some(1) => {
+                        self.del_slice(range);
                         Ok(vm.get_none())
                     }
-                } else {
-                    // calculate the range for the reverse slice, first the bounds needs to be made
-                    // exclusive around stop, the lower number
-                    let start = start.as_ref().map(|x| x + 1);
-                    let stop = stop.as_ref().map(|x| x + 1);
-                    let range = self.get_slice_range(&stop, &start);
-                    if range.start < range.end {
-                        match (-step).to_i32() {
-                            Some(1) => {
-                                self.del_slice(range);
-                                Ok(vm.get_none())
-                            }
-                            Some(num) => {
-                                self.del_stepped_slice(range, num as usize);
-                                Ok(vm.get_none())
-                            }
-                            None => {
-                                self.del_slice(range.end - 1..range.end);
-                                Ok(vm.get_none())
-                            }
-                        }
-                    } else {
-                        // TODO what to del here?
+                    Some(num) => {
+                        self.del_stepped_slice(range, num as usize);
+                        Ok(vm.get_none())
+                    }
+                    None => {
+                        self.del_slice(range.start..range.start + 1);
                         Ok(vm.get_none())
                     }
                 }
+            } else {
+                // no del to do
+                Ok(vm.get_none())
             }
-            payload => panic!("del_slice_items called with non-slice: {:?}", payload),
+        } else {
+            // calculate the range for the reverse slice, first the bounds needs to be made
+            // exclusive around stop, the lower number
+            let start = start.as_ref().map(|x| x + 1);
+            let stop = stop.as_ref().map(|x| x + 1);
+            let range = self.get_slice_range(&stop, &start);
+            if range.start < range.end {
+                match (-step).to_i32() {
+                    Some(1) => {
+                        self.del_slice(range);
+                        Ok(vm.get_none())
+                    }
+                    Some(num) => {
+                        self.del_stepped_slice(range, num as usize);
+                        Ok(vm.get_none())
+                    }
+                    None => {
+                        self.del_slice(range.end - 1..range.end);
+                        Ok(vm.get_none())
+                    }
+                }
+            } else {
+                // no del to do
+                Ok(vm.get_none())
+            }
         }
+           
     }
 }
 
@@ -305,10 +305,15 @@ pub fn del_item<T: PySliceableSequenceMut>(
             }
         };
     }
-
+    
     if subscript.payload::<PySlice>().is_some() {
         if sequence.payload::<PyList>().is_some() {
-            elements.del_slice_items(vm, &subscript)
+            if let Ok(slice) = subscript.downcast::<PySlice>() {
+                elements.del_slice_items(vm, &slice)
+            } else {
+                panic!("PySlice is not a slice? this should not be")
+            }
+            
         } else {
             panic!("sequence del_item called for non-mutable-sequence")
         }
