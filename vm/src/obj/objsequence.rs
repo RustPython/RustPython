@@ -137,7 +137,7 @@ impl<T: Clone> PySliceableSequence for Vec<T> {
     }
 }
 
-pub trait PySliceableSequenceMut : PySliceableSequence {
+pub trait PySliceableSequenceMut: PySliceableSequence {
     //fn set_slice<T: PySliceableSequence>(&self, range: Range<usize>, seq: T) -> Self;
     //fn set_slice_reverse<T: PySliceableSequence>(&self, range: Range<usize>, seq: T) -> Self;
     //fn set_stepped_slice<T: PySliceableSequence>(&self, range: Range<usize>, step: usize, seq: T) -> Self;
@@ -162,15 +162,15 @@ pub trait PySliceableSequenceMut : PySliceableSequence {
                             Some(1) => {
                                 self.del_slice(range);
                                 Ok(vm.get_none())
-                            },
+                            }
                             Some(num) => {
                                 self.del_stepped_slice(range, num as usize);
                                 Ok(vm.get_none())
-                            },
+                            }
                             None => {
                                 self.del_slice(range.start..range.start + 1);
                                 Ok(vm.get_none())
-                            },
+                            }
                         }
                     } else {
                         // TODO what to delete here?
@@ -187,15 +187,15 @@ pub trait PySliceableSequenceMut : PySliceableSequence {
                             Some(1) => {
                                 self.del_slice(range);
                                 Ok(vm.get_none())
-                            },
+                            }
                             Some(num) => {
                                 self.del_stepped_slice(range, num as usize);
                                 Ok(vm.get_none())
-                            },
+                            }
                             None => {
                                 self.del_slice(range.end - 1..range.end);
                                 Ok(vm.get_none())
-                            },
+                            }
                         }
                     } else {
                         // TODO what to del here?
@@ -237,7 +237,6 @@ impl<T: Clone> PySliceableSequenceMut for Vec<T> {
         self.remove(index);
     }
 }
-
 
 pub fn get_item(
     vm: &VirtualMachine,
@@ -285,7 +284,7 @@ pub fn get_item(
     }
 }
 
-pub fn del_item<T: PySliceableSequenceMut> (
+pub fn del_item<T: PySliceableSequenceMut>(
     vm: &VirtualMachine,
     sequence: &PyObjectRef,
     elements: &mut T,
@@ -308,7 +307,6 @@ pub fn del_item<T: PySliceableSequenceMut> (
     }
 
     if subscript.payload::<PySlice>().is_some() {
-
         if sequence.payload::<PyList>().is_some() {
             elements.del_slice_items(vm, &subscript)
         } else {
