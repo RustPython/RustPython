@@ -78,53 +78,35 @@ def test_all_slices():
     """
     test all possible slices except big number
     """
-    MODE = None  # set to "build" to rebuild slice_res.py
-    ll = [0, 1, 2, 3]
-    start = list(range(-7, 7))
-    end = list(range(-7, 7))
-    step = list(range(-5, 5))
-    step.pop(step.index(0))
 
-    for i in [start, end, step]:
-        i.append(None)
+    import resources
+    from resources.cpython_generated_slices import SLICES_RES, START, END, STEP, LL
 
-    def build():
-        # loop used to build slices_res.py with cpython
-        with open("slice_res.py", "wt") as f:
-            for s in start:
-                for e in end:
-                    for t in step:
-                        f.write(str(ll[s:e:t]) + "\n")
+    ll = LL
+    start = START
+    end = END
+    step = STEP
 
-    def run():
-        # test utility
-        from slice_res import SLICES_RES
-
-        count = 0
-        failures = []
-        for s in start:
-            for e in end:
-                for t in step:
-                    lhs = ll[s:e:t]
-                    try:
-                        assert lhs == SLICES_RES[count]
-                    except AssertionError:
-                        failures.append(
-                            "start: {} ,stop: {}, step {}. Expected: {}, found: {}".format(
-                                s, e, t, lhs, SLICES_RES[count]
-                            )
+    count = 0
+    failures = []
+    for s in start:
+        for e in end:
+            for t in step:
+                lhs = ll[s:e:t]
+                try:
+                    assert lhs == SLICES_RES[count]
+                except AssertionError:
+                    failures.append(
+                        "start: {} ,stop: {}, step {}. Expected: {}, found: {}".format(
+                            s, e, t, lhs, SLICES_RES[count]
                         )
-                    count += 1
+                    )
+                count += 1
 
-        if failures:
-            for f in failures:
-                print(f)
-            print(len(failures), "slices failed")
-
-    if MODE == "build":
-        build()
-    else:
-        run()
+    if failures:
+        for f in failures:
+            print(f)
+        print(len(failures), "slices failed")
 
 
 test_all_slices()
