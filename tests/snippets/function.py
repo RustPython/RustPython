@@ -10,6 +10,10 @@ def my_func(a,):
 
 assert my_func(2) == 4
 
+def fubar():
+    return 42,
+
+assert fubar() == (42,)
 
 def f1():
 

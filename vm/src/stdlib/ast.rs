@@ -151,8 +151,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let node = create_node(vm, "Return");
 
             let py_value = if let Some(value) = value {
-                vm.ctx
-                    .new_tuple(value.iter().map(|v| expression_to_ast(vm, v)).collect())
+                expression_to_ast(vm, value)
             } else {
                 vm.ctx.none()
             };
@@ -189,7 +188,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let py_target = expression_to_ast(vm, target);
             vm.ctx.set_attr(&node, "target", py_target);
 
-            let py_iter = expressions_to_ast(vm, iter);
+            let py_iter = expression_to_ast(vm, iter);
             vm.ctx.set_attr(&node, "iter", py_iter);
 
             let py_body = statements_to_ast(vm, body);
