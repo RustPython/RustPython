@@ -147,3 +147,89 @@ macro_rules! extend_class {
         )*
     }
 }
+
+/// Macro to match on the built-in class of a Python object.
+///
+/// Like `match`, `match_class!` must be exhaustive, so a default arm with
+/// the uncasted object is required.
+///
+/// # Examples
+///
+/// ```
+/// use num_bigint::ToBigInt;
+/// use num_traits::Zero;
+///
+/// use rustpython_vm::VirtualMachine;
+/// use rustpython_vm::match_class;
+/// use rustpython_vm::obj::objfloat::PyFloat;
+/// use rustpython_vm::obj::objint::PyInt;
+/// use rustpython_vm::pyobject::PyValue;
+///
+/// let vm = VirtualMachine::new();
+/// let obj = PyInt::new(0).into_ref(&vm).into_object();
+/// assert_eq!(
+///     "int",
+///     match_class!(obj.clone(),
+///         PyInt => "int",
+///         PyFloat => "float",
+///         _ => "neither",
+///     )
+/// );
+///
+/// ```
+///
+/// With a binding to the downcasted type:
+///
+/// ```
+/// use num_bigint::ToBigInt;
+/// use num_traits::Zero;
+///
+/// use rustpython_vm::VirtualMachine;
+/// use rustpython_vm::match_class;
+/// use rustpython_vm::obj::objfloat::PyFloat;
+/// use rustpython_vm::obj::objint::PyInt;
+/// use rustpython_vm::pyobject::PyValue;
+///
+/// let vm = VirtualMachine::new();
+/// let obj = PyInt::new(0).into_ref(&vm).into_object();
+///
+/// let int_value = match_class!(obj,
+///     i @ PyInt => i.as_bigint().clone(),
+///     f @ PyFloat => f.to_f64().to_bigint().unwrap(),
+///     obj => panic!("non-numeric object {}", obj),
+/// );
+///
+/// assert!(int_value.is_zero());
+/// ```
+#[macro_export]
+macro_rules! match_class {
+    // The default arm.
+    ($obj:expr, _ => $default:expr $(,)?) => {
+        $default
+    };
+
+    // The default arm, binding the original object to the specified identifier.
+    ($obj:expr, $binding:ident => $default:expr $(,)?) => {{
+        let $binding = $obj;
+        $default
+    }};
+
+    // An arm taken when the object is an instance of the specified built-in
+    // class and binding the downcasted object to the specified identifier.
+    ($obj:expr, $binding:ident @ $class:ty => $expr:expr, $($rest:tt)*) => {
+        match $obj.downcast::<$class>() {
+            Ok($binding) => $expr,
+            Err(_obj) => match_class!(_obj, $($rest)*),
+        }
+    };
+
+    // An arm taken when the object is an instance of the specified built-in
+    // class.
+    ($obj:expr, $class:ty => $expr:expr, $($rest:tt)*) => {
+        if $obj.payload_is::<$class>() {
+            $expr
+        } else {
+            match_class!($obj, $($rest)*)
+        }
+    };
+}
