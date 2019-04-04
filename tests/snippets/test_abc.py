@@ -13,6 +13,7 @@ class CustomInterface(abc.ABC):
         return NotImplemented
 
 
+# TODO raise an error if there are in any abstract methods not fulfilled
 # with assertRaises(TypeError):
 #     CustomInterface()
 
@@ -31,4 +32,8 @@ class SubConcrete(Concrete):
 
 assert issubclass(Concrete, CustomInterface)
 assert issubclass(SubConcrete, CustomInterface)
+assert not issubclass(tuple, CustomInterface)
 
+assert isinstance(Concrete(), CustomInterface)
+assert isinstance(SubConcrete(), CustomInterface)
+assert not isinstance((), CustomInterface)
