@@ -306,6 +306,25 @@ impl PyListRef {
             Ok(vm.ctx.not_implemented())
         }
     }
+
+    fn delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let mut elements = self.elements.borrow_mut();
+        if objtype::isinstance(&key, &vm.ctx.int_type()) {
+            let idx = objint::get_value(&key).to_i32().unwrap();
+            if let Some(_) = elements.get_pos(idx) {
+                elements.remove(idx as usize);
+                Ok(vm.get_none())  
+            } else {
+                Err(vm.new_index_error("list index out of range".to_string()))
+            }
+            
+        } else {
+            panic!(
+                "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+                elements, key
+            )
+        }
+    }
 }
 
 fn list_new(
@@ -454,6 +473,7 @@ pub fn init(context: &PyContext) {
         "__iadd__" => context.new_rustfunc(PyListRef::iadd),
         "__bool__" => context.new_rustfunc(PyListRef::bool),
         "__contains__" => context.new_rustfunc(PyListRef::contains),
+        "__delitem__" => context.new_rustfunc(PyListRef::delitem),
         "__eq__" => context.new_rustfunc(PyListRef::eq),
         "__lt__" => context.new_rustfunc(PyListRef::lt),
         "__gt__" => context.new_rustfunc(PyListRef::gt),
