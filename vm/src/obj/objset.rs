@@ -15,7 +15,6 @@ use super::objbool;
 use super::objint;
 use super::objiter;
 use super::objlist::PyListIterator;
-use super::objtype;
 use super::objtype::PyClassRef;
 
 #[derive(Default)]
@@ -62,6 +61,22 @@ struct PySetInner {
 }
 
 impl PySetInner {
+    fn new(iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PySetInner> {
+        let elements: HashMap<u64, PyObjectRef> = match iterable {
+            OptionalArg::Missing => HashMap::new(),
+            OptionalArg::Present(iterable) => {
+                let mut elements = HashMap::new();
+                let iterator = objiter::get_iter(vm, &iterable)?;
+                while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
+                    insert_into_set(vm, &mut elements, &v)?;
+                }
+                elements
+            }
+        };
+
+        Ok(PySetInner { elements })
+    }
+
     fn len(&self) -> usize {
         self.elements.len()
     }
@@ -334,14 +349,27 @@ impl PySetInner {
 }
 
 impl PySetRef {
+    fn new(
+        cls: PyClassRef,
+        iterable: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PySetRef> {
+        PySet {
+            inner: RefCell::new(PySetInner::new(iterable, vm)?),
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.inner.borrow().len()
     }
+
     fn copy(self, _vm: &VirtualMachine) -> PySet {
         PySet {
             inner: RefCell::new(self.inner.borrow().copy()),
         }
     }
+
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow().contains(needle, vm)
     }
@@ -512,14 +540,27 @@ impl PySetRef {
 }
 
 impl PyFrozenSetRef {
+    fn new(
+        cls: PyClassRef,
+        iterable: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyFrozenSetRef> {
+        PyFrozenSet {
+            inner: PySetInner::new(iterable, vm)?,
+        }
+        .into_ref_with_type(vm, cls)
+    }
+
     fn len(self, _vm: &VirtualMachine) -> usize {
         self.inner.len()
     }
+
     fn copy(self, _vm: &VirtualMachine) -> PyFrozenSet {
         PyFrozenSet {
             inner: self.inner.copy(),
         }
     }
+
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner.contains(needle, vm)
     }
@@ -616,41 +657,6 @@ fn get_inner(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<PySetInner> {
     }
 }
 
-fn validate_set_or_frozenset(vm: &VirtualMachine, cls: PyClassRef) -> PyResult<()> {
-    if !(objtype::issubclass(&cls, &vm.ctx.set_type())
-        || objtype::issubclass(&cls, &vm.ctx.frozenset_type()))
-    {
-        return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", cls)));
-    }
-    Ok(())
-}
-
-fn create_set(
-    vm: &VirtualMachine,
-    elements: HashMap<u64, PyObjectRef>,
-    cls: PyClassRef,
-) -> PyResult {
-    if objtype::issubclass(&cls, &vm.ctx.set_type()) {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(PySetInner { elements: elements }),
-            },
-            PySet::class(vm),
-            None,
-        ))
-    } else if objtype::issubclass(&cls, &vm.ctx.frozenset_type()) {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: PySetInner { elements: elements },
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
-    } else {
-        Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", cls)))
-    }
-}
-
 fn perform_action_with_hash(
     vm: &VirtualMachine,
     elements: &mut HashMap<u64, PyObjectRef>,
@@ -683,25 +689,6 @@ fn insert_into_set(
     perform_action_with_hash(vm, elements, item, &insert)
 }
 
-/* Create a new object of sub-type of set */
-fn set_new(cls: PyClassRef, iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-    validate_set_or_frozenset(vm, cls.clone())?;
-
-    let elements: HashMap<u64, PyObjectRef> = match iterable {
-        OptionalArg::Missing => HashMap::new(),
-        OptionalArg::Present(iterable) => {
-            let mut elements = HashMap::new();
-            let iterator = objiter::get_iter(vm, &iterable)?;
-            while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                insert_into_set(vm, &mut elements, &v)?;
-            }
-            elements
-        }
-    };
-
-    create_set(vm, elements, cls.clone())
-}
-
 enum SetCombineOperation {
     Intersection,
     Difference,
@@ -719,10 +706,10 @@ pub fn init(context: &PyContext) {
                    Build an unordered collection of unique elements.";
 
     extend_class!(context, set_type, {
+        "__hash__" => context.new_rustfunc(set_hash),
         "__contains__" => context.new_rustfunc(PySetRef::contains),
         "__len__" => context.new_rustfunc(PySetRef::len),
-        "__new__" => context.new_rustfunc(set_new),
-        "__hash__" => context.new_rustfunc(set_hash),
+        "__new__" => context.new_rustfunc(PySetRef::new),
         "__repr__" => context.new_rustfunc(PySetRef::repr),
         "__eq__" => context.new_rustfunc(PySetRef::eq),
         "__ge__" => context.new_rustfunc(PySetRef::ge),
@@ -764,7 +751,7 @@ pub fn init(context: &PyContext) {
                          Build an immutable unordered collection of unique elements.";
 
     extend_class!(context, frozenset_type, {
-        "__new__" => context.new_rustfunc(set_new),
+        "__new__" => context.new_rustfunc(PyFrozenSetRef::new),
         "__eq__" => context.new_rustfunc(PyFrozenSetRef::eq),
         "__ge__" => context.new_rustfunc(PyFrozenSetRef::ge),
         "__gt__" => context.new_rustfunc(PyFrozenSetRef::gt),
