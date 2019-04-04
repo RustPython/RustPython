@@ -137,6 +137,108 @@ impl<T: Clone> PySliceableSequence for Vec<T> {
     }
 }
 
+pub trait PySliceableSequenceMut : PySliceableSequence {
+    //fn set_slice<T: PySliceableSequence>(&self, range: Range<usize>, seq: T) -> Self;
+    //fn set_slice_reverse<T: PySliceableSequence>(&self, range: Range<usize>, seq: T) -> Self;
+    //fn set_stepped_slice<T: PySliceableSequence>(&self, range: Range<usize>, step: usize, seq: T) -> Self;
+    //fn set_stepped_slice_reverse<T: PySliceableSequence>(&self, range: Range<usize>, step: usize, seq: T) -> Self;
+
+    fn del_slice(&mut self, range: Range<usize>);
+    fn del_stepped_slice(&mut self, range: Range<usize>, step: usize);
+    fn del_index(&mut self, index: usize);
+
+    fn del_slice_items(&mut self, vm: &VirtualMachine, slice: &PyObjectRef) -> PyResult {
+        // TODO: we could potentially avoid this copy and use slice
+        match slice.payload() {
+            Some(PySlice { start, stop, step }) => {
+                let step = step.clone().unwrap_or_else(BigInt::one);
+                if step.is_zero() {
+                    Err(vm.new_value_error("slice step cannot be zero".to_string()))
+                } else if step.is_positive() {
+                    let range = self.get_slice_range(start, stop);
+                    if range.start < range.end {
+                        #[allow(clippy::range_plus_one)]
+                        match step.to_i32() {
+                            Some(1) => {
+                                self.del_slice(range);
+                                Ok(vm.get_none())
+                            },
+                            Some(num) => {
+                                self.del_stepped_slice(range, num as usize);
+                                Ok(vm.get_none())
+                            },
+                            None => {
+                                self.del_slice(range.start..range.start + 1);
+                                Ok(vm.get_none())
+                            },
+                        }
+                    } else {
+                        // TODO what to delete here?
+                        Ok(vm.get_none())
+                    }
+                } else {
+                    // calculate the range for the reverse slice, first the bounds needs to be made
+                    // exclusive around stop, the lower number
+                    let start = start.as_ref().map(|x| x + 1);
+                    let stop = stop.as_ref().map(|x| x + 1);
+                    let range = self.get_slice_range(&stop, &start);
+                    if range.start < range.end {
+                        match (-step).to_i32() {
+                            Some(1) => {
+                                self.del_slice(range);
+                                Ok(vm.get_none())
+                            },
+                            Some(num) => {
+                                self.del_stepped_slice(range, num as usize);
+                                Ok(vm.get_none())
+                            },
+                            None => {
+                                self.del_slice(range.end - 1..range.end);
+                                Ok(vm.get_none())
+                            },
+                        }
+                    } else {
+                        // TODO what to del here?
+                        Ok(vm.get_none())
+                    }
+                }
+            }
+            payload => panic!("del_slice_items called with non-slice: {:?}", payload),
+        }
+    }
+}
+
+impl<T: Clone> PySliceableSequenceMut for Vec<T> {
+    fn del_slice(&mut self, range: Range<usize>) {
+        self.drain(range);
+    }
+
+    fn del_stepped_slice(&mut self, range: Range<usize>, step: usize) {
+        // no easy way to delete steped indexes so heres what we'll do
+        let len = self.len();
+        let mut deleted = 0;
+        let mut indexes = range.step_by(step).peekable();
+        for i in 0..len {
+            // is this an index to delete?
+            if indexes.peek() == Some(&i) {
+                // record and move on
+                indexes.next();
+                deleted += 1;
+            } else {
+                // swap towards front
+                self.swap(i - deleted, i);
+            }
+        }
+        // then truncate the vec (the values to delete should now be the last elements and thus choped off)
+        self.truncate(len - deleted);
+    }
+
+    fn del_index(&mut self, index: usize) {
+        self.remove(index);
+    }
+}
+
+
 pub fn get_item(
     vm: &VirtualMachine,
     sequence: &PyObjectRef,
@@ -174,6 +276,43 @@ pub fn get_item(
             ))
         } else {
             panic!("sequence get_item called for non-sequence")
+        }
+    } else {
+        Err(vm.new_type_error(format!(
+            "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+            sequence, subscript
+        )))
+    }
+}
+
+pub fn del_item<T: PySliceableSequenceMut> (
+    vm: &VirtualMachine,
+    sequence: &PyObjectRef,
+    elements: &mut T,
+    subscript: PyObjectRef,
+) -> PyResult {
+    if let Some(i) = subscript.payload::<PyInt>() {
+        return match i.as_bigint().to_i32() {
+            Some(value) => {
+                if let Some(pos_index) = elements.get_pos(value) {
+                    elements.del_index(pos_index);
+                    Ok(vm.get_none())
+                } else {
+                    Err(vm.new_index_error("Index out of bounds!".to_string()))
+                }
+            }
+            None => {
+                Err(vm.new_index_error("cannot fit 'int' into an index-sized integer".to_string()))
+            }
+        };
+    }
+
+    if subscript.payload::<PySlice>().is_some() {
+
+        if sequence.payload::<PyList>().is_some() {
+            elements.del_slice_items(vm, &subscript)
+        } else {
+            panic!("sequence del_item called for non-mutable-sequence")
         }
     } else {
         Err(vm.new_type_error(format!(

@@ -1,7 +1,10 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
 
+use std::ops::DerefMut;
+
 use num_traits::ToPrimitive;
+
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
@@ -12,7 +15,7 @@ use super::objint;
 use super::objiter;
 use super::objsequence::{
     get_elements, get_elements_cell, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
-    PySliceableSequence,
+    PySliceableSequence, del_item,
 };
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -309,21 +312,27 @@ impl PyListRef {
 
     fn delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let mut elements = self.elements.borrow_mut();
-        if objtype::isinstance(&key, &vm.ctx.int_type()) {
-            let idx = objint::get_value(&key).to_i32().unwrap();
-            if let Some(_) = elements.get_pos(idx) {
-                elements.remove(idx as usize);
-                Ok(vm.get_none())  
-            } else {
-                Err(vm.new_index_error("list index out of range".to_string()))
-            }
+        // if objtype::isinstance(&key, &vm.ctx.int_type()) {
+        //     let idx = objint::get_value(&key).to_i32().unwrap();
+        //     if let Some(_) = elements.get_pos(idx) {
+        //         elements.remove(idx as usize);
+        //         Ok(vm.get_none())  
+        //     } else {
+        //         Err(vm.new_index_error("list index out of range".to_string()))
+        //     }
             
-        } else {
-            panic!(
-                "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-                elements, key
-            )
-        }
+        // } else {
+        //     panic!(
+        //         "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
+        //         elements, key
+        //     )
+        // }
+        del_item(
+            vm, 
+            self.as_object(),
+            elements.deref_mut(),
+            key,
+        )
     }
 }
 
