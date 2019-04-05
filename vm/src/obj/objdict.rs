@@ -49,8 +49,8 @@ impl PyDictRef {
         if let OptionalArg::Present(dict_obj) = dict_obj {
             let dicted: PyResult<PyDictRef> = dict_obj.clone().downcast();
             if let Ok(dict_obj) = dicted {
-                for (needle, value) in dict_obj.get_key_value_pairs() {
-                    dict.set_item(needle, value, vm);
+                for (key, value) in dict_obj.get_key_value_pairs() {
+                    dict.set_item(key, value, vm);
                 }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
@@ -63,18 +63,17 @@ impl PyDictRef {
                         None => break,
                     };
                     let elem_iter = objiter::get_iter(vm, &element)?;
-                    let needle =
-                        objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    let key = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                     let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                     if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                         return Err(err(vm));
                     }
-                    dict.set_item(needle, value, vm);
+                    dict.set_item(key, value, vm);
                 }
             }
         }
-        for (needle, value) in kwargs.into_iter() {
-            dict.set_item(vm.new_str(needle), value, vm);
+        for (key, value) in kwargs.into_iter() {
+            dict.set_item(vm.new_str(key), value, vm);
         }
         Ok(dict)
     }
@@ -171,8 +170,8 @@ impl PyDictRef {
         self.entries.borrow().get_items()
     }
 
-    fn setitem(self, needle: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) {
-        self.set_item(needle, value, vm)
+    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) {
+        self.set_item(key, value, vm)
     }
 
     fn getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
