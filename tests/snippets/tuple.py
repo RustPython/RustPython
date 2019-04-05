@@ -34,3 +34,7 @@ class Foo(object):
 
 foo = Foo()
 assert (foo,) == (foo,)
+
+a = (1, 2, 3)
+a += 1,
+assert a == (1, 2, 3, 1)

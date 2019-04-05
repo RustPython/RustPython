@@ -16,6 +16,12 @@ pub struct PyFloat {
     value: f64,
 }
 
+impl PyFloat {
+    pub fn to_f64(&self) -> f64 {
+        self.value
+    }
+}
+
 impl PyValue for PyFloat {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.float_type()

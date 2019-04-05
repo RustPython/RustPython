@@ -36,6 +36,13 @@ pub struct PyString {
     // TODO: shouldn't be public
     pub value: String,
 }
+
+impl PyString {
+    pub fn as_str(&self) -> &str {
+        &self.value
+    }
+}
+
 pub type PyStringRef = PyRef<PyString>;
 
 impl fmt::Display for PyString {
