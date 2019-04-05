@@ -1,10 +1,11 @@
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, Read, Write};
 
 use num_traits::cast::ToPrimitive;
 
 use crate::function::PyFuncArgs;
+use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
@@ -132,6 +133,27 @@ fn os_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(buffer))
 }
 
+fn os_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [
+            (fd, Some(vm.ctx.int_type())),
+            (data, Some(vm.ctx.bytes_type()))
+        ]
+    );
+
+    let mut file = rust_file(objint::get_value(fd).to_i64().unwrap());
+    let written = match file.write(&objbytes::get_value(&data)) {
+        Ok(written) => written,
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
+    };
+
+    // Avoid closing the fd
+    raw_file_number(file);
+    Ok(vm.ctx.new_int(written))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -146,6 +168,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),
         "read" => ctx.new_rustfunc(os_read),
+        "write" => ctx.new_rustfunc(os_write),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
