@@ -55,8 +55,8 @@ fn object_ge(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> Py
     vm.ctx.not_implemented()
 }
 
-fn object_hash(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    Err(vm.new_type_error("unhashable type".to_string()))
+fn object_hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> u64 {
+    zelf.get_id() as u64
 }
 
 fn object_setattr(

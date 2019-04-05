@@ -3,6 +3,7 @@ use crate::pyobject::PyValue;
 use crate::pyobject::{PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
+use crate::function::OptionalArg;
 use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
@@ -32,7 +33,12 @@ pub type PyWeakRef = PyRef<PyWeak>;
 
 impl PyWeakRef {
     // TODO callbacks
-    fn create(cls: PyClassRef, referent: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    fn create(
+        cls: PyClassRef,
+        referent: PyObjectRef,
+        _callback: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         PyWeak::downgrade(&referent).into_ref_with_type(vm, cls)
     }
 

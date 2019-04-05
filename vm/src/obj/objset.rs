@@ -588,6 +588,10 @@ fn frozenset_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.new_str(s))
 }
 
+fn set_hash(_zelf: PySetRef, vm: &VirtualMachine) -> PyResult {
+    Err(vm.new_type_error("unhashable type".to_string()))
+}
+
 pub fn init(context: &PyContext) {
     let set_type = &context.set_type;
 
@@ -600,6 +604,7 @@ pub fn init(context: &PyContext) {
         "__len__" => context.new_rustfunc(set_len),
         "__new__" => context.new_rustfunc(set_new),
         "__repr__" => context.new_rustfunc(set_repr),
+        "__hash__" => context.new_rustfunc(set_hash),
         "__eq__" => context.new_rustfunc(set_eq),
         "__ge__" => context.new_rustfunc(set_ge),
         "__gt__" => context.new_rustfunc(set_gt),

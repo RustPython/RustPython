@@ -208,6 +208,10 @@ impl PyDictRef {
         }
         attrs
     }
+
+    fn hash(self, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("unhashable type".to_string()))
+    }
 }
 
 impl DictProtocol for PyDictRef {
@@ -248,6 +252,7 @@ pub fn init(context: &PyContext) {
         "__new__" => context.new_rustfunc(PyDictRef::new),
         "__repr__" => context.new_rustfunc(PyDictRef::repr),
         "__setitem__" => context.new_rustfunc(PyDictRef::setitem),
+        "__hash__" => context.new_rustfunc(PyDictRef::hash),
         "clear" => context.new_rustfunc(PyDictRef::clear),
         "values" => context.new_rustfunc(PyDictRef::values),
         "items" => context.new_rustfunc(PyDictRef::items),
