@@ -42,3 +42,12 @@ va2(5, *x[1:])
 x = {'f': 42, 'e': 1337}
 y = {'d': 1337}
 va(1, 22, 3, 4, **x, **y)
+
+# star arg after keyword args:
+def fubar(x, y, obj=None):
+    assert x == 4
+    assert y == 5
+    assert obj == 6
+
+rest = [4, 5]
+fubar(obj=6, *rest)

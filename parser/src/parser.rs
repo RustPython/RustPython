@@ -35,7 +35,7 @@ pub fn parse_program(source: &str) -> Result<ast::Program, ParseError> {
     do_lalr_parsing!(source, Program, StartProgram)
 }
 
-pub fn parse_statement(source: &str) -> Result<ast::LocatedStatement, ParseError> {
+pub fn parse_statement(source: &str) -> Result<Vec<ast::LocatedStatement>, ParseError> {
     do_lalr_parsing!(source, Statement, StartStatement)
 }
 
@@ -180,7 +180,7 @@ mod tests {
         let parse_ast = parse_statement(&source).unwrap();
         assert_eq!(
             parse_ast,
-            ast::LocatedStatement {
+            vec![ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::If {
                     test: ast::Expression::Number {
@@ -229,7 +229,7 @@ mod tests {
                         }
                     },]),
                 }
-            }
+            }]
         );
     }
 
@@ -239,7 +239,7 @@ mod tests {
         let parse_ast = parse_statement(&source);
         assert_eq!(
             parse_ast,
-            Ok(ast::LocatedStatement {
+            Ok(vec![ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::Expression {
                     expression: ast::Expression::Lambda {
@@ -271,7 +271,7 @@ mod tests {
                         })
                     }
                 }
-            })
+            }])
         )
     }
 
@@ -281,7 +281,7 @@ mod tests {
 
         assert_eq!(
             parse_statement(&source),
-            Ok(ast::LocatedStatement {
+            Ok(vec![ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::Assign {
                     targets: vec![ast::Expression::Tuple {
@@ -309,7 +309,7 @@ mod tests {
                         ]
                     }
                 }
-            })
+            }])
         )
     }
 
@@ -320,7 +320,7 @@ mod tests {
         );
         assert_eq!(
             parse_statement(&source),
-            Ok(ast::LocatedStatement {
+            Ok(vec![ast::LocatedStatement {
                 location: ast::Location::new(1, 1),
                 node: ast::Statement::ClassDef {
                     name: String::from("Foo"),
@@ -393,7 +393,7 @@ mod tests {
                     ],
                     decorator_list: vec![],
                 }
-            })
+            }])
         )
     }
 

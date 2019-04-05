@@ -1044,16 +1044,20 @@ where
                             return Some(Ok((tok_start, Tok::Comma, tok_end)));
                         }
                         '.' => {
-                            let tok_start = self.get_pos();
-                            self.next_char();
-                            if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
-                                self.next_char();
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::Ellipsis, tok_end)));
+                            if let Some('0'..='9') = self.chr1 {
+                                return Some(self.lex_number());
                             } else {
-                                let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::Dot, tok_end)));
+                                let tok_start = self.get_pos();
+                                self.next_char();
+                                if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
+                                    self.next_char();
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Ellipsis, tok_end)));
+                                } else {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Dot, tok_end)));
+                                }
                             }
                         }
                         '\n' => {

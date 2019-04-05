@@ -129,15 +129,17 @@ impl Compiler {
     // Compile statement in eval mode:
     fn compile_statement_eval(
         &mut self,
-        statement: &ast::LocatedStatement,
+        statements: &[ast::LocatedStatement],
     ) -> Result<(), CompileError> {
-        if let ast::Statement::Expression { ref expression } = statement.node {
-            self.compile_expression(expression)?;
-            self.emit(Instruction::ReturnValue);
-            Ok(())
-        } else {
-            Err(CompileError::ExpectExpr)
+        for statement in statements {
+            if let ast::Statement::Expression { ref expression } = statement.node {
+                self.compile_expression(expression)?;
+            } else {
+                return Err(CompileError::ExpectExpr);
+            }
         }
+        self.emit(Instruction::ReturnValue);
+        Ok(())
     }
 
     fn compile_statements(

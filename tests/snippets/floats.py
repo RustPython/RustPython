@@ -106,3 +106,7 @@ assert_raises(OverflowError, float('inf').as_integer_ratio)
 assert_raises(OverflowError, float('-inf').as_integer_ratio)
 assert_raises(ValueError, float('nan').as_integer_ratio)
 
+# Test special case for lexer, float starts with a dot:
+a = .5
+assert a == 0.5
+
