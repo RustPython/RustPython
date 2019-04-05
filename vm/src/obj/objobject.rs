@@ -167,7 +167,11 @@ pub fn init(context: &PyContext) {
         "__ge__" => context.new_rustfunc(object_ge),
         "__setattr__" => context.new_rustfunc(object_setattr),
         "__delattr__" => context.new_rustfunc(object_delattr),
-        "__dict__" => context.new_property(object_dict),
+        "__dict__" =>
+        PropertyBuilder::new(context)
+                .add_getter(object_dict)
+                .add_setter(object_dict_setter)
+                .create(),
         "__dir__" => context.new_rustfunc(object_dir),
         "__hash__" => context.new_rustfunc(object_hash),
         "__str__" => context.new_rustfunc(object_str),
@@ -201,6 +205,16 @@ fn object_dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> 
     } else {
         Err(vm.new_type_error("TypeError: no dictionary.".to_string()))
     }
+}
+
+fn object_dict_setter(
+    _instance: PyObjectRef,
+    _value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult {
+    Err(vm.new_not_implemented_error(
+        "Setting __dict__ attribute on am object isn't yet implemented".to_string(),
+    ))
 }
 
 fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMachine) -> PyResult {
