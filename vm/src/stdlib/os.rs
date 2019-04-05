@@ -1,3 +1,4 @@
+use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Read, Write};
@@ -154,6 +155,18 @@ fn os_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(written))
 }
 
+fn os_remove(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(path, Some(vm.ctx.str_type()))]);
+    let fname = objstr::get_value(&path);
+
+    match fs::remove_file(fname) {
+        Ok(_) => (),
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
+    }
+
+    Ok(vm.get_none())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -169,6 +182,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "error" => ctx.new_rustfunc(os_error),
         "read" => ctx.new_rustfunc(os_read),
         "write" => ctx.new_rustfunc(os_write),
+        "remove" => ctx.new_rustfunc(os_remove),
+        "unlink" => ctx.new_rustfunc(os_remove),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
