@@ -8,7 +8,7 @@ use regex::{Match, Regex};
 
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 impl PyValue for Regex {
@@ -98,7 +98,9 @@ impl PyMatchRef {
 }
 
 /// Create the python `re` module with all its members.
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     let match_type = py_class!(ctx, "Match", ctx.object(), {
         "start" => ctx.new_rustfunc(PyMatchRef::start),
         "end" => ctx.new_rustfunc(PyMatchRef::end)
@@ -109,7 +111,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "search" => ctx.new_rustfunc(PyRegexRef::search)
     });
 
-    py_module!(ctx, "re", {
+    py_module!(vm, "re", {
         "compile" => ctx.new_rustfunc(re_compile),
         "Match" => match_type,
         "match" => ctx.new_rustfunc(re_match),

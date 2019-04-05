@@ -1,4 +1,4 @@
-use super::objdict::{self, PyDictRef};
+use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype;
@@ -77,7 +77,7 @@ fn object_setattr(
     }
 
     if let Some(ref dict) = obj.clone().dict {
-        dict.set_item(&vm.ctx, &attr_name.value, value);
+        dict.set_item(attr_name, value, vm);
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -98,7 +98,7 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
     }
 
     if let Some(ref dict) = obj.dict {
-        dict.del_item(&attr_name.value);
+        dict.del_item(attr_name, vm);
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -208,7 +208,7 @@ fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMach
         }
     }
 
-    if let Some(obj_attr) = object_getattr(&obj, &name) {
+    if let Some(obj_attr) = object_getattr(&obj, &name, &vm) {
         Ok(obj_attr)
     } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
         vm.call_get_descriptor(attr, obj)
@@ -219,9 +219,9 @@ fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMach
     }
 }
 
-fn object_getattr(obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+fn object_getattr(obj: &PyObjectRef, attr_name: &str, vm: &VirtualMachine) -> Option<PyObjectRef> {
     if let Some(ref dict) = obj.dict {
-        dict.get_item(attr_name)
+        dict.get_item(attr_name, vm)
     } else {
         None
     }
@@ -233,7 +233,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
 
     // Get instance attributes:
     if let Some(dict) = &obj.dict {
-        for (key, value) in objdict::get_key_value_pairs(dict.as_object()) {
+        for (key, value) in dict.get_key_value_pairs() {
             attributes.insert(key.to_string(), value.clone());
         }
     }

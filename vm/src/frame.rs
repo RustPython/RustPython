@@ -132,21 +132,21 @@ pub trait NameProtocol {
 impl NameProtocol for Scope {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item(name, vm) {
                 return Some(value);
             }
         }
 
-        if let Some(value) = self.globals.get_item(name) {
+        if let Some(value) = self.globals.get_item(name, vm) {
             return Some(value);
         }
 
         vm.get_attribute(vm.builtins.clone(), name).ok()
     }
 
-    fn load_cell(&self, _vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item(name, vm) {
                 return Some(value);
             }
         }
@@ -154,11 +154,11 @@ impl NameProtocol for Scope {
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
-        self.get_locals().set_item(&vm.ctx, key, value)
+        self.get_locals().set_item(key, value, vm)
     }
 
-    fn delete_name(&self, _vm: &VirtualMachine, key: &str) {
-        self.get_locals().del_item(key)
+    fn delete_name(&self, vm: &VirtualMachine, key: &str) {
+        self.get_locals().del_item(key, vm)
     }
 }
 
@@ -385,21 +385,21 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let map_obj = vm.ctx.new_dict().into_object();
+                let map_obj = vm.ctx.new_dict();
                 for _x in 0..*size {
                     let obj = self.pop_value();
                     if *unpack {
                         // Take all key-value pairs from the dict:
                         let dict_elements = objdict::get_key_value_pairs(&obj);
                         for (key, value) in dict_elements.iter() {
-                            objdict::set_item(&map_obj, vm, key, value);
+                            map_obj.set_item(key.clone(), value.clone(), vm);
                         }
                     } else {
                         let key = self.pop_value();
-                        objdict::set_item(&map_obj, vm, &key, &obj);
+                        map_obj.set_item(key, obj, vm)
                     }
                 }
-                self.push_value(map_obj);
+                self.push_value(map_obj.into_object());
                 Ok(None)
             }
             bytecode::Instruction::BuildSlice { size } => {
@@ -585,7 +585,7 @@ impl Frame {
                 let scope = self.scope.clone();
                 let obj = vm.ctx.new_function(code_obj, scope, defaults);
 
-                vm.ctx.set_attr(&obj, "__annotations__", annotations);
+                vm.set_attr(&obj, "__annotations__", annotations)?;
 
                 self.push_value(obj);
                 Ok(None)
@@ -613,10 +613,10 @@ impl Frame {
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
                             let kw_dict = self.pop_value();
-                            let dict_elements = objdict::get_elements(&kw_dict).clone();
+                            let dict_elements = objdict::get_key_value_pairs(&kw_dict).clone();
                             dict_elements
                                 .into_iter()
-                                .map(|elem| (elem.0, (elem.1).1))
+                                .map(|elem| (objstr::get_value(&elem.0), elem.1))
                                 .collect()
                         } else {
                             vec![]
@@ -1210,7 +1210,8 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
         let dict = self.scope.get_locals();
-        let local_str = objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
+        let local_str = dict
+            .get_key_value_pairs()
             .iter()
             .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
             .collect::<String>();

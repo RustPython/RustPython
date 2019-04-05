@@ -7,7 +7,7 @@ use num_traits::cast::ToPrimitive;
 use crate::function::PyFuncArgs;
 use crate::obj::objint;
 use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -113,25 +113,25 @@ fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_os_error(msg))
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = py_module!(ctx, "os", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    let os_name = if cfg!(windows) {
+        "nt".to_string()
+    } else {
+        "posix".to_string()
+    };
+
+    py_module!(vm, "os", {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),
+        "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),
         "O_NONBLOCK" => ctx.new_int(4),
         "O_APPEND" => ctx.new_int(8),
         "O_CREAT" => ctx.new_int(512)
-    });
-
-    if cfg!(windows) {
-        ctx.set_attr(&py_mod, "name", ctx.new_str("nt".to_string()));
-    } else {
-        // Assume we're on a POSIX system
-        ctx.set_attr(&py_mod, "name", ctx.new_str("posix".to_string()));
-    }
-
-    py_mod
+    })
 }

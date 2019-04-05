@@ -12,7 +12,7 @@ use rustpython_parser::{ast, parser};
 use crate::function::PyFuncArgs;
 use crate::obj::objstr;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{PyObject, PyObjectRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -50,7 +50,7 @@ fn program_to_ast(vm: &VirtualMachine, program: &ast::Program) -> PyObjectRef {
     // let ast_node = ctx.new_instance(this.Module);
     let ast_node = create_node(vm, "program");
     let py_body = vm.ctx.new_list(body);
-    vm.ctx.set_attr(&ast_node, "body", py_body);
+    vm.set_attr(&ast_node, "body", py_body).unwrap();
     ast_node
 }
 
@@ -80,15 +80,16 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let node = create_node(vm, "ClassDef");
 
             // Set name:
-            vm.ctx
-                .set_attr(&node, "name", vm.ctx.new_str(name.to_string()));
+            vm.set_attr(&node, "name", vm.ctx.new_str(name.to_string()))
+                .unwrap();
 
             // Set body:
             let py_body = statements_to_ast(vm, body);
-            vm.ctx.set_attr(&node, "body", py_body);
+            vm.set_attr(&node, "body", py_body).unwrap();
 
             let py_decorator_list = expressions_to_ast(vm, decorator_list);
-            vm.ctx.set_attr(&node, "decorator_list", py_decorator_list);
+            vm.set_attr(&node, "decorator_list", py_decorator_list)
+                .unwrap();
             node
         }
         ast::Statement::FunctionDef {
@@ -101,24 +102,26 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let node = create_node(vm, "FunctionDef");
 
             // Set name:
-            vm.ctx
-                .set_attr(&node, "name", vm.ctx.new_str(name.to_string()));
+            vm.set_attr(&node, "name", vm.ctx.new_str(name.to_string()))
+                .unwrap();
 
-            vm.ctx.set_attr(&node, "args", parameters_to_ast(vm, args));
+            vm.set_attr(&node, "args", parameters_to_ast(vm, args))
+                .unwrap();
 
             // Set body:
             let py_body = statements_to_ast(vm, body);
-            vm.ctx.set_attr(&node, "body", py_body);
+            vm.set_attr(&node, "body", py_body).unwrap();
 
             let py_decorator_list = expressions_to_ast(vm, decorator_list);
-            vm.ctx.set_attr(&node, "decorator_list", py_decorator_list);
+            vm.set_attr(&node, "decorator_list", py_decorator_list)
+                .unwrap();
 
             let py_returns = if let Some(hint) = returns {
                 expression_to_ast(vm, hint)
             } else {
                 vm.ctx.none()
             };
-            vm.ctx.set_attr(&node, "returns", py_returns);
+            vm.set_attr(&node, "returns", py_returns).unwrap();
             node
         }
         ast::Statement::Continue => create_node(vm, "Continue"),
@@ -127,13 +130,14 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
         ast::Statement::Assert { test, msg } => {
             let node = create_node(vm, "Pass");
 
-            vm.ctx.set_attr(&node, "test", expression_to_ast(vm, test));
+            vm.set_attr(&node, "test", expression_to_ast(vm, test))
+                .unwrap();
 
             let py_msg = match msg {
                 Some(msg) => expression_to_ast(vm, msg),
                 None => vm.ctx.none(),
             };
-            vm.ctx.set_attr(&node, "msg", py_msg);
+            vm.set_attr(&node, "msg", py_msg).unwrap();
 
             node
         }
@@ -143,7 +147,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let py_targets = vm
                 .ctx
                 .new_tuple(targets.iter().map(|v| expression_to_ast(vm, v)).collect());
-            vm.ctx.set_attr(&node, "targets", py_targets);
+            vm.set_attr(&node, "targets", py_targets).unwrap();
 
             node
         }
@@ -155,7 +159,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             } else {
                 vm.ctx.none()
             };
-            vm.ctx.set_attr(&node, "value", py_value);
+            vm.set_attr(&node, "value", py_value).unwrap();
 
             node
         }
@@ -163,17 +167,17 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let node = create_node(vm, "If");
 
             let py_test = expression_to_ast(vm, test);
-            vm.ctx.set_attr(&node, "test", py_test);
+            vm.set_attr(&node, "test", py_test).unwrap();
 
             let py_body = statements_to_ast(vm, body);
-            vm.ctx.set_attr(&node, "body", py_body);
+            vm.set_attr(&node, "body", py_body).unwrap();
 
             let py_orelse = if let Some(orelse) = orelse {
                 statements_to_ast(vm, orelse)
             } else {
                 vm.ctx.none()
             };
-            vm.ctx.set_attr(&node, "orelse", py_orelse);
+            vm.set_attr(&node, "orelse", py_orelse).unwrap();
 
             node
         }
@@ -186,20 +190,20 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let node = create_node(vm, "For");
 
             let py_target = expression_to_ast(vm, target);
-            vm.ctx.set_attr(&node, "target", py_target);
+            vm.set_attr(&node, "target", py_target).unwrap();
 
             let py_iter = expression_to_ast(vm, iter);
-            vm.ctx.set_attr(&node, "iter", py_iter);
+            vm.set_attr(&node, "iter", py_iter).unwrap();
 
             let py_body = statements_to_ast(vm, body);
-            vm.ctx.set_attr(&node, "body", py_body);
+            vm.set_attr(&node, "body", py_body).unwrap();
 
             let py_orelse = if let Some(orelse) = orelse {
                 statements_to_ast(vm, orelse)
             } else {
                 vm.ctx.none()
             };
-            vm.ctx.set_attr(&node, "orelse", py_orelse);
+            vm.set_attr(&node, "orelse", py_orelse).unwrap();
 
             node
         }
@@ -207,17 +211,17 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let node = create_node(vm, "While");
 
             let py_test = expression_to_ast(vm, test);
-            vm.ctx.set_attr(&node, "test", py_test);
+            vm.set_attr(&node, "test", py_test).unwrap();
 
             let py_body = statements_to_ast(vm, body);
-            vm.ctx.set_attr(&node, "body", py_body);
+            vm.set_attr(&node, "body", py_body).unwrap();
 
             let py_orelse = if let Some(orelse) = orelse {
                 statements_to_ast(vm, orelse)
             } else {
                 vm.ctx.none()
             };
-            vm.ctx.set_attr(&node, "orelse", py_orelse);
+            vm.set_attr(&node, "orelse", py_orelse).unwrap();
 
             node
         }
@@ -225,7 +229,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
             let node = create_node(vm, "Expr");
 
             let value = expression_to_ast(vm, expression);
-            vm.ctx.set_attr(&node, "value", value);
+            vm.set_attr(&node, "value", value).unwrap();
 
             node
         }
@@ -236,7 +240,7 @@ fn statement_to_ast(vm: &VirtualMachine, statement: &ast::LocatedStatement) -> P
 
     // set lineno on node:
     let lineno = vm.ctx.new_int(statement.location.get_row());
-    vm.ctx.set_attr(&node, "lineno", lineno);
+    vm.set_attr(&node, "lineno", lineno).unwrap();
 
     node
 }
@@ -255,10 +259,10 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "Call");
 
             let py_func_ast = expression_to_ast(vm, function);
-            vm.ctx.set_attr(&node, "func", py_func_ast);
+            vm.set_attr(&node, "func", py_func_ast).unwrap();
 
             let py_args = expressions_to_ast(vm, args);
-            vm.ctx.set_attr(&node, "args", py_args);
+            vm.set_attr(&node, "args", py_args).unwrap();
 
             node
         }
@@ -266,7 +270,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "BinOp");
 
             let py_a = expression_to_ast(vm, a);
-            vm.ctx.set_attr(&node, "left", py_a);
+            vm.set_attr(&node, "left", py_a).unwrap();
 
             // Operator:
             let str_op = match op {
@@ -285,10 +289,10 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
                 ast::Operator::FloorDiv => "FloorDiv",
             };
             let py_op = vm.ctx.new_str(str_op.to_string());
-            vm.ctx.set_attr(&node, "op", py_op);
+            vm.set_attr(&node, "op", py_op).unwrap();
 
             let py_b = expression_to_ast(vm, b);
-            vm.ctx.set_attr(&node, "right", py_b);
+            vm.set_attr(&node, "right", py_b).unwrap();
             node
         }
         ast::Expression::Unop { op, a } => {
@@ -301,10 +305,10 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
                 ast::UnaryOperator::Pos => "UAdd",
             };
             let py_op = vm.ctx.new_str(str_op.to_string());
-            vm.ctx.set_attr(&node, "op", py_op);
+            vm.set_attr(&node, "op", py_op).unwrap();
 
             let py_a = expression_to_ast(vm, a);
-            vm.ctx.set_attr(&node, "operand", py_a);
+            vm.set_attr(&node, "operand", py_a).unwrap();
 
             node
         }
@@ -315,14 +319,14 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let py_a = expression_to_ast(vm, a);
             let py_b = expression_to_ast(vm, b);
             let py_values = vm.ctx.new_tuple(vec![py_a, py_b]);
-            vm.ctx.set_attr(&node, "values", py_values);
+            vm.set_attr(&node, "values", py_values).unwrap();
 
             let str_op = match op {
                 ast::BooleanOperator::And => "And",
                 ast::BooleanOperator::Or => "Or",
             };
             let py_op = vm.ctx.new_str(str_op.to_string());
-            vm.ctx.set_attr(&node, "op", py_op);
+            vm.set_attr(&node, "op", py_op).unwrap();
 
             node
         }
@@ -330,7 +334,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "Compare");
 
             let py_a = expression_to_ast(vm, &vals[0]);
-            vm.ctx.set_attr(&node, "left", py_a);
+            vm.set_attr(&node, "left", py_a).unwrap();
 
             // Operator:
             let to_operator = |op: &ast::Comparison| match op {
@@ -351,7 +355,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
                     .collect(),
             );
 
-            vm.ctx.set_attr(&node, "ops", py_ops);
+            vm.set_attr(&node, "ops", py_ops).unwrap();
 
             let py_b = vm.ctx.new_list(
                 vals.iter()
@@ -359,7 +363,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
                     .map(|x| expression_to_ast(vm, x))
                     .collect(),
             );
-            vm.ctx.set_attr(&node, "comparators", py_b);
+            vm.set_attr(&node, "comparators", py_b).unwrap();
             node
         }
         ast::Expression::Identifier { name } => {
@@ -367,16 +371,17 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
 
             // Id:
             let py_name = vm.ctx.new_str(name.clone());
-            vm.ctx.set_attr(&node, "id", py_name);
+            vm.set_attr(&node, "id", py_name).unwrap();
             node
         }
         ast::Expression::Lambda { args, body } => {
             let node = create_node(vm, "Lambda");
 
-            vm.ctx.set_attr(&node, "args", parameters_to_ast(vm, args));
+            vm.set_attr(&node, "args", parameters_to_ast(vm, args))
+                .unwrap();
 
             let py_body = expression_to_ast(vm, body);
-            vm.ctx.set_attr(&node, "body", py_body);
+            vm.set_attr(&node, "body", py_body).unwrap();
 
             node
         }
@@ -384,13 +389,13 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "IfExp");
 
             let py_test = expression_to_ast(vm, test);
-            vm.ctx.set_attr(&node, "test", py_test);
+            vm.set_attr(&node, "test", py_test).unwrap();
 
             let py_body = expression_to_ast(vm, body);
-            vm.ctx.set_attr(&node, "body", py_body);
+            vm.set_attr(&node, "body", py_body).unwrap();
 
             let py_orelse = expression_to_ast(vm, orelse);
-            vm.ctx.set_attr(&node, "orelse", py_orelse);
+            vm.set_attr(&node, "orelse", py_orelse).unwrap();
 
             node
         }
@@ -404,28 +409,28 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
                     vm.ctx.new_complex(Complex64::new(*real, *imag))
                 }
             };
-            vm.ctx.set_attr(&node, "n", py_n);
+            vm.set_attr(&node, "n", py_n).unwrap();
 
             node
         }
         ast::Expression::True => {
             let node = create_node(vm, "NameConstant");
 
-            vm.ctx.set_attr(&node, "value", vm.ctx.new_bool(true));
+            vm.set_attr(&node, "value", vm.ctx.new_bool(true)).unwrap();
 
             node
         }
         ast::Expression::False => {
             let node = create_node(vm, "NameConstant");
 
-            vm.ctx.set_attr(&node, "value", vm.ctx.new_bool(false));
+            vm.set_attr(&node, "value", vm.ctx.new_bool(false)).unwrap();
 
             node
         }
         ast::Expression::None => {
             let node = create_node(vm, "NameConstant");
 
-            vm.ctx.set_attr(&node, "value", vm.ctx.none());
+            vm.set_attr(&node, "value", vm.ctx.none()).unwrap();
 
             node
         }
@@ -435,7 +440,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
 
             let elts = elements.iter().map(|e| expression_to_ast(vm, e)).collect();
             let py_elts = vm.ctx.new_list(elts);
-            vm.ctx.set_attr(&node, "elts", py_elts);
+            vm.set_attr(&node, "elts", py_elts).unwrap();
 
             node
         }
@@ -444,7 +449,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
 
             let elts = elements.iter().map(|e| expression_to_ast(vm, e)).collect();
             let py_elts = vm.ctx.new_list(elts);
-            vm.ctx.set_attr(&node, "elts", py_elts);
+            vm.set_attr(&node, "elts", py_elts).unwrap();
 
             node
         }
@@ -453,7 +458,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
 
             let elts = elements.iter().map(|e| expression_to_ast(vm, e)).collect();
             let py_elts = vm.ctx.new_list(elts);
-            vm.ctx.set_attr(&node, "elts", py_elts);
+            vm.set_attr(&node, "elts", py_elts).unwrap();
 
             node
         }
@@ -468,10 +473,10 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             }
 
             let py_keys = vm.ctx.new_list(keys);
-            vm.ctx.set_attr(&node, "keys", py_keys);
+            vm.set_attr(&node, "keys", py_keys).unwrap();
 
             let py_values = vm.ctx.new_list(values);
-            vm.ctx.set_attr(&node, "values", py_values);
+            vm.set_attr(&node, "values", py_values).unwrap();
 
             node
         }
@@ -490,7 +495,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
                 .map(|g| comprehension_to_ast(vm, g))
                 .collect();
             let py_generators = vm.ctx.new_list(g);
-            vm.ctx.set_attr(&node, "generators", py_generators);
+            vm.set_attr(&node, "generators", py_generators).unwrap();
 
             node
         }
@@ -501,7 +506,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
                 Some(value) => expression_to_ast(vm, value),
                 None => vm.ctx.none(),
             };
-            vm.ctx.set_attr(&node, "value", py_value);
+            vm.set_attr(&node, "value", py_value).unwrap();
 
             node
         }
@@ -509,7 +514,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "YieldFrom");
 
             let py_value = expression_to_ast(vm, value);
-            vm.ctx.set_attr(&node, "value", py_value);
+            vm.set_attr(&node, "value", py_value).unwrap();
 
             node
         }
@@ -517,10 +522,10 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "Subscript");
 
             let py_value = expression_to_ast(vm, a);
-            vm.ctx.set_attr(&node, "value", py_value);
+            vm.set_attr(&node, "value", py_value).unwrap();
 
             let py_slice = expression_to_ast(vm, b);
-            vm.ctx.set_attr(&node, "slice", py_slice);
+            vm.set_attr(&node, "slice", py_slice).unwrap();
 
             node
         }
@@ -528,10 +533,10 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "Attribute");
 
             let py_value = expression_to_ast(vm, value);
-            vm.ctx.set_attr(&node, "value", py_value);
+            vm.set_attr(&node, "value", py_value).unwrap();
 
             let py_attr = vm.ctx.new_str(name.to_string());
-            vm.ctx.set_attr(&node, "attr", py_attr);
+            vm.set_attr(&node, "attr", py_attr).unwrap();
 
             node
         }
@@ -539,7 +544,7 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "Starred");
 
             let py_value = expression_to_ast(vm, value);
-            vm.ctx.set_attr(&node, "value", py_value);
+            vm.set_attr(&node, "value", py_value).unwrap();
 
             node
         }
@@ -547,21 +552,22 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
             let node = create_node(vm, "Slice");
 
             let py_value = expressions_to_ast(vm, elements);
-            vm.ctx.set_attr(&node, "bounds", py_value);
+            vm.set_attr(&node, "bounds", py_value).unwrap();
 
             node
         }
         ast::Expression::String { value } => string_to_ast(vm, value),
         ast::Expression::Bytes { value } => {
             let node = create_node(vm, "Bytes");
-            vm.ctx.set_attr(&node, "s", vm.ctx.new_bytes(value.clone()));
+            vm.set_attr(&node, "s", vm.ctx.new_bytes(value.clone()))
+                .unwrap();
             node
         }
     };
 
     // TODO: retrieve correct lineno:
     let lineno = vm.ctx.new_int(1);
-    vm.ctx.set_attr(&node, "lineno", lineno);
+    vm.set_attr(&node, "lineno", lineno).unwrap();
 
     node
 }
@@ -569,12 +575,13 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyObj
 fn parameters_to_ast(vm: &VirtualMachine, args: &ast::Parameters) -> PyObjectRef {
     let node = create_node(vm, "arguments");
 
-    vm.ctx.set_attr(
+    vm.set_attr(
         &node,
         "args",
         vm.ctx
             .new_list(args.args.iter().map(|a| parameter_to_ast(vm, a)).collect()),
-    );
+    )
+    .unwrap();
 
     node
 }
@@ -583,14 +590,14 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyObject
     let node = create_node(vm, "arg");
 
     let py_arg = vm.ctx.new_str(parameter.arg.to_string());
-    vm.ctx.set_attr(&node, "arg", py_arg);
+    vm.set_attr(&node, "arg", py_arg).unwrap();
 
     let py_annotation = if let Some(annotation) = &parameter.annotation {
         expression_to_ast(vm, annotation)
     } else {
         vm.ctx.none()
     };
-    vm.ctx.set_attr(&node, "annotation", py_annotation);
+    vm.set_attr(&node, "annotation", py_annotation).unwrap();
 
     node
 }
@@ -599,13 +606,13 @@ fn comprehension_to_ast(vm: &VirtualMachine, comprehension: &ast::Comprehension)
     let node = create_node(vm, "comprehension");
 
     let py_target = expression_to_ast(vm, &comprehension.target);
-    vm.ctx.set_attr(&node, "target", py_target);
+    vm.set_attr(&node, "target", py_target).unwrap();
 
     let py_iter = expression_to_ast(vm, &comprehension.iter);
-    vm.ctx.set_attr(&node, "iter", py_iter);
+    vm.set_attr(&node, "iter", py_iter).unwrap();
 
     let py_ifs = expressions_to_ast(vm, &comprehension.ifs);
-    vm.ctx.set_attr(&node, "ifs", py_ifs);
+    vm.set_attr(&node, "ifs", py_ifs).unwrap();
 
     node
 }
@@ -614,13 +621,14 @@ fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyObjectRef 
     match string {
         ast::StringGroup::Constant { value } => {
             let node = create_node(vm, "Str");
-            vm.ctx.set_attr(&node, "s", vm.ctx.new_str(value.clone()));
+            vm.set_attr(&node, "s", vm.ctx.new_str(value.clone()))
+                .unwrap();
             node
         }
         ast::StringGroup::FormattedValue { value, .. } => {
             let node = create_node(vm, "FormattedValue");
             let py_value = expression_to_ast(vm, value);
-            vm.ctx.set_attr(&node, "value", py_value);
+            vm.set_attr(&node, "value", py_value).unwrap();
             node
         }
         ast::StringGroup::Joined { values } => {
@@ -631,7 +639,7 @@ fn string_to_ast(vm: &VirtualMachine, string: &ast::StringGroup) -> PyObjectRef 
                     .map(|value| string_to_ast(vm, value))
                     .collect(),
             );
-            vm.ctx.set_attr(&node, "values", py_values);
+            vm.set_attr(&node, "values", py_values).unwrap();
             node
         }
     }
@@ -648,8 +656,10 @@ fn ast_parse(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(ast_node)
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "ast", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "ast", {
         "parse" => ctx.new_rustfunc(ast_parse),
         "Module" => py_class!(ctx, "_ast.Module", ctx.object(), {}),
         "FunctionDef" => py_class!(ctx, "_ast.FunctionDef", ctx.object(), {}),

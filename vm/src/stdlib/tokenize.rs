@@ -8,7 +8,7 @@ use rustpython_parser::lexer;
 
 use crate::function::PyFuncArgs;
 use crate::obj::objstr;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 fn tokenize_tokenize(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -25,8 +25,10 @@ fn tokenize_tokenize(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // TODO: create main function when called with -m
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "tokenize", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "tokenize", {
         "tokenize" => ctx.new_rustfunc(tokenize_tokenize)
     })
 }

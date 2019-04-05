@@ -4,11 +4,13 @@ use rand::distributions::{Distribution, Normal};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "random", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "random", {
         "guass" => ctx.new_rustfunc(random_gauss),
         "normalvariate" => ctx.new_rustfunc(random_normalvariate),
         "random" => ctx.new_rustfunc(random_random),

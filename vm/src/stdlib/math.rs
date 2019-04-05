@@ -8,7 +8,7 @@ use statrs::function::gamma::{gamma, ln_gamma};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 // Helper macro:
@@ -172,8 +172,10 @@ fn math_lgamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "math", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "math", {
         // Number theory functions:
         "fabs" => ctx.new_rustfunc(math_fabs),
         "isfinite" => ctx.new_rustfunc(math_isfinite),
