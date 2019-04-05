@@ -1,7 +1,5 @@
 extern crate rustpython_parser;
 
-use std::error::Error;
-
 use crate::compile;
 use crate::frame::Scope;
 use crate::pyobject::PyResult;
@@ -15,7 +13,7 @@ pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) 
         }
         Err(err) => {
             let syntax_error = vm.context().exceptions.syntax_error.clone();
-            Err(vm.new_exception(syntax_error, err.description().to_string()))
+            Err(vm.new_exception(syntax_error, format!("{}", err)))
         }
     }
 }
