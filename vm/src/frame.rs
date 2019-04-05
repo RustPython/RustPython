@@ -12,7 +12,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict::{self, PyDictRef};
+use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
@@ -390,7 +390,9 @@ impl Frame {
                     let obj = self.pop_value();
                     if *unpack {
                         // Take all key-value pairs from the dict:
-                        let dict_elements = objdict::get_key_value_pairs(&obj);
+                        let dict: PyDictRef =
+                            obj.downcast().expect("Need a dictionary to build a map.");
+                        let dict_elements = dict.get_key_value_pairs();
                         for (key, value) in dict_elements.iter() {
                             map_obj.set_item(key.clone(), value.clone(), vm);
                         }
@@ -612,8 +614,9 @@ impl Frame {
                     }
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
-                            let kw_dict = self.pop_value();
-                            let dict_elements = objdict::get_key_value_pairs(&kw_dict).clone();
+                            let kw_dict: PyDictRef =
+                                self.pop_value().downcast().expect("Kwargs must be a dict.");
+                            let dict_elements = kw_dict.get_key_value_pairs();
                             dict_elements
                                 .into_iter()
                                 .map(|elem| (objstr::get_value(&elem.0), elem.1))

@@ -7,7 +7,9 @@ use serde_json;
 
 use crate::function::PyFuncArgs;
 use crate::obj::{
-    objbool, objdict, objfloat, objint, objsequence,
+    objbool,
+    objdict::PyDictRef,
+    objfloat, objint, objsequence,
     objstr::{self, PyString},
     objtype,
 };
@@ -63,7 +65,8 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             let elements = objsequence::get_elements(self.pyobject);
             serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.dict_type()) {
-            let pairs = objdict::get_key_value_pairs(self.pyobject);
+            let dict: PyDictRef = self.pyobject.clone().downcast().unwrap();
+            let pairs = dict.get_key_value_pairs();
             let mut map = serializer.serialize_map(Some(pairs.len()))?;
             for (key, e) in pairs.iter() {
                 map.serialize_entry(&self.clone_with_object(key), &self.clone_with_object(&e))?;

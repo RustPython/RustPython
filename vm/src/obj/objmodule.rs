@@ -1,5 +1,5 @@
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{DictProtocol, PyContext, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyContext, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
