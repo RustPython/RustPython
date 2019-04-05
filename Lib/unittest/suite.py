@@ -2,8 +2,8 @@
 
 import sys
 
-from . import case
-from . import util
+from unittest.case import TestCase, SkipTest
+from unittest.util import strclass
 
 __unittest = True
 
@@ -24,7 +24,7 @@ class BaseTestSuite(object):
         self.addTests(tests)
 
     def __repr__(self):
-        return "<%s tests=%s>" % (util.strclass(self.__class__), list(self))
+        return "<%s tests=%s>" % (strclass(self.__class__), list(self))
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
@@ -46,7 +46,7 @@ class BaseTestSuite(object):
         if not callable(test):
             raise TypeError("{} is not callable".format(repr(test)))
         if isinstance(test, type) and issubclass(test,
-                                                 (case.TestCase, TestSuite)):
+                                                 (TestCase, TestSuite)):
             raise TypeError("TestCases and TestSuites must be instantiated "
                             "before passing them to addTest()")
         self._tests.append(test)
@@ -165,7 +165,7 @@ class TestSuite(BaseTestSuite):
                 if isinstance(result, _DebugResult):
                     raise
                 currentClass._classSetupFailed = True
-                className = util.strclass(currentClass)
+                className = strclass(currentClass)
                 errorName = 'setUpClass (%s)' % className
                 self._addClassOrModuleLevelException(result, e, errorName)
             finally:
@@ -210,7 +210,7 @@ class TestSuite(BaseTestSuite):
     def _addClassOrModuleLevelException(self, result, exception, errorName):
         error = _ErrorHolder(errorName)
         addSkip = getattr(result, 'addSkip', None)
-        if addSkip is not None and isinstance(exception, case.SkipTest):
+        if addSkip is not None and isinstance(exception, SkipTest):
             addSkip(error, str(exception))
         else:
             result.addError(error, sys.exc_info())
@@ -260,7 +260,7 @@ class TestSuite(BaseTestSuite):
             except Exception as e:
                 if isinstance(result, _DebugResult):
                     raise
-                className = util.strclass(previousClass)
+                className = strclass(previousClass)
                 errorName = 'tearDownClass (%s)' % className
                 self._addClassOrModuleLevelException(result, e, errorName)
             finally:

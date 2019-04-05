@@ -4,7 +4,7 @@ import io
 import sys
 #import traceback
 
-from . import util
+from unittest.util import strclass
 from functools import wraps
 
 __unittest = True
@@ -212,5 +212,5 @@ class TestResult(object):
 
     def __repr__(self):
         return ("<%s run=%i errors=%i failures=%i>" %
-               (util.strclass(self.__class__), self.testsRun, len(self.errors),
+               (strclass(self.__class__), self.testsRun, len(self.errors),
                 len(self.failures)))

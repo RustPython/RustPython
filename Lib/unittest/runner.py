@@ -4,7 +4,7 @@ import sys
 import time
 import warnings
 
-from . import result
+from unittest.result import TestResult
 
 __unittest = True
 

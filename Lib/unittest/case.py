@@ -9,9 +9,9 @@ import warnings
 import collections
 import contextlib
 
-from . import result
-from .util import (strclass, safe_repr, _count_diff_all_purpose,
-                   _count_diff_hashable, _common_shorten_repr)
+from unittest.result import TestResult
+from unittest.util import (strclass, safe_repr, _count_diff_all_purpose,
+                           _count_diff_hashable, _common_shorten_repr)
 
 __unittest = True
 
@@ -400,7 +400,7 @@ class TestCase(object):
         return 1
 
     def defaultTestResult(self):
-        return result.TestResult()
+        return TestResult()
 
     def shortDescription(self):
         """Returns a one-line description of the test, or None if no

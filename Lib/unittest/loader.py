@@ -10,7 +10,9 @@ import warnings
 
 from fnmatch import fnmatch, fnmatchcase
 
-from . import case, suite, util
+from unittest.case import TestCase, SkipTest, skip
+from unittest.suite import TestSuite
+from unittest.util import three_way_cmp
 
 __unittest = True
 
@@ -20,7 +22,7 @@ __unittest = True
 VALID_MODULE_NAME = re.compile(r'[_a-z]\w*\.py$', re.IGNORECASE)
 
 
-class _FailedTest(case.TestCase):
+class _FailedTest(TestCase):
     _testMethodName = None
 
     def __init__(self, method_name, exception):
@@ -50,11 +52,11 @@ def _make_failed_test(methodname, exception, suiteClass, message):
     return suiteClass((test,)), message
 
 def _make_skipped_test(methodname, exception, suiteClass):
-    @case.skip(str(exception))
+    @skip(str(exception))
     def testSkipped(self):
         pass
     attrs = {methodname: testSkipped}
-    TestClass = type("ModuleSkipped", (case.TestCase,), attrs)
+    TestClass = type("ModuleSkipped", (TestCase,), attrs)
     return suiteClass((TestClass(methodname),))
 
 def _jython_aware_splitext(path):
@@ -69,9 +71,9 @@ class TestLoader(object):
     and returning them wrapped in a TestSuite
     """
     testMethodPrefix = 'test'
-    sortTestMethodsUsing = staticmethod(util.three_way_cmp)
+    sortTestMethodsUsing = staticmethod(three_way_cmp)
     testNamePatterns = None
-    suiteClass = suite.TestSuite
+    suiteClass = TestSuite
     _top_level_dir = None
 
     def __init__(self):
@@ -83,7 +85,7 @@ class TestLoader(object):
 
     def loadTestsFromTestCase(self, testCaseClass):
         """Return a suite of all test cases contained in testCaseClass"""
-        if issubclass(testCaseClass, suite.TestSuite):
+        if issubclass(testCaseClass, TestSuite):
             raise TypeError("Test cases should not be derived from "
                             "TestSuite. Maybe you meant to derive from "
                             "TestCase?")
@@ -120,7 +122,7 @@ class TestLoader(object):
         tests = []
         for name in dir(module):
             obj = getattr(module, name)
-            if isinstance(obj, type) and issubclass(obj, case.TestCase):
+            if isinstance(obj, type) and issubclass(obj, TestCase):
                 tests.append(self.loadTestsFromTestCase(obj))
 
         load_tests = getattr(module, 'load_tests', None)
@@ -189,23 +191,23 @@ class TestLoader(object):
 
         if isinstance(obj, types.ModuleType):
             return self.loadTestsFromModule(obj)
-        elif isinstance(obj, type) and issubclass(obj, case.TestCase):
+        elif isinstance(obj, type) and issubclass(obj, TestCase):
             return self.loadTestsFromTestCase(obj)
         elif (isinstance(obj, types.FunctionType) and
               isinstance(parent, type) and
-              issubclass(parent, case.TestCase)):
+              issubclass(parent, TestCase)):
             name = parts[-1]
             inst = parent(name)
             # static methods follow a different path
             if not isinstance(getattr(inst, name), types.FunctionType):
                 return self.suiteClass([inst])
-        elif isinstance(obj, suite.TestSuite):
+        elif isinstance(obj, TestSuite):
             return obj
         if callable(obj):
             test = obj()
-            if isinstance(test, suite.TestSuite):
+            if isinstance(test, TestSuite):
                 return test
-            elif isinstance(test, case.TestCase):
+            elif isinstance(test, TestCase):
                 return self.suiteClass([test])
             else:
                 raise TypeError("calling %s returned %s, not a test" %
@@ -432,7 +434,7 @@ class TestLoader(object):
             name = self._get_name_from_path(full_path)
             try:
                 module = self._get_module_from_name(name)
-            except case.SkipTest as e:
+            except SkipTest as e:
                 return _make_skipped_test(name, e, self.suiteClass), False
             except:
                 error_case, error_message = \
@@ -466,7 +468,7 @@ class TestLoader(object):
             name = self._get_name_from_path(full_path)
             try:
                 package = self._get_module_from_name(name)
-            except case.SkipTest as e:
+            except SkipTest as e:
                 return _make_skipped_test(name, e, self.suiteClass), False
             except:
                 error_case, error_message = \
@@ -501,15 +503,15 @@ def _makeLoader(prefix, sortUsing, suiteClass=None, testNamePatterns=None):
         loader.suiteClass = suiteClass
     return loader
 
-def getTestCaseNames(testCaseClass, prefix, sortUsing=util.three_way_cmp, testNamePatterns=None):
+def getTestCaseNames(testCaseClass, prefix, sortUsing=three_way_cmp, testNamePatterns=None):
     return _makeLoader(prefix, sortUsing, testNamePatterns=testNamePatterns).getTestCaseNames(testCaseClass)
 
-def makeSuite(testCaseClass, prefix='test', sortUsing=util.three_way_cmp,
-              suiteClass=suite.TestSuite):
+def makeSuite(testCaseClass, prefix='test', sortUsing=three_way_cmp,
+              suiteClass=TestSuite):
     return _makeLoader(prefix, sortUsing, suiteClass).loadTestsFromTestCase(
         testCaseClass)
 
-def findTestCases(module, prefix='test', sortUsing=util.three_way_cmp,
-                  suiteClass=suite.TestSuite):
+def findTestCases(module, prefix='test', sortUsing=three_way_cmp,
+                  suiteClass=TestSuite):
     return _makeLoader(prefix, sortUsing, suiteClass).loadTestsFromModule(\
         module)
