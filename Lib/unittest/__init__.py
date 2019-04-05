@@ -61,9 +61,7 @@ from .case import (TestCase, FunctionTestCase, SkipTest, skip, skipIf,
 from .suite import BaseTestSuite, TestSuite
 from .loader import (TestLoader, defaultTestLoader, makeSuite, getTestCaseNames,
                      findTestCases)
-from .main import TestProgram, main
 from .runner import TextTestRunner, TextTestResult
-from .signals import installHandler, registerResult, removeResult, removeHandler
 
 # deprecated
 _TextTestResult = TextTestResult

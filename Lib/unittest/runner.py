@@ -5,7 +5,6 @@ import time
 import warnings
 
 from . import result
-from .signals import registerResult
 
 __unittest = True
 
@@ -151,7 +150,6 @@ class TextTestRunner(object):
     def run(self, test):
         "Run the given test case or test suite."
         result = self._makeResult()
-        registerResult(result)
         result.failfast = self.failfast
         result.buffer = self.buffer
         result.tb_locals = self.tb_locals
