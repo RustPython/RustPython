@@ -206,14 +206,14 @@ impl PyDictRef {
     fn hash(self, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("unhashable type".to_string()))
     }
-}
 
-impl DictProtocol for PyDictRef {
-    fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
+    pub fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
         let key = key.into_pyobject(vm).unwrap();
         self.entries.borrow().contains(vm, &key).unwrap()
     }
+}
 
+impl DictProtocol for PyDictRef {
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef> {
         let key = key.into_pyobject(vm).unwrap();
         self.entries.borrow().get(vm, &key).ok()
