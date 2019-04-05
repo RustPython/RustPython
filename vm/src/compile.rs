@@ -585,6 +585,9 @@ impl Compiler {
         let was_in_function_def = self.in_function_def;
         self.in_loop = false;
         self.in_function_def = true;
+
+        self.prepare_decorators(decorator_list)?;
+
         let mut flags = self.enter_function(name, args)?;
 
         let (new_body, doc_str) = get_doc(body);
@@ -597,8 +600,6 @@ impl Compiler {
         });
         self.emit(Instruction::ReturnValue);
         let code = self.pop_code_object();
-
-        self.prepare_decorators(decorator_list)?;
 
         // Prepare type annotations:
         let mut num_annotations = 0;
