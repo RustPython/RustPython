@@ -913,9 +913,7 @@ impl<T> TypeProtocol for PyRef<T> {
 }
 
 pub trait DictProtocol {
-    fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool;
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef>;
-    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
     fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine);
     fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine);
 }

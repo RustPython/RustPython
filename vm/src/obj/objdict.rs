@@ -13,7 +13,6 @@ use crate::dictdatatype;
 use super::objiter;
 use super::objlist::PyListIterator;
 use super::objstr;
-use super::objtype;
 use crate::obj::objtype::PyClassRef;
 
 pub type DictContentType = dictdatatype::Dict;
@@ -38,14 +37,6 @@ impl PyValue for PyDict {
     }
 }
 
-pub fn get_key_value_pairs(dict: &PyObjectRef) -> Vec<(PyObjectRef, PyObjectRef)> {
-    dict.payload::<PyDict>()
-        .unwrap()
-        .entries
-        .borrow()
-        .get_items()
-}
-
 // Python dict methods:
 impl PyDictRef {
     fn new(
@@ -56,9 +47,10 @@ impl PyDictRef {
     ) -> PyResult<PyDictRef> {
         let dict = vm.ctx.new_dict();
         if let OptionalArg::Present(dict_obj) = dict_obj {
-            if objtype::isinstance(&dict_obj, &vm.ctx.dict_type()) {
-                for (needle, value) in get_key_value_pairs(&dict_obj) {
-                    dict.set_item(needle, value, vm);
+            let dicted: PyResult<PyDictRef> = dict_obj.clone().downcast();
+            if let Ok(dict_obj) = dicted {
+                for (key, value) in dict_obj.get_key_value_pairs() {
+                    dict.set_item(key, value, vm);
                 }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
@@ -71,18 +63,17 @@ impl PyDictRef {
                         None => break,
                     };
                     let elem_iter = objiter::get_iter(vm, &element)?;
-                    let needle =
-                        objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
+                    let key = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                     let value = objiter::get_next_object(vm, &elem_iter)?.ok_or_else(|| err(vm))?;
                     if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                         return Err(err(vm));
                     }
-                    dict.set_item(needle, value, vm);
+                    dict.set_item(key, value, vm);
                 }
             }
         }
-        for (needle, value) in kwargs.into_iter() {
-            dict.set_item(vm.new_str(needle), value, vm);
+        for (key, value) in kwargs.into_iter() {
+            dict.set_item(vm.new_str(key), value, vm);
         }
         Ok(dict)
     }
@@ -97,9 +88,8 @@ impl PyDictRef {
 
     fn repr(self, vm: &VirtualMachine) -> PyResult {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
-            let elements = get_key_value_pairs(self.as_object());
             let mut str_parts = vec![];
-            for (key, value) in elements {
+            for (key, value) in self.get_key_value_pairs() {
                 let key_repr = vm.to_repr(&key)?;
                 let value_repr = vm.to_repr(&value)?;
                 str_parts.push(format!("{}: {}", key_repr.value, value_repr.value));
@@ -176,8 +166,12 @@ impl PyDictRef {
         }
     }
 
-    fn setitem(self, needle: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) {
-        self.set_item(needle, value, vm)
+    pub fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
+        self.entries.borrow().get_items()
+    }
+
+    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) {
+        self.set_item(key, value, vm)
     }
 
     fn getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -212,21 +206,17 @@ impl PyDictRef {
     fn hash(self, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("unhashable type".to_string()))
     }
-}
 
-impl DictProtocol for PyDictRef {
-    fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
+    pub fn contains_key<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> bool {
         let key = key.into_pyobject(vm).unwrap();
         self.entries.borrow().contains(vm, &key).unwrap()
     }
+}
 
+impl DictProtocol for PyDictRef {
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef> {
         let key = key.into_pyobject(vm).unwrap();
         self.entries.borrow().get(vm, &key).ok()
-    }
-
-    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        get_key_value_pairs(self.as_object())
     }
 
     // Item set/get:

@@ -7,6 +7,7 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::obj::{
+    objdict::PyDictRef,
     objfunction::PyFunction,
     objint,
     objstr::{self, PyStringRef},
@@ -72,7 +73,8 @@ fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if let Some(headers) = headers {
         let h = request.headers();
-        for (key, value) in rustpython_vm::obj::objdict::get_key_value_pairs(&headers) {
+        let headers: PyDictRef = headers.downcast().unwrap();
+        for (key, value) in headers.get_key_value_pairs() {
             let key = &vm.to_str(&key)?.value;
             let value = &vm.to_str(&value)?.value;
             h.set(key, value)

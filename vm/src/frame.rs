@@ -12,7 +12,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict::{self, PyDictRef};
+use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
@@ -21,8 +21,8 @@ use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    DictProtocol, IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -390,7 +390,9 @@ impl Frame {
                     let obj = self.pop_value();
                     if *unpack {
                         // Take all key-value pairs from the dict:
-                        let dict_elements = objdict::get_key_value_pairs(&obj);
+                        let dict: PyDictRef =
+                            obj.downcast().expect("Need a dictionary to build a map.");
+                        let dict_elements = dict.get_key_value_pairs();
                         for (key, value) in dict_elements.iter() {
                             map_obj.set_item(key.clone(), value.clone(), vm);
                         }
@@ -612,8 +614,9 @@ impl Frame {
                     }
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
-                            let kw_dict = self.pop_value();
-                            let dict_elements = objdict::get_key_value_pairs(&kw_dict).clone();
+                            let kw_dict: PyDictRef =
+                                self.pop_value().downcast().expect("Kwargs must be a dict.");
+                            let dict_elements = kw_dict.get_key_value_pairs();
                             dict_elements
                                 .into_iter()
                                 .map(|elem| (objstr::get_value(&elem.0), elem.1))
@@ -987,22 +990,18 @@ impl Frame {
         }
     }
 
-    fn subscript(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__getitem__", vec![b])
-    }
-
     fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        vm.call_method(&obj, "__setitem__", vec![idx, value])?;
+        obj.set_item(idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        vm.call_method(&obj, "__delitem__", vec![idx])?;
+        obj.del_item(idx, vm)?;
         Ok(None)
     }
 
@@ -1037,7 +1036,7 @@ impl Frame {
             bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
             // TODO: Subscript should probably have its own op
             bytecode::BinaryOperator::Subscript if inplace => unreachable!(),
-            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
             bytecode::BinaryOperator::Modulo if inplace => vm._imod(a_ref, b_ref),
             bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
             bytecode::BinaryOperator::Lshift if inplace => vm._ilshift(a_ref, b_ref),
