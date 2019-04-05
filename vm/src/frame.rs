@@ -21,8 +21,8 @@ use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    DictProtocol, IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -990,22 +990,18 @@ impl Frame {
         }
     }
 
-    fn subscript(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__getitem__", vec![b])
-    }
-
     fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        vm.call_method(&obj, "__setitem__", vec![idx, value])?;
+        obj.set_item(idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        vm.call_method(&obj, "__delitem__", vec![idx])?;
+        obj.del_item(idx, vm)?;
         Ok(None)
     }
 
@@ -1040,7 +1036,7 @@ impl Frame {
             bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
             // TODO: Subscript should probably have its own op
             bytecode::BinaryOperator::Subscript if inplace => unreachable!(),
-            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
             bytecode::BinaryOperator::Modulo if inplace => vm._imod(a_ref, b_ref),
             bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
             bytecode::BinaryOperator::Lshift if inplace => vm._ilshift(a_ref, b_ref),
