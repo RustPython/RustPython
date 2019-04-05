@@ -3,6 +3,7 @@
 pub mod objbool;
 pub mod objbuiltinfunc;
 pub mod objbytearray;
+pub mod objbyteinner;
 pub mod objbytes;
 pub mod objclassmethod;
 pub mod objcode;
