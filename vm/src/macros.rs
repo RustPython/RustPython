@@ -114,14 +114,21 @@ macro_rules! no_kwargs {
 
 #[macro_export]
 macro_rules! py_module {
-    ( $ctx:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {
-        {
-            let py_mod = $ctx.new_module($module_name, $ctx.new_dict());
-            $(
-                $ctx.set_attr(&py_mod, $name, $value);
-            )*
-            py_mod
-        }
+    ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {{
+        let module = $vm.ctx.new_module($module_name, $vm.ctx.new_dict());
+        $(
+            $vm.set_attr(&module, $name, $value).unwrap();
+        )*
+        module
+    }};
+}
+
+#[macro_export]
+macro_rules! extend_module {
+    ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        $(
+            $vm.set_attr(&$module, $name, $value).unwrap();
+        )*
     }
 }
 
@@ -131,7 +138,7 @@ macro_rules! py_class {
         {
             let py_class = $ctx.new_class($class_name, $class_base);
             $(
-                $ctx.set_attr(&py_class, $name, $value);
+                py_class.set_str_attr($name, $value);
             )*
             py_class
         }
@@ -143,7 +150,7 @@ macro_rules! extend_class {
     ( $ctx:expr, $class:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         let class = $class;
         $(
-            $ctx.set_attr(class, $name, $value);
+            class.set_str_attr($name, $value);
         )*
     }
 }

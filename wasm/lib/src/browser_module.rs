@@ -7,14 +7,13 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::obj::{
+    objdict::PyDictRef,
     objfunction::PyFunction,
     objint,
     objstr::{self, PyStringRef},
     objtype::PyClassRef,
 };
-use rustpython_vm::pyobject::{
-    PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use rustpython_vm::pyobject::{PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use rustpython_vm::VirtualMachine;
 
 use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
@@ -74,7 +73,8 @@ fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     if let Some(headers) = headers {
         let h = request.headers();
-        for (key, value) in rustpython_vm::obj::objdict::get_key_value_pairs(&headers) {
+        let headers: PyDictRef = headers.downcast().unwrap();
+        for (key, value) in headers.get_key_value_pairs() {
             let key = &vm.to_str(&key)?.value;
             let value = &vm.to_str(&value)?.value;
             h.set(key, value)
@@ -348,7 +348,9 @@ fn browser_prompt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(result)
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     let promise = py_class!(ctx, "Promise", ctx.object(), {
         "then" => ctx.new_rustfunc(PyPromise::then),
         "catch" => ctx.new_rustfunc(PyPromise::catch),
@@ -371,7 +373,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "set_attr" => ctx.new_rustfunc(Element::set_attr),
     });
 
-    py_module!(ctx, "browser", {
+    py_module!(vm, "browser", {
         "fetch" => ctx.new_rustfunc(browser_fetch),
         "request_animation_frame" => ctx.new_rustfunc(browser_request_animation_frame),
         "cancel_animation_frame" => ctx.new_rustfunc(browser_cancel_animation_frame),

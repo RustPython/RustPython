@@ -684,34 +684,6 @@ impl PyContext {
         .into_ref()
     }
 
-    // Item set/get:
-    pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
-        if let Some(dict) = obj.payload::<PyDict>() {
-            let key = self.new_str(key.to_string());
-            objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
-        } else {
-            unimplemented!()
-        };
-    }
-
-    pub fn set_attr<'a, T: Into<&'a PyObjectRef>, V: Into<PyObjectRef>>(
-        &'a self,
-        obj: T,
-        attr_name: &str,
-        value: V,
-    ) {
-        let obj = obj.into();
-        if let Some(PyClass { ref attributes, .. }) = obj.payload::<PyClass>() {
-            attributes
-                .borrow_mut()
-                .insert(attr_name.to_string(), value.into());
-        } else if let Some(ref dict) = obj.dict {
-            dict.set_item(self, attr_name, value.into());
-        } else {
-            unimplemented!("set_attr unimplemented for: {:?}", obj);
-        };
-    }
-
     pub fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
         match *value {
             bytecode::Constant::Integer { ref value } => self.new_int(value.clone()),
@@ -941,51 +913,38 @@ impl<T> TypeProtocol for PyRef<T> {
 }
 
 pub trait DictProtocol {
-    fn contains_key(&self, k: &str) -> bool;
-    fn get_item(&self, k: &str) -> Option<PyObjectRef>;
-    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
-    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef);
-    fn del_item(&self, key: &str);
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef>;
+    fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine);
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine);
 }
 
-impl DictProtocol for PyObjectRef {
-    fn contains_key(&self, k: &str) -> bool {
-        if let Some(dict) = self.payload::<PyDict>() {
-            objdict::content_contains_key_str(&dict.entries.borrow(), k)
-        } else {
-            unimplemented!()
-        }
+pub trait ItemProtocol {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+    fn set_item<T: IntoPyObject>(
+        &self,
+        key: T,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult;
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+}
+
+impl ItemProtocol for PyObjectRef {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(self, "__getitem__", key.into_pyobject(vm)?)
     }
 
-    fn get_item(&self, k: &str) -> Option<PyObjectRef> {
-        if let Some(dict) = self.payload::<PyDict>() {
-            objdict::content_get_key_str(&dict.entries.borrow(), k)
-        } else {
-            panic!("TODO {:?}", k)
-        }
+    fn set_item<T: IntoPyObject>(
+        &self,
+        key: T,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        vm.call_method(self, "__setitem__", vec![key.into_pyobject(vm)?, value])
     }
 
-    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        if self.payload_is::<PyDict>() {
-            objdict::get_key_value_pairs(self)
-        } else {
-            panic!("TODO")
-        }
-    }
-
-    // Item set/get:
-    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
-        if let Some(dict) = self.payload::<PyDict>() {
-            let key = ctx.new_str(key.to_string());
-            objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
-        } else {
-            panic!("TODO {:?}", self);
-        }
-    }
-
-    fn del_item(&self, key: &str) {
-        let mut elements = objdict::get_mut_elements(self);
-        elements.remove(key).unwrap();
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(self, "__delitem__", key.into_pyobject(vm)?)
     }
 }
 
@@ -1299,7 +1258,7 @@ pub trait PyClassImpl: PyClassDef {
     fn extend_class(ctx: &PyContext, class: &PyClassRef) {
         Self::impl_extend_class(ctx, class);
         if let Some(doc) = Self::DOC {
-            ctx.set_attr(class, "__doc__", ctx.new_str(doc.into()));
+            class.set_str_attr("__doc__", ctx.new_str(doc.into()));
         }
     }
 

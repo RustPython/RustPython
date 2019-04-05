@@ -124,7 +124,7 @@ fn super_new(
     } else {
         let frame = vm.current_frame().expect("no current frame for super()");
         if let Some(first_arg) = frame.code.arg_names.get(0) {
-            match vm.get_locals().get_item(first_arg) {
+            match vm.get_locals().get_item(first_arg, vm) {
                 Some(obj) => obj.clone(),
                 _ => {
                     return Err(vm

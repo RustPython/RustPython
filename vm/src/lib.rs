@@ -44,6 +44,7 @@ pub mod macros;
 mod builtins;
 pub mod bytecode;
 pub mod compile;
+mod dictdatatype;
 pub mod error;
 pub mod eval;
 mod exceptions;

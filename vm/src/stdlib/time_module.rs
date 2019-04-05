@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 fn time_sleep(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -32,8 +32,10 @@ fn time_time(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(value)
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "time", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "time", {
         "sleep" => ctx.new_rustfunc(time_sleep),
         "time" => ctx.new_rustfunc(time_time)
     })

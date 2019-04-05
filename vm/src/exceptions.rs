@@ -13,8 +13,8 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.new_str("No msg".to_string())
     };
     let traceback = vm.ctx.new_list(Vec::new());
-    vm.ctx.set_attr(&zelf, "msg", msg);
-    vm.ctx.set_attr(&zelf, "__traceback__", traceback);
+    vm.set_attr(&zelf, "msg", msg)?;
+    vm.set_attr(&zelf, "__traceback__", traceback)?;
     Ok(vm.get_none())
 }
 

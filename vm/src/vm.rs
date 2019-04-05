@@ -58,18 +58,22 @@ impl VirtualMachine {
         let ctx = PyContext::new();
 
         // Hard-core modules:
-        let builtins = builtins::make_module(&ctx);
-        let sysmod = sysmodule::make_module(&ctx, builtins.clone());
+        let builtins = ctx.new_module("builtins", ctx.new_dict());
+        let sysmod = ctx.new_module("sys", ctx.new_dict());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
-        VirtualMachine {
-            builtins,
-            sys_module: sysmod,
+        let vm = VirtualMachine {
+            builtins: builtins.clone(),
+            sys_module: sysmod.clone(),
             stdlib_inits,
             ctx,
             frames: RefCell::new(vec![]),
             wasm_id: None,
-        }
+        };
+
+        builtins::make_module(&vm, builtins.clone());
+        sysmodule::make_module(&vm, sysmod, builtins);
+        vm
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
@@ -419,7 +423,7 @@ impl VirtualMachine {
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
             let arg = &args.args[i];
-            locals.set_item(&self.ctx, arg_name, arg.clone());
+            locals.set_item(arg_name, arg.clone(), self);
         }
 
         // Pack other positional arguments in to *args:
@@ -432,7 +436,7 @@ impl VirtualMachine {
                 }
                 let vararg_value = self.ctx.new_tuple(last_args);
 
-                locals.set_item(&self.ctx, vararg_name, vararg_value);
+                locals.set_item(vararg_name, vararg_value, self);
             }
             bytecode::Varargs::Unnamed => {
                 // just ignore the rest of the args
@@ -452,7 +456,7 @@ impl VirtualMachine {
         let kwargs = match code_object.varkeywords {
             bytecode::Varargs::Named(ref kwargs_name) => {
                 let d = self.ctx.new_dict();
-                locals.set_item(&self.ctx, kwargs_name, d.as_object().clone());
+                locals.set_item(kwargs_name, d.as_object().clone(), self);
                 Some(d)
             }
             bytecode::Varargs::Unnamed => Some(self.ctx.new_dict()),
@@ -464,15 +468,15 @@ impl VirtualMachine {
             // Check if we have a parameter with this name:
             if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
             {
-                if locals.contains_key(&name) {
+                if locals.contains_key(&name, self) {
                     return Err(
                         self.new_type_error(format!("Got multiple values for argument '{}'", name))
                     );
                 }
 
-                locals.set_item(&self.ctx, &name, value);
+                locals.set_item(&name, value, self);
             } else if let Some(d) = &kwargs {
-                d.set_item(&self.ctx, &name, value);
+                d.set_item(&name, value, self);
             } else {
                 return Err(
                     self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
@@ -499,7 +503,7 @@ impl VirtualMachine {
             let mut missing = vec![];
             for i in 0..required_args {
                 let variable_name = &code_object.arg_names[i];
-                if !locals.contains_key(variable_name) {
+                if !locals.contains_key(variable_name, self) {
                     missing.push(variable_name)
                 }
             }
@@ -515,12 +519,8 @@ impl VirtualMachine {
             // the default if we don't already have a value
             for (default_index, i) in (required_args..nexpected_args).enumerate() {
                 let arg_name = &code_object.arg_names[i];
-                if !locals.contains_key(arg_name) {
-                    locals.set_item(
-                        &self.ctx,
-                        arg_name,
-                        available_defaults[default_index].clone(),
-                    );
+                if !locals.contains_key(arg_name, self) {
+                    locals.set_item(arg_name, available_defaults[default_index].clone(), self);
                 }
             }
         };
@@ -528,7 +528,7 @@ impl VirtualMachine {
         // Check if kw only arguments are all present:
         let kwdefs: HashMap<String, String> = HashMap::new();
         for arg_name in &code_object.kwonlyarg_names {
-            if !locals.contains_key(arg_name) {
+            if !locals.contains_key(arg_name, self) {
                 if kwdefs.contains_key(arg_name) {
                     // If not yet specified, take the default value
                     unimplemented!();
@@ -568,13 +568,17 @@ impl VirtualMachine {
         self.call_method(&obj, "__getattribute__", vec![attr_name.into_object()])
     }
 
-    pub fn set_attr(
-        &self,
-        obj: &PyObjectRef,
-        attr_name: PyObjectRef,
-        attr_value: PyObjectRef,
-    ) -> PyResult {
-        self.call_method(&obj, "__setattr__", vec![attr_name, attr_value])
+    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
+    where
+        K: TryIntoRef<PyString>,
+        V: Into<PyObjectRef>,
+    {
+        let attr_name = attr_name.try_into_ref(self)?;
+        self.call_method(
+            obj,
+            "__setattr__",
+            vec![attr_name.into_object(), attr_value.into()],
+        )
     }
 
     pub fn del_attr(&self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult<()> {

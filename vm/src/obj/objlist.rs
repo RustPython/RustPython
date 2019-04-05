@@ -164,6 +164,10 @@ impl PyListRef {
         Ok(s)
     }
 
+    fn hash(self, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("unhashable type".to_string()))
+    }
+
     fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
         let new_elements = seq_mul(&self.elements.borrow(), counter);
         vm.ctx.new_list(new_elements)
@@ -474,6 +478,7 @@ pub fn init(context: &PyContext) {
         "__len__" => context.new_rustfunc(PyListRef::len),
         "__new__" => context.new_rustfunc(list_new),
         "__repr__" => context.new_rustfunc(PyListRef::repr),
+        "__hash__" => context.new_rustfunc(PyListRef::hash),
         "__doc__" => context.new_str(list_doc.to_string()),
         "append" => context.new_rustfunc(PyListRef::append),
         "clear" => context.new_rustfunc(PyListRef::clear),

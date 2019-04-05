@@ -10,9 +10,7 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objsequence::get_elements;
 use crate::obj::objstr;
-use crate::pyobject::{
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
-};
+use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objtype::PyClassRef;
@@ -411,7 +409,9 @@ fn get_addr_tuple(vm: &VirtualMachine, addr: SocketAddr) -> PyResult {
     Ok(vm.ctx.new_tuple(vec![ip, port]))
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     let socket = py_class!(ctx, "socket", ctx.object(), {
          "__new__" => ctx.new_rustfunc(socket_new),
          "connect" => ctx.new_rustfunc(socket_connect),
@@ -426,7 +426,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
          "recvfrom" => ctx.new_rustfunc(socket_recvfrom),
     });
 
-    py_module!(ctx, "socket", {
+    py_module!(vm, "socket", {
         "AF_INET" => ctx.new_int(AddressFamily::Inet as i32),
         "SOCK_STREAM" => ctx.new_int(SocketKind::Stream as i32),
          "SOCK_DGRAM" => ctx.new_int(SocketKind::Dgram as i32),

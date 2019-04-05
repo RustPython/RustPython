@@ -27,7 +27,7 @@ TEST_DIRS = {
 }
 CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'py_code_object'))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
-
+RUSTPYTHON_LIB_DIR = os.path.abspath(os.path.join(ROOT_DIR, "Lib"))
 
 @contextlib.contextmanager
 def pushd(path):
@@ -73,6 +73,7 @@ def run_via_rustpython(filename, test_type):
     env = os.environ.copy()
     env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
     env['RUST_BACKTRACE'] = '1'
+    env['PYTHONPATH'] = RUSTPYTHON_LIB_DIR
 
     target = 'release'
     if env.get('CODE_COVERAGE', 'false') == 'true':

@@ -118,7 +118,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
          }| {
             let constructor_fn = kind.to_ctx_constructor_fn();
             quote! {
-                ctx.set_attr(class, #py_name, ctx.#constructor_fn(Self::#fn_name));
+                class.set_str_attr(#py_name, ctx.#constructor_fn(Self::#fn_name));
             }
         },
     );

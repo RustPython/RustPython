@@ -6,12 +6,14 @@ use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{Either, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
-use super::objslice::PySliceRef;
+use super::objslice::{PySlice, PySliceRef};
 use super::objtype::PyClassRef;
 
 #[derive(Debug, Clone)]
@@ -261,16 +263,16 @@ impl PyRangeRef {
         }
     }
 
-    fn getitem(self, subscript: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
         match subscript {
-            Either::A(index) => {
+            RangeIndex::Int(index) => {
                 if let Some(value) = self.get(index.as_bigint()) {
                     Ok(PyInt::new(value).into_ref(vm).into_object())
                 } else {
                     Err(vm.new_index_error("range object index out of range".to_string()))
                 }
             }
-            Either::B(slice) => {
+            RangeIndex::Slice(slice) => {
                 let new_start = if let Some(int) = slice.start.as_ref() {
                     if let Some(i) = self.get(int) {
                         PyInt::new(i).into_ref(vm)
@@ -347,5 +349,23 @@ impl PyRangeIteratorRef {
 
     fn iter(self, _vm: &VirtualMachine) -> Self {
         self
+    }
+}
+
+pub enum RangeIndex {
+    Int(PyIntRef),
+    Slice(PySliceRef),
+}
+
+impl TryFromObject for RangeIndex {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match_class!(obj,
+            i @ PyInt => Ok(RangeIndex::Int(i)),
+            s @ PySlice => Ok(RangeIndex::Slice(s)),
+            obj => Err(vm.new_type_error(format!(
+                "sequence indices be integers or slices, not {}",
+                obj.class(),
+            )))
+        )
     }
 }

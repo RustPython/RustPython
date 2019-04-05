@@ -1,3 +1,5 @@
+from testutils import assertRaises
+
 def dict_eq(d1, d2):
     return (all(k in d2 and d1[k] == d2[k] for k in d1)
             and all(k in d1 and d1[k] == d2[k] for k in d2))
@@ -21,16 +23,60 @@ assert len(a) == 0
 a = {'a': 5, 'b': 6}
 res = set()
 for value in a.values():
-	res.add(value)
+        res.add(value)
 assert res == set([5,6])
 
 count = 0
 for (key, value) in a.items():
-	assert a[key] == value
-	count += 1
+        assert a[key] == value
+        count += 1
 assert count == len(a)
 
 res = set()
 for key in a.keys():
-	res.add(key)
+        res.add(key)
 assert res == set(['a','b'])
+
+x = {}
+x[1] = 1
+assert x[1] == 1
+
+
+x[7] = 7
+x[2] = 2
+x[(5, 6)] = 5
+
+with assertRaises(KeyError):
+    x["not here"]
+
+with assertRaises(TypeError):
+    x[[]] # Unhashable type.
+
+x["here"] = "here"
+assert x.get("not here", "default") == "default"
+assert x.get("here", "default") == "here"
+assert x.get("not here") == None
+
+# An object that hashes to the same value always, and compares equal if any its values match.
+class Hashable(object):
+    def __init__(self, *args):
+        self.values = args
+    def __hash__(self):
+        return 1
+    def __eq__(self, other):
+        for x in self.values:
+            for y in other.values:
+                if x == y:
+                    return True
+        return False
+
+x = {}
+x[Hashable(1,2)] = 8
+
+assert x[Hashable(1,2)] == 8
+assert x[Hashable(3,1)] == 8
+
+x[Hashable(8)] = 19
+x[Hashable(19,8)] = 1
+assert x[Hashable(8)] == 1
+assert len(x) == 2
