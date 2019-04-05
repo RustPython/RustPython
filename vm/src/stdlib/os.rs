@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 
 use num_traits::cast::ToPrimitive;
 
@@ -113,6 +113,25 @@ fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_os_error(msg))
 }
 
+fn os_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(fd, Some(vm.ctx.int_type())), (n, Some(vm.ctx.int_type()))]
+    );
+
+    let mut buffer = vec![0u8; objint::get_value(n).to_usize().unwrap()];
+    let mut file = rust_file(objint::get_value(fd).to_i64().unwrap());
+    match file.read_exact(&mut buffer) {
+        Ok(_) => (),
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
+    };
+
+    // Avoid closing the fd
+    raw_file_number(file);
+    Ok(vm.ctx.new_bytes(buffer))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -126,6 +145,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),
+        "read" => ctx.new_rustfunc(os_read),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
