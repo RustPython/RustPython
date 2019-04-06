@@ -523,8 +523,8 @@ impl VirtualMachine {
         for arg_name in &code_object.kwonlyarg_names {
             if !locals.contains_key(arg_name, self) {
                 if let Some(kw_only_defaults) = kw_only_defaults {
-                    if let Some(default) = kw_only_defaults.get_item(arg_name, self) {
-                        locals.set_item(arg_name, default, self);
+                    if let Some(default) = kw_only_defaults.get_item_option(arg_name, self)? {
+                        locals.set_item(arg_name, default, self)?;
                         continue;
                     }
                 }
