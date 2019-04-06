@@ -3,7 +3,7 @@ use std::{env, mem};
 
 use crate::frame::FrameRef;
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{DictProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 /*
@@ -139,6 +139,6 @@ settrace() -- set the global debug tracing function
       "modules" => modules.clone(),
     });
 
-    modules.set_item("sys", module.clone(), vm);
-    modules.set_item("builtins", builtins.clone(), vm);
+    modules.set_item("sys", module.clone(), vm).unwrap();
+    modules.set_item("builtins", builtins.clone(), vm).unwrap();
 }

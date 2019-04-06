@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use crate::compile;
 use crate::frame::Scope;
 use crate::obj::{objsequence, objstr};
-use crate::pyobject::{DictProtocol, ItemProtocol, PyResult};
+use crate::pyobject::{ItemProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
@@ -39,7 +39,7 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
     // trace!("Code object: {:?}", code_obj);
 
     let attrs = vm.ctx.new_dict();
-    attrs.set_item("__name__", vm.new_str(module.to_string()), vm);
+    attrs.set_item("__name__", vm.new_str(module.to_string()), vm)?;
     vm.run_code_obj(code_obj, Scope::new(None, attrs.clone()))?;
     Ok(vm.ctx.new_module(module, attrs))
 }

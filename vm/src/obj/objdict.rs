@@ -3,8 +3,7 @@ use std::fmt;
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    DictProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue,
+    IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -174,8 +173,8 @@ impl PyDictRef {
         self.entries.borrow().get_items()
     }
 
-    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) {
-        self.set_item(key, value, vm)
+    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.entries.borrow_mut().insert(vm, &key, value)
     }
 
     fn getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -223,21 +222,26 @@ impl PyDictRef {
     }
 }
 
-impl DictProtocol for PyDictRef {
-    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let key = key.into_pyobject(vm).unwrap();
-        self.entries.borrow().get(vm, &key).unwrap()
+impl ItemProtocol for PyDictRef {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(self.as_object(), "__getitem__", key.into_pyobject(vm)?)
     }
 
-    // Item set/get:
-    fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) {
-        let key = key.into_pyobject(vm).unwrap();
-        self.entries.borrow_mut().insert(vm, &key, value).unwrap()
+    fn set_item<T: IntoPyObject>(
+        &self,
+        key: T,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        vm.call_method(
+            self.as_object(),
+            "__setitem__",
+            vec![key.into_pyobject(vm)?, value],
+        )
     }
 
-    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) {
-        let key = key.into_pyobject(vm).unwrap();
-        self.entries.borrow_mut().delete(vm, &key).unwrap();
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(self.as_object(), "__delitem__", key.into_pyobject(vm)?)
     }
 }
 

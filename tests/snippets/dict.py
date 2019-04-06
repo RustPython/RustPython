@@ -66,6 +66,8 @@ assert type(x) == LengthDict
 assert x['word'] == 4
 assert x.get('word') is None
 
+assert 5 == eval("a + word", LengthDict())
+
 # An object that hashes to the same value always, and compares equal if any its values match.
 class Hashable(object):
     def __init__(self, *args):
