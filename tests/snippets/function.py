@@ -41,3 +41,17 @@ def f4():
     pass
 
 assert f4.__doc__ == "test4"
+
+
+def revdocstr(f):
+    d = f.__doc__
+    d = d + 'w00t'
+    f.__doc__ = d
+    return f
+
+@revdocstr
+def f5():
+    """abc"""
+
+assert f5.__doc__ == 'abcw00t', f5.__doc__
+
