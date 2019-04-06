@@ -183,13 +183,15 @@ impl PyDictRef {
     }
 
     fn inner_getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match self.entries.borrow().get(vm, &key)? {
-            Some(value) => Ok(value),
-            None => {
-                let key_repr = vm.to_pystr(&key)?;
-                Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
-            }
+        if let Some(value) = self.entries.borrow().get(vm, &key)? {
+            return Ok(value);
         }
+
+        if let Ok(method) = vm.get_method(self.clone().into_object(), "__missing__") {
+            return vm.invoke(method, vec![key]);
+        }
+
+        Err(vm.new_key_error(format!("Key not found: {}", vm.to_pystr(&key)?)))
     }
 
     fn get(
