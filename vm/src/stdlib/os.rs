@@ -142,40 +142,20 @@ fn os_write(fd: PyIntRef, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_int(written))
 }
 
-fn os_remove(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::remove_file(&path.value) {
-        Ok(_) => (),
-        Err(s) => return Err(vm.new_os_error(s.to_string())),
-    }
-
-    Ok(vm.get_none())
+fn os_remove(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::remove_file(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
-fn os_mkdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::create_dir(&path.value) {
-        Ok(_) => (),
-        Err(s) => return Err(vm.new_os_error(s.to_string())),
-    }
-
-    Ok(vm.get_none())
+fn os_mkdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::create_dir(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
-fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::create_dir_all(&path.value) {
-        Ok(_) => (),
-        Err(s) => return Err(vm.new_os_error(s.to_string())),
-    }
-
-    Ok(vm.get_none())
+fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::create_dir_all(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
-fn os_rmdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::remove_dir(&path.value) {
-        Ok(_) => (),
-        Err(s) => return Err(vm.new_os_error(s.to_string())),
-    }
-
-    Ok(vm.get_none())
+fn os_rmdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::remove_dir(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
 fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
