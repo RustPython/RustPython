@@ -422,8 +422,8 @@ impl Compiler {
         name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, CompileError> {
-        let have_kwargs = !args.defaults.is_empty();
-        if have_kwargs {
+        let have_defaults = !args.defaults.is_empty();
+        if have_defaults {
             // Construct a tuple:
             let size = args.defaults.len();
             for element in &args.defaults {
@@ -431,6 +431,25 @@ impl Compiler {
             }
             self.emit(Instruction::BuildTuple {
                 size,
+                unpack: false,
+            });
+        }
+
+        let mut num_kw_only_defaults = 0;
+        for (kw, default) in args.kwonlyargs.iter().zip(&args.kw_defaults) {
+            if let Some(default) = default {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: kw.arg.clone(),
+                    },
+                });
+                self.compile_expression(default)?;
+                num_kw_only_defaults += 1;
+            }
+        }
+        if num_kw_only_defaults > 0 {
+            self.emit(Instruction::BuildMap {
+                size: num_kw_only_defaults,
                 unpack: false,
             });
         }
@@ -447,8 +466,11 @@ impl Compiler {
         ));
 
         let mut flags = bytecode::FunctionOpArg::empty();
-        if have_kwargs {
+        if have_defaults {
             flags |= bytecode::FunctionOpArg::HAS_DEFAULTS;
+        }
+        if num_kw_only_defaults > 0 {
+            flags |= bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS;
         }
 
         Ok(flags)

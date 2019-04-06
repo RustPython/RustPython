@@ -1,5 +1,7 @@
 use crate::frame::Scope;
 use crate::obj::objcode::PyCodeRef;
+use crate::obj::objdict::PyDictRef;
+use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
@@ -11,15 +13,22 @@ pub struct PyFunction {
     // TODO: these shouldn't be public
     pub code: PyCodeRef,
     pub scope: Scope,
-    pub defaults: PyObjectRef,
+    pub defaults: Option<PyTupleRef>,
+    pub kw_only_defaults: Option<PyDictRef>,
 }
 
 impl PyFunction {
-    pub fn new(code: PyCodeRef, scope: Scope, defaults: PyObjectRef) -> Self {
+    pub fn new(
+        code: PyCodeRef,
+        scope: Scope,
+        defaults: Option<PyTupleRef>,
+        kw_only_defaults: Option<PyDictRef>,
+    ) -> Self {
         PyFunction {
             code,
             scope,
             defaults,
+            kw_only_defaults,
         }
     }
 }
