@@ -17,7 +17,7 @@ use super::objtype::PyClassRef;
 pub struct PyBytes {
     value: Vec<u8>,
 }
-type PyBytesRef = PyRef<PyBytes>;
+pub type PyBytesRef = PyRef<PyBytes>;
 
 impl PyBytes {
     pub fn new(data: Vec<u8>) -> Self {

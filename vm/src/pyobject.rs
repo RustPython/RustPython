@@ -912,12 +912,6 @@ impl<T> TypeProtocol for PyRef<T> {
     }
 }
 
-pub trait DictProtocol {
-    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef>;
-    fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine);
-    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine);
-}
-
 pub trait ItemProtocol {
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
     fn set_item<T: IntoPyObject>(
@@ -927,6 +921,22 @@ pub trait ItemProtocol {
         vm: &VirtualMachine,
     ) -> PyResult;
     fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+    fn get_item_option<T: IntoPyObject>(
+        &self,
+        key: T,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        match self.get_item(key, vm) {
+            Ok(value) => Ok(Some(value)),
+            Err(exc) => {
+                if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    Ok(None)
+                } else {
+                    Err(exc)
+                }
+            }
+        }
+    }
 }
 
 impl ItemProtocol for PyObjectRef {

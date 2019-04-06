@@ -24,29 +24,32 @@ pub Top: ast::Top = {
 
 Program: ast::Program = {
     <lines:FileLine*> => ast::Program {
-        statements: Vec::from_iter(lines.into_iter().filter_map(|e| e))
+        statements: Vec::from_iter(lines.into_iter().flatten())
     },
 };
 
 // A file line either has a declaration, or an empty newline:
-FileLine: Option<ast::LocatedStatement> = {
-    <s:Statement> => Some(s),
-    "\n" => None,
+FileLine: Vec<ast::LocatedStatement> = {
+    Statement,
+    "\n" => vec![],
 };
 
 Suite: Vec<ast::LocatedStatement> = {
-    <s:SimpleStatement> => vec![s],
-    "\n" indent <s:Statement+> dedent => s,
-};
-
-Statement: ast::LocatedStatement = {
     SimpleStatement,
-    CompoundStatement,
+    "\n" indent <s:Statement+> dedent => s.into_iter().flatten().collect(),
 };
 
-SimpleStatement: ast::LocatedStatement = {
-    <s:SmallStatement> "\n" => s,
-    <s:SmallStatement> ";" => s,
+Statement: Vec<ast::LocatedStatement> = {
+    SimpleStatement,
+    <s:CompoundStatement> => vec![s],
+};
+
+SimpleStatement: Vec<ast::LocatedStatement> = {
+    <s1:SmallStatement> <s2:(";" SmallStatement)*> ";"? "\n" => {
+        let mut statements = vec![s1];
+        statements.extend(s2.into_iter().map(|e| e.1));
+        statements
+    }
 };
 
 SmallStatement: ast::LocatedStatement = {
@@ -899,7 +902,14 @@ ArgumentList: (Vec<ast::Expression>, Vec<ast::Keyword>) = {
                     keywords.push(ast::Keyword { name: n, value: value });
                 },
                 None => {
-                    if keywords.len() > 0 {
+                    // Allow starred args after keyword arguments.
+                    let is_starred = if let ast::Expression::Starred { .. } = &value {
+                        true
+                    } else {
+                        false
+                    };
+
+                    if keywords.len() > 0 && !is_starred {
                         panic!("positional argument follows keyword argument {:?}", keywords);
                     };
                     args.push(value);

@@ -30,7 +30,7 @@ use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
+    IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
 use crate::stdlib;
@@ -423,7 +423,7 @@ impl VirtualMachine {
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
             let arg = &args.args[i];
-            locals.set_item(arg_name, arg.clone(), self);
+            locals.set_item(arg_name, arg.clone(), self)?;
         }
 
         // Pack other positional arguments in to *args:
@@ -436,7 +436,7 @@ impl VirtualMachine {
                 }
                 let vararg_value = self.ctx.new_tuple(last_args);
 
-                locals.set_item(vararg_name, vararg_value, self);
+                locals.set_item(vararg_name, vararg_value, self)?;
             }
             bytecode::Varargs::Unnamed => {
                 // just ignore the rest of the args
@@ -456,7 +456,7 @@ impl VirtualMachine {
         let kwargs = match code_object.varkeywords {
             bytecode::Varargs::Named(ref kwargs_name) => {
                 let d = self.ctx.new_dict();
-                locals.set_item(kwargs_name, d.as_object().clone(), self);
+                locals.set_item(kwargs_name, d.as_object().clone(), self)?;
                 Some(d)
             }
             bytecode::Varargs::Unnamed => Some(self.ctx.new_dict()),
@@ -474,9 +474,9 @@ impl VirtualMachine {
                     );
                 }
 
-                locals.set_item(&name, value, self);
+                locals.set_item(&name, value, self)?;
             } else if let Some(d) = &kwargs {
-                d.set_item(&name, value, self);
+                d.set_item(&name, value, self)?;
             } else {
                 return Err(
                     self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
@@ -520,7 +520,7 @@ impl VirtualMachine {
             for (default_index, i) in (required_args..nexpected_args).enumerate() {
                 let arg_name = &code_object.arg_names[i];
                 if !locals.contains_key(arg_name, self) {
-                    locals.set_item(arg_name, available_defaults[default_index].clone(), self);
+                    locals.set_item(arg_name, available_defaults[default_index].clone(), self)?;
                 }
             }
         };

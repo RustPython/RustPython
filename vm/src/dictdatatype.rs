@@ -76,16 +76,15 @@ impl Dict {
     }
 
     /// Retrieve a key
-    pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult {
+    pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<Option<PyObjectRef>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             if let Some(entry) = &self.entries[index] {
-                Ok(entry.value.clone())
+                Ok(Some(entry.value.clone()))
             } else {
                 panic!("Lookup returned invalid index into entries!");
             }
         } else {
-            let key_repr = vm.to_pystr(key)?;
-            Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
+            Ok(None)
         }
     }
 

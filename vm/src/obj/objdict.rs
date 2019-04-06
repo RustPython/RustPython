@@ -3,8 +3,7 @@ use std::fmt;
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    DictProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef,
-    PyResult, PyValue,
+    IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -40,17 +39,18 @@ impl PyValue for PyDict {
 // Python dict methods:
 impl PyDictRef {
     fn new(
-        _class: PyClassRef, // TODO Support subclasses of int.
+        class: PyClassRef,
         dict_obj: OptionalArg<PyObjectRef>,
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyDictRef> {
-        let dict = vm.ctx.new_dict();
+        let mut dict = DictContentType::default();
+
         if let OptionalArg::Present(dict_obj) = dict_obj {
             let dicted: PyResult<PyDictRef> = dict_obj.clone().downcast();
             if let Ok(dict_obj) = dicted {
                 for (key, value) in dict_obj.get_key_value_pairs() {
-                    dict.set_item(key, value, vm);
+                    dict.insert(vm, &key, value)?;
                 }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
@@ -68,14 +68,17 @@ impl PyDictRef {
                     if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                         return Err(err(vm));
                     }
-                    dict.set_item(key, value, vm);
+                    dict.insert(vm, &key, value)?;
                 }
             }
         }
         for (key, value) in kwargs.into_iter() {
-            dict.set_item(vm.new_str(key), value, vm);
+            dict.insert(vm, &vm.new_str(key), value)?;
         }
-        Ok(dict)
+        PyDict {
+            entries: RefCell::new(dict),
+        }
+        .into_ref_with_type(vm, class)
     }
 
     fn bool(self, _vm: &VirtualMachine) -> bool {
@@ -86,7 +89,7 @@ impl PyDictRef {
         self.entries.borrow().len()
     }
 
-    fn repr(self, vm: &VirtualMachine) -> PyResult {
+    fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             let mut str_parts = vec![];
             for (key, value) in self.get_key_value_pairs() {
@@ -99,14 +102,14 @@ impl PyDictRef {
         } else {
             "{...}".to_string()
         };
-        Ok(vm.new_str(s))
+        Ok(s)
     }
 
     fn contains(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.entries.borrow().contains(vm, &key)
     }
 
-    fn delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn inner_delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.entries.borrow_mut().delete(vm, &key)
     }
 
@@ -170,12 +173,25 @@ impl PyDictRef {
         self.entries.borrow().get_items()
     }
 
-    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) {
-        self.set_item(key, value, vm)
+    fn inner_setitem(
+        self,
+        key: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.entries.borrow_mut().insert(vm, &key, value)
     }
 
-    fn getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.entries.borrow().get(vm, &key)
+    fn inner_getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(value) = self.entries.borrow().get(vm, &key)? {
+            return Ok(value);
+        }
+
+        if let Ok(method) = vm.get_method(self.clone().into_object(), "__missing__") {
+            return vm.invoke(method, vec![key]);
+        }
+
+        Err(vm.new_key_error(format!("Key not found: {}", vm.to_pystr(&key)?)))
     }
 
     fn get(
@@ -183,12 +199,12 @@ impl PyDictRef {
         key: PyObjectRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyObjectRef {
-        match self.into_object().get_item(key, vm) {
-            Ok(value) => value,
-            Err(_) => match default {
-                OptionalArg::Present(value) => value,
-                OptionalArg::Missing => vm.ctx.none(),
+    ) -> PyResult {
+        match self.entries.borrow().get(vm, &key)? {
+            Some(value) => Ok(value),
+            None => match default {
+                OptionalArg::Present(value) => Ok(value),
+                OptionalArg::Missing => Ok(vm.ctx.none()),
             },
         }
     }
@@ -213,21 +229,22 @@ impl PyDictRef {
     }
 }
 
-impl DictProtocol for PyDictRef {
-    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let key = key.into_pyobject(vm).unwrap();
-        self.entries.borrow().get(vm, &key).ok()
+impl ItemProtocol for PyDictRef {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        self.as_object().get_item(key, vm)
     }
 
-    // Item set/get:
-    fn set_item<T: IntoPyObject>(&self, key: T, value: PyObjectRef, vm: &VirtualMachine) {
-        let key = key.into_pyobject(vm).unwrap();
-        self.entries.borrow_mut().insert(vm, &key, value).unwrap()
+    fn set_item<T: IntoPyObject>(
+        &self,
+        key: T,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.as_object().set_item(key, value, vm)
     }
 
-    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) {
-        let key = key.into_pyobject(vm).unwrap();
-        self.entries.borrow_mut().delete(vm, &key).unwrap();
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        self.as_object().del_item(key, vm)
     }
 }
 
@@ -236,12 +253,12 @@ pub fn init(context: &PyContext) {
         "__bool__" => context.new_rustfunc(PyDictRef::bool),
         "__len__" => context.new_rustfunc(PyDictRef::len),
         "__contains__" => context.new_rustfunc(PyDictRef::contains),
-        "__delitem__" => context.new_rustfunc(PyDictRef::delitem),
-        "__getitem__" => context.new_rustfunc(PyDictRef::getitem),
+        "__delitem__" => context.new_rustfunc(PyDictRef::inner_delitem),
+        "__getitem__" => context.new_rustfunc(PyDictRef::inner_getitem),
         "__iter__" => context.new_rustfunc(PyDictRef::iter),
         "__new__" => context.new_rustfunc(PyDictRef::new),
         "__repr__" => context.new_rustfunc(PyDictRef::repr),
-        "__setitem__" => context.new_rustfunc(PyDictRef::setitem),
+        "__setitem__" => context.new_rustfunc(PyDictRef::inner_setitem),
         "__hash__" => context.new_rustfunc(PyDictRef::hash),
         "clear" => context.new_rustfunc(PyDictRef::clear),
         "values" => context.new_rustfunc(PyDictRef::values),
