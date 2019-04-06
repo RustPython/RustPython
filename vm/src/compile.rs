@@ -650,25 +650,13 @@ impl Compiler {
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction { flags });
+        self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
         self.emit(Instruction::StoreName {
             name: name.to_string(),
         });
 
-        if let Some(doc_string) = doc_str {
-            self.emit(Instruction::LoadConst {
-                value: bytecode::Constant::String {
-                    value: doc_string.to_string(),
-                },
-            });
-            self.emit(Instruction::LoadName {
-                name: name.to_string(),
-            });
-            self.emit(Instruction::StoreAttr {
-                name: "__doc__".to_string(),
-            });
-        }
         self.in_loop = was_in_loop;
         self.in_function_def = was_in_function_def;
         Ok(())
@@ -761,26 +749,33 @@ impl Compiler {
             });
         }
 
+        self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
         self.emit(Instruction::StoreName {
             name: name.to_string(),
         });
+        self.in_loop = was_in_loop;
+        Ok(())
+    }
+
+    fn store_docstring(&mut self, doc_str: Option<String>) {
         if let Some(doc_string) = doc_str {
+            // Duplicate top of stack (the function or class object)
+            self.emit(Instruction::Duplicate);
+
+            // Doc string value:
             self.emit(Instruction::LoadConst {
                 value: bytecode::Constant::String {
                     value: doc_string.to_string(),
                 },
             });
-            self.emit(Instruction::LoadName {
-                name: name.to_string(),
-            });
+
+            self.emit(Instruction::Rotate { amount: 2 });
             self.emit(Instruction::StoreAttr {
                 name: "__doc__".to_string(),
             });
         }
-        self.in_loop = was_in_loop;
-        Ok(())
     }
 
     fn compile_for(
