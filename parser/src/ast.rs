@@ -16,7 +16,7 @@ pub struct Node {
 #[derive(Debug, PartialEq)]
 pub enum Top {
     Program(Program),
-    Statement(LocatedStatement),
+    Statement(Vec<LocatedStatement>),
     Expression(Expression),
 }
 
