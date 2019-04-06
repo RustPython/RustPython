@@ -89,7 +89,7 @@ impl PyDictRef {
         self.entries.borrow().len()
     }
 
-    fn repr(self, vm: &VirtualMachine) -> PyResult {
+    fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             let mut str_parts = vec![];
             for (key, value) in self.get_key_value_pairs() {
@@ -102,7 +102,7 @@ impl PyDictRef {
         } else {
             "{...}".to_string()
         };
-        Ok(vm.new_str(s))
+        Ok(s)
     }
 
     fn contains(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
