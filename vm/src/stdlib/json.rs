@@ -13,9 +13,7 @@ use crate::obj::{
     objstr::{self, PyString},
     objtype,
 };
-use crate::pyobject::{
-    create_type, DictProtocol, IdProtocol, ItemProtocol, PyObjectRef, PyResult, TypeProtocol,
-};
+use crate::pyobject::{create_type, IdProtocol, ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;
 
@@ -178,7 +176,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
                 Some(PyString { ref value }) => value.clone(),
                 _ => unimplemented!("map keys must be strings"),
             };
-            dict.set_item(&key, value, self.vm);
+            dict.set_item(&key, value, self.vm).unwrap();
         }
         Ok(dict.into_object())
     }

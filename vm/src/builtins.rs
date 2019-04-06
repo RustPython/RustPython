@@ -20,7 +20,7 @@ use crate::obj::objtype::{self, PyClassRef};
 use crate::frame::Scope;
 use crate::function::{Args, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+    IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -804,6 +804,6 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
         "__call__",
         vec![name_arg, bases, namespace.into_object()],
     )?;
-    cells.set_item("__class__", class.clone(), vm);
+    cells.set_item("__class__", class.clone(), vm)?;
     Ok(class)
 }

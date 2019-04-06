@@ -21,8 +21,8 @@ use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use itertools::Itertools;
@@ -133,12 +133,12 @@ pub trait NameProtocol {
 impl NameProtocol for Scope {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item(name, vm) {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
 
-        if let Some(value) = self.globals.get_item(name, vm) {
+        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
             return Some(value);
         }
 
@@ -147,7 +147,7 @@ impl NameProtocol for Scope {
 
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
-            if let Some(value) = dict.get_item(name, vm) {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
@@ -155,11 +155,11 @@ impl NameProtocol for Scope {
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
-        self.get_locals().set_item(key, value, vm)
+        self.get_locals().set_item(key, value, vm).unwrap();
     }
 
     fn delete_name(&self, vm: &VirtualMachine, key: &str) {
-        self.get_locals().del_item(key, vm)
+        self.get_locals().del_item(key, vm).unwrap();
     }
 }
 
@@ -394,12 +394,12 @@ impl Frame {
                             obj.downcast().expect("Need a dictionary to build a map.");
                         let dict_elements = dict.get_key_value_pairs();
                         for (key, value) in dict_elements.iter() {
-                            map_obj.set_item(key.clone(), value.clone(), vm);
+                            map_obj.set_item(key.clone(), value.clone(), vm).unwrap();
                         }
                     }
                 } else {
                     for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
-                        map_obj.set_item(key, value, vm)
+                        map_obj.set_item(key, value, vm).unwrap();
                     }
                 }
 
