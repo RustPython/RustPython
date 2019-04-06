@@ -1,3 +1,9 @@
+use crate::obj::objint::PyInt;
+use crate::obj::objlist;
+use crate::obj::objlist::PyList;
+use crate::obj::objstr::PyString;
+use crate::obj::objtuple::PyTuple;
+use crate::obj::objtype;
 use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -7,7 +13,8 @@ use num_traits::ToPrimitive;
 
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -87,29 +94,79 @@ extend_class!(context, bytesiterator_type, {
     "__iter__" => context.new_rustfunc(PyBytesIteratorRef::iter),
 });*/
 //}
+
+fn load_byte(
+    elements: PyResult<Vec<PyObjectRef>>,
+    vm: &VirtualMachine,
+) -> Result<Vec<u8>, PyObjectRef> {
+    if let Ok(value) = elements {
+        let mut data_bytes = vec![];
+        for elem in value.iter() {
+            let v = objint::to_int(vm, &elem, 10)?;
+            if let Some(i) = v.to_u8() {
+                data_bytes.push(i);
+            } else {
+                return Err(vm.new_value_error("byte must be in range(0, 256)".to_string()));
+            }
+        }
+        Ok(data_bytes)
+    } else {
+        Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+    }
+}
+
 #[pyimpl(__inside_vm)]
 impl PyBytesRef {
     #[pymethod(name = "__new__")]
     fn bytes_new(
         cls: PyClassRef,
         val_option: OptionalArg<PyObjectRef>,
+        enc_option: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
         // Create bytes data:
-        let value = if let OptionalArg::Present(ival) = val_option {
-            let elements = vm.extract_elements(&ival)?;
-            let mut data_bytes = vec![];
-            for elem in elements.iter() {
-                let v = objint::to_int(vm, elem, 10)?;
-                data_bytes.push(v.to_u8().unwrap());
+        if let OptionalArg::Present(enc) = enc_option {
+            if let OptionalArg::Present(eval) = val_option {
+                if objtype::isinstance(&eval, &vm.ctx.str_type())
+                    && objtype::isinstance(&enc, &vm.ctx.str_type())
+                {
+                    //return Ok(PyBytes::new(vec![1]).into_ref_with_type(vm, cls.clone()));
+                    return Err(vm.new_type_error("Ok les 2 sont sstr".to_string()));
+                } else {
+                    return Err(vm.new_type_error(format!(
+                        "bytes() argument 2 must be str, not {}",
+                        enc.class().name
+                    )));
+                }
+            } else {
+                return Err(vm.new_type_error("encoding without a string argument".to_string()));
             }
-            data_bytes
-        // return Err(vm.new_type_error("Cannot construct bytes".to_string()));
-        } else {
-            vec![]
-        };
+        }
 
-        PyBytes::new(value).into_ref_with_type(vm, cls)
+        let value = if let OptionalArg::Present(ival) = val_option {
+            println!("{:?}", ival);
+            match_class!(ival.clone(),
+                _i @ PyInt => {
+                        let size = objint::get_value(&ival).to_usize().unwrap();
+                        let mut res: Vec<u8> = Vec::with_capacity(size);
+                        for _ in 0..size {
+                            res.push(0)
+                        }
+                        Ok(res)},
+                _j @ PyList => load_byte(vm.extract_elements(&ival), vm).or_else(|x| {return Err(x) }),
+                _k @ PyTuple => load_byte(vm.extract_elements(&ival), vm).or_else(|x| {return Err(x) }),
+                _l @ PyString=> load_byte(vm.extract_elements(&ival), vm).or_else(|x| {return Err(x) }),
+                _obj => {return Err(vm.new_type_error(format!(
+                    "int() argument must be a string or a number, not "
+                )));}
+            )
+        } else {
+            Ok(vec![])
+        };
+        match value {
+            Ok(val) => PyBytes::new(val).into_ref_with_type(vm, cls.clone()),
+            Err(err) => Err(err),
+        }
     }
 
     #[pymethod(name = "__repr__")]
