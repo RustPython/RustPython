@@ -109,7 +109,7 @@ impl PyDictRef {
         self.entries.borrow().contains(vm, &key)
     }
 
-    fn delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn inner_delitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.entries.borrow_mut().delete(vm, &key)
     }
 
@@ -173,11 +173,16 @@ impl PyDictRef {
         self.entries.borrow().get_items()
     }
 
-    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn inner_setitem(
+        self,
+        key: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.entries.borrow_mut().insert(vm, &key, value)
     }
 
-    fn getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn inner_getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.entries.borrow().get(vm, &key)? {
             Some(value) => Ok(value),
             None => {
@@ -250,12 +255,12 @@ pub fn init(context: &PyContext) {
         "__bool__" => context.new_rustfunc(PyDictRef::bool),
         "__len__" => context.new_rustfunc(PyDictRef::len),
         "__contains__" => context.new_rustfunc(PyDictRef::contains),
-        "__delitem__" => context.new_rustfunc(PyDictRef::delitem),
-        "__getitem__" => context.new_rustfunc(PyDictRef::getitem),
+        "__delitem__" => context.new_rustfunc(PyDictRef::inner_delitem),
+        "__getitem__" => context.new_rustfunc(PyDictRef::inner_getitem),
         "__iter__" => context.new_rustfunc(PyDictRef::iter),
         "__new__" => context.new_rustfunc(PyDictRef::new),
         "__repr__" => context.new_rustfunc(PyDictRef::repr),
-        "__setitem__" => context.new_rustfunc(PyDictRef::setitem),
+        "__setitem__" => context.new_rustfunc(PyDictRef::inner_setitem),
         "__hash__" => context.new_rustfunc(PyDictRef::hash),
         "clear" => context.new_rustfunc(PyDictRef::clear),
         "values" => context.new_rustfunc(PyDictRef::values),
