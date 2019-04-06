@@ -25,7 +25,7 @@ class _WritelnDecorator(object):
         self.write('\n') # text-mode streams translate to \r\n if needed
 
 
-class TextTestResult(result.TestResult):
+class TextTestResult(TestResult):
     """A test result class that can print formatted text results to a stream.
 
     Used by TextTestRunner.
