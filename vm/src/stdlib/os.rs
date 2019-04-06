@@ -178,6 +178,21 @@ fn os_rmdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    match fs::read_dir(&path.value) {
+        Ok(iter) => {
+            let res: PyResult<Vec<PyObjectRef>> = iter
+                .map(|entry| match entry {
+                    Ok(path) => Ok(vm.ctx.new_str(path.file_name().into_string().unwrap())),
+                    Err(s) => Err(vm.new_os_error(s.to_string())),
+                })
+                .collect();
+            Ok(vm.ctx.new_list(res?))
+        }
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -198,6 +213,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "mkdir" => ctx.new_rustfunc(os_mkdir),
         "mkdirs" => ctx.new_rustfunc(os_mkdirs),
         "rmdir" => ctx.new_rustfunc(os_rmdir),
+        "listdir" => ctx.new_rustfunc(os_listdir),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
