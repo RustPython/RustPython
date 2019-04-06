@@ -40,17 +40,18 @@ impl PyValue for PyDict {
 // Python dict methods:
 impl PyDictRef {
     fn new(
-        _class: PyClassRef, // TODO Support subclasses of int.
+        class: PyClassRef,
         dict_obj: OptionalArg<PyObjectRef>,
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyDictRef> {
-        let dict = vm.ctx.new_dict();
+        let mut dict = DictContentType::default();
+
         if let OptionalArg::Present(dict_obj) = dict_obj {
             let dicted: PyResult<PyDictRef> = dict_obj.clone().downcast();
             if let Ok(dict_obj) = dicted {
                 for (key, value) in dict_obj.get_key_value_pairs() {
-                    dict.set_item(key, value, vm);
+                    dict.insert(vm, &key, value)?;
                 }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
@@ -68,14 +69,17 @@ impl PyDictRef {
                     if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                         return Err(err(vm));
                     }
-                    dict.set_item(key, value, vm);
+                    dict.insert(vm, &key, value)?;
                 }
             }
         }
         for (key, value) in kwargs.into_iter() {
-            dict.set_item(vm.new_str(key), value, vm);
+            dict.insert(vm, &vm.new_str(key), value)?;
         }
-        Ok(dict)
+        PyDict {
+            entries: RefCell::new(dict),
+        }
+        .into_ref_with_type(vm, class)
     }
 
     fn bool(self, _vm: &VirtualMachine) -> bool {

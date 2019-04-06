@@ -57,6 +57,13 @@ assert x.get("not here", "default") == "default"
 assert x.get("here", "default") == "here"
 assert x.get("not here") == None
 
+class LengthDict(dict):
+    pass
+
+x = LengthDict()
+assert type(x) == LengthDict
+
+
 # An object that hashes to the same value always, and compares equal if any its values match.
 class Hashable(object):
     def __init__(self, *args):
