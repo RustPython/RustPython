@@ -328,7 +328,7 @@ class PrettyPrinter:
                      context, level)
         stream.write(')')
 
-    _dispatch[_types.MappingProxyType.__repr__] = _pprint_mappingproxy
+    #_dispatch[_types.MappingProxyType.__repr__] = _pprint_mappingproxy
 
     def _format_dict_items(self, items, stream, indent, allowance, context,
                            level):
@@ -415,7 +415,7 @@ class PrettyPrinter:
         self._pprint_dict(object, stream, indent, allowance + 1, context, level)
         stream.write(')')
 
-    _dispatch[_collections.defaultdict.__repr__] = _pprint_default_dict
+    # _dispatch[_collections.defaultdict.__repr__] = _pprint_default_dict
 
     def _pprint_counter(self, object, stream, indent, allowance, context, level):
         if not len(object):
@@ -468,7 +468,7 @@ class PrettyPrinter:
             rml = self._repr(object.maxlen, context, level)
             stream.write('],\n%smaxlen=%s)' % (' ' * indent, rml))
 
-    _dispatch[_collections.deque.__repr__] = _pprint_deque
+    # _dispatch[_collections.deque.__repr__] = _pprint_deque
 
     def _pprint_user_dict(self, object, stream, indent, allowance, context, level):
         self._format(object.data, stream, indent, allowance, context, level - 1)

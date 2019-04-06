@@ -127,7 +127,7 @@ def three_way_cmp(x, y):
     """Return -1 if x < y, 0 if x == y and 1 if x > y"""
     return (x > y) - (x < y)
 
-_Mismatch = namedtuple('Mismatch', 'actual expected value')
+#_Mismatch = namedtuple('Mismatch', 'actual expected value')
 
 def _count_diff_all_purpose(actual, expected):
     'Returns list of (cnt_act, cnt_exp, elem) triples where the counts differ'

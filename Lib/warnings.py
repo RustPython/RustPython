@@ -521,8 +521,9 @@ except ImportError:
     _filters_version = 1
 
     def _filters_mutated():
-        global _filters_version
-        _filters_version += 1
+        # global _filters_version
+        # _filters_version += 1
+        pass
 
     _warnings_defaults = False
 

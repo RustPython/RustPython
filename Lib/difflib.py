@@ -33,7 +33,7 @@ __all__ = ['get_close_matches', 'ndiff', 'restore', 'SequenceMatcher',
 from heapq import nlargest as _nlargest
 from collections import namedtuple as _namedtuple
 
-Match = _namedtuple('Match', 'a b size')
+#Match = _namedtuple('Match', 'a b size')
 
 def _calculate_ratio(matches, length):
     if length:
