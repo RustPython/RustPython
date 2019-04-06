@@ -1197,6 +1197,8 @@ impl PyObject<dyn PyObjectPayload> {
 }
 
 pub trait PyValue: fmt::Debug + Sized + 'static {
+    const HAVE_DICT: bool = false;
+
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
@@ -1209,7 +1211,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
         if objtype::issubclass(&cls, &class) {
-            let dict = if cls.is(&class) {
+            let dict = if !Self::HAVE_DICT && cls.is(&class) {
                 None
             } else {
                 Some(vm.ctx.new_dict())
