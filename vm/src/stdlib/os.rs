@@ -142,13 +142,35 @@ fn os_write(fd: PyIntRef, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_int(written))
 }
 
-fn os_remove(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    match fs::remove_file(&path.value) {
-        Ok(_) => (),
-        Err(s) => return Err(vm.new_os_error(s.to_string())),
-    }
+fn os_remove(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::remove_file(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
+}
 
-    Ok(vm.get_none())
+fn os_mkdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::create_dir(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
+}
+
+fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::create_dir_all(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
+}
+
+fn os_rmdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::remove_dir(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
+}
+
+fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    match fs::read_dir(&path.value) {
+        Ok(iter) => {
+            let res: PyResult<Vec<PyObjectRef>> = iter
+                .map(|entry| match entry {
+                    Ok(path) => Ok(vm.ctx.new_str(path.file_name().into_string().unwrap())),
+                    Err(s) => Err(vm.new_os_error(s.to_string())),
+                })
+                .collect();
+            Ok(vm.ctx.new_list(res?))
+        }
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -168,6 +190,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "write" => ctx.new_rustfunc(os_write),
         "remove" => ctx.new_rustfunc(os_remove),
         "unlink" => ctx.new_rustfunc(os_remove),
+        "mkdir" => ctx.new_rustfunc(os_mkdir),
+        "mkdirs" => ctx.new_rustfunc(os_mkdirs),
+        "rmdir" => ctx.new_rustfunc(os_rmdir),
+        "listdir" => ctx.new_rustfunc(os_listdir),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
