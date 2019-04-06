@@ -120,6 +120,18 @@ impl<T: Clone> Dict<T> {
         self.len() == 0
     }
 
+    pub fn next_entry(&self, position: usize) -> Option<(usize, &PyObjectRef, &T)> {
+        let mut new_position = position;
+        while position < self.entries.len() {
+            if let Some(DictEntry { key, value, .. }) = &self.entries[position] {
+                return Some((new_position + 1, key, value));
+            } else {
+                new_position += 1;
+            }
+        }
+        None
+    }
+
     pub fn iter_items(&self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
         self.entries
             .iter()

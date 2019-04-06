@@ -132,20 +132,11 @@ impl PyDictRef {
     }
 
     /// When iterating over a dictionary, we iterate over the keys of it.
-    fn iter(self, vm: &VirtualMachine) -> PyListIterator {
+    fn iter(self, _vm: &VirtualMachine) -> PyDictIterator {
         // TODO: separate type, not a list iterator
-        let keys = self
-            .entries
-            .borrow()
-            .get_items()
-            .iter()
-            .map(|(k, _v)| k.clone())
-            .collect();
-        let key_list = vm.ctx.new_list(keys);
-
-        PyListIterator {
+        PyDictIterator {
             position: Cell::new(0),
-            list: key_list.downcast().unwrap(),
+            dict: self,
         }
     }
 
@@ -284,6 +275,35 @@ impl ItemProtocol for PyDictRef {
     }
 }
 
+#[derive(Debug)]
+struct PyDictIterator {
+    pub dict: PyDictRef,
+    pub position: Cell<usize>,
+}
+type PyDictIteratorRef = PyRef<PyDictIterator>;
+
+impl PyDictIteratorRef {
+    fn next(self: PyDictIteratorRef, vm: &VirtualMachine) -> PyResult {
+        match self.dict.entries.borrow().next_entry(self.position.get()) {
+            Some((new_position, key, _value)) => {
+                self.position.set(new_position);
+                Ok(key.clone())
+            }
+            None => Err(objiter::new_stop_iteration(vm)),
+        }
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+impl PyValue for PyDictIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.dictiterator_type.clone()
+    }
+}
+
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.dict_type, {
         "__bool__" => context.new_rustfunc(PyDictRef::bool),
@@ -304,5 +324,10 @@ pub fn init(context: &PyContext) {
         "get" => context.new_rustfunc(PyDictRef::get),
         "copy" => context.new_rustfunc(PyDictRef::copy),
         "update" => context.new_rustfunc(PyDictRef::update),
+    });
+
+    extend_class!(context, &context.dictiterator_type, {
+        "__next__" => context.new_rustfunc(PyDictIteratorRef::next),
+        "__iter__" => context.new_rustfunc(PyDictIteratorRef::iter),
     });
 }
