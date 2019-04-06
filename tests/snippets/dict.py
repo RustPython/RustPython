@@ -80,3 +80,9 @@ x[Hashable(8)] = 19
 x[Hashable(19,8)] = 1
 assert x[Hashable(8)] == 1
 assert len(x) == 2
+
+assert list({'a': 2, 'b': 10}) == ['a', 'b']
+x = {}
+x['a'] = 2
+x['b'] = 10
+assert list(x) == ['a', 'b']

@@ -25,6 +25,7 @@ use crate::pyobject::{
     TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use itertools::Itertools;
 
 /*
  * So a scope is a linked list of scopes.
@@ -386,9 +387,8 @@ impl Frame {
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
                 let map_obj = vm.ctx.new_dict();
-                for _x in 0..*size {
-                    let obj = self.pop_value();
-                    if *unpack {
+                if *unpack {
+                    for obj in self.pop_multiple(*size) {
                         // Take all key-value pairs from the dict:
                         let dict: PyDictRef =
                             obj.downcast().expect("Need a dictionary to build a map.");
@@ -396,11 +396,13 @@ impl Frame {
                         for (key, value) in dict_elements.iter() {
                             map_obj.set_item(key.clone(), value.clone(), vm);
                         }
-                    } else {
-                        let key = self.pop_value();
-                        map_obj.set_item(key, obj, vm)
+                    }
+                } else {
+                    for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
+                        map_obj.set_item(key, value, vm)
                     }
                 }
+
                 self.push_value(map_obj.into_object());
                 Ok(None)
             }
