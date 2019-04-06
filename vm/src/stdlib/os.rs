@@ -1,12 +1,16 @@
+use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read, Write};
 
 use num_traits::cast::ToPrimitive;
 
 use crate::function::PyFuncArgs;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
+use crate::obj::objint::PyIntRef;
 use crate::obj::objstr;
+use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -113,6 +117,40 @@ fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_os_error(msg))
 }
 
+fn os_read(fd: PyIntRef, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    let mut buffer = vec![0u8; n.as_bigint().to_usize().unwrap()];
+    let mut file = rust_file(fd.as_bigint().to_i64().unwrap());
+    match file.read_exact(&mut buffer) {
+        Ok(_) => (),
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
+    };
+
+    // Avoid closing the fd
+    raw_file_number(file);
+    Ok(vm.ctx.new_bytes(buffer))
+}
+
+fn os_write(fd: PyIntRef, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    let mut file = rust_file(fd.as_bigint().to_i64().unwrap());
+    let written = match file.write(&data) {
+        Ok(written) => written,
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
+    };
+
+    // Avoid closing the fd
+    raw_file_number(file);
+    Ok(vm.ctx.new_int(written))
+}
+
+fn os_remove(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    match fs::remove_file(&path.value) {
+        Ok(_) => (),
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
+    }
+
+    Ok(vm.get_none())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -126,6 +164,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),
+        "read" => ctx.new_rustfunc(os_read),
+        "write" => ctx.new_rustfunc(os_write),
+        "remove" => ctx.new_rustfunc(os_remove),
+        "unlink" => ctx.new_rustfunc(os_remove),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
