@@ -9,6 +9,7 @@ mod random;
 mod re;
 pub mod socket;
 mod string;
+mod thread;
 mod time_module;
 mod tokenize;
 mod types;
@@ -41,6 +42,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("random".to_string(), Box::new(random::make_module));
     modules.insert("string".to_string(), Box::new(string::make_module));
     modules.insert("struct".to_string(), Box::new(pystruct::make_module));
+    modules.insert("_thread".to_string(), Box::new(thread::make_module));
     modules.insert("time".to_string(), Box::new(time_module::make_module));
     modules.insert("tokenize".to_string(), Box::new(tokenize::make_module));
     modules.insert("types".to_string(), Box::new(types::make_module));

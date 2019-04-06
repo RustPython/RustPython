@@ -22,7 +22,6 @@ from operator import itemgetter as _itemgetter, eq as _eq
 from keyword import iskeyword as _iskeyword
 import sys as _sys
 import heapq as _heapq
-from _weakref import proxy as _proxy
 from itertools import repeat as _repeat, chain as _chain, starmap as _starmap
 from reprlib import recursive_repr as _recursive_repr
 
@@ -37,6 +36,11 @@ try:
     from _collections import defaultdict
 except ImportError:
     pass
+
+
+# fake weakref proxy
+def _proxy(x):
+    return x
 
 
 def __getattr__(name):
@@ -961,7 +965,6 @@ class ChainMap(_collections_abc.MutableMapping):
 
     @property
     def parents(self):                          # like Django's Context.pop()
-        'New ChainMap from maps[1:].'
         return self.__class__(*self.maps[1:])
 
     def __setitem__(self, key, value):
@@ -1246,7 +1249,7 @@ class UserString(_collections_abc.Sequence):
         return self.__class__(self.data.ljust(width, *args))
     def lower(self): return self.__class__(self.data.lower())
     def lstrip(self, chars=None): return self.__class__(self.data.lstrip(chars))
-    maketrans = str.maketrans
+    #maketrans = str.maketrans
     def partition(self, sep):
         return self.data.partition(sep)
     def replace(self, old, new, maxsplit=-1):
