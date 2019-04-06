@@ -688,7 +688,7 @@ class Mapping(Collection):
 
     __reversed__ = None
 
-Mapping.register(mappingproxy)
+#Mapping.register(mappingproxy)
 
 
 class MappingView(Sized):
