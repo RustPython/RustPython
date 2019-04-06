@@ -33,6 +33,9 @@ def va(a, b=2, *c, d, **e):
 
 va(1, 22, 3, 4, d=1337, f=42)
 
+assert va.__defaults__ == (2,)
+assert va.__kwdefaults__ is None
+
 
 def va2(*args, **kwargs):
     assert args == (5, 4)
@@ -58,6 +61,13 @@ with assertRaises(TypeError):
 with assertRaises(TypeError):
     va3(1, b=10)
 
+
+assert va3.__defaults__ is None
+kw_defaults = va3.__kwdefaults__
+# assert va3.__kwdefaults__ == {'b': 2, 'c': 9}
+assert set(kw_defaults) == {'b', 'c'}
+assert kw_defaults['b'] == 2
+assert kw_defaults['c'] == 9
 
 x = {'f': 42, 'e': 1337}
 y = {'d': 1337}

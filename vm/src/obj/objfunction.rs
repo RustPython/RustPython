@@ -43,6 +43,14 @@ impl PyFunctionRef {
     fn code(self, _vm: &VirtualMachine) -> PyCodeRef {
         self.code.clone()
     }
+
+    fn defaults(self, _vm: &VirtualMachine) -> Option<PyTupleRef> {
+        self.defaults.clone()
+    }
+
+    fn kwdefaults(self, _vm: &VirtualMachine) -> Option<PyDictRef> {
+        self.kw_only_defaults.clone()
+    }
 }
 
 #[derive(Debug)]
@@ -68,7 +76,9 @@ pub fn init(context: &PyContext) {
     let function_type = &context.function_type;
     extend_class!(context, function_type, {
         "__get__" => context.new_rustfunc(bind_method),
-        "__code__" => context.new_property(PyFunctionRef::code)
+        "__code__" => context.new_property(PyFunctionRef::code),
+        "__defaults__" => context.new_property(PyFunctionRef::defaults),
+        "__kwdefaults__" => context.new_property(PyFunctionRef::kwdefaults),
     });
 
     let builtin_function_or_method_type = &context.builtin_function_or_method_type;
