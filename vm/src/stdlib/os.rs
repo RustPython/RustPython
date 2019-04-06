@@ -6,9 +6,11 @@ use std::io::{ErrorKind, Read, Write};
 use num_traits::cast::ToPrimitive;
 
 use crate::function::PyFuncArgs;
-use crate::obj::objbytes;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
+use crate::obj::objint::PyIntRef;
 use crate::obj::objstr;
+use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
@@ -115,15 +117,9 @@ fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Err(vm.new_os_error(msg))
 }
 
-fn os_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(fd, Some(vm.ctx.int_type())), (n, Some(vm.ctx.int_type()))]
-    );
-
-    let mut buffer = vec![0u8; objint::get_value(n).to_usize().unwrap()];
-    let mut file = rust_file(objint::get_value(fd).to_i64().unwrap());
+fn os_read(fd: PyIntRef, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    let mut buffer = vec![0u8; n.as_bigint().to_usize().unwrap()];
+    let mut file = rust_file(fd.as_bigint().to_i64().unwrap());
     match file.read_exact(&mut buffer) {
         Ok(_) => (),
         Err(s) => return Err(vm.new_os_error(s.to_string())),
@@ -134,18 +130,9 @@ fn os_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(buffer))
 }
 
-fn os_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (fd, Some(vm.ctx.int_type())),
-            (data, Some(vm.ctx.bytes_type()))
-        ]
-    );
-
-    let mut file = rust_file(objint::get_value(fd).to_i64().unwrap());
-    let written = match file.write(&objbytes::get_value(&data)) {
+fn os_write(fd: PyIntRef, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    let mut file = rust_file(fd.as_bigint().to_i64().unwrap());
+    let written = match file.write(&data) {
         Ok(written) => written,
         Err(s) => return Err(vm.new_os_error(s.to_string())),
     };
@@ -155,11 +142,8 @@ fn os_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(written))
 }
 
-fn os_remove(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(path, Some(vm.ctx.str_type()))]);
-    let fname = objstr::get_value(&path);
-
-    match fs::remove_file(fname) {
+fn os_remove(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    match fs::remove_file(&path.value) {
         Ok(_) => (),
         Err(s) => return Err(vm.new_os_error(s.to_string())),
     }
