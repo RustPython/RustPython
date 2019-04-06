@@ -229,7 +229,7 @@ impl PyDictRef {
 
 impl ItemProtocol for PyDictRef {
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self.as_object(), "__getitem__", key.into_pyobject(vm)?)
+        self.as_object().get_item(key, vm)
     }
 
     fn set_item<T: IntoPyObject>(
@@ -238,15 +238,11 @@ impl ItemProtocol for PyDictRef {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult {
-        vm.call_method(
-            self.as_object(),
-            "__setitem__",
-            vec![key.into_pyobject(vm)?, value],
-        )
+        self.as_object().set_item(key, value, vm)
     }
 
     fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
-        vm.call_method(self.as_object(), "__delitem__", key.into_pyobject(vm)?)
+        self.as_object().del_item(key, vm)
     }
 }
 
