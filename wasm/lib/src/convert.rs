@@ -8,7 +8,7 @@ use rustpython_vm::pyobject::{DictProtocol, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module;
-use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
+use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
     macro_rules! map_exceptions {
@@ -81,11 +81,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                             return Err(err);
                         }
                     };
-                    let acc_vm = AccessibleVM::from(wasm_vm.clone());
-                    let stored_vm = acc_vm
-                        .upgrade()
-                        .expect("acc. VM to be invalid when WASM vm is valid");
-                    let vm = &stored_vm.vm;
+                    let vm = &stored_vm_from_wasm(&wasm_vm).vm;
                     let mut py_func_args = PyFuncArgs::default();
                     if let Some(ref args) = args {
                         for arg in args.values() {
