@@ -179,7 +179,13 @@ impl PyDictRef {
     }
 
     fn getitem(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.entries.borrow().get(vm, &key)
+        match self.entries.borrow().get(vm, &key)? {
+            Some(value) => Ok(value),
+            None => {
+                let key_repr = vm.to_pystr(&key)?;
+                Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
+            }
+        }
     }
 
     fn get(
@@ -187,12 +193,12 @@ impl PyDictRef {
         key: PyObjectRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyObjectRef {
-        match self.into_object().get_item(key, vm) {
-            Ok(value) => value,
-            Err(_) => match default {
-                OptionalArg::Present(value) => value,
-                OptionalArg::Missing => vm.ctx.none(),
+    ) -> PyResult {
+        match self.entries.borrow().get(vm, &key)? {
+            Some(value) => Ok(value),
+            None => match default {
+                OptionalArg::Present(value) => Ok(value),
+                OptionalArg::Missing => Ok(vm.ctx.none()),
             },
         }
     }
@@ -220,7 +226,7 @@ impl PyDictRef {
 impl DictProtocol for PyDictRef {
     fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> Option<PyObjectRef> {
         let key = key.into_pyobject(vm).unwrap();
-        self.entries.borrow().get(vm, &key).ok()
+        self.entries.borrow().get(vm, &key).unwrap()
     }
 
     // Item set/get:

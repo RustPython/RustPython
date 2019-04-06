@@ -58,11 +58,13 @@ assert x.get("here", "default") == "here"
 assert x.get("not here") == None
 
 class LengthDict(dict):
-    pass
+    def __getitem__(self, k):
+        return len(k)
 
 x = LengthDict()
 assert type(x) == LengthDict
-
+assert x['word'] == 4
+assert x.get('word') is None
 
 # An object that hashes to the same value always, and compares equal if any its values match.
 class Hashable(object):
