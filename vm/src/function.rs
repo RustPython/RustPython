@@ -434,12 +434,6 @@ where
     }
 }
 
-impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
-    fn into_func(self) -> PyNativeFunc {
-        self
-    }
-}
-
 // This is the "magic" that allows rust functions of varying signatures to
 // generate native python functions.
 //
