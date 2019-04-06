@@ -151,6 +151,15 @@ fn os_remove(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.get_none())
 }
 
+fn os_mkdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    match fs::create_dir(&path.value) {
+        Ok(_) => (),
+        Err(s) => return Err(vm.new_os_error(s.to_string())),
+    }
+
+    Ok(vm.get_none())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -168,6 +177,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "write" => ctx.new_rustfunc(os_write),
         "remove" => ctx.new_rustfunc(os_remove),
         "unlink" => ctx.new_rustfunc(os_remove),
+        "mkdir" => ctx.new_rustfunc(os_mkdir),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
