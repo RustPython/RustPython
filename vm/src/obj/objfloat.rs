@@ -34,6 +34,13 @@ impl From<f64> for PyFloat {
     }
 }
 
+impl PyFloat {
+    fn is_integer(&self, _vm: &VirtualMachine) -> bool {
+        let v = self.value;
+        (v - v.round()).abs() < std::f64::EPSILON
+    }
+}
+
 pub type PyFloatRef = PyRef<PyFloat>;
 
 impl PyFloatRef {
@@ -311,11 +318,6 @@ impl PyFloatRef {
         }
     }
 
-    fn is_integer(self, _vm: &VirtualMachine) -> bool {
-        let v = self.value;
-        (v - v.round()).abs() < std::f64::EPSILON
-    }
-
     fn real(self, _vm: &VirtualMachine) -> Self {
         self
     }
@@ -385,7 +387,7 @@ pub fn init(context: &PyContext) {
         "__mul__" => context.new_rustfunc(PyFloatRef::mul),
         "__rmul__" => context.new_rustfunc(PyFloatRef::mul),
         "real" => context.new_property(PyFloatRef::real),
-        "is_integer" => context.new_rustfunc(PyFloatRef::is_integer),
+        "is_integer" => context.new_rustfunc(PyFloat::is_integer),
         "as_integer_ratio" => context.new_rustfunc(PyFloatRef::as_integer_ratio)
     });
 }
