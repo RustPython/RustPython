@@ -143,6 +143,7 @@ settrace() -- set the global debug tracing function
       "__doc__" => ctx.new_str(sys_doc.to_string()),
       "_getframe" => ctx.new_rustfunc(getframe),
       "modules" => modules.clone(),
+      "warnoptions" => ctx.new_list(vec![]),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
