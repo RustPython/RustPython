@@ -88,14 +88,14 @@ impl PySetInner {
         }
     }
 
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         for element in self.elements.iter() {
             let value = vm._eq(needle.clone(), element.1.clone())?;
             if objbool::get_value(&value) {
-                return Ok(vm.new_bool(true));
+                return Ok(true);
             }
         }
-        Ok(vm.new_bool(false))
+        Ok(false)
     }
 
     fn _compare_inner(
@@ -124,8 +124,7 @@ impl PySetInner {
             return Ok(vm.new_bool(false));
         }
         for element in get_other(swap).elements.iter() {
-            let value = get_zelf(swap).contains(element.1.clone(), vm)?;
-            if !objbool::get_value(&value) {
+            if !get_zelf(swap).contains(element.1.clone(), vm)? {
                 return Ok(vm.new_bool(false));
             }
         }
@@ -190,7 +189,7 @@ impl PySetInner {
         let mut elements = HashMap::new();
         for item in other.iter(vm)? {
             let obj = item?;
-            if objbool::get_value(&self.contains(obj.clone(), vm)?) {
+            if self.contains(obj.clone(), vm)? {
                 insert_into_set(vm, &mut elements, &obj)?;
             }
         }
@@ -201,7 +200,7 @@ impl PySetInner {
         let mut elements = self.elements.clone();
         for item in other.iter(vm)? {
             let obj = item?;
-            if objbool::get_value(&self.contains(obj.clone(), vm)?) {
+            if self.contains(obj.clone(), vm)? {
                 remove_from_set(vm, &mut elements, &obj)?;
             }
         }
@@ -213,7 +212,7 @@ impl PySetInner {
 
         for item in other.iter(vm)? {
             let obj = item?;
-            if !objbool::get_value(&self.contains(obj.clone(), vm)?) {
+            if !self.contains(obj.clone(), vm)? {
                 new_inner.add(&obj, vm)?;
             } else {
                 new_inner.remove(&obj, vm)?;
@@ -287,7 +286,7 @@ impl PySetInner {
         self.clear();
         for item in iterable.iter(vm)? {
             let obj = item?;
-            if objbool::get_value(&temp_inner.contains(obj.clone(), vm)?) {
+            if temp_inner.contains(obj.clone(), vm)? {
                 self.add(&obj, vm)?;
             }
         }
@@ -297,7 +296,7 @@ impl PySetInner {
     fn difference_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
         for item in iterable.iter(vm)? {
             let obj = item?;
-            if objbool::get_value(&self.contains(obj.clone(), vm)?) {
+            if self.contains(obj.clone(), vm)? {
                 self.remove(&obj, vm)?;
             }
         }
@@ -311,7 +310,7 @@ impl PySetInner {
     ) -> PyResult {
         for item in iterable.iter(vm)? {
             let obj = item?;
-            if !objbool::get_value(&self.contains(obj.clone(), vm)?) {
+            if !self.contains(obj.clone(), vm)? {
                 self.add(&obj, vm)?;
             } else {
                 self.remove(&obj, vm)?;
@@ -343,7 +342,7 @@ impl PySetRef {
         }
     }
 
-    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.borrow().contains(needle, vm)
     }
 
@@ -550,7 +549,7 @@ impl PyFrozenSetRef {
         }
     }
 
-    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
     }
 
