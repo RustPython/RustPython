@@ -53,6 +53,7 @@ assert set([1,2,3]).union([1,2,3,4,5]) == set([1,2,3,4,5])
 
 assert set([1,2,3]) | set([4,5]) == set([1,2,3,4,5])
 assert set([1,2,3]) | set([1,2,3,4,5]) == set([1,2,3,4,5])
+assert_raises(TypeError, lambda: set([1,2,3]) | [1,2,3,4,5])
 
 assert set([1,2,3]).intersection(set([1,2])) == set([1,2])
 assert set([1,2,3]).intersection(set([5,6])) == set([])
@@ -186,6 +187,7 @@ assert frozenset([1,2,3]).union([1,2,3,4,5]) == frozenset([1,2,3,4,5])
 
 assert frozenset([1,2,3]) | frozenset([4,5]) == frozenset([1,2,3,4,5])
 assert frozenset([1,2,3]) | frozenset([1,2,3,4,5]) == frozenset([1,2,3,4,5])
+assert_raises(TypeError, lambda: frozenset([1,2,3]) | [1,2,3,4,5])
 
 assert frozenset([1,2,3]).intersection(frozenset([1,2])) == frozenset([1,2])
 assert frozenset([1,2,3]).intersection(frozenset([5,6])) == frozenset([])

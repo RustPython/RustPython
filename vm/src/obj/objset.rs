@@ -9,7 +9,8 @@ use std::hash::{Hash, Hasher};
 
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -17,6 +18,7 @@ use super::objbool;
 use super::objint;
 use super::objiter;
 use super::objlist::PyListIterator;
+use super::objtype;
 use super::objtype::PyClassRef;
 
 #[derive(Default)]
@@ -467,6 +469,10 @@ impl PySetRef {
         ))
     }
 
+    fn or(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+        self.union(other.iterable, vm)
+    }
+
     fn iter(self, vm: &VirtualMachine) -> PyListIterator {
         self.inner.borrow().iter(vm)
     }
@@ -636,6 +642,10 @@ impl PyFrozenSetRef {
         ))
     }
 
+    fn or(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+        self.union(other.iterable, vm)
+    }
+
     fn intersection(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Ok(PyObject::new(
             PyFrozenSet {
@@ -732,6 +742,27 @@ enum SetCombineOperation {
     Difference,
 }
 
+struct SetIterable {
+    iterable: PyIterable,
+}
+
+impl TryFromObject for SetIterable {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if objtype::issubclass(&obj.class(), &vm.ctx.set_type())
+            || objtype::issubclass(&obj.class(), &vm.ctx.frozenset_type())
+        {
+            Ok(SetIterable {
+                iterable: PyIterable::try_from_object(vm, obj)?,
+            })
+        } else {
+            Err(vm.new_type_error(format!(
+                "{} is not a subtype of set or frozenset",
+                obj.class()
+            )))
+        }
+    }
+}
+
 fn set_hash(_zelf: PySetRef, vm: &VirtualMachine) -> PyResult {
     Err(vm.new_type_error("unhashable type".to_string()))
 }
@@ -757,7 +788,7 @@ pub fn init(context: &PyContext) {
         "issubset" => context.new_rustfunc(PySetRef::le),
         "issuperset" => context.new_rustfunc(PySetRef::ge),
         "union" => context.new_rustfunc(PySetRef::union),
-        "__or__" => context.new_rustfunc(PySetRef::union),
+        "__or__" => context.new_rustfunc(PySetRef::or),
         "intersection" => context.new_rustfunc(PySetRef::intersection),
         "__and__" => context.new_rustfunc(PySetRef::intersection),
         "difference" => context.new_rustfunc(PySetRef::difference),
@@ -798,7 +829,7 @@ pub fn init(context: &PyContext) {
         "issubset" => context.new_rustfunc(PyFrozenSetRef::le),
         "issuperset" => context.new_rustfunc(PyFrozenSetRef::ge),
         "union" => context.new_rustfunc(PyFrozenSetRef::union),
-        "__or__" => context.new_rustfunc(PyFrozenSetRef::union),
+        "__or__" => context.new_rustfunc(PyFrozenSetRef::or),
         "intersection" => context.new_rustfunc(PyFrozenSetRef::intersection),
         "__and__" => context.new_rustfunc(PyFrozenSetRef::intersection),
         "difference" => context.new_rustfunc(PyFrozenSetRef::difference),
