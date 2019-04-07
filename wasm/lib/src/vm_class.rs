@@ -37,6 +37,13 @@ impl StoredVirtualMachine {
             held_objects: RefCell::new(Vec::new()),
         }
     }
+
+    pub fn id(&self) -> &str {
+        self.vm
+            .wasm_id
+            .as_ref()
+            .expect("VirtualMachine inside of WASM crate should have wasm_id set")
+    }
 }
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local!
