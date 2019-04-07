@@ -290,9 +290,8 @@ impl PySetInner {
         perform_action_with_hash(vm, &mut self.elements, &item, &discard)
     }
 
-    fn clear(&mut self, vm: &VirtualMachine) -> PyResult {
+    fn clear(&mut self) -> () {
         self.elements.clear();
-        Ok(vm.get_none())
     }
 
     fn pop(&mut self, vm: &VirtualMachine) -> PyResult {
@@ -498,8 +497,8 @@ impl PySetRef {
         self.inner.borrow_mut().discard(&item, vm)
     }
 
-    fn clear(self, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().clear(vm)
+    fn clear(self, _vm: &VirtualMachine) -> () {
+        self.inner.borrow_mut().clear()
     }
 
     fn pop(self, vm: &VirtualMachine) -> PyResult {
