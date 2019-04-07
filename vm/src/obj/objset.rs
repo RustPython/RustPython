@@ -190,10 +190,9 @@ impl PySetInner {
     fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut elements = HashMap::new();
         for item in other.iter(vm)? {
-            if let Ok(obj) = item {
-                if objbool::get_value(&self.contains(obj.clone(), vm)?) {
-                    insert_into_set(vm, &mut elements, &obj)?;
-                }
+            let obj = item?;
+            if objbool::get_value(&self.contains(obj.clone(), vm)?) {
+                insert_into_set(vm, &mut elements, &obj)?;
             }
         }
         Ok(PySetInner { elements })
@@ -202,37 +201,27 @@ impl PySetInner {
     fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut elements = self.elements.clone();
         for item in other.iter(vm)? {
-            if let Ok(obj) = item {
-                if objbool::get_value(&self.contains(obj.clone(), vm)?) {
-                    remove_from_set(vm, &mut elements, &obj)?;
-                }
+            let obj = item?;
+            if objbool::get_value(&self.contains(obj.clone(), vm)?) {
+                remove_from_set(vm, &mut elements, &obj)?;
             }
         }
         Ok(PySetInner { elements })
     }
 
-    fn symmetric_difference(
-        &self,
-        other: &PySetInner,
-        vm: &VirtualMachine,
-    ) -> PyResult<PySetInner> {
-        let mut elements = HashMap::new();
+    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+        let mut new_inner = self.clone();
 
-        for element in self.elements.iter() {
-            let value = other.contains(element.1.clone(), vm)?;
-            if !objbool::get_value(&value) {
-                elements.insert(element.0.clone(), element.1.clone());
+        for item in other.iter(vm)? {
+            let obj = item?;
+            if !objbool::get_value(&self.contains(obj.clone(), vm)?) {
+                new_inner.add(&obj, vm)?;
+            } else {
+                new_inner.remove(&obj, vm)?;
             }
         }
 
-        for element in other.elements.iter() {
-            let value = self.contains(element.1.clone(), vm)?;
-            if !objbool::get_value(&value) {
-                elements.insert(element.0.clone(), element.1.clone());
-            }
-        }
-
-        Ok(PySetInner { elements })
+        Ok(new_inner)
     }
 
     fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
@@ -427,14 +416,10 @@ impl PySetRef {
         ))
     }
 
-    fn symmetric_difference(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn symmetric_difference(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
         Ok(PyObject::new(
             PySet {
-                inner: RefCell::new(match_class!(other,
-                set @ PySet => self.inner.borrow().symmetric_difference(&set.inner.borrow(), vm)?,
-                frozen @ PyFrozenSet => self.inner.borrow().symmetric_difference(&frozen.inner, vm)?,
-                other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-                )),
+                inner: RefCell::new(self.inner.borrow().symmetric_difference(other, vm)?),
             },
             PySet::class(vm),
             None,
@@ -451,6 +436,10 @@ impl PySetRef {
 
     fn sub(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
         self.difference(other.iterable, vm)
+    }
+
+    fn xor(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+        self.symmetric_difference(other.iterable, vm)
     }
 
     fn iter(self, vm: &VirtualMachine) -> PyListIterator {
@@ -642,14 +631,10 @@ impl PyFrozenSetRef {
         ))
     }
 
-    fn symmetric_difference(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn symmetric_difference(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
         Ok(PyObject::new(
             PyFrozenSet {
-                inner: match_class!(other,
-                set @ PySet => self.inner.symmetric_difference(&set.inner.borrow(), vm)?,
-                frozen @ PyFrozenSet => self.inner.symmetric_difference(&frozen.inner, vm)?,
-                other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-                ),
+                inner: self.inner.symmetric_difference(other, vm)?,
             },
             PyFrozenSet::class(vm),
             None,
@@ -666,6 +651,10 @@ impl PyFrozenSetRef {
 
     fn sub(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
         self.difference(other.iterable, vm)
+    }
+
+    fn xor(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+        self.symmetric_difference(other.iterable, vm)
     }
 
     fn iter(self, vm: &VirtualMachine) -> PyListIterator {
@@ -796,7 +785,7 @@ pub fn init(context: &PyContext) {
         "difference" => context.new_rustfunc(PySetRef::difference),
         "__sub__" => context.new_rustfunc(PySetRef::sub),
         "symmetric_difference" => context.new_rustfunc(PySetRef::symmetric_difference),
-        "__xor__" => context.new_rustfunc(PySetRef::symmetric_difference),
+        "__xor__" => context.new_rustfunc(PySetRef::xor),
         "__doc__" => context.new_str(set_doc.to_string()),
         "add" => context.new_rustfunc(PySetRef::add),
         "remove" => context.new_rustfunc(PySetRef::remove),
@@ -837,7 +826,7 @@ pub fn init(context: &PyContext) {
         "difference" => context.new_rustfunc(PyFrozenSetRef::difference),
         "__sub__" => context.new_rustfunc(PyFrozenSetRef::sub),
         "symmetric_difference" => context.new_rustfunc(PyFrozenSetRef::symmetric_difference),
-        "__xor__" => context.new_rustfunc(PyFrozenSetRef::symmetric_difference),
+        "__xor__" => context.new_rustfunc(PyFrozenSetRef::xor),
         "__contains__" => context.new_rustfunc(PyFrozenSetRef::contains),
         "__len__" => context.new_rustfunc(PyFrozenSetRef::len),
         "__doc__" => context.new_str(frozenset_doc.to_string()),
