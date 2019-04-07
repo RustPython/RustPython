@@ -23,10 +23,9 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGeneratorRef;
 use crate::obj::objiter;
-use crate::obj::objlist::PyList;
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::obj::objtuple::PyTuple;
+use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -332,9 +331,10 @@ impl VirtualMachine {
             ref code,
             ref scope,
             ref defaults,
+            ref kw_only_defaults,
         }) = func_ref.payload()
         {
-            return self.invoke_python_function(code, scope, defaults, args);
+            return self.invoke_python_function(code, scope, defaults, kw_only_defaults, args);
         }
         if let Some(PyMethod {
             ref function,
@@ -356,11 +356,18 @@ impl VirtualMachine {
         &self,
         code: &PyCodeRef,
         scope: &Scope,
-        defaults: &PyObjectRef,
+        defaults: &Option<PyTupleRef>,
+        kw_only_defaults: &Option<PyDictRef>,
         args: PyFuncArgs,
     ) -> PyResult {
         let scope = scope.child_scope(&self.ctx);
-        self.fill_locals_from_args(&code.code, &scope.get_locals(), args, defaults)?;
+        self.fill_locals_from_args(
+            &code.code,
+            &scope.get_locals(),
+            args,
+            defaults,
+            kw_only_defaults,
+        )?;
 
         // Construct frame:
         let frame = Frame::new(code.clone(), scope).into_ref(self);
@@ -379,12 +386,7 @@ impl VirtualMachine {
         cells: PyDictRef,
         locals: PyDictRef,
     ) -> PyResult {
-        if let Some(PyFunction {
-            code,
-            scope,
-            defaults: _,
-        }) = &function.payload()
-        {
+        if let Some(PyFunction { code, scope, .. }) = &function.payload() {
             let scope = scope
                 .child_scope_with_locals(cells)
                 .child_scope_with_locals(locals);
@@ -402,7 +404,8 @@ impl VirtualMachine {
         code_object: &bytecode::CodeObject,
         locals: &PyDictRef,
         args: PyFuncArgs,
-        defaults: &PyObjectRef,
+        defaults: &Option<PyTupleRef>,
+        kw_only_defaults: &Option<PyDictRef>,
     ) -> PyResult<()> {
         let nargs = args.args.len();
         let nexpected_args = code_object.arg_names.len();
@@ -438,10 +441,7 @@ impl VirtualMachine {
 
                 locals.set_item(vararg_name, vararg_value, self)?;
             }
-            bytecode::Varargs::Unnamed => {
-                // just ignore the rest of the args
-            }
-            bytecode::Varargs::None => {
+            bytecode::Varargs::Unnamed | bytecode::Varargs::None => {
                 // Check the number of positional arguments
                 if nargs > nexpected_args {
                     return Err(self.new_type_error(format!(
@@ -487,19 +487,11 @@ impl VirtualMachine {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let available_defaults = if defaults.is(&self.get_none()) {
-                vec![]
-            } else if let Some(list) = defaults.payload::<PyList>() {
-                list.elements.borrow().clone()
-            } else if let Some(tuple) = defaults.payload::<PyTuple>() {
-                tuple.elements.borrow().clone()
-            } else {
-                panic!("function defaults not tuple or None");
-            };
+            let num_defaults_available = defaults.as_ref().map_or(0, |d| d.elements.borrow().len());
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
-            let required_args = nexpected_args - available_defaults.len();
+            let required_args = nexpected_args - num_defaults_available;
             let mut missing = vec![];
             for i in 0..required_args {
                 let variable_name = &code_object.arg_names[i];
@@ -514,31 +506,32 @@ impl VirtualMachine {
                     missing
                 )));
             }
-
-            // We have sufficient defaults, so iterate over the corresponding names and use
-            // the default if we don't already have a value
-            for (default_index, i) in (required_args..nexpected_args).enumerate() {
-                let arg_name = &code_object.arg_names[i];
-                if !locals.contains_key(arg_name, self) {
-                    locals.set_item(arg_name, available_defaults[default_index].clone(), self)?;
+            if let Some(defaults) = defaults {
+                let defaults = defaults.elements.borrow();
+                // We have sufficient defaults, so iterate over the corresponding names and use
+                // the default if we don't already have a value
+                for (default_index, i) in (required_args..nexpected_args).enumerate() {
+                    let arg_name = &code_object.arg_names[i];
+                    if !locals.contains_key(arg_name, self) {
+                        locals.set_item(arg_name, defaults[default_index].clone(), self)?;
+                    }
                 }
             }
         };
 
         // Check if kw only arguments are all present:
-        let kwdefs: HashMap<String, String> = HashMap::new();
         for arg_name in &code_object.kwonlyarg_names {
             if !locals.contains_key(arg_name, self) {
-                if kwdefs.contains_key(arg_name) {
-                    // If not yet specified, take the default value
-                    unimplemented!();
-                } else {
-                    // No default value and not specified.
-                    return Err(self.new_type_error(format!(
-                        "Missing required kw only argument: '{}'",
-                        arg_name
-                    )));
+                if let Some(kw_only_defaults) = kw_only_defaults {
+                    if let Some(default) = kw_only_defaults.get_item_option(arg_name, self)? {
+                        locals.set_item(arg_name, default, self)?;
+                        continue;
+                    }
                 }
+
+                // No default value and not specified.
+                return Err(self
+                    .new_type_error(format!("Missing required kw only argument: '{}'", arg_name)));
             }
         }
 
