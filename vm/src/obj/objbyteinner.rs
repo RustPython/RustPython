@@ -7,6 +7,8 @@ use crate::vm::VirtualMachine;
 use crate::pyobject::{PyResult, TypeProtocol};
 
 use crate::obj::objstr::PyString;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use super::objint;
 use crate::obj::objint::PyInt;
@@ -151,6 +153,13 @@ impl PyByteInner {
             Ok(vm.new_bool(false))
         }
     }
+
+    pub fn hash(&self) -> usize {
+        let mut hasher = DefaultHasher::new();
+        self.elements.hash(&mut hasher);
+        hasher.finish() as usize
+    }
 }
+
 // TODO
 // fix b"é" not allowed should be bytes("é", "utf8")

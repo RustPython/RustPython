@@ -30,7 +30,7 @@ assert repr(b"abcd") == "b'abcd'"
 #len
 assert len(bytes("abcdé", "utf8")) == 6
 
-#
+#comp
 assert a == b"abcd"
 assert a > b
 assert a >= b
@@ -43,3 +43,9 @@ assert b'foobar'.__gt__(2) == NotImplemented
 assert b'foobar'.__ge__(2) == NotImplemented
 assert b'foobar'.__lt__(2) == NotImplemented
 assert b'foobar'.__le__(2) == NotImplemented
+
+#hash
+hash(a) == hash(b"abcd")
+
+#iter
+[i for i in b"abcd"] == ["a", "b", "c", "d"]
