@@ -95,12 +95,8 @@ impl_try_from_object_int!(
     (u64, to_u64),
 );
 
-impl PyIntRef {
-    fn pass_value(self, _vm: &VirtualMachine) -> Self {
-        self
-    }
-
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+impl PyInt {
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value == *get_value(&other))
         } else {
@@ -108,7 +104,7 @@ impl PyIntRef {
         }
     }
 
-    fn ne(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value != *get_value(&other))
         } else {
@@ -116,7 +112,7 @@ impl PyIntRef {
         }
     }
 
-    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value < *get_value(&other))
         } else {
@@ -124,7 +120,7 @@ impl PyIntRef {
         }
     }
 
-    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value <= *get_value(&other))
         } else {
@@ -132,7 +128,7 @@ impl PyIntRef {
         }
     }
 
-    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value > *get_value(&other))
         } else {
@@ -140,7 +136,7 @@ impl PyIntRef {
         }
     }
 
-    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value >= *get_value(&other))
         } else {
@@ -148,7 +144,7 @@ impl PyIntRef {
         }
     }
 
-    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) + get_value(&other))
         } else {
@@ -156,7 +152,7 @@ impl PyIntRef {
         }
     }
 
-    fn sub(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) - get_value(&other))
         } else {
@@ -164,7 +160,7 @@ impl PyIntRef {
         }
     }
 
-    fn rsub(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int(get_value(&other) - (&self.value))
         } else {
@@ -172,7 +168,7 @@ impl PyIntRef {
         }
     }
 
-    fn mul(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) * get_value(&other))
         } else {
@@ -180,7 +176,7 @@ impl PyIntRef {
         }
     }
 
-    fn truediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             div_ints(vm, &self.value, &get_value(&other))
         } else {
@@ -188,7 +184,7 @@ impl PyIntRef {
         }
     }
 
-    fn rtruediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             div_ints(vm, &get_value(&other), &self.value)
         } else {
@@ -196,7 +192,7 @@ impl PyIntRef {
         }
     }
 
-    fn floordiv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             if *v2 != BigInt::zero() {
@@ -209,7 +205,7 @@ impl PyIntRef {
         }
     }
 
-    fn lshift(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn lshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
             return Ok(vm.ctx.not_implemented());
         }
@@ -228,7 +224,7 @@ impl PyIntRef {
         }
     }
 
-    fn rshift(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
             return Ok(vm.ctx.not_implemented());
         }
@@ -247,7 +243,7 @@ impl PyIntRef {
         }
     }
 
-    fn xor(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) ^ get_value(&other))
         } else {
@@ -255,7 +251,7 @@ impl PyIntRef {
         }
     }
 
-    fn rxor(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn rxor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int(get_value(&other) ^ (&self.value))
         } else {
@@ -263,7 +259,7 @@ impl PyIntRef {
         }
     }
 
-    fn or(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) | get_value(&other))
         } else {
@@ -271,7 +267,7 @@ impl PyIntRef {
         }
     }
 
-    fn and(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             vm.ctx.new_int((&self.value) & v2)
@@ -280,7 +276,7 @@ impl PyIntRef {
         }
     }
 
-    fn pow(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other).to_u32().unwrap();
             vm.ctx.new_int(self.value.pow(v2))
@@ -292,7 +288,7 @@ impl PyIntRef {
         }
     }
 
-    fn mod_(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             if *v2 != BigInt::zero() {
@@ -305,7 +301,7 @@ impl PyIntRef {
         }
     }
 
-    fn divmod(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             if *v2 != BigInt::zero() {
@@ -321,37 +317,68 @@ impl PyIntRef {
         }
     }
 
-    fn neg(self, _vm: &VirtualMachine) -> BigInt {
+    fn neg(&self, _vm: &VirtualMachine) -> BigInt {
         -(&self.value)
     }
 
-    fn hash(self, _vm: &VirtualMachine) -> u64 {
+    fn hash(&self, _vm: &VirtualMachine) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.value.hash(&mut hasher);
         hasher.finish()
     }
 
-    fn abs(self, _vm: &VirtualMachine) -> BigInt {
+    fn abs(&self, _vm: &VirtualMachine) -> BigInt {
         self.value.abs()
     }
 
-    fn round(self, _precision: OptionalArg<PyObjectRef>, _vm: &VirtualMachine) -> Self {
-        self
+    fn round(
+        zelf: PyRef<Self>,
+        _precision: OptionalArg<PyObjectRef>,
+        _vm: &VirtualMachine,
+    ) -> PyIntRef {
+        zelf
     }
 
-    fn float(self, _vm: &VirtualMachine) -> f64 {
-        self.value.to_f64().unwrap()
+    fn int(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
     }
 
-    fn invert(self, _vm: &VirtualMachine) -> BigInt {
+    fn pos(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    fn float(&self, vm: &VirtualMachine) -> PyResult<PyFloat> {
+        self.value
+            .to_f64()
+            .map(PyFloat::from)
+            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))
+    }
+
+    fn trunc(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    fn floor(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    fn ceil(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    fn index(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    fn invert(&self, _vm: &VirtualMachine) -> BigInt {
         !(&self.value)
     }
 
-    fn repr(self, _vm: &VirtualMachine) -> String {
+    fn repr(&self, _vm: &VirtualMachine) -> String {
         self.value.to_string()
     }
 
-    fn format(self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
         let format_spec = FormatSpec::parse(&spec.value);
         match format_spec.format_int(&self.value) {
             Ok(string) => Ok(string),
@@ -359,15 +386,23 @@ impl PyIntRef {
         }
     }
 
-    fn bool(self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self, _vm: &VirtualMachine) -> bool {
         !self.value.is_zero()
     }
 
-    fn bit_length(self, _vm: &VirtualMachine) -> usize {
+    fn bit_length(&self, _vm: &VirtualMachine) -> usize {
         self.value.bits()
     }
 
-    fn imag(self, _vm: &VirtualMachine) -> usize {
+    fn conjugate(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
+        zelf
+    }
+
+    fn imag(&self, _vm: &VirtualMachine) -> usize {
         0
     }
 }
@@ -484,49 +519,49 @@ Base 0 means to interpret the base from the string as an integer literal.
     let int_type = &context.int_type;
     extend_class!(context, int_type, {
         "__doc__" => context.new_str(int_doc.to_string()),
-        "__eq__" => context.new_rustfunc(PyIntRef::eq),
-        "__ne__" => context.new_rustfunc(PyIntRef::ne),
-        "__lt__" => context.new_rustfunc(PyIntRef::lt),
-        "__le__" => context.new_rustfunc(PyIntRef::le),
-        "__gt__" => context.new_rustfunc(PyIntRef::gt),
-        "__ge__" => context.new_rustfunc(PyIntRef::ge),
-        "__abs__" => context.new_rustfunc(PyIntRef::abs),
-        "__add__" => context.new_rustfunc(PyIntRef::add),
-        "__radd__" => context.new_rustfunc(PyIntRef::add),
-        "__and__" => context.new_rustfunc(PyIntRef::and),
-        "__divmod__" => context.new_rustfunc(PyIntRef::divmod),
-        "__float__" => context.new_rustfunc(PyIntRef::float),
-        "__round__" => context.new_rustfunc(PyIntRef::round),
-        "__ceil__" => context.new_rustfunc(PyIntRef::pass_value),
-        "__floor__" => context.new_rustfunc(PyIntRef::pass_value),
-        "__index__" => context.new_rustfunc(PyIntRef::pass_value),
-        "__trunc__" => context.new_rustfunc(PyIntRef::pass_value),
-        "__int__" => context.new_rustfunc(PyIntRef::pass_value),
-        "__floordiv__" => context.new_rustfunc(PyIntRef::floordiv),
-        "__hash__" => context.new_rustfunc(PyIntRef::hash),
-        "__lshift__" => context.new_rustfunc(PyIntRef::lshift),
-        "__rshift__" => context.new_rustfunc(PyIntRef::rshift),
+        "__eq__" => context.new_rustfunc(PyInt::eq),
+        "__ne__" => context.new_rustfunc(PyInt::ne),
+        "__lt__" => context.new_rustfunc(PyInt::lt),
+        "__le__" => context.new_rustfunc(PyInt::le),
+        "__gt__" => context.new_rustfunc(PyInt::gt),
+        "__ge__" => context.new_rustfunc(PyInt::ge),
+        "__abs__" => context.new_rustfunc(PyInt::abs),
+        "__add__" => context.new_rustfunc(PyInt::add),
+        "__radd__" => context.new_rustfunc(PyInt::add),
+        "__and__" => context.new_rustfunc(PyInt::and),
+        "__divmod__" => context.new_rustfunc(PyInt::divmod),
+        "__float__" => context.new_rustfunc(PyInt::float),
+        "__round__" => context.new_rustfunc(PyInt::round),
+        "__ceil__" => context.new_rustfunc(PyInt::ceil),
+        "__floor__" => context.new_rustfunc(PyInt::floor),
+        "__index__" => context.new_rustfunc(PyInt::index),
+        "__trunc__" => context.new_rustfunc(PyInt::trunc),
+        "__int__" => context.new_rustfunc(PyInt::int),
+        "__floordiv__" => context.new_rustfunc(PyInt::floordiv),
+        "__hash__" => context.new_rustfunc(PyInt::hash),
+        "__lshift__" => context.new_rustfunc(PyInt::lshift),
+        "__rshift__" => context.new_rustfunc(PyInt::rshift),
         "__new__" => context.new_rustfunc(int_new),
-        "__mod__" => context.new_rustfunc(PyIntRef::mod_),
-        "__mul__" => context.new_rustfunc(PyIntRef::mul),
-        "__rmul__" => context.new_rustfunc(PyIntRef::mul),
-        "__or__" => context.new_rustfunc(PyIntRef::or),
-        "__neg__" => context.new_rustfunc(PyIntRef::neg),
-        "__pos__" => context.new_rustfunc(PyIntRef::pass_value),
-        "__pow__" => context.new_rustfunc(PyIntRef::pow),
-        "__repr__" => context.new_rustfunc(PyIntRef::repr),
-        "__sub__" => context.new_rustfunc(PyIntRef::sub),
-        "__rsub__" => context.new_rustfunc(PyIntRef::rsub),
-        "__format__" => context.new_rustfunc(PyIntRef::format),
-        "__truediv__" => context.new_rustfunc(PyIntRef::truediv),
-        "__rtruediv__" => context.new_rustfunc(PyIntRef::rtruediv),
-        "__xor__" => context.new_rustfunc(PyIntRef::xor),
-        "__rxor__" => context.new_rustfunc(PyIntRef::rxor),
-        "__bool__" => context.new_rustfunc(PyIntRef::bool),
-        "__invert__" => context.new_rustfunc(PyIntRef::invert),
-        "bit_length" => context.new_rustfunc(PyIntRef::bit_length),
-        "conjugate" => context.new_rustfunc(PyIntRef::pass_value),
-        "real" => context.new_property(PyIntRef::pass_value),
-        "imag" => context.new_property(PyIntRef::imag)
+        "__mod__" => context.new_rustfunc(PyInt::mod_),
+        "__mul__" => context.new_rustfunc(PyInt::mul),
+        "__rmul__" => context.new_rustfunc(PyInt::mul),
+        "__or__" => context.new_rustfunc(PyInt::or),
+        "__neg__" => context.new_rustfunc(PyInt::neg),
+        "__pos__" => context.new_rustfunc(PyInt::pos),
+        "__pow__" => context.new_rustfunc(PyInt::pow),
+        "__repr__" => context.new_rustfunc(PyInt::repr),
+        "__sub__" => context.new_rustfunc(PyInt::sub),
+        "__rsub__" => context.new_rustfunc(PyInt::rsub),
+        "__format__" => context.new_rustfunc(PyInt::format),
+        "__truediv__" => context.new_rustfunc(PyInt::truediv),
+        "__rtruediv__" => context.new_rustfunc(PyInt::rtruediv),
+        "__xor__" => context.new_rustfunc(PyInt::xor),
+        "__rxor__" => context.new_rustfunc(PyInt::rxor),
+        "__bool__" => context.new_rustfunc(PyInt::bool),
+        "__invert__" => context.new_rustfunc(PyInt::invert),
+        "bit_length" => context.new_rustfunc(PyInt::bit_length),
+        "conjugate" => context.new_rustfunc(PyInt::conjugate),
+        "real" => context.new_property(PyInt::real),
+        "imag" => context.new_property(PyInt::imag)
     });
 }
