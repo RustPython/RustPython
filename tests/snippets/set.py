@@ -132,6 +132,8 @@ a &= set([2,3,4,5])
 assert a == set([2,3])
 with assertRaises(TypeError):
 	a &= 1
+with assertRaises(TypeError):
+	a &= [1,2,3]
 
 a = set([1,2,3])
 a.difference_update([3,4,5])
@@ -143,6 +145,8 @@ a -= set([3,4,5])
 assert a == set([1,2])
 with assertRaises(TypeError):
 	a -= 1
+with assertRaises(TypeError):
+	a -= [1,2,3]
 
 a = set([1,2,3])
 a.symmetric_difference_update([3,4,5])
@@ -154,6 +158,8 @@ a ^= set([3,4,5])
 assert a == set([1,2,4,5])
 with assertRaises(TypeError):
 	a ^= 1
+with assertRaises(TypeError):
+	a ^= [1,2,3]
 
 # frozen set
 
