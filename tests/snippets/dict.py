@@ -107,3 +107,19 @@ x = {}
 x['a'] = 2
 x['b'] = 10
 assert list(x) == ['a', 'b']
+
+y = x.copy()
+x['c'] = 12
+assert list(y) == ['a', 'b']
+assert y['a'] == 2
+assert y['b'] == 10
+
+y.update({'c': 19, "d": -1, 'b': 12})
+assert list(y) == ['a', 'b', 'c', 'd']
+assert y['a'] == 2
+assert y['b'] == 12
+assert y['c'] == 19
+assert y['d'] == -1
+
+y.update(y)
+assert list(y) == ['a', 'b', 'c', 'd']
