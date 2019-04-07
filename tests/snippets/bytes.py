@@ -32,10 +32,10 @@ assert len(bytes("abcdé", "utf8")) == 6
 
 #
 assert a == b"abcd"
-# assert a > b
-# assert a >= b
-# assert b < a
-# assert b <= a
+assert a > b
+assert a >= b
+assert b < a
+assert b <= a
 
 assert b'foobar'.__eq__(2) == NotImplemented
 assert b'foobar'.__ne__(2) == NotImplemented

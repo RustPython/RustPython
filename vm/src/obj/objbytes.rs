@@ -1,30 +1,11 @@
-use crate::obj::objint::PyInt;
-use crate::obj::objlist;
-use crate::obj::objlist::PyList;
-use crate::obj::objstr::PyString;
-use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype;
-use std::cell::Cell;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use crate::vm::VirtualMachine;
 use std::ops::Deref;
 
-use num_traits::ToPrimitive;
-
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
 use super::objbyteinner::PyByteInner;
-use super::objint;
-use super::objiter;
-use super::objstr;
 use super::objtype::PyClassRef;
-use std::clone::Clone;
-
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
 /// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
@@ -35,7 +16,7 @@ use std::clone::Clone;
 /// - any object implementing the buffer API.\n  \
 /// - an integer";
 #[pyclass(name = "bytes", __inside_vm)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyByteInner,
 }
@@ -113,102 +94,88 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(self, _vm: &VirtualMachine) -> String {
-        // TODO: don't just unwrap
-        let data = self.inner.elements.clone();
-        format!("b'{:?}'", data)
+    fn repr(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_str(format!("b'{}'", self.inner.repr()?)))
     }
 
     #[pymethod(name = "__len__")]
     fn len(self, _vm: &VirtualMachine) -> usize {
-        self.inner.elements.len()
-    }
-}
-/*
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(other) = other.downcast::<PyBytes>() {
-            vm.ctx.new_bool(self.value == other.value)
-        } else {
-            vm.ctx.not_implemented()
-        }
+        self.inner.len()
     }
 
-    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(other) = other.downcast::<PyBytes>() {
-            vm.ctx.new_bool(self.value >= other.value)
-        } else {
-            vm.ctx.not_implemented()
-        }
+    #[pymethod(name = "__eq__")]
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.eq(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
     }
 
-    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(other) = other.downcast::<PyBytes>() {
-            vm.ctx.new_bool(self.value > other.value)
-        } else {
-            vm.ctx.not_implemented()
-        }
+    #[pymethod(name = "__ge__")]
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.ge(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
     }
-
-    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(other) = other.downcast::<PyBytes>() {
-            vm.ctx.new_bool(self.value <= other.value)
-        } else {
-            vm.ctx.not_implemented()
-        }
+    #[pymethod(name = "__le__")]
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.le(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
     }
-
-    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(other) = other.downcast::<PyBytes>() {
-            vm.ctx.new_bool(self.value < other.value)
-        } else {
-            vm.ctx.not_implemented()
-        }
+    #[pymethod(name = "__gt__")]
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.gt(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
     }
-
-
-    fn hash(self, _vm: &VirtualMachine) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.value.hash(&mut hasher);
-        hasher.finish()
-    }
-
-
-    fn iter(self, _vm: &VirtualMachine) -> PyBytesIterator {
-        PyBytesIterator {
-            position: Cell::new(0),
-            bytes: self,
-        }
+    #[pymethod(name = "__lt__")]
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.lt(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
     }
 }
 
+//     fn hash(self, _vm: &VirtualMachine) -> u64 {
+//         let mut hasher = DefaultHasher::new();
+//         self.value.hash(&mut hasher);
+//         hasher.finish()
+//     }
 
+//     fn iter(self, _vm: &VirtualMachine) -> PyBytesIterator {
+//         PyBytesIterator {
+//             position: Cell::new(0),
+//             bytes: self,
+//         }
+//     }
+// }
 
-#[derive(Debug)]
-pub struct PyBytesIterator {
-    position: Cell<usize>,
-    bytes: PyBytesRef,
-}
+// #[derive(Debug)]
+// pub struct PyBytesIterator {
+//     position: Cell<usize>,
+//     bytes: PyBytesRef,
+// }
 
-impl PyValue for PyBytesIterator {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.bytesiterator_type()
-    }
-}
+// impl PyValue for PyBytesIterator {
+//     fn class(vm: &VirtualMachine) -> PyClassRef {
+//         vm.ctx.bytesiterator_type()
+//     }
+// }
 
-type PyBytesIteratorRef = PyRef<PyBytesIterator>;
+// type PyBytesIteratorRef = PyRef<PyBytesIterator>;
 
-impl PyBytesIteratorRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult<u8> {
-        if self.position.get() < self.bytes.value.len() {
-            let ret = self.bytes[self.position.get()];
-            self.position.set(self.position.get() + 1);
-            Ok(ret)
-        } else {
-            Err(objiter::new_stop_iteration(vm))
-        }
-    }
+// impl PyBytesIteratorRef {
+//     fn next(self, vm: &VirtualMachine) -> PyResult<u8> {
+//         if self.position.get() < self.bytes.value.len() {
+//             let ret = self.bytes[self.position.get()];
+//             self.position.set(self.position.get() + 1);
+//             Ok(ret)
+//         } else {
+//             Err(objiter::new_stop_iteration(vm))
+//         }
+//     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
-    }
-}*/
+//     fn iter(self, _vm: &VirtualMachine) -> Self {
+//         self
+//     }
+// }

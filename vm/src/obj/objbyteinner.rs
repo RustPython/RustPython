@@ -119,6 +119,38 @@ impl PyByteInner {
             Ok(vm.new_bool(false))
         }
     }
+
+    pub fn ge(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+        if self.elements >= other.elements {
+            Ok(vm.new_bool(true))
+        } else {
+            Ok(vm.new_bool(false))
+        }
+    }
+
+    pub fn le(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+        if self.elements <= other.elements {
+            Ok(vm.new_bool(true))
+        } else {
+            Ok(vm.new_bool(false))
+        }
+    }
+
+    pub fn gt(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+        if self.elements > other.elements {
+            Ok(vm.new_bool(true))
+        } else {
+            Ok(vm.new_bool(false))
+        }
+    }
+
+    pub fn lt(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+        if self.elements < other.elements {
+            Ok(vm.new_bool(true))
+        } else {
+            Ok(vm.new_bool(false))
+        }
+    }
 }
 // TODO
 // fix b"é" not allowed should be bytes("é", "utf8")
