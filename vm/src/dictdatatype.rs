@@ -9,6 +9,7 @@ use num_traits::ToPrimitive;
 /// And: http://code.activestate.com/recipes/578375/
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct Dict<T = PyObjectRef> {
     size: usize,
     indices: HashMap<usize, usize>,
@@ -25,6 +26,7 @@ impl<T> Default for Dict<T> {
     }
 }
 
+#[derive(Clone)]
 struct DictEntry<T> {
     hash: usize,
     key: PyObjectRef,
@@ -118,13 +120,16 @@ impl<T: Clone> Dict<T> {
         self.len() == 0
     }
 
-    pub fn get_items(&self) -> Vec<(PyObjectRef, T)> {
+    pub fn iter_items(&self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
         self.entries
             .iter()
             .filter(|e| e.is_some())
             .map(|e| e.as_ref().unwrap())
             .map(|e| (e.key.clone(), e.value.clone()))
-            .collect()
+    }
+
+    pub fn get_items(&self) -> Vec<(PyObjectRef, T)> {
+        self.iter_items().collect()
     }
 
     /// Lookup the index for the given key.

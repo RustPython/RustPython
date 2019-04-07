@@ -3,7 +3,8 @@ use std::fmt;
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -44,13 +45,28 @@ impl PyDictRef {
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyDictRef> {
-        let mut dict = DictContentType::default();
+        let dict = DictContentType::default();
 
+        let entries = RefCell::new(dict);
+        // it's unfortunate that we can't abstract over RefCall, as we should be able to use dict
+        // directly here, but that would require generic associated types
+        PyDictRef::merge(&entries, dict_obj, kwargs, vm)?;
+
+        PyDict { entries }.into_ref_with_type(vm, class)
+    }
+
+    fn merge(
+        dict: &RefCell<DictContentType>,
+        dict_obj: OptionalArg<PyObjectRef>,
+        kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         if let OptionalArg::Present(dict_obj) = dict_obj {
             let dicted: PyResult<PyDictRef> = dict_obj.clone().downcast();
             if let Ok(dict_obj) = dicted {
-                for (key, value) in dict_obj.get_key_value_pairs() {
-                    dict.insert(vm, &key, value)?;
+                let mut dict_borrowed = dict.borrow_mut();
+                for (key, value) in dict_obj.entries.borrow().iter_items() {
+                    dict_borrowed.insert(vm, &key, value)?;
                 }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
@@ -68,17 +84,15 @@ impl PyDictRef {
                     if objiter::get_next_object(vm, &elem_iter)?.is_some() {
                         return Err(err(vm));
                     }
-                    dict.insert(vm, &key, value)?;
+                    dict.borrow_mut().insert(vm, &key, value)?;
                 }
             }
         }
+        let mut dict_borrowed = dict.borrow_mut();
         for (key, value) in kwargs.into_iter() {
-            dict.insert(vm, &vm.new_str(key), value)?;
+            dict_borrowed.insert(vm, &vm.new_str(key), value)?;
         }
-        PyDict {
-            entries: RefCell::new(dict),
-        }
-        .into_ref_with_type(vm, class)
+        Ok(())
     }
 
     fn bool(self, _vm: &VirtualMachine) -> bool {
@@ -209,6 +223,28 @@ impl PyDictRef {
         }
     }
 
+    fn copy(self, _vm: &VirtualMachine) -> PyDict {
+        PyDict {
+            entries: self.entries.clone(),
+        }
+    }
+
+    fn update(
+        self,
+        mut dict_obj: OptionalArg<PyObjectRef>,
+        kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let OptionalArg::Present(ref other) = dict_obj {
+            if self.is(other) {
+                // Updating yourself is a noop, and this avoids a borrow error
+                dict_obj = OptionalArg::Missing;
+            }
+        }
+
+        PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
+    }
+
     /// Take a python dictionary and convert it to attributes.
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::new();
@@ -266,5 +302,7 @@ pub fn init(context: &PyContext) {
         // TODO: separate type. `keys` should be a live view over the collection, not an iterator.
         "keys" => context.new_rustfunc(PyDictRef::iter),
         "get" => context.new_rustfunc(PyDictRef::get),
+        "copy" => context.new_rustfunc(PyDictRef::copy),
+        "update" => context.new_rustfunc(PyDictRef::update),
     });
 }
