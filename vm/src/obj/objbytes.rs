@@ -106,73 +106,10 @@ impl PyBytesRef {
         enc_option: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
-        // First handle bytes(string, encoding[, errors])
-        if let OptionalArg::Present(enc) = enc_option {
-            if let OptionalArg::Present(eval) = val_option {
-                if let Ok(input) = eval.downcast::<PyString>() {
-                    if let Ok(encoding) = enc.clone().downcast::<PyString>() {
-                        if encoding.value.to_lowercase() == "utf8".to_string()
-                            || encoding.value.to_lowercase() == "utf-8".to_string()
-                        // TODO: different encoding
-                        {
-                            return PyBytes::new(input.value.as_bytes().to_vec())
-                                .into_ref_with_type(vm, cls.clone());
-                        } else {
-                            return Err(
-                                vm.new_value_error(format!("unknown encoding: {}", encoding.value)), //should be lookup error
-                            );
-                        }
-                    } else {
-                        return Err(vm.new_type_error(format!(
-                            "bytes() argument 2 must be str, not {}",
-                            enc.class().name
-                        )));
-                    }
-                } else {
-                    return Err(vm.new_type_error("encoding without a string argument".to_string()));
-                }
-            } else {
-                return Err(vm.new_type_error("encoding without a string argument".to_string()));
-            }
-        // On ly one argument
-        } else {
-            let value = if let OptionalArg::Present(ival) = val_option {
-                match_class!(ival.clone(),
-                    i @ PyInt => {
-                            let size = objint::get_value(&i.into_object()).to_usize().unwrap();
-                            let mut res: Vec<u8> = Vec::with_capacity(size);
-                            for _ in 0..size {
-                                res.push(0)
-                            }
-                            Ok(res)},
-                    _l @ PyString=> {return Err(vm.new_type_error(format!(
-                        "string argument without an encoding"
-                    )));},
-                    obj => {
-                        let elements = vm.extract_elements(&obj).or_else(|_| {return Err(vm.new_type_error(format!(
-                        "cannot convert {} object to bytes", obj.class().name)));});
-
-                        let mut data_bytes = vec![];
-                        for elem in elements.unwrap(){
-                            let v = objint::to_int(vm, &elem, 10)?;
-                            if let Some(i) = v.to_u8() {
-                                data_bytes.push(i);
-                            } else {
-                                return Err(vm.new_value_error("bytes must be in range(0, 256)".to_string()));
-                                }
-
-                            }
-                        Ok(data_bytes)
-                        }
-                )
-            } else {
-                Ok(vec![])
-            };
-            match value {
-                Ok(val) => PyBytes::new(val).into_ref_with_type(vm, cls.clone()),
-                Err(err) => Err(err),
-            }
+        PyBytes {
+            inner: PyByteInner::new(val_option, enc_option, vm)?,
         }
+        .into_ref_with_type(vm, cls)
     }
 
     #[pymethod(name = "__repr__")]
