@@ -159,6 +159,32 @@ impl PyByteInner {
         self.elements.hash(&mut hasher);
         hasher.finish() as usize
     }
+
+    pub fn add(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+        let elements: Vec<u8> = self
+            .elements
+            .iter()
+            .chain(other.elements.iter())
+            .cloned()
+            .collect();
+        Ok(vm.ctx.new_bytes(elements))
+    }
+
+    pub fn contains_bytes(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+        for (n, i) in self.elements.iter().enumerate() {
+            if n + other.len() <= self.len() && *i == other.elements[0] {
+                if &self.elements[n..n + other.len()] == other.elements.as_slice() {
+                    return Ok(vm.new_bool(true));
+                }
+            }
+        }
+        Ok(vm.new_bool(false))
+    }
+
+    pub fn contains_int(&self, int: &PyInt, vm: &VirtualMachine) -> PyResult {
+        self.elements.contains(int);
+        Ok(vm.new_bool(false))
+    }
 }
 
 // TODO

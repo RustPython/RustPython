@@ -128,6 +128,33 @@ impl PyBytesRef {
             bytes: self,
         }
     }
+
+    #[pymethod(name = "__add__")]
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.add(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
+    }
+
+    #[pymethod(name = "__contains__")]
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // no new style since objint is not.
+        match_class!(needle,
+        bytes @ PyBytes => self.inner.contains_bytes(&bytes.inner, vm),
+        int @ PyInt => self.inner.contains_int(&int, vm),
+        _  => Ok(vm.ctx.not_implemented()))
+        // if objtype::isinstance(&needle, &vm.ctx.bytes_type()) {
+        //     let result = vec_contains(&self.value, &get_value(&needle));
+        //     vm.ctx.new_bool(result)
+        // } else if objtype::isinstance(&needle, &vm.ctx.int_type()) {
+        //     let result = self
+        //         .value
+        //         .contains(&objint::get_value(&needle).to_u8().unwrap());
+        //     vm.ctx.new_bool(result)
+        // } else {
+        //     vm.new_type_error(format!("Cannot add {:?} and {:?}", self, needle))
+        // }
+    }
 }
 
 #[derive(Debug)]

@@ -49,3 +49,17 @@ hash(a) == hash(b"abcd")
 
 #iter
 [i for i in b"abcd"] == ["a", "b", "c", "d"]
+
+#add
+assert a + b == b"abcdab"
+
+#contains
+# contains
+assert b"ab" in b"abcd"
+assert b"cd" in b"abcd"
+assert b"abcd" in b"abcd"
+assert b"a" in b"abcd"
+assert b"d" in b"abcd"
+assert b"dc" not in b"abcd"
+# assert 97 in b"abcd"
+# assert 150 not in b"abcd"
