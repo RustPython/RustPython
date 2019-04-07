@@ -347,8 +347,11 @@ impl PyInt {
         zelf
     }
 
-    fn float(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
-        zelf
+    fn float(&self, vm: &VirtualMachine) -> PyResult<PyFloat> {
+        self.value
+            .to_f64()
+            .map(PyFloat::from)
+            .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))
     }
 
     fn trunc(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
