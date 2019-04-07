@@ -35,16 +35,7 @@ impl From<f64> for PyFloat {
 }
 
 impl PyFloat {
-    fn is_integer(&self, _vm: &VirtualMachine) -> bool {
-        let v = self.value;
-        (v - v.round()).abs() < std::f64::EPSILON
-    }
-}
-
-pub type PyFloatRef = PyRef<PyFloat>;
-
-impl PyFloatRef {
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let value = self.value;
         let result = if objtype::isinstance(&other, &vm.ctx.float_type()) {
             let other = get_value(&other);
@@ -63,7 +54,7 @@ impl PyFloatRef {
         vm.ctx.new_bool(result)
     }
 
-    fn lt(self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn lt(&self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 < get_value(&i2))
@@ -75,7 +66,7 @@ impl PyFloatRef {
         }
     }
 
-    fn le(self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn le(&self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 <= get_value(&i2))
@@ -87,7 +78,7 @@ impl PyFloatRef {
         }
     }
 
-    fn gt(self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn gt(&self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 > get_value(&i2))
@@ -99,7 +90,7 @@ impl PyFloatRef {
         }
     }
 
-    fn ge(self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn ge(&self, i2: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 >= get_value(&i2))
@@ -111,11 +102,11 @@ impl PyFloatRef {
         }
     }
 
-    fn abs(self, _vm: &VirtualMachine) -> f64 {
+    fn abs(&self, _vm: &VirtualMachine) -> f64 {
         self.value.abs()
     }
 
-    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type()) {
             vm.ctx.new_float(v1 + get_value(&other))
@@ -127,23 +118,23 @@ impl PyFloatRef {
         }
     }
 
-    fn bool(self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self, _vm: &VirtualMachine) -> bool {
         self.value != 0.0
     }
 
-    fn divmod(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.float_type())
             || objtype::isinstance(&other, &vm.ctx.int_type())
         {
-            let r1 = PyFloatRef::floordiv(self.clone(), other.clone(), vm)?;
-            let r2 = PyFloatRef::mod_(self, other, vm)?;
+            let r1 = self.floordiv(other.clone(), vm)?;
+            let r2 = self.mod_(other, vm)?;
             Ok(vm.ctx.new_tuple(vec![r1, r2]))
         } else {
             Ok(vm.ctx.not_implemented())
         }
     }
 
-    fn floordiv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
@@ -202,7 +193,7 @@ impl PyFloatRef {
         PyFloat { value }.into_ref_with_type(vm, cls)
     }
 
-    fn mod_(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
@@ -221,11 +212,11 @@ impl PyFloatRef {
         }
     }
 
-    fn neg(self, _vm: &VirtualMachine) -> f64 {
+    fn neg(&self, _vm: &VirtualMachine) -> f64 {
         -self.value
     }
 
-    fn pow(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type()) {
             vm.ctx.new_float(v1.powf(get_value(&other)))
@@ -237,7 +228,7 @@ impl PyFloatRef {
         }
     }
 
-    fn sub(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type()) {
             Ok(vm.ctx.new_float(v1 - get_value(&other)))
@@ -250,7 +241,7 @@ impl PyFloatRef {
         }
     }
 
-    fn rsub(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type()) {
             Ok(vm.ctx.new_float(get_value(&other) - v1))
@@ -263,11 +254,11 @@ impl PyFloatRef {
         }
     }
 
-    fn repr(self, _vm: &VirtualMachine) -> String {
+    fn repr(&self, _vm: &VirtualMachine) -> String {
         self.value.to_string()
     }
 
-    fn truediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
@@ -286,7 +277,7 @@ impl PyFloatRef {
         }
     }
 
-    fn rtruediv(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
@@ -305,7 +296,7 @@ impl PyFloatRef {
         }
     }
 
-    fn mul(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let v1 = self.value;
         if objtype::isinstance(&other, &vm.ctx.float_type) {
             Ok(vm.ctx.new_float(v1 * get_value(&other)))
@@ -318,11 +309,16 @@ impl PyFloatRef {
         }
     }
 
-    fn real(self, _vm: &VirtualMachine) -> Self {
-        self
+    fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
+        zelf
     }
 
-    fn as_integer_ratio(self, vm: &VirtualMachine) -> PyResult {
+    fn is_integer(&self, _vm: &VirtualMachine) -> bool {
+        let v = self.value;
+        (v - v.round()).abs() < std::f64::EPSILON
+    }
+
+    fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult {
         let value = self.value;
         if value.is_infinite() {
             return Err(
@@ -339,6 +335,8 @@ impl PyFloatRef {
         Ok(vm.ctx.new_tuple(vec![numer, denom]))
     }
 }
+
+pub type PyFloatRef = PyRef<PyFloat>;
 
 // Retrieve inner float value:
 pub fn get_value(obj: &PyObjectRef) -> f64 {
@@ -363,31 +361,31 @@ pub fn init(context: &PyContext) {
     let float_doc = "Convert a string or number to a floating point number, if possible.";
 
     extend_class!(context, float_type, {
-        "__eq__" => context.new_rustfunc(PyFloatRef::eq),
-        "__lt__" => context.new_rustfunc(PyFloatRef::lt),
-        "__le__" => context.new_rustfunc(PyFloatRef::le),
-        "__gt__" => context.new_rustfunc(PyFloatRef::gt),
-        "__ge__" => context.new_rustfunc(PyFloatRef::ge),
-        "__abs__" => context.new_rustfunc(PyFloatRef::abs),
-        "__add__" => context.new_rustfunc(PyFloatRef::add),
-        "__radd__" => context.new_rustfunc(PyFloatRef::add),
-        "__bool__" => context.new_rustfunc(PyFloatRef::bool),
-        "__divmod__" => context.new_rustfunc(PyFloatRef::divmod),
-        "__floordiv__" => context.new_rustfunc(PyFloatRef::floordiv),
-        "__new__" => context.new_rustfunc(PyFloatRef::new_float),
-        "__mod__" => context.new_rustfunc(PyFloatRef::mod_),
-        "__neg__" => context.new_rustfunc(PyFloatRef::neg),
-        "__pow__" => context.new_rustfunc(PyFloatRef::pow),
-        "__sub__" => context.new_rustfunc(PyFloatRef::sub),
-        "__rsub__" => context.new_rustfunc(PyFloatRef::rsub),
-        "__repr__" => context.new_rustfunc(PyFloatRef::repr),
+        "__eq__" => context.new_rustfunc(PyFloat::eq),
+        "__lt__" => context.new_rustfunc(PyFloat::lt),
+        "__le__" => context.new_rustfunc(PyFloat::le),
+        "__gt__" => context.new_rustfunc(PyFloat::gt),
+        "__ge__" => context.new_rustfunc(PyFloat::ge),
+        "__abs__" => context.new_rustfunc(PyFloat::abs),
+        "__add__" => context.new_rustfunc(PyFloat::add),
+        "__radd__" => context.new_rustfunc(PyFloat::add),
+        "__bool__" => context.new_rustfunc(PyFloat::bool),
+        "__divmod__" => context.new_rustfunc(PyFloat::divmod),
+        "__floordiv__" => context.new_rustfunc(PyFloat::floordiv),
+        "__new__" => context.new_rustfunc(PyFloat::new_float),
+        "__mod__" => context.new_rustfunc(PyFloat::mod_),
+        "__neg__" => context.new_rustfunc(PyFloat::neg),
+        "__pow__" => context.new_rustfunc(PyFloat::pow),
+        "__sub__" => context.new_rustfunc(PyFloat::sub),
+        "__rsub__" => context.new_rustfunc(PyFloat::rsub),
+        "__repr__" => context.new_rustfunc(PyFloat::repr),
         "__doc__" => context.new_str(float_doc.to_string()),
-        "__truediv__" => context.new_rustfunc(PyFloatRef::truediv),
-        "__rtruediv__" => context.new_rustfunc(PyFloatRef::rtruediv),
-        "__mul__" => context.new_rustfunc(PyFloatRef::mul),
-        "__rmul__" => context.new_rustfunc(PyFloatRef::mul),
-        "real" => context.new_property(PyFloatRef::real),
+        "__truediv__" => context.new_rustfunc(PyFloat::truediv),
+        "__rtruediv__" => context.new_rustfunc(PyFloat::rtruediv),
+        "__mul__" => context.new_rustfunc(PyFloat::mul),
+        "__rmul__" => context.new_rustfunc(PyFloat::mul),
+        "real" => context.new_property(PyFloat::real),
         "is_integer" => context.new_rustfunc(PyFloat::is_integer),
-        "as_integer_ratio" => context.new_rustfunc(PyFloatRef::as_integer_ratio)
+        "as_integer_ratio" => context.new_rustfunc(PyFloat::as_integer_ratio)
     });
 }
