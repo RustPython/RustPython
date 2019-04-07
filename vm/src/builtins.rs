@@ -767,6 +767,19 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
+
+        // Warnings
+        "Warning" => ctx.exceptions.warning.clone(),
+        "BytesWarning" => ctx.exceptions.bytes_warning.clone(),
+        "UnicodeWarning" => ctx.exceptions.unicode_warning.clone(),
+        "DeprecationWarning" => ctx.exceptions.deprecation_warning.clone(),
+        "PendingDeprecationWarning" => ctx.exceptions.pending_deprecation_warning.clone(),
+        "FutureWarning" => ctx.exceptions.future_warning.clone(),
+        "ImportWarning" => ctx.exceptions.import_warning.clone(),
+        "SyntaxWarning" => ctx.exceptions.syntax_warning.clone(),
+        "ResourceWarning" => ctx.exceptions.resource_warning.clone(),
+        "RuntimeWarning" => ctx.exceptions.runtime_warning.clone(),
+        "UserWarning" => ctx.exceptions.user_warning.clone(),
     });
 }
 
