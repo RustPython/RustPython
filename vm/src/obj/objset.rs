@@ -8,7 +8,9 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{
+    PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
@@ -61,14 +63,13 @@ struct PySetInner {
 }
 
 impl PySetInner {
-    fn new(iterable: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    fn new(iterable: OptionalArg<PyIterable>, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let elements: HashMap<u64, PyObjectRef> = match iterable {
             OptionalArg::Missing => HashMap::new(),
             OptionalArg::Present(iterable) => {
                 let mut elements = HashMap::new();
-                let iterator = objiter::get_iter(vm, &iterable)?;
-                while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-                    insert_into_set(vm, &mut elements, &v)?;
+                for item in iterable.iter(vm)? {
+                    insert_into_set(vm, &mut elements, &item?)?;
                 }
                 elements
             }
@@ -175,9 +176,11 @@ impl PySetInner {
         )
     }
 
-    fn union(&self, other: &PySetInner, _vm: &VirtualMachine) -> PyResult<PySetInner> {
+    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut elements = self.elements.clone();
-        elements.extend(other.elements.clone());
+        for item in other.iter(vm)? {
+            insert_into_set(vm, &mut elements, &item?)?;
+        }
 
         Ok(PySetInner { elements })
     }
@@ -302,10 +305,9 @@ impl PySetInner {
         }
     }
 
-    fn update(&mut self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let iterator = objiter::get_iter(vm, &iterable)?;
-        while let Ok(v) = vm.call_method(&iterator, "__next__", vec![]) {
-            insert_into_set(vm, &mut self.elements, &v)?;
+    fn update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+        for item in iterable.iter(vm)? {
+            insert_into_set(vm, &mut self.elements, &item?)?;
         }
         Ok(vm.get_none())
     }
@@ -350,7 +352,7 @@ impl PySetInner {
 impl PySetRef {
     fn new(
         cls: PyClassRef,
-        iterable: OptionalArg<PyObjectRef>,
+        iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PySetRef> {
         PySet {
@@ -413,14 +415,10 @@ impl PySetRef {
         )
     }
 
-    fn union(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn union(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
         Ok(PyObject::new(
             PySet {
-                inner: RefCell::new(match_class!(other,
-                set @ PySet => self.inner.borrow().union(&set.inner.borrow(), vm)?,
-                frozen @ PyFrozenSet => self.inner.borrow().union(&frozen.inner, vm)?,
-                other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-                )),
+                inner: RefCell::new(self.inner.borrow().union(other, vm)?),
             },
             PySet::class(vm),
             None,
@@ -505,12 +503,12 @@ impl PySetRef {
         self.inner.borrow_mut().pop(vm)
     }
 
-    fn ior(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn ior(self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow_mut().update(iterable, vm)?;
         Ok(self.as_object().clone())
     }
 
-    fn update(self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn update(self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow_mut().update(iterable, vm)?;
         Ok(vm.get_none())
     }
@@ -565,7 +563,7 @@ impl PySetRef {
 impl PyFrozenSetRef {
     fn new(
         cls: PyClassRef,
-        iterable: OptionalArg<PyObjectRef>,
+        iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSetRef> {
         PyFrozenSet {
@@ -628,14 +626,10 @@ impl PyFrozenSetRef {
         )
     }
 
-    fn union(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn union(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
         Ok(PyObject::new(
             PyFrozenSet {
-                inner: match_class!(other,
-                set @ PySet => self.inner.union(&set.inner.borrow(), vm)?,
-                frozen @ PyFrozenSet => self.inner.union(&frozen.inner, vm)?,
-                other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-                ),
+                inner: self.inner.union(other, vm)?,
             },
             PyFrozenSet::class(vm),
             None,

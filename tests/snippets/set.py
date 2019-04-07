@@ -49,6 +49,7 @@ assert len(a) == 0
 
 assert set([1,2,3]).union(set([4,5])) == set([1,2,3,4,5])
 assert set([1,2,3]).union(set([1,2,3,4,5])) == set([1,2,3,4,5])
+assert set([1,2,3]).union([1,2,3,4,5]) == set([1,2,3,4,5])
 
 assert set([1,2,3]) | set([4,5]) == set([1,2,3,4,5])
 assert set([1,2,3]) | set([1,2,3,4,5]) == set([1,2,3,4,5])
@@ -181,6 +182,7 @@ assert b == a
 
 assert frozenset([1,2,3]).union(frozenset([4,5])) == frozenset([1,2,3,4,5])
 assert frozenset([1,2,3]).union(frozenset([1,2,3,4,5])) == frozenset([1,2,3,4,5])
+assert frozenset([1,2,3]).union([1,2,3,4,5]) == frozenset([1,2,3,4,5])
 
 assert frozenset([1,2,3]) | frozenset([4,5]) == frozenset([1,2,3,4,5])
 assert frozenset([1,2,3]) | frozenset([1,2,3,4,5]) == frozenset([1,2,3,4,5])
