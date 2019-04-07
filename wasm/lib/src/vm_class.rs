@@ -37,13 +37,6 @@ impl StoredVirtualMachine {
             held_objects: RefCell::new(Vec::new()),
         }
     }
-
-    pub fn id(&self) -> &str {
-        self.vm
-            .wasm_id
-            .as_ref()
-            .expect("VirtualMachine inside of WASM crate should have wasm_id set")
-    }
 }
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local!
@@ -53,6 +46,11 @@ thread_local! {
     static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();
 }
 
+pub fn get_vm_id(vm: &VirtualMachine) -> &str {
+    vm.wasm_id
+        .as_ref()
+        .expect("VirtualMachine inside of WASM crate should have wasm_id set")
+}
 pub(crate) fn stored_vm_from_wasm(wasm_vm: &WASMVirtualMachine) -> Rc<StoredVirtualMachine> {
     STORED_VMS.with(|cell| {
         cell.borrow()
@@ -62,10 +60,7 @@ pub(crate) fn stored_vm_from_wasm(wasm_vm: &WASMVirtualMachine) -> Rc<StoredVirt
     })
 }
 pub(crate) fn weak_vm(vm: &VirtualMachine) -> Weak<StoredVirtualMachine> {
-    let id = vm
-        .wasm_id
-        .as_ref()
-        .expect("VirtualMachine inside of WASM crate should have wasm_id set");
+    let id = get_vm_id(vm);
     STORED_VMS
         .with(|cell| Rc::downgrade(cell.borrow().get(id).expect("VirtualMachine is not valid")))
 }
