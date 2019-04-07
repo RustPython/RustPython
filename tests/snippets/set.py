@@ -119,6 +119,8 @@ a |= set([3,4,5])
 assert a == set([1,2,3,4,5])
 with assertRaises(TypeError):
 	a |= 1
+with assertRaises(TypeError):
+	a |= [1,2,3]
 
 a = set([1,2,3])
 a.intersection_update([2,3,4,5])

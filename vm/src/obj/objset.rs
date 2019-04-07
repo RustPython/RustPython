@@ -478,8 +478,8 @@ impl PySetRef {
         self.inner.borrow_mut().pop(vm)
     }
 
-    fn ior(self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().update(iterable, vm)?;
+    fn ior(self, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow_mut().update(iterable.iterable, vm)?;
         Ok(self.as_object().clone())
     }
 
