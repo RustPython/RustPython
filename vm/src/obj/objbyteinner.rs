@@ -1,4 +1,3 @@
-use crate::obj::objtype::PyClassRef;
 use crate::pyobject::PyObjectRef;
 
 use crate::function::OptionalArg;
@@ -93,4 +92,33 @@ impl PyByteInner {
             }
         }
     }
+
+    pub fn repr(&self) -> PyResult<String> {
+        let mut res = String::with_capacity(self.elements.len());
+        for i in self.elements.iter() {
+            match i {
+                0..=8 => res.push_str(&format!("\\x0{}", i)),
+                9 => res.push_str("\\t"),
+                10 => res.push_str("\\n"),
+                13 => res.push_str("\\r"),
+                32..=126 => res.push(*(i) as char),
+                _ => res.push_str(&format!("\\x{:x}", i)),
+            }
+        }
+        Ok(res)
+    }
+
+    pub fn len(&self) -> usize {
+        self.elements.len()
+    }
+
+    pub fn eq(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+        if self.elements == other.elements {
+            Ok(vm.new_bool(true))
+        } else {
+            Ok(vm.new_bool(false))
+        }
+    }
 }
+// TODO
+// fix b"é" not allowed should be bytes("é", "utf8")

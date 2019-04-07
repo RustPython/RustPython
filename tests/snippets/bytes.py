@@ -14,7 +14,28 @@ except TypeError:
 else:
     assert False
 
-# 
+a = b"abcd"
+b = b"ab"
+c = b"abcd"
+
+#
+# repr
+assert repr(bytes([0, 1, 2])) == repr(b'\x00\x01\x02')
+assert (
+repr(bytes([0, 1, 9, 10, 11, 13, 31, 32, 33, 89, 120, 255])
+== "b'\\x00\\x01\\t\\n\\x0b\\r\\x1f !Yx\\xff'")
+)
+assert repr(b"abcd") == "b'abcd'"
+
+#len
+assert len(bytes("abcdé", "utf8")) == 6
+
+#
+assert a == b"abcd"
+# assert a > b
+# assert a >= b
+# assert b < a
+# assert b <= a
 
 assert b'foobar'.__eq__(2) == NotImplemented
 assert b'foobar'.__ne__(2) == NotImplemented
