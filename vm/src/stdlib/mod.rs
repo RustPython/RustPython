@@ -15,14 +15,16 @@ mod types;
 mod weakref;
 use std::collections::HashMap;
 
+use crate::vm::VirtualMachine;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 mod os;
 
-use crate::pyobject::{PyContext, PyObjectRef};
+use crate::pyobject::PyObjectRef;
 
-pub type StdlibInitFunc = Box<dyn Fn(&PyContext) -> PyObjectRef>;
+pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef>;
 
 pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     let mut modules = HashMap::new();

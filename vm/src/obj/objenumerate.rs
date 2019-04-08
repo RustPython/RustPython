@@ -57,13 +57,17 @@ impl PyEnumerateRef {
 
         Ok(result)
     }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
 }
 
 pub fn init(context: &PyContext) {
     let enumerate_type = &context.enumerate_type;
-    objiter::iter_type_init(context, enumerate_type);
     extend_class!(context, enumerate_type, {
         "__new__" => context.new_rustfunc(enumerate_new),
-        "__next__" => context.new_rustfunc(PyEnumerateRef::next)
+        "__next__" => context.new_rustfunc(PyEnumerateRef::next),
+        "__iter__" => context.new_rustfunc(PyEnumerateRef::iter),
     });
 }

@@ -15,7 +15,7 @@ use num_traits::ToPrimitive;
 
 use crate::function::PyFuncArgs;
 use crate::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::VirtualMachine;
 
 #[derive(Debug)]
@@ -297,8 +297,10 @@ fn struct_unpack(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_tuple(items))
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "struct", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "struct", {
         "pack" => ctx.new_rustfunc(struct_pack),
         "unpack" => ctx.new_rustfunc(struct_unpack)
     })

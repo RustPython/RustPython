@@ -3,13 +3,12 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    IdProtocol, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue,
-};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
 use super::objint;
+use super::objiter;
 use super::objsequence::{
     get_elements, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
 };
@@ -140,10 +139,10 @@ impl PyTupleRef {
         Ok(hasher.finish())
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> PyIteratorValue {
-        PyIteratorValue {
+    fn iter(self, _vm: &VirtualMachine) -> PyTupleIterator {
+        PyTupleIterator {
             position: Cell::new(0),
-            iterated_obj: self.into_object(),
+            tuple: self,
         }
     }
 
@@ -225,6 +224,36 @@ fn tuple_new(
     PyTuple::from(elements).into_ref_with_type(vm, cls)
 }
 
+#[derive(Debug)]
+pub struct PyTupleIterator {
+    position: Cell<usize>,
+    tuple: PyTupleRef,
+}
+
+impl PyValue for PyTupleIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.tupleiterator_type()
+    }
+}
+
+type PyTupleIteratorRef = PyRef<PyTupleIterator>;
+
+impl PyTupleIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult {
+        if self.position.get() < self.tuple.elements.borrow().len() {
+            let ret = self.tuple.elements.borrow()[self.position.get()].clone();
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     let tuple_type = &context.tuple_type;
@@ -251,5 +280,11 @@ If the argument is a tuple, the return value is the same object.";
         "__ge__" => context.new_rustfunc(PyTupleRef::ge),
         "__doc__" => context.new_str(tuple_doc.to_string()),
         "index" => context.new_rustfunc(PyTupleRef::index)
+    });
+
+    let tupleiterator_type = &context.tupleiterator_type;
+    extend_class!(context, tupleiterator_type, {
+        "__next__" => context.new_rustfunc(PyTupleIteratorRef::next),
+        "__iter__" => context.new_rustfunc(PyTupleIteratorRef::iter),
     });
 }

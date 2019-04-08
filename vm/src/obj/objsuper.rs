@@ -12,7 +12,7 @@ use crate::obj::objfunction::PyMethod;
 use crate::obj::objstr;
 use crate::obj::objtype::{PyClass, PyClassRef};
 use crate::pyobject::{
-    DictProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -124,7 +124,7 @@ fn super_new(
     } else {
         let frame = vm.current_frame().expect("no current frame for super()");
         if let Some(first_arg) = frame.code.arg_names.get(0) {
-            match vm.get_locals().get_item(first_arg) {
+            match vm.get_locals().get_item_option(first_arg, vm)? {
                 Some(obj) => obj.clone(),
                 _ => {
                     return Err(vm

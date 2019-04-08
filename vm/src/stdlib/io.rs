@@ -20,9 +20,7 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{
-    BufferProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {
@@ -99,7 +97,7 @@ fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
-    vm.ctx.set_attr(buffered, "raw", raw.clone());
+    vm.set_attr(buffered, "raw", raw.clone())?;
     Ok(vm.get_none())
 }
 
@@ -148,10 +146,10 @@ fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             let args = vec![name.clone(), vm.ctx.new_int(os_mode)];
             let file_no = os::os_open(vm, PyFuncArgs::new(args, vec![]))?;
 
-            vm.ctx.set_attr(file_io, "name", name.clone());
-            vm.ctx.set_attr(file_io, "fileno", file_no);
-            vm.ctx.set_attr(file_io, "closefd", vm.new_bool(false));
-            vm.ctx.set_attr(file_io, "closed", vm.new_bool(false));
+            vm.set_attr(file_io, "name", name.clone())?;
+            vm.set_attr(file_io, "fileno", file_no)?;
+            vm.set_attr(file_io, "closefd", vm.new_bool(false))?;
+            vm.set_attr(file_io, "closed", vm.new_bool(false))?;
 
             Ok(vm.get_none())
         }
@@ -215,7 +213,7 @@ fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     let updated = os::raw_file_number(f.into_inner());
-    vm.ctx.set_attr(file_io, "fileno", vm.ctx.new_int(updated));
+    vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
     Ok(vm.get_none())
 }
 
@@ -241,7 +239,7 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
                 Ok(len) => {
                     //reset raw fd on the FileIO object
                     let updated = os::raw_file_number(handle);
-                    vm.ctx.set_attr(file_io, "fileno", vm.ctx.new_int(updated));
+                    vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
 
                     //return number of bytes written
                     Ok(vm.ctx.new_int(len))
@@ -273,7 +271,7 @@ fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(text_io_wrapper, None), (buffer, None)]
     );
 
-    vm.ctx.set_attr(text_io_wrapper, "buffer", buffer.clone());
+    vm.set_attr(text_io_wrapper, "buffer", buffer.clone())?;
     Ok(vm.get_none())
 }
 
@@ -365,7 +363,9 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     //IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "IOBase", ctx.object(), {
         "__enter__" => ctx.new_rustfunc(io_base_cm_enter),
@@ -421,7 +421,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "getvalue" => ctx.new_rustfunc(bytes_io_getvalue)
     });
 
-    py_module!(ctx, "io", {
+    py_module!(vm, "io", {
         "open" => ctx.new_rustfunc(io_open),
         "IOBase" => io_base,
         "RawIOBase" => raw_io_base,

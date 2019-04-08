@@ -1,5 +1,5 @@
 use crate::obj::objcode::PyCodeRef;
-use crate::pyobject::{PyContext, PyObjectRef, PyResult, TryFromObject};
+use crate::pyobject::{PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
 
 fn dis_dis(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -17,8 +17,10 @@ fn dis_disassemble(co: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.get_none())
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "dis", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "dis", {
         "dis" => ctx.new_rustfunc(dis_dis),
         "disassemble" => ctx.new_rustfunc(dis_disassemble)
     })

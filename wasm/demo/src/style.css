@@ -1,6 +1,6 @@
 textarea {
     font-family: monospace;
-    resize: none;
+    resize: vertical;
 }
 
 #code,

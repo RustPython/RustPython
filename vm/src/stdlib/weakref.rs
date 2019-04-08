@@ -5,10 +5,13 @@
 //! - [rust weak struct](https://doc.rust-lang.org/std/rc/struct.Weak.html)
 //!
 
-use super::super::pyobject::{PyContext, PyObjectRef};
+use super::super::pyobject::PyObjectRef;
+use crate::vm::VirtualMachine;
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "_weakref", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "_weakref", {
         "ref" => ctx.weakref_type()
     })
 }

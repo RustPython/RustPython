@@ -12,19 +12,21 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict::{self, PyDictRef};
+use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use itertools::Itertools;
 
 /*
  * So a scope is a linked list of scopes.
@@ -132,21 +134,21 @@ pub trait NameProtocol {
 impl NameProtocol for Scope {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
 
-        if let Some(value) = self.globals.get_item(name) {
+        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
             return Some(value);
         }
 
         vm.get_attribute(vm.builtins.clone(), name).ok()
     }
 
-    fn load_cell(&self, _vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
@@ -154,11 +156,11 @@ impl NameProtocol for Scope {
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
-        self.get_locals().set_item(&vm.ctx, key, value)
+        self.get_locals().set_item(key, value, vm).unwrap();
     }
 
-    fn delete_name(&self, _vm: &VirtualMachine, key: &str) {
-        self.get_locals().del_item(key)
+    fn delete_name(&self, vm: &VirtualMachine, key: &str) {
+        self.get_locals().del_item(key, vm).unwrap();
     }
 }
 
@@ -385,21 +387,24 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let map_obj = vm.ctx.new_dict().into_object();
-                for _x in 0..*size {
-                    let obj = self.pop_value();
-                    if *unpack {
+                let map_obj = vm.ctx.new_dict();
+                if *unpack {
+                    for obj in self.pop_multiple(*size) {
                         // Take all key-value pairs from the dict:
-                        let dict_elements = objdict::get_key_value_pairs(&obj);
+                        let dict: PyDictRef =
+                            obj.downcast().expect("Need a dictionary to build a map.");
+                        let dict_elements = dict.get_key_value_pairs();
                         for (key, value) in dict_elements.iter() {
-                            objdict::set_item(&map_obj, vm, key, value);
+                            map_obj.set_item(key.clone(), value.clone(), vm).unwrap();
                         }
-                    } else {
-                        let key = self.pop_value();
-                        objdict::set_item(&map_obj, vm, &key, &obj);
+                    }
+                } else {
+                    for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
+                        map_obj.set_item(key, value, vm).unwrap();
                     }
                 }
-                self.push_value(map_obj);
+
+                self.push_value(map_obj.into_object());
                 Ok(None)
             }
             bytecode::Instruction::BuildSlice { size } => {
@@ -574,18 +579,35 @@ impl Frame {
                     vm.ctx.new_dict().into_object()
                 };
 
+                let kw_only_defaults =
+                    if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
+                        Some(
+                            self.pop_value().downcast::<PyDict>().expect(
+                                "Stack value for keyword only defaults expected to be a dict",
+                            ),
+                        )
+                    } else {
+                        None
+                    };
+
                 let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
-                    self.pop_value()
+                    Some(
+                        self.pop_value()
+                            .downcast::<PyTuple>()
+                            .expect("Stack value for defaults expected to be a tuple"),
+                    )
                 } else {
-                    vm.get_none()
+                    None
                 };
 
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.scope.clone();
-                let obj = vm.ctx.new_function(code_obj, scope, defaults);
+                let obj = vm
+                    .ctx
+                    .new_function(code_obj, scope, defaults, kw_only_defaults);
 
-                vm.ctx.set_attr(&obj, "__annotations__", annotations);
+                vm.set_attr(&obj, "__annotations__", annotations)?;
 
                 self.push_value(obj);
                 Ok(None)
@@ -612,11 +634,12 @@ impl Frame {
                     }
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
-                            let kw_dict = self.pop_value();
-                            let dict_elements = objdict::get_elements(&kw_dict).clone();
+                            let kw_dict: PyDictRef =
+                                self.pop_value().downcast().expect("Kwargs must be a dict.");
+                            let dict_elements = kw_dict.get_key_value_pairs();
                             dict_elements
                                 .into_iter()
-                                .map(|elem| (elem.0, (elem.1).1))
+                                .map(|elem| (objstr::get_value(&elem.0), elem.1))
                                 .collect()
                         } else {
                             vec![]
@@ -987,22 +1010,18 @@ impl Frame {
         }
     }
 
-    fn subscript(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__getitem__", vec![b])
-    }
-
     fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        vm.call_method(&obj, "__setitem__", vec![idx, value])?;
+        obj.set_item(idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        vm.call_method(&obj, "__delitem__", vec![idx])?;
+        obj.del_item(idx, vm)?;
         Ok(None)
     }
 
@@ -1037,7 +1056,7 @@ impl Frame {
             bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
             // TODO: Subscript should probably have its own op
             bytecode::BinaryOperator::Subscript if inplace => unreachable!(),
-            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
             bytecode::BinaryOperator::Modulo if inplace => vm._imod(a_ref, b_ref),
             bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
             bytecode::BinaryOperator::Lshift if inplace => vm._ilshift(a_ref, b_ref),
@@ -1075,36 +1094,14 @@ impl Frame {
         a.get_id()
     }
 
-    // https://docs.python.org/3/reference/expressions.html#membership-test-operations
-    fn _membership(
-        &self,
-        vm: &VirtualMachine,
-        needle: PyObjectRef,
-        haystack: &PyObjectRef,
-    ) -> PyResult {
-        vm.call_method(&haystack, "__contains__", vec![needle])
-        // TODO: implement __iter__ and __getitem__ cases when __contains__ is
-        // not implemented.
-    }
-
     fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
-        match self._membership(vm, needle, &haystack) {
-            Ok(found) => Ok(found),
-            Err(_) => Err(vm.new_type_error(format!(
-                "{} has no __contains__ method",
-                haystack.class().name
-            ))),
-        }
+        let found = vm._membership(haystack.clone(), needle)?;
+        Ok(vm.ctx.new_bool(objbool::boolval(vm, found)?))
     }
 
     fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
-        match self._membership(vm, needle, &haystack) {
-            Ok(found) => Ok(vm.ctx.new_bool(!objbool::get_value(&found))),
-            Err(_) => Err(vm.new_type_error(format!(
-                "{} has no __contains__ method",
-                haystack.class().name
-            ))),
-        }
+        let found = vm._membership(haystack.clone(), needle)?;
+        Ok(vm.ctx.new_bool(!objbool::boolval(vm, found)?))
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
@@ -1232,7 +1229,8 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
         let dict = self.scope.get_locals();
-        let local_str = objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
+        let local_str = dict
+            .get_key_value_pairs()
             .iter()
             .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
             .collect::<String>();

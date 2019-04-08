@@ -23,14 +23,13 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGeneratorRef;
 use crate::obj::objiter;
-use crate::obj::objlist::PyList;
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
-use crate::obj::objtuple::PyTuple;
+use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
+    IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
 };
 use crate::stdlib;
@@ -58,18 +57,22 @@ impl VirtualMachine {
         let ctx = PyContext::new();
 
         // Hard-core modules:
-        let builtins = builtins::make_module(&ctx);
-        let sysmod = sysmodule::make_module(&ctx, builtins.clone());
+        let builtins = ctx.new_module("builtins", ctx.new_dict());
+        let sysmod = ctx.new_module("sys", ctx.new_dict());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
-        VirtualMachine {
-            builtins,
-            sys_module: sysmod,
+        let vm = VirtualMachine {
+            builtins: builtins.clone(),
+            sys_module: sysmod.clone(),
             stdlib_inits,
             ctx,
             frames: RefCell::new(vec![]),
             wasm_id: None,
-        }
+        };
+
+        builtins::make_module(&vm, builtins.clone());
+        sysmodule::make_module(&vm, sysmod, builtins);
+        vm
     }
 
     pub fn run_code_obj(&self, code: PyCodeRef, scope: Scope) -> PyResult {
@@ -328,9 +331,10 @@ impl VirtualMachine {
             ref code,
             ref scope,
             ref defaults,
+            ref kw_only_defaults,
         }) = func_ref.payload()
         {
-            return self.invoke_python_function(code, scope, defaults, args);
+            return self.invoke_python_function(code, scope, defaults, kw_only_defaults, args);
         }
         if let Some(PyMethod {
             ref function,
@@ -352,11 +356,18 @@ impl VirtualMachine {
         &self,
         code: &PyCodeRef,
         scope: &Scope,
-        defaults: &PyObjectRef,
+        defaults: &Option<PyTupleRef>,
+        kw_only_defaults: &Option<PyDictRef>,
         args: PyFuncArgs,
     ) -> PyResult {
         let scope = scope.child_scope(&self.ctx);
-        self.fill_locals_from_args(&code.code, &scope.get_locals(), args, defaults)?;
+        self.fill_locals_from_args(
+            &code.code,
+            &scope.get_locals(),
+            args,
+            defaults,
+            kw_only_defaults,
+        )?;
 
         // Construct frame:
         let frame = Frame::new(code.clone(), scope).into_ref(self);
@@ -375,12 +386,7 @@ impl VirtualMachine {
         cells: PyDictRef,
         locals: PyDictRef,
     ) -> PyResult {
-        if let Some(PyFunction {
-            code,
-            scope,
-            defaults: _,
-        }) = &function.payload()
-        {
+        if let Some(PyFunction { code, scope, .. }) = &function.payload() {
             let scope = scope
                 .child_scope_with_locals(cells)
                 .child_scope_with_locals(locals);
@@ -398,7 +404,8 @@ impl VirtualMachine {
         code_object: &bytecode::CodeObject,
         locals: &PyDictRef,
         args: PyFuncArgs,
-        defaults: &PyObjectRef,
+        defaults: &Option<PyTupleRef>,
+        kw_only_defaults: &Option<PyDictRef>,
     ) -> PyResult<()> {
         let nargs = args.args.len();
         let nexpected_args = code_object.arg_names.len();
@@ -419,7 +426,7 @@ impl VirtualMachine {
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
             let arg = &args.args[i];
-            locals.set_item(&self.ctx, arg_name, arg.clone());
+            locals.set_item(arg_name, arg.clone(), self)?;
         }
 
         // Pack other positional arguments in to *args:
@@ -432,12 +439,9 @@ impl VirtualMachine {
                 }
                 let vararg_value = self.ctx.new_tuple(last_args);
 
-                locals.set_item(&self.ctx, vararg_name, vararg_value);
+                locals.set_item(vararg_name, vararg_value, self)?;
             }
-            bytecode::Varargs::Unnamed => {
-                // just ignore the rest of the args
-            }
-            bytecode::Varargs::None => {
+            bytecode::Varargs::Unnamed | bytecode::Varargs::None => {
                 // Check the number of positional arguments
                 if nargs > nexpected_args {
                     return Err(self.new_type_error(format!(
@@ -452,7 +456,7 @@ impl VirtualMachine {
         let kwargs = match code_object.varkeywords {
             bytecode::Varargs::Named(ref kwargs_name) => {
                 let d = self.ctx.new_dict();
-                locals.set_item(&self.ctx, kwargs_name, d.as_object().clone());
+                locals.set_item(kwargs_name, d.as_object().clone(), self)?;
                 Some(d)
             }
             bytecode::Varargs::Unnamed => Some(self.ctx.new_dict()),
@@ -464,15 +468,15 @@ impl VirtualMachine {
             // Check if we have a parameter with this name:
             if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
             {
-                if locals.contains_key(&name) {
+                if locals.contains_key(&name, self) {
                     return Err(
                         self.new_type_error(format!("Got multiple values for argument '{}'", name))
                     );
                 }
 
-                locals.set_item(&self.ctx, &name, value);
+                locals.set_item(&name, value, self)?;
             } else if let Some(d) = &kwargs {
-                d.set_item(&self.ctx, &name, value);
+                d.set_item(&name, value, self)?;
             } else {
                 return Err(
                     self.new_type_error(format!("Got an unexpected keyword argument '{}'", name))
@@ -483,23 +487,15 @@ impl VirtualMachine {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let available_defaults = if defaults.is(&self.get_none()) {
-                vec![]
-            } else if let Some(list) = defaults.payload::<PyList>() {
-                list.elements.borrow().clone()
-            } else if let Some(tuple) = defaults.payload::<PyTuple>() {
-                tuple.elements.borrow().clone()
-            } else {
-                panic!("function defaults not tuple or None");
-            };
+            let num_defaults_available = defaults.as_ref().map_or(0, |d| d.elements.borrow().len());
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
-            let required_args = nexpected_args - available_defaults.len();
+            let required_args = nexpected_args - num_defaults_available;
             let mut missing = vec![];
             for i in 0..required_args {
                 let variable_name = &code_object.arg_names[i];
-                if !locals.contains_key(variable_name) {
+                if !locals.contains_key(variable_name, self) {
                     missing.push(variable_name)
                 }
             }
@@ -510,35 +506,32 @@ impl VirtualMachine {
                     missing
                 )));
             }
-
-            // We have sufficient defaults, so iterate over the corresponding names and use
-            // the default if we don't already have a value
-            for (default_index, i) in (required_args..nexpected_args).enumerate() {
-                let arg_name = &code_object.arg_names[i];
-                if !locals.contains_key(arg_name) {
-                    locals.set_item(
-                        &self.ctx,
-                        arg_name,
-                        available_defaults[default_index].clone(),
-                    );
+            if let Some(defaults) = defaults {
+                let defaults = defaults.elements.borrow();
+                // We have sufficient defaults, so iterate over the corresponding names and use
+                // the default if we don't already have a value
+                for (default_index, i) in (required_args..nexpected_args).enumerate() {
+                    let arg_name = &code_object.arg_names[i];
+                    if !locals.contains_key(arg_name, self) {
+                        locals.set_item(arg_name, defaults[default_index].clone(), self)?;
+                    }
                 }
             }
         };
 
         // Check if kw only arguments are all present:
-        let kwdefs: HashMap<String, String> = HashMap::new();
         for arg_name in &code_object.kwonlyarg_names {
-            if !locals.contains_key(arg_name) {
-                if kwdefs.contains_key(arg_name) {
-                    // If not yet specified, take the default value
-                    unimplemented!();
-                } else {
-                    // No default value and not specified.
-                    return Err(self.new_type_error(format!(
-                        "Missing required kw only argument: '{}'",
-                        arg_name
-                    )));
+            if !locals.contains_key(arg_name, self) {
+                if let Some(kw_only_defaults) = kw_only_defaults {
+                    if let Some(default) = kw_only_defaults.get_item_option(arg_name, self)? {
+                        locals.set_item(arg_name, default, self)?;
+                        continue;
+                    }
                 }
+
+                // No default value and not specified.
+                return Err(self
+                    .new_type_error(format!("Missing required kw only argument: '{}'", arg_name)));
             }
         }
 
@@ -568,13 +561,17 @@ impl VirtualMachine {
         self.call_method(&obj, "__getattribute__", vec![attr_name.into_object()])
     }
 
-    pub fn set_attr(
-        &self,
-        obj: &PyObjectRef,
-        attr_name: PyObjectRef,
-        attr_value: PyObjectRef,
-    ) -> PyResult {
-        self.call_method(&obj, "__setattr__", vec![attr_name, attr_value])
+    pub fn set_attr<K, V>(&self, obj: &PyObjectRef, attr_name: K, attr_value: V) -> PyResult
+    where
+        K: TryIntoRef<PyString>,
+        V: Into<PyObjectRef>,
+    {
+        let attr_name = attr_name.try_into_ref(self)?;
+        self.call_method(
+            obj,
+            "__setattr__",
+            vec![attr_name.into_object(), attr_value.into()],
+        )
     }
 
     pub fn del_attr(&self, obj: &PyObjectRef, attr_name: PyObjectRef) -> PyResult<()> {
@@ -866,6 +863,31 @@ impl VirtualMachine {
         self.call_or_reflection(a, b, "__ge__", "__le__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, ">="))
         })
+    }
+
+    // https://docs.python.org/3/reference/expressions.html#membership-test-operations
+    fn _membership_iter_search(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
+        let iter = objiter::get_iter(self, &haystack)?;
+        loop {
+            if let Some(element) = objiter::get_next_object(self, &iter)? {
+                let equal = self._eq(needle.clone(), element.clone())?;
+                if objbool::get_value(&equal) {
+                    return Ok(self.new_bool(true));
+                } else {
+                    continue;
+                }
+            } else {
+                return Ok(self.new_bool(false));
+            }
+        }
+    }
+
+    pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
+        if let Ok(method) = self.get_method(haystack.clone(), "__contains__") {
+            self.invoke(method, vec![needle])
+        } else {
+            self._membership_iter_search(haystack, needle)
+        }
     }
 }
 

@@ -2,7 +2,11 @@ use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
-use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TypeProtocol};
+use num_bigint::BigInt;
+use num_traits::{One, Signed, ToPrimitive, Zero};
+
+use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -10,7 +14,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 use super::objbool;
 use super::objint::PyInt;
 use super::objlist::PyList;
-use super::objslice::PySlice;
+use super::objslice::{PySlice, PySliceRef};
 use super::objtuple::PyTuple;
 
 pub trait PySliceableSequence {
@@ -145,6 +149,24 @@ impl<T: Clone> PySliceableSequence for Vec<T> {
 
     fn is_empty(&self) -> bool {
         self.is_empty()
+    }
+}
+
+pub enum SequenceIndex {
+    Int(i32),
+    Slice(PySliceRef),
+}
+
+impl TryFromObject for SequenceIndex {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match_class!(obj,
+            i @ PyInt => Ok(SequenceIndex::Int(i32::try_from_object(vm, i.into_object())?)),
+            s @ PySlice => Ok(SequenceIndex::Slice(s)),
+            obj => Err(vm.new_type_error(format!(
+                "sequence indices be integers or slices, not {}",
+                obj.class(),
+            )))
+        )
     }
 }
 

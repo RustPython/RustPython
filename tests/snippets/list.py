@@ -170,3 +170,34 @@ def f(x):
     return x
 assert_raises(ValueError, lambda: lst.sort(key=f)) # "list modified during sort"
 assert lst == [1, 2, 3, 4, 5]
+
+# __delitem__
+x = ['a', 'b', 'c']
+del x[0]
+assert x == ['b', 'c']
+
+x = ['a', 'b', 'c']
+del x[-1]
+assert x == ['a', 'b']
+
+x = y = [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
+del x[2:14:3]
+assert x == y
+assert x == [1, 2, 4, 5, 7, 8, 11, 12, 14, 15]
+assert y == [1, 2, 4, 5, 7, 8, 11, 12, 14, 15]
+
+x = [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
+del x[-5:]
+assert x == [1, 2, 3, 4, 5, 6, 7, 8, 10]
+
+x = list(range(12))
+del x[10:2:-2]
+assert x == [0,1,2,3,5,7,9,11]
+
+def bad_del_1():
+  del ['a', 'b']['a']
+assert_raises(TypeError, bad_del_1)
+
+def bad_del_2():
+  del ['a', 'b'][2]
+assert_raises(IndexError, bad_del_2)

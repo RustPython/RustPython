@@ -35,3 +35,10 @@ r = list(g3())
 # print(r)
 assert r == [23, 1, 2, 3, 44]
 
+def g4():
+    yield
+    yield 2,
+
+r = list(g4())
+assert r == [None, (2,)]
+

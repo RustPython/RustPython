@@ -8,14 +8,14 @@ use std::path::PathBuf;
 use crate::compile;
 use crate::frame::Scope;
 use crate::obj::{objsequence, objstr};
-use crate::pyobject::{DictProtocol, PyResult};
+use crate::pyobject::{ItemProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
 fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &str) -> PyResult {
     // Check for Rust-native modules
     if let Some(module) = vm.stdlib_inits.borrow().get(module) {
-        return Ok(module(&vm.ctx).clone());
+        return Ok(module(vm).clone());
     }
 
     let notfound_error = vm.context().exceptions.module_not_found_error.clone();
@@ -39,7 +39,7 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
     // trace!("Code object: {:?}", code_obj);
 
     let attrs = vm.ctx.new_dict();
-    attrs.set_item(&vm.ctx, "__name__", vm.new_str(module.to_string()));
+    attrs.set_item("__name__", vm.new_str(module.to_string()), vm)?;
     vm.run_code_obj(code_obj, Scope::new(None, attrs.clone()))?;
     Ok(vm.ctx.new_module(module, attrs))
 }
@@ -47,11 +47,11 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
 pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
     // First, see if we already loaded the module:
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
-    if let Some(module) = sys_modules.get_item(module_name) {
+    if let Ok(module) = sys_modules.get_item(module_name.to_string(), vm) {
         return Ok(module);
     }
     let module = import_uncached_module(vm, current_path, module_name)?;
-    sys_modules.set_item(&vm.ctx, module_name, module.clone());
+    sys_modules.set_item(module_name, module.clone(), vm)?;
     Ok(module)
 }
 

@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 use rustpython_vm::compile;
 use rustpython_vm::frame::{NameProtocol, Scope};
 use rustpython_vm::function::PyFuncArgs;
-use rustpython_vm::pyobject::{PyContext, PyObject, PyObjectPayload, PyObjectRef, PyResult};
+use rustpython_vm::pyobject::{PyObject, PyObjectPayload, PyObjectRef, PyResult};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module::setup_browser_module;
@@ -243,8 +243,8 @@ impl WASMVirtualMachine {
                 } else {
                     return Err(error());
                 };
-            let rustfunc = vm.ctx.new_rustfunc(print_fn);
-            vm.ctx.set_attr(&vm.builtins, "print", rustfunc);
+            vm.set_attr(&vm.builtins, "print", vm.ctx.new_rustfunc(print_fn))
+                .unwrap();
             Ok(())
         })?
     }
@@ -261,12 +261,12 @@ impl WASMVirtualMachine {
 
             let mod_name = name.clone();
 
-            let stdlib_init_fn = move |ctx: &PyContext| {
-                let py_mod = ctx.new_module(&name, ctx.new_dict());
+            let stdlib_init_fn = move |vm: &VirtualMachine| {
+                let module = vm.ctx.new_module(&name, vm.ctx.new_dict());
                 for (key, value) in module_items.clone() {
-                    ctx.set_attr(&py_mod, &key, value);
+                    vm.set_attr(&module, key, value).unwrap();
                 }
-                py_mod
+                module
             };
 
             vm.stdlib_inits

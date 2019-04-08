@@ -20,7 +20,7 @@ pub fn new_memory_view(
     bytes_object: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyMemoryViewRef> {
-    vm.ctx.set_attr(&cls, "obj", bytes_object.clone());
+    vm.set_attr(cls.as_object(), "obj", bytes_object.clone())?;
     PyMemoryView { obj: bytes_object }.into_ref_with_type(vm, cls)
 }
 

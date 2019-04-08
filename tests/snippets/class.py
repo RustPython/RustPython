@@ -37,8 +37,7 @@ class Bar:
         assert x == 3
 
 
-# TODO:
-# assert Bar.__doc__ == " W00t "
+assert Bar.__doc__ == " W00t "
 
 bar = Bar(42)
 
@@ -117,3 +116,31 @@ assert isinstance(a, super)
 assert type(a) is super
 assert a.conjugate() == 1
 
+
+class T1:
+    "test1"
+
+assert T1.__doc__ == "test1"
+
+class T2:
+    '''test2'''
+
+assert T2.__doc__ == "test2"
+
+class T3:
+    """
+    test3
+    """
+
+assert T3.__doc__ == "\n    test3\n    "
+
+class T4:
+
+    """test4"""
+
+    def t1(self):
+        """t1"""
+        pass
+
+assert T4.__doc__ == "test4"
+assert T4.t1.__doc__ == "t1"
