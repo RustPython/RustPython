@@ -37,10 +37,17 @@ for key in a.keys():
         res.add(key)
 assert res == set(['a','b'])
 
+x = {'a': 1, 'b': 2, 'c': 3, 'd': 3}
+del x['c']
+it = iter(x.items())
+assert ('a', 1) == next(it)
+assert ('b', 2) == next(it)
+assert ('d', 3) == next(it)
+
+
 x = {}
 x[1] = 1
 assert x[1] == 1
-
 
 x[7] = 7
 x[2] = 2

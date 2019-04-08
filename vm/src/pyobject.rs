@@ -129,7 +129,9 @@ pub struct PyContext {
     pub false_value: PyIntRef,
     pub list_type: PyClassRef,
     pub listiterator_type: PyClassRef,
-    pub dictiterator_type: PyClassRef,
+    pub dictkeysiterator_type: PyClassRef,
+    pub dictvaluesiterator_type: PyClassRef,
+    pub dictitemsiterator_type: PyClassRef,
     pub map_type: PyClassRef,
     pub memoryview_type: PyClassRef,
     pub none: PyNoneRef,
@@ -255,7 +257,9 @@ impl PyContext {
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
         let listiterator_type = create_type("list_iterator", &type_type, &object_type);
-        let dictiterator_type = create_type("dict_iterator", &type_type, &object_type);
+        let dictkeysiterator_type = create_type("dict_keys", &type_type, &object_type);
+        let dictvaluesiterator_type = create_type("dict_values", &type_type, &object_type);
+        let dictitemsiterator_type = create_type("dict_items", &type_type, &object_type);
         let set_type = create_type("set", &type_type, &object_type);
         let frozenset_type = create_type("frozenset", &type_type, &object_type);
         let int_type = create_type("int", &type_type, &object_type);
@@ -315,7 +319,9 @@ impl PyContext {
             staticmethod_type,
             list_type,
             listiterator_type,
-            dictiterator_type,
+            dictkeysiterator_type,
+            dictvaluesiterator_type,
+            dictitemsiterator_type,
             set_type,
             frozenset_type,
             true_value,

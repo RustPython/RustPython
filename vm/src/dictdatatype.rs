@@ -120,13 +120,12 @@ impl<T: Clone> Dict<T> {
         self.len() == 0
     }
 
-    pub fn next_entry(&self, position: usize) -> Option<(usize, &PyObjectRef, &T)> {
-        let mut new_position = position;
+    pub fn next_entry(&self, mut position: usize) -> Option<(usize, &PyObjectRef, &T)> {
         while position < self.entries.len() {
             if let Some(DictEntry { key, value, .. }) = &self.entries[position] {
-                return Some((new_position + 1, key, value));
+                return Some((position + 1, key, value));
             } else {
-                new_position += 1;
+                position += 1;
             }
         }
         None
