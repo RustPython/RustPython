@@ -10,6 +10,7 @@ use crate::error::CompileError;
 use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::pyobject::PyValue;
+use crate::symboltable::SymbolTable;
 use crate::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
@@ -37,6 +38,8 @@ pub fn compile(
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
+            let mut symbol_table = SymbolTable::new();
+            symbol_table.scan_program(&ast);
             compiler.compile_program(&ast)
         }
         Mode::Eval => {
@@ -194,11 +197,8 @@ impl Compiler {
                 // Pop result of stack, since we not use it:
                 self.emit(Instruction::Pop);
             }
-            ast::Statement::Global { names } => {
-                unimplemented!("global {:?}", names);
-            }
-            ast::Statement::Nonlocal { names } => {
-                unimplemented!("nonlocal {:?}", names);
+            ast::Statement::Global { .. } | ast::Statement::Nonlocal { .. } => {
+                // Handled during symbol table construction.
             }
             ast::Statement::If { test, body, orelse } => {
                 let end_label = self.new_label();
@@ -1623,6 +1623,7 @@ fn get_doc(body: &[ast::LocatedStatement]) -> (&[ast::LocatedStatement], Option<
     }
     (body, None)
 }
+
 
 #[cfg(test)]
 mod tests {

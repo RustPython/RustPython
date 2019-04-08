@@ -55,6 +55,7 @@ pub mod import;
 pub mod obj;
 pub mod pyobject;
 pub mod stdlib;
+mod symboltable;
 mod sysmodule;
 mod traceback;
 pub mod util;
