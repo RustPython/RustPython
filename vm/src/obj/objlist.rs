@@ -7,7 +7,10 @@ use num_bigint::BigInt;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{
+    IdProtocol, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
+};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
@@ -189,7 +192,12 @@ impl PyListRef {
     ) -> PyResult {
         match subscript {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
-            SequenceIndex::Slice(slice) => self.setslice(slice, value, vm),
+            SequenceIndex::Slice(slice) => {
+                if let Ok(sec) = PyIterable::try_from_object(vm, value) {
+                    return self.setslice(slice, sec, vm);
+                }
+                Err(vm.new_type_error("can only assign an iterable to a slice".to_string()))
+            }
         }
     }
 
@@ -202,7 +210,7 @@ impl PyListRef {
         }
     }
 
-    fn setslice(self, slice: PySliceRef, sec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn setslice(self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
         let step = slice.step.clone().unwrap_or_else(BigInt::one);
 
         if step.is_zero() {
@@ -244,52 +252,50 @@ impl PyListRef {
         }
     }
 
-    fn _set_slice(self, range: Range<usize>, sec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // consume the iter, we don't need it's size
-        // but if it's going to fail we want that to happen *before* we start modifing
-        if let Ok(items) = vm.extract_elements(&sec) {
-            // replace the range of elements with the full sequence
-            self.elements.borrow_mut().splice(range, items);
+    fn _set_slice(self, range: Range<usize>, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
+        // consume the iter, we  need it's size
+        // and if it's going to fail we want that to happen *before* we start modifing
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
 
-            Ok(vm.get_none())
-        } else {
-            Err(vm.new_type_error("can only assign an iterable to a slice".to_string()))
-        }
+        // replace the range of elements with the full sequence
+        self.elements.borrow_mut().splice(range, items);
+
+        Ok(vm.get_none())
     }
 
     fn _set_stepped_slice(
         self,
         range: Range<usize>,
         step: usize,
-        sec: PyObjectRef,
+        sec: PyIterable,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let slicelen = ((range.end - range.start - 1) / step) + 1;
         // consume the iter, we  need it's size
         // and if it's going to fail we want that to happen *before* we start modifing
-        let slicelen = ((range.end - range.start - 1) / step) + 1;
-        if let Ok(items) = vm.extract_elements(&sec) {
-            let n = items.len();
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
 
-            if range.start < range.end {
-                if n == slicelen {
-                    let indexes = range.step_by(step);
-                    self._replace_indexes(indexes, &items);
-                    Ok(vm.get_none())
-                } else {
-                    Err(vm.new_value_error(format!(
-                        "attempt to assign sequence of size {} to extended slice of size {}",
-                        n, slicelen
-                    )))
-                }
+        let n = items.len();
+
+        if range.start < range.end {
+            if n == slicelen {
+                let indexes = range.step_by(step);
+                self._replace_indexes(indexes, &items);
+                Ok(vm.get_none())
             } else {
-                // empty slice but this is an error because stepped slice
                 Err(vm.new_value_error(format!(
-                    "attempt to assign sequence of size {} to extended slice of size 0",
-                    n
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    n, slicelen
                 )))
             }
         } else {
-            Err(vm.new_type_error("can only assign an iterable to a slice".to_string()))
+            // empty slice but this is an error because stepped slice
+            Err(vm.new_value_error(format!(
+                "attempt to assign sequence of size {} to extended slice of size 0",
+                n
+            )))
         }
     }
 
@@ -297,35 +303,35 @@ impl PyListRef {
         self,
         range: Range<usize>,
         step: usize,
-        sec: PyObjectRef,
+        sec: PyIterable,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let slicelen = ((range.end - range.start - 1) / step) + 1;
+
         // consume the iter, we  need it's size
         // and if it's going to fail we want that to happen *before* we start modifing
-        let slicelen = ((range.end - range.start - 1) / step) + 1;
-        if let Ok(items) = vm.extract_elements(&sec) {
-            let n = items.len();
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
 
-            if range.start < range.end {
-                if n == slicelen {
-                    let indexes = range.rev().step_by(step);
-                    self._replace_indexes(indexes, &items);
-                    Ok(vm.get_none())
-                } else {
-                    Err(vm.new_value_error(format!(
-                        "attempt to assign sequence of size {} to extended slice of size {}",
-                        n, slicelen
-                    )))
-                }
+        let n = items.len();
+
+        if range.start < range.end {
+            if n == slicelen {
+                let indexes = range.rev().step_by(step);
+                self._replace_indexes(indexes, &items);
+                Ok(vm.get_none())
             } else {
-                // empty slice but this is an error because stepped slice
                 Err(vm.new_value_error(format!(
-                    "attempt to assign sequence of size {} to extended slice of size 0",
-                    n
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    n, slicelen
                 )))
             }
         } else {
-            Err(vm.new_type_error("can only assign an iterable to a slice".to_string()))
+            // empty slice but this is an error because stepped slice
+            Err(vm.new_value_error(format!(
+                "attempt to assign sequence of size {} to extended slice of size 0",
+                n
+            )))
         }
     }
 
