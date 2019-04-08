@@ -414,6 +414,7 @@ x[3:8] = (11, 12, 13, 14, 15)
 assert x == [0, 1, 2, 11, 12, 13, 14, 15, 8, 9]
 
 # class
+# __next__
 class CIterNext:
   def __init__(self, sec=(1, 2, 3)):
     self.sec = sec
@@ -431,6 +432,7 @@ x = list(range(10))
 x[3:8] = CIterNext()
 assert x == [0, 1, 2, 1, 2, 3, 8, 9]
 
+# __iter__ yield
 class CIter:
   def __init__(self, sec=(1, 2, 3)):
     self.sec = sec
@@ -442,6 +444,7 @@ x = list(range(10))
 x[3:8] = CIter()
 assert x == [0, 1, 2, 1, 2, 3, 8, 9]
 
+# __getitem but no __iter__ sequence
 class CGetItem:
   def __init__(self, sec=(1, 2, 3)):
     self.sec = sec
@@ -451,3 +454,17 @@ class CGetItem:
 x = list(range(10))
 x[3:8] = CGetItem()
 assert x == [0, 1, 2, 1, 2, 3, 8, 9]
+
+# iter raises error
+class CIterError:
+  def __iter__(self):
+    for i in range(10):
+      if i > 5:
+        raise RuntimeError
+      yield i
+
+def bad_iter_assign():
+  x = list(range(10))
+  x[3:8] = CIterError()
+
+assert_raises(RuntimeError, bad_iter_assign)
