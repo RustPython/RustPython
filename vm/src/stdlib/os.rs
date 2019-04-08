@@ -1,11 +1,11 @@
-use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Read, Write};
+use std::{env, fs};
 
 use num_traits::cast::ToPrimitive;
 
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
 use crate::obj::objint::PyIntRef;
@@ -173,6 +173,13 @@ fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn os_getenv(key: PyStringRef, default: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    match env::var(&key.value) {
+        Ok(val) => Ok(vm.new_str(val)),
+        Err(_) => Ok(default.into_option().unwrap_or(vm.get_none())),
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -194,6 +201,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "mkdirs" => ctx.new_rustfunc(os_mkdirs),
         "rmdir" => ctx.new_rustfunc(os_rmdir),
         "listdir" => ctx.new_rustfunc(os_listdir),
+        "getenv" => ctx.new_rustfunc(os_getenv),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
