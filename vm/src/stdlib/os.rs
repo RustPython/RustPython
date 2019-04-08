@@ -180,6 +180,10 @@ fn os_getenv(key: PyStringRef, default: OptionalArg<PyObjectRef>, vm: &VirtualMa
     }
 }
 
+fn os_putenv(key: PyStringRef, value: PyStringRef, _vm: &VirtualMachine) -> () {
+    env::set_var(&key.value, &value.value)
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -202,6 +206,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "rmdir" => ctx.new_rustfunc(os_rmdir),
         "listdir" => ctx.new_rustfunc(os_listdir),
         "getenv" => ctx.new_rustfunc(os_getenv),
+        "putenv" => ctx.new_rustfunc(os_putenv),
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
