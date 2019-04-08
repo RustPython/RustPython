@@ -201,3 +201,201 @@ assert_raises(TypeError, bad_del_1)
 def bad_del_2():
   del ['a', 'b'][2]
 assert_raises(IndexError, bad_del_2)
+
+# __setitem__
+
+# simple index
+x = [1, 2, 3, 4, 5]
+x[0] = 'a'
+assert x == ['a', 2, 3, 4, 5]
+x[-1] = 'b'
+assert x == ['a', 2, 3, 4, 'b']
+# make sure refrences are assigned correctly
+y = []
+x[1] = y
+y.append(100)
+assert x[1] == y
+assert x[1] == [100]
+
+#index bounds
+def set_index_out_of_bounds_high():
+  x = [0, 1, 2, 3, 4]
+  x[5] = 'a' 
+
+def set_index_out_of_bounds_low():
+  x = [0, 1, 2, 3, 4]
+  x[-6] = 'a' 
+
+assert_raises(IndexError, set_index_out_of_bounds_high)
+assert_raises(IndexError, set_index_out_of_bounds_low)
+
+# non stepped slice index
+a = list(range(10))
+x = a[:]
+y = a[:]
+assert x == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+# replace whole list
+x[:] = ['a', 'b', 'c']
+y[::1] = ['a', 'b', 'c']
+assert x == ['a', 'b', 'c']
+assert x == y
+# splice list start
+x = a[:]
+y = a[:]
+z = a[:]
+zz = a[:]
+x[:1] = ['a', 'b', 'c']
+y[0:1] = ['a', 'b', 'c']
+z[:1:1] = ['a', 'b', 'c']
+zz[0:1:1] = ['a', 'b', 'c']
+assert x == ['a', 'b', 'c', 1, 2, 3, 4, 5, 6, 7, 8, 9]
+assert x == y
+assert x == z
+assert x == zz
+# splice list end
+x = a[:]
+y = a[:]
+z = a[:]
+zz = a[:]
+x[5:] = ['a', 'b', 'c']
+y[5::1] = ['a', 'b', 'c']
+z[5:10] = ['a', 'b', 'c']
+zz[5:10:1] = ['a', 'b', 'c']
+assert x == [0, 1, 2, 3, 4, 'a', 'b', 'c']
+assert x == y
+assert x == z
+assert x == zz
+# insert sec
+x = a[:]
+y = a[:]
+z = a[:]
+zz = a[:]
+x[1:1] = ['a', 'b', 'c']
+y[1:0] = ['a', 'b', 'c']
+z[1:1:1] = ['a', 'b', 'c']
+zz[1:0:1] = ['a', 'b', 'c']
+assert x == [0, 'a', 'b', 'c', 1, 2, 3, 4, 5, 6, 7, 8, 9]
+assert x == y
+assert x == z
+assert x == zz
+# same but negative indexes?
+x = a[:]
+y = a[:]
+z = a[:]
+zz = a[:]
+x[-1:-1] = ['a', 'b', 'c']
+y[-1:9] = ['a', 'b', 'c']
+z[-1:-1:1] = ['a', 'b', 'c']
+zz[-1:9:1] = ['a', 'b', 'c']
+assert x == [0, 1, 2, 3, 4, 5, 6, 7, 8, 'a', 'b', 'c', 9]
+assert x == y
+assert x == z
+assert x == zz
+# splice mid
+x = a[:]
+y = a[:]
+x[3:5] = ['a', 'b', 'c', 'd', 'e']
+y[3:5:1] = ['a', 'b', 'c', 'd', 'e']
+assert x == [0, 1, 2, 'a', 'b', 'c', 'd', 'e', 5, 6, 7, 8, 9]
+assert x == y
+x = a[:]
+x[3:5] = ['a']
+assert x == [0, 1, 2, 'a', 5, 6, 7, 8, 9]
+# assign empty to non stepped empty slice does nothing 
+x = a[:]
+y = a[:]
+x[5:2] = []
+y[5:2:1] = []
+assert x == a
+assert y == a
+# assign empty to non stepped slice removes elems
+x = a[:]
+y = a[:]
+x[2:8] = []
+y[2:8:1] = []
+assert x == [0, 1, 8, 9]
+assert x == y
+# make sure refrences are assigned correctly
+yy = []
+x = a[:]
+y = a[:]
+x[3:5] = ['a', 'b', 'c', 'd', yy]
+y[3:5:1] = ['a', 'b', 'c', 'd', yy]
+assert x == [0, 1, 2, 'a', 'b', 'c', 'd', [], 5, 6, 7, 8, 9]
+assert x == y
+yy.append(100)
+assert x == [0, 1, 2, 'a', 'b', 'c', 'd', [100], 5, 6, 7, 8, 9]
+assert x == y
+assert x[7] == yy
+assert x[7] == [100]
+assert y[7] == yy
+assert y[7] == [100]
+
+# no zero step
+def no_zero_step_set():
+  x = [1, 2, 3, 4, 5]
+  x[0:4:0] = [11, 12, 13, 14, 15]
+assert_raises(ValueError, no_zero_step_set)
+
+# stepped slice index
+# forward slice
+x = a[:]
+x[2:8:2] = ['a', 'b', 'c']
+assert x == [0, 1, 'a', 3, 'b', 5, 'c', 7, 8, 9]
+x = a[:]
+y = a[:]
+z = a[:]
+zz = a[:]
+c = ['a', 'b', 'c', 'd', 'e']
+x[::2] = c
+y[-10::2] = c
+z[0:10:2] = c
+zz[-13:13:2] = c # slice indexes will be truncated to bounds
+assert x == ['a', 1, 'b', 3, 'c', 5, 'd', 7, 'e', 9]
+assert x == y
+assert x == z
+assert x == zz
+# backward slice
+x = a[:]
+x[8:2:-2] = ['a', 'b', 'c']
+assert x == [0, 1, 2, 3, 'c', 5, 'b', 7, 'a', 9]
+x = a[:]
+y = a[:]
+z = a[:]
+zz = a[:]
+c =  ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+x[::-1] = c
+y[9:-11:-1] = c
+z[9::-1] = c
+zz[11:-13:-1] = c # slice indexes will be truncated to bounds
+assert x == ['j', 'i', 'h', 'g', 'f', 'e', 'd', 'c', 'b', 'a']
+assert x == y
+assert x == z
+assert x == zz
+# step size bigger than len
+x = a[:]
+x[::200] = ['a']
+assert x == ['a', 1, 2, 3, 4, 5, 6, 7, 8, 9]
+x = a[:]
+x[5::200] = ['a']
+assert x == [0, 1, 2, 3, 4, 'a', 6, 7, 8, 9]
+
+# bad stepped slices
+def stepped_slice_assign_too_big():
+  x = [0, 1, 2, 3, 4]
+  x[::2] = ['a', 'b', 'c', 'd']
+
+assert_raises(ValueError, stepped_slice_assign_too_big)
+
+def stepped_slice_assign_too_small():
+  x = [0, 1, 2, 3, 4]
+  x[::2] = ['a', 'b']
+
+assert_raises(ValueError, stepped_slice_assign_too_small)
+
+# must assign iter t0 slice
+def must_assign_iter_to_slice():
+  x = [0, 1, 2, 3, 4]
+  x[::2] = 42
+
+assert_raises(TypeError, must_assign_iter_to_slice)
