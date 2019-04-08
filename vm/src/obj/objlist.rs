@@ -189,10 +189,7 @@ impl PyListRef {
     ) -> PyResult {
         match subscript {
             SequenceIndex::Int(index) => self.setindex(index, value, vm),
-            SequenceIndex::Slice(slice) => {
-                // TODO check special case of if a == b, may need copy of b first?
-                self.setslice(slice, value, vm)
-            }
+            SequenceIndex::Slice(slice) => self.setslice(slice, value, vm),
         }
     }
 
@@ -229,7 +226,6 @@ impl PyListRef {
             } else {
                 // this functions as an insert of sec before range.start
                 self._set_slice(range.start..range.start, sec, vm)
-                // TODO this will take some special processing
             }
         } else {
             // calculate the range for the reverse slice, first the bounds needs to be made
