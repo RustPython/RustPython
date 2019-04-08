@@ -201,3 +201,11 @@ assert_raises(TypeError, bad_del_1)
 def bad_del_2():
   del ['a', 'b'][2]
 assert_raises(IndexError, bad_del_2)
+
+# is step != 1 and start or stop of slice == -1
+x = list(range(10))
+del x[-1:-5:-1]
+assert x == [0, 1, 2, 3, 4, 5]
+x = list(range(10))
+del x[-5:-1:-1]
+assert x == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
