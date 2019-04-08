@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -1043,10 +1044,24 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(PyIterable {
-            method: vm.get_method(obj, "__iter__")?,
-            _item: std::marker::PhantomData,
-        })
+        if let Ok(method) = vm.get_method(obj.clone(), "__iter__") {
+            Ok(PyIterable {
+                method: method,
+                _item: std::marker::PhantomData,
+            })
+        } else if vm.get_method(obj.clone(), "__getitem__").is_ok() {
+            Self::try_from_object(
+                vm,
+                objiter::PySequenceIterator {
+                    position: Cell::new(0),
+                    obj: obj.clone(),
+                }
+                .into_ref(vm)
+                .into_object(),
+            )
+        } else {
+            Err(vm.new_type_error(format!("'{}' object is not iterable", obj.class().name)))
+        }
     }
 }
 
