@@ -8,6 +8,7 @@ use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyVa
 
 use super::objbyteinner::PyByteInner;
 use super::objiter;
+use super::objslice::PySlice;
 use super::objtype::PyClassRef;
 
 /// "bytes(iterable_of_ints) -> bytes\n\
@@ -139,11 +140,18 @@ impl PyBytesRef {
 
     #[pymethod(name = "__contains__")]
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // no new style since objint is not.
         match_class!(needle,
         bytes @ PyBytes => self.inner.contains_bytes(&bytes.inner, vm),
         int @ PyInt => self.inner.contains_int(&int, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        obj  => Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj))))
+    }
+
+    #[pymethod(name = "__getitem__")]
+    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(needle,
+        int @ PyInt => self.inner.getitem_int(&int, vm),
+        slice @ PySlice => self.inner.getitem_slice(slice.as_object(), vm),
+        obj  => Err(vm.new_type_error(format!("byte indices must be integers or slices, not {}", obj))))
     }
 }
 

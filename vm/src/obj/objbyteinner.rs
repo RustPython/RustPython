@@ -11,6 +11,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use super::objint;
+use super::objsequence::PySliceableSequence;
 use crate::obj::objint::PyInt;
 use num_traits::ToPrimitive;
 
@@ -189,9 +190,24 @@ impl PyByteInner {
                 Ok(vm.new_bool(false))
             }
         } else {
-            Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+            Err(vm.new_value_error("byte mu st be in range(0, 256)".to_string()))
         }
     }
+
+    pub fn getitem_int(&self, int: &PyInt, vm: &VirtualMachine) -> PyResult {
+        if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
+            Ok(vm.new_int(self.elements[idx]))
+        } else {
+            Err(vm.new_index_error("index out of range".to_string()))
+        }
+    }
+
+    pub fn getitem_slice(&self, slice: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytes(self.elements.get_slice_items(vm, slice).unwrap()))
+    }
 }
+
 // TODO
 // fix b"é" not allowed should be bytes("é", "utf8")
