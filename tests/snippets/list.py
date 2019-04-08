@@ -468,3 +468,13 @@ def bad_iter_assign():
   x[3:8] = CIterError()
 
 assert_raises(RuntimeError, bad_iter_assign)
+
+# slice assign when step or stop is -1
+
+a = list(range(10))
+x = a[:]
+x[-1:-5:-1] = ['a', 'b', 'c', 'd']
+assert x == [0, 1, 2, 3, 4, 5, 'd', 'c', 'b', 'a']
+x = a[:]
+x[-5:-1:-1] = []
+assert x == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]

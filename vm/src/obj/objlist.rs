@@ -3,7 +3,7 @@ use std::fmt;
 
 use std::ops::Range;
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -238,8 +238,20 @@ impl PyListRef {
         } else {
             // calculate the range for the reverse slice, first the bounds needs to be made
             // exclusive around stop, the lower number
-            let start = &slice.start.as_ref().map(|x| x + 1);
-            let stop = &slice.stop.as_ref().map(|x| x + 1);
+            let start = &slice.start.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len() + BigInt::one() //.to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let stop = &slice.stop.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len().to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
             let range = self.get_slice_range(&stop, &start);
             match (-step).to_i32() {
                 Some(num) => self._set_stepped_slice_reverse(range, num as usize, sec, vm),
@@ -271,7 +283,11 @@ impl PyListRef {
         sec: PyIterable,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let slicelen = ((range.end - range.start - 1) / step) + 1;
+        let slicelen = if range.end > range.start {
+            ((range.end - range.start - 1) / step) + 1
+        } else {
+            0
+        };
         // consume the iter, we  need it's size
         // and if it's going to fail we want that to happen *before* we start modifing
         let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
@@ -290,6 +306,9 @@ impl PyListRef {
                     n, slicelen
                 )))
             }
+        } else if n == 0 {
+            // slice is empty but so is sequence
+            Ok(vm.get_none())
         } else {
             // empty slice but this is an error because stepped slice
             Err(vm.new_value_error(format!(
@@ -306,7 +325,11 @@ impl PyListRef {
         sec: PyIterable,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let slicelen = ((range.end - range.start - 1) / step) + 1;
+        let slicelen = if range.end > range.start {
+            ((range.end - range.start - 1) / step) + 1
+        } else {
+            0
+        };
 
         // consume the iter, we  need it's size
         // and if it's going to fail we want that to happen *before* we start modifing
@@ -326,6 +349,9 @@ impl PyListRef {
                     n, slicelen
                 )))
             }
+        } else if n == 0 {
+            // slice is empty but so is sequence
+            Ok(vm.get_none())
         } else {
             // empty slice but this is an error because stepped slice
             Err(vm.new_value_error(format!(
