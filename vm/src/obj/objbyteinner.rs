@@ -181,11 +181,17 @@ impl PyByteInner {
         Ok(vm.new_bool(false))
     }
 
-    pub fn contains_int(&self, int: &PyInt, vm: &VirtualMachine) -> PyResult {
-        self.elements.contains(int);
-        Ok(vm.new_bool(false))
+    pub fn contains_int(&self, int: &PyInt, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if let Some(int) = int.as_bigint().to_u8() {
+            if self.elements.contains(&int) {
+                Ok(vm.new_bool(true))
+            } else {
+                Ok(vm.new_bool(false))
+            }
+        } else {
+            Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+        }
     }
 }
-
 // TODO
 // fix b"é" not allowed should be bytes("é", "utf8")
