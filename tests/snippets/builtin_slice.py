@@ -79,13 +79,13 @@ def test_all_slices():
     test all possible slices except big number
     """
 
-    import resources
-    from resources.cpython_generated_slices import SLICES_RES, START, END, STEP, LL
+    mod = __import__('cpython_generated_slices')
 
-    ll = LL
-    start = START
-    end = END
-    step = STEP
+    ll = mod.LL
+    start = mod.START
+    end = mod.END
+    step = mod.STEP
+    slices_res = mod.SLICES_RES
 
     count = 0
     failures = []
@@ -94,11 +94,11 @@ def test_all_slices():
             for t in step:
                 lhs = ll[s:e:t]
                 try:
-                    assert lhs == SLICES_RES[count]
+                    assert lhs == slices_res[count]
                 except AssertionError:
                     failures.append(
                         "start: {} ,stop: {}, step {}. Expected: {}, found: {}".format(
-                            s, e, t, lhs, SLICES_RES[count]
+                            s, e, t, lhs, slices_res[count]
                         )
                     )
                 count += 1

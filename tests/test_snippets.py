@@ -26,10 +26,6 @@ TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, "tests"))
 TEST_DIRS = {_TestType.functional: os.path.join(TEST_ROOT, "snippets")}
 CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, "py_code_object"))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
-RESOURCES_DIR = os.path.abspath(
-    os.path.join(TEST_DIRS[_TestType.functional], "resources")
-)
-
 
 @contextlib.contextmanager
 def pushd(path):
@@ -149,17 +145,11 @@ def generate_slices(path):
 class SampleTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # setup resource dir
-        cls.resources = Path(RESOURCES_DIR)
-        if cls.resources.exists():
-            shutil.rmtree(
-                RESOURCES_DIR, ignore_errors=True
-            )  # we don't care if dir doesnt exist
-        cls.resources.mkdir()
-        (cls.resources / "__init__.py").touch()
-
         # Here add resource files
-        cls.slices_resource_path = Path(RESOURCES_DIR) / "cpython_generated_slices.py"
+        cls.slices_resource_path = Path(TEST_DIRS[_TestType.functional]) / "cpython_generated_slices.py"
+        if cls.slices_resource_path.exists():
+            cls.slices_resource_path.unlink()
+
         generate_slices(cls.slices_resource_path)
 
         # cargo stuff
@@ -168,6 +158,4 @@ class SampleTestCase(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(
-            RESOURCES_DIR, ignore_errors=True
-        )  # we don't care if dir doesnt exist
+        cls.slices_resource_path.unlink()
