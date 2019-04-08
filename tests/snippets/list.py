@@ -399,3 +399,55 @@ def must_assign_iter_to_slice():
   x[::2] = 42
 
 assert_raises(TypeError, must_assign_iter_to_slice)
+
+# other iterables?
+a = list(range(10))
+
+# string
+x = a[:]
+x[3:8] = "abcdefghi"
+assert x == [0, 1, 2, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 8, 9]
+
+# tuple
+x = a[:]
+x[3:8] = (11, 12, 13, 14, 15)
+assert x == [0, 1, 2, 11, 12, 13, 14, 15, 8, 9]
+
+# class
+class CIterNext:
+  def __init__(self, sec=(1, 2, 3)):
+    self.sec = sec
+    self.index = 0
+  def __iter__(self):
+    return self
+  def __next__(self):
+    if self.index >= len(self.sec):
+      raise StopIteration
+    v = self.sec[self.index]
+    self.index += 1
+    return v
+
+x = list(range(10))
+x[3:8] = CIterNext()
+assert x == [0, 1, 2, 1, 2, 3, 8, 9]
+
+class CIter:
+  def __init__(self, sec=(1, 2, 3)):
+    self.sec = sec
+  def __iter__(self):
+    for n in self.sec:
+      yield n
+
+x = list(range(10))
+x[3:8] = CIter()
+assert x == [0, 1, 2, 1, 2, 3, 8, 9]
+
+class CGetItem:
+  def __init__(self, sec=(1, 2, 3)):
+    self.sec = sec
+  def __getitem__(self, sub):
+    return self.sec[sub]
+
+x = list(range(10))
+x[3:8] = CGetItem()
+assert x == [0, 1, 2, 1, 2, 3, 8, 9]
