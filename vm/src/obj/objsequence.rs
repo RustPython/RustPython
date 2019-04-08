@@ -2,9 +2,6 @@ use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
-use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive, Zero};
-
 use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
 
 use crate::vm::VirtualMachine;
