@@ -265,6 +265,11 @@ macro_rules! dict_iterator {
             fn iter(&self, _vm: &VirtualMachine) -> $iter_name {
                 $iter_name::new(self.dict.clone())
             }
+
+            #[pymethod(name = "__len__")]
+            fn len(&self, vm: &VirtualMachine) -> usize {
+                self.dict.clone().len(vm)
+            }
         }
 
         impl PyValue for $name {
