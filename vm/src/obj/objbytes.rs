@@ -134,7 +134,7 @@ impl PyBytesRef {
     #[pymethod(name = "__add__")]
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match_class!(other,
-        bytes @ PyBytes => self.inner.add(&bytes.inner, vm),
+        bytes @ PyBytes => Ok(vm.ctx.new_bytes(self.inner.add(&bytes.inner, vm))),
         _  => Ok(vm.ctx.not_implemented()))
     }
 

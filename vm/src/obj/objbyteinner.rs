@@ -55,7 +55,7 @@ impl PyByteInner {
             } else {
                 return Err(vm.new_type_error("encoding without a string argument".to_string()));
             }
-        // On ly one argument
+        // Only one argument
         } else {
             let value = if let OptionalArg::Present(ival) = val_option {
                 match_class!(ival.clone(),
@@ -161,14 +161,14 @@ impl PyByteInner {
         hasher.finish() as usize
     }
 
-    pub fn add(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+    pub fn add(&self, other: &PyByteInner, _vm: &VirtualMachine) -> Vec<u8> {
         let elements: Vec<u8> = self
             .elements
             .iter()
             .chain(other.elements.iter())
             .cloned()
             .collect();
-        Ok(vm.ctx.new_bytes(elements))
+        elements
     }
 
     pub fn contains_bytes(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
