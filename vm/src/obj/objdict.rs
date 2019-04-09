@@ -360,7 +360,6 @@ pub fn init(context: &PyContext) {
         "clear" => context.new_rustfunc(PyDictRef::clear),
         "values" => context.new_rustfunc(PyDictRef::values),
         "items" => context.new_rustfunc(PyDictRef::items),
-        // TODO: separate type. `keys` should be a live view over the collection, not an iterator.
         "keys" => context.new_rustfunc(PyDictRef::keys),
         "get" => context.new_rustfunc(PyDictRef::get),
         "copy" => context.new_rustfunc(PyDictRef::copy),
