@@ -9,20 +9,29 @@ use num_traits::ToPrimitive;
 /// And: http://code.activestate.com/recipes/578375/
 use std::collections::HashMap;
 
-#[derive(Default)]
-pub struct Dict {
+pub struct Dict<T = PyObjectRef> {
     size: usize,
     indices: HashMap<usize, usize>,
-    entries: Vec<Option<DictEntry>>,
+    entries: Vec<Option<DictEntry<T>>>,
 }
 
-struct DictEntry {
+impl<T> Default for Dict<T> {
+    fn default() -> Self {
+        Dict {
+            size: 0,
+            indices: HashMap::new(),
+            entries: Vec::new(),
+        }
+    }
+}
+
+struct DictEntry<T> {
     hash: usize,
     key: PyObjectRef,
-    value: PyObjectRef,
+    value: T,
 }
 
-impl Dict {
+impl<T: Clone> Dict<T> {
     pub fn new() -> Self {
         Dict {
             size: 0,
@@ -32,12 +41,7 @@ impl Dict {
     }
 
     /// Store a key
-    pub fn insert(
-        &mut self,
-        vm: &VirtualMachine,
-        key: &PyObjectRef,
-        value: PyObjectRef,
-    ) -> PyResult<()> {
+    pub fn insert(&mut self, vm: &VirtualMachine, key: &PyObjectRef, value: T) -> PyResult<()> {
         match self.lookup(vm, key)? {
             LookupResult::Existing(index) => {
                 // Update existing key
@@ -76,7 +80,7 @@ impl Dict {
     }
 
     /// Retrieve a key
-    pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<Option<PyObjectRef>> {
+    pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<Option<T>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             if let Some(entry) = &self.entries[index] {
                 Ok(Some(entry.value.clone()))
@@ -114,7 +118,7 @@ impl Dict {
         self.len() == 0
     }
 
-    pub fn get_items(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
+    pub fn get_items(&self) -> Vec<(PyObjectRef, T)> {
         self.entries
             .iter()
             .filter(|e| e.is_some())
