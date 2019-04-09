@@ -305,6 +305,15 @@ impl PyByteInner {
     pub fn upper(&self, _vm: &VirtualMachine) -> Vec<u8> {
         self.elements.to_ascii_uppercase()
     }
+
+    pub fn hex(&self, vm: &VirtualMachine) -> PyResult {
+        let bla = self
+            .elements
+            .iter()
+            .map(|x| format!("{:02x}", x))
+            .collect::<String>();
+        Ok(vm.ctx.new_str(bla))
+    }
 }
 
 // TODO

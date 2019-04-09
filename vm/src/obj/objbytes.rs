@@ -203,6 +203,11 @@ impl PyBytesRef {
     fn upper(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytes(self.inner.upper(vm)))
     }
+
+    #[pymethod(name = "hex")]
+    fn hex(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.hex(vm)
+    }
 }
 
 #[derive(Debug)]

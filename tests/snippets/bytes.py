@@ -113,8 +113,9 @@ assert not bytes(b"tuPpEr").isupper()
 assert bytes(b"Is Title Case").istitle()
 assert not bytes(b"is Not title casE").istitle()
 
-# upper lower
+# upper lower hex
 l = bytes(b"lower")
 b = bytes(b"UPPER")
 assert l.lower().islower()
 assert b.upper().isupper()
+assert bytes([0, 1, 9, 23, 90, 234]).hex() == "000109175aea"
