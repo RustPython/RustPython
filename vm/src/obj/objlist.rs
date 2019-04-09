@@ -3,19 +3,22 @@ use std::fmt;
 
 use std::ops::Range;
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{
+    IdProtocol, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
+};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
-use super::objint;
+//use super::objint;
 use super::objiter;
 use super::objsequence::{
     get_elements, get_elements_cell, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
-    PySliceableSequence, SequenceIndex,
+    SequenceIndex,
 };
 use super::objslice::PySliceRef;
 use super::objtype;
@@ -181,22 +184,192 @@ impl PyListRef {
         }
     }
 
-    fn setitem(self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let mut elements = self.elements.borrow_mut();
+    fn setitem(
+        self,
+        subscript: SequenceIndex,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match subscript {
+            SequenceIndex::Int(index) => self.setindex(index, value, vm),
+            SequenceIndex::Slice(slice) => {
+                if let Ok(sec) = PyIterable::try_from_object(vm, value) {
+                    return self.setslice(slice, sec, vm);
+                }
+                Err(vm.new_type_error("can only assign an iterable to a slice".to_string()))
+            }
+        }
+    }
 
-        if objtype::isinstance(&key, &vm.ctx.int_type()) {
-            let idx = objint::get_value(&key).to_i32().unwrap();
-            if let Some(pos_index) = elements.get_pos(idx) {
-                elements[pos_index] = value;
-                Ok(vm.get_none())
+    fn setindex(self, index: i32, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(pos_index) = self.get_pos(index) {
+            self.elements.borrow_mut()[pos_index] = value;
+            Ok(vm.get_none())
+        } else {
+            Err(vm.new_index_error("list assignment index out of range".to_string()))
+        }
+    }
+
+    fn setslice(self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
+        let step = slice.step.clone().unwrap_or_else(BigInt::one);
+
+        if step.is_zero() {
+            Err(vm.new_value_error("slice step cannot be zero".to_string()))
+        } else if step.is_positive() {
+            let range = self.get_slice_range(&slice.start, &slice.stop);
+            if range.start < range.end {
+                match step.to_i32() {
+                    Some(1) => self._set_slice(range, sec, vm),
+                    Some(num) => {
+                        // assign to extended slice
+                        self._set_stepped_slice(range, num as usize, sec, vm)
+                    }
+                    None => {
+                        // not sure how this is reached, step too big for i32?
+                        // then step is bigger than the than len of the list, no question
+                        #[allow(clippy::range_plus_one)]
+                        self._set_stepped_slice(range.start..(range.start + 1), 1, sec, vm)
+                    }
+                }
             } else {
-                Err(vm.new_index_error("list index out of range".to_string()))
+                // this functions as an insert of sec before range.start
+                self._set_slice(range.start..range.start, sec, vm)
             }
         } else {
-            panic!(
-                "TypeError: indexing type {:?} with index {:?} is not supported (yet?)",
-                elements, key
-            )
+            // calculate the range for the reverse slice, first the bounds needs to be made
+            // exclusive around stop, the lower number
+            let start = &slice.start.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len() + BigInt::one() //.to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let stop = &slice.stop.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len().to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let range = self.get_slice_range(&stop, &start);
+            match (-step).to_i32() {
+                Some(num) => self._set_stepped_slice_reverse(range, num as usize, sec, vm),
+                None => {
+                    // not sure how this is reached, step too big for i32?
+                    // then step is bigger than the than len of the list no question
+                    self._set_stepped_slice_reverse(range.end - 1..range.end, 1, sec, vm)
+                }
+            }
+        }
+    }
+
+    fn _set_slice(self, range: Range<usize>, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
+        // consume the iter, we  need it's size
+        // and if it's going to fail we want that to happen *before* we start modifing
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
+
+        // replace the range of elements with the full sequence
+        self.elements.borrow_mut().splice(range, items);
+
+        Ok(vm.get_none())
+    }
+
+    fn _set_stepped_slice(
+        self,
+        range: Range<usize>,
+        step: usize,
+        sec: PyIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let slicelen = if range.end > range.start {
+            ((range.end - range.start - 1) / step) + 1
+        } else {
+            0
+        };
+        // consume the iter, we  need it's size
+        // and if it's going to fail we want that to happen *before* we start modifing
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
+
+        let n = items.len();
+
+        if range.start < range.end {
+            if n == slicelen {
+                let indexes = range.step_by(step);
+                self._replace_indexes(indexes, &items);
+                Ok(vm.get_none())
+            } else {
+                Err(vm.new_value_error(format!(
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    n, slicelen
+                )))
+            }
+        } else if n == 0 {
+            // slice is empty but so is sequence
+            Ok(vm.get_none())
+        } else {
+            // empty slice but this is an error because stepped slice
+            Err(vm.new_value_error(format!(
+                "attempt to assign sequence of size {} to extended slice of size 0",
+                n
+            )))
+        }
+    }
+
+    fn _set_stepped_slice_reverse(
+        self,
+        range: Range<usize>,
+        step: usize,
+        sec: PyIterable,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let slicelen = if range.end > range.start {
+            ((range.end - range.start - 1) / step) + 1
+        } else {
+            0
+        };
+
+        // consume the iter, we  need it's size
+        // and if it's going to fail we want that to happen *before* we start modifing
+        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+        let items = items?;
+
+        let n = items.len();
+
+        if range.start < range.end {
+            if n == slicelen {
+                let indexes = range.rev().step_by(step);
+                self._replace_indexes(indexes, &items);
+                Ok(vm.get_none())
+            } else {
+                Err(vm.new_value_error(format!(
+                    "attempt to assign sequence of size {} to extended slice of size {}",
+                    n, slicelen
+                )))
+            }
+        } else if n == 0 {
+            // slice is empty but so is sequence
+            Ok(vm.get_none())
+        } else {
+            // empty slice but this is an error because stepped slice
+            Err(vm.new_value_error(format!(
+                "attempt to assign sequence of size {} to extended slice of size 0",
+                n
+            )))
+        }
+    }
+
+    fn _replace_indexes<I>(self, indexes: I, items: &[PyObjectRef])
+    where
+        I: Iterator<Item = usize>,
+    {
+        let mut elements = self.elements.borrow_mut();
+
+        for (i, value) in indexes.zip(items) {
+            // clone for refrence count
+            elements[i] = value.clone();
         }
     }
 
