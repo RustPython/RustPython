@@ -207,6 +207,96 @@ impl PyByteInner {
             .ctx
             .new_bytes(self.elements.get_slice_items(vm, slice).unwrap()))
     }
+
+    pub fn isalnum(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_bool(
+            !self.elements.is_empty()
+                && self
+                    .elements
+                    .iter()
+                    .all(|x| char::from(*x).is_alphanumeric()),
+        ))
+    }
+
+    pub fn isalpha(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_bool(
+            !self.elements.is_empty()
+                && self.elements.iter().all(|x| char::from(*x).is_alphabetic()),
+        ))
+    }
+
+    pub fn isascii(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_bool(
+            !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_ascii()),
+        ))
+    }
+
+    pub fn isdigit(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_bool(
+            !self.elements.is_empty() && self.elements.iter().all(|x| char::from(*x).is_digit(10)),
+        ))
+    }
+
+    pub fn islower(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_bool(
+            !self.elements.is_empty()
+                && self
+                    .elements
+                    .iter()
+                    .filter(|x| !char::from(**x).is_whitespace())
+                    .all(|x| char::from(*x).is_lowercase()),
+        ))
+    }
+
+    pub fn isspace(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_bool(
+            !self.elements.is_empty()
+                && self.elements.iter().all(|x| char::from(*x).is_whitespace()),
+        ))
+    }
+
+    pub fn isupper(&self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_bool(
+            !self.elements.is_empty()
+                && self
+                    .elements
+                    .iter()
+                    .filter(|x| !char::from(**x).is_whitespace())
+                    .all(|x| char::from(*x).is_uppercase()),
+        ))
+    }
+
+    pub fn istitle(&self, vm: &VirtualMachine) -> PyResult {
+        if self.elements.is_empty() {
+            return Ok(vm.new_bool(false));
+        }
+
+        let mut iter = self.elements.iter().peekable();
+        let mut prev_cased = false;
+
+        while let Some(c) = iter.next() {
+            let current = char::from(*c);
+            let next = if let Some(k) = iter.peek() {
+                char::from(**k)
+            } else if current.is_uppercase() {
+                return Ok(vm.new_bool(!prev_cased));
+            } else {
+                return Ok(vm.new_bool(prev_cased));
+            };
+
+            let is_cased = current.to_uppercase().next().unwrap() != current
+                || current.to_lowercase().next().unwrap() != current;
+            if (is_cased && next.is_uppercase() && !prev_cased)
+                || (!is_cased && next.is_lowercase())
+            {
+                return Ok(vm.new_bool(false));
+            }
+
+            prev_cased = is_cased;
+        }
+
+        Ok(vm.new_bool(true))
+    }
 }
 
 // TODO

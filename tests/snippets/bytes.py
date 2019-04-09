@@ -77,3 +77,38 @@ assert d[2:6] == b"cdef"
 assert d[-6:] == b"efghij"
 assert d[1:8:2] == b"bdfh"
 assert d[8:1:-2] == b"igec"
+
+
+# is_xx methods
+
+assert bytes(b"1a23").isalnum()
+assert not bytes(b"1%a23").isalnum()
+
+assert bytes(b"abc").isalpha()
+assert not bytes(b"abc1").isalpha()
+
+# travis doesn't like this
+# assert bytes(b'xyz').isascii()
+# assert not bytes([128, 157, 32]).isascii()
+
+assert bytes(b"1234567890").isdigit()
+assert not bytes(b"12ab").isdigit()
+
+l = bytes(b"lower")
+b = bytes(b"UPPER")
+
+assert l.islower()
+assert not l.isupper()
+assert b.isupper()
+assert not bytes(b"Super Friends").islower()
+
+assert bytes(b" \n\t").isspace()
+assert not bytes(b"\td\n").isspace()
+
+assert b.isupper()
+assert not b.islower()
+assert l.islower()
+assert not bytes(b"tuPpEr").isupper()
+
+assert bytes(b"Is Title Case").istitle()
+assert not bytes(b"is Not title casE").istitle()

@@ -153,6 +153,39 @@ impl PyBytesRef {
         slice @ PySlice => self.inner.getitem_slice(slice.as_object(), vm),
         obj  => Err(vm.new_type_error(format!("byte indices must be integers or slices, not {}", obj))))
     }
+
+    #[pymethod(name = "isalnum")]
+    fn isalnum(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isalnum(vm)
+    }
+    #[pymethod(name = "isalpha")]
+    fn isalpha(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isalpha(vm)
+    }
+    #[pymethod(name = "isascii")]
+    fn isascii(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isascii(vm)
+    }
+    #[pymethod(name = "isdigit")]
+    fn isdigit(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isdigit(vm)
+    }
+    #[pymethod(name = "islower")]
+    fn islower(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.islower(vm)
+    }
+    #[pymethod(name = "isspace")]
+    fn isspace(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isspace(vm)
+    }
+    #[pymethod(name = "isupper")]
+    fn isupper(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isupper(vm)
+    }
+    #[pymethod(name = "istitle")]
+    fn istitle(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.istitle(vm)
+    }
 }
 
 #[derive(Debug)]
