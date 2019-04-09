@@ -112,3 +112,9 @@ assert not bytes(b"tuPpEr").isupper()
 
 assert bytes(b"Is Title Case").istitle()
 assert not bytes(b"is Not title casE").istitle()
+
+# upper lower
+l = bytes(b"lower")
+b = bytes(b"UPPER")
+assert l.lower().islower()
+assert b.upper().isupper()

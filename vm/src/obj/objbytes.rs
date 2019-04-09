@@ -158,33 +158,50 @@ impl PyBytesRef {
     fn isalnum(self, vm: &VirtualMachine) -> PyResult {
         self.inner.isalnum(vm)
     }
+
     #[pymethod(name = "isalpha")]
     fn isalpha(self, vm: &VirtualMachine) -> PyResult {
         self.inner.isalpha(vm)
     }
+
     #[pymethod(name = "isascii")]
     fn isascii(self, vm: &VirtualMachine) -> PyResult {
         self.inner.isascii(vm)
     }
+
     #[pymethod(name = "isdigit")]
     fn isdigit(self, vm: &VirtualMachine) -> PyResult {
         self.inner.isdigit(vm)
     }
+
     #[pymethod(name = "islower")]
     fn islower(self, vm: &VirtualMachine) -> PyResult {
         self.inner.islower(vm)
     }
+
     #[pymethod(name = "isspace")]
     fn isspace(self, vm: &VirtualMachine) -> PyResult {
         self.inner.isspace(vm)
     }
+
     #[pymethod(name = "isupper")]
     fn isupper(self, vm: &VirtualMachine) -> PyResult {
         self.inner.isupper(vm)
     }
+
     #[pymethod(name = "istitle")]
     fn istitle(self, vm: &VirtualMachine) -> PyResult {
         self.inner.istitle(vm)
+    }
+
+    #[pymethod(name = "lower")]
+    fn lower(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.lower(vm)))
+    }
+
+    #[pymethod(name = "upper")]
+    fn upper(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.upper(vm)))
     }
 }
 

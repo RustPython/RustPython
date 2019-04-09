@@ -297,6 +297,14 @@ impl PyByteInner {
 
         Ok(vm.new_bool(true))
     }
+
+    pub fn lower(&self, _vm: &VirtualMachine) -> Vec<u8> {
+        self.elements.to_ascii_lowercase()
+    }
+
+    pub fn upper(&self, _vm: &VirtualMachine) -> Vec<u8> {
+        self.elements.to_ascii_uppercase()
+    }
 }
 
 // TODO
