@@ -43,8 +43,26 @@ impl StoredVirtualMachine {
 // probably gets compiled down to a normal-ish static varible, like Atomic* types do:
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
-    static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> =
-        RefCell::default();
+    static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();
+}
+
+pub fn get_vm_id(vm: &VirtualMachine) -> &str {
+    vm.wasm_id
+        .as_ref()
+        .expect("VirtualMachine inside of WASM crate should have wasm_id set")
+}
+pub(crate) fn stored_vm_from_wasm(wasm_vm: &WASMVirtualMachine) -> Rc<StoredVirtualMachine> {
+    STORED_VMS.with(|cell| {
+        cell.borrow()
+            .get(&wasm_vm.id)
+            .expect("VirtualMachine is not valid")
+            .clone()
+    })
+}
+pub(crate) fn weak_vm(vm: &VirtualMachine) -> Weak<StoredVirtualMachine> {
+    let id = get_vm_id(vm);
+    STORED_VMS
+        .with(|cell| Rc::downgrade(cell.borrow().get(id).expect("VirtualMachine is not valid")))
 }
 
 #[wasm_bindgen(js_name = vmStore)]
@@ -101,44 +119,6 @@ impl VMStore {
 
     pub fn ids() -> Vec<JsValue> {
         STORED_VMS.with(|cell| cell.borrow().keys().map(|k| k.into()).collect())
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct AccessibleVM {
-    weak: Weak<StoredVirtualMachine>,
-    id: String,
-}
-
-impl AccessibleVM {
-    pub fn from_id(id: String) -> AccessibleVM {
-        let weak = STORED_VMS
-            .with(|cell| Rc::downgrade(cell.borrow().get(&id).expect("WASM VM to be valid")));
-        AccessibleVM { weak, id }
-    }
-
-    pub fn upgrade(&self) -> Option<Rc<StoredVirtualMachine>> {
-        self.weak.upgrade()
-    }
-}
-
-impl From<WASMVirtualMachine> for AccessibleVM {
-    fn from(vm: WASMVirtualMachine) -> AccessibleVM {
-        AccessibleVM::from_id(vm.id)
-    }
-}
-impl From<&WASMVirtualMachine> for AccessibleVM {
-    fn from(vm: &WASMVirtualMachine) -> AccessibleVM {
-        AccessibleVM::from_id(vm.id.clone())
-    }
-}
-impl From<&VirtualMachine> for AccessibleVM {
-    fn from(vm: &VirtualMachine) -> AccessibleVM {
-        AccessibleVM::from_id(
-            vm.wasm_id
-                .clone()
-                .expect("VM passed to from::<VirtualMachine>() to have wasm_id be Some()"),
-        )
     }
 }
 

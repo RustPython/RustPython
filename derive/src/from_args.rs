@@ -109,7 +109,7 @@ impl ArgAttribute {
     }
 }
 
-fn generate_field(field: &Field) -> TokenStream2 {
+fn generate_field(field: &Field, rp_path: &syn::Path) -> TokenStream2 {
     let mut pyarg_attrs = field
         .attrs
         .iter()
@@ -132,7 +132,7 @@ fn generate_field(field: &Field) -> TokenStream2 {
 
     let name = &field.ident;
     let middle = quote! {
-        .map(|x| crate::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
+        .map(|x| #rp_path::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
     };
     let ending = if let Some(default) = attr.default {
         quote! {
@@ -140,16 +140,16 @@ fn generate_field(field: &Field) -> TokenStream2 {
         }
     } else if attr.optional {
         quote! {
-            .map(crate::function::OptionalArg::Present)
-            .unwrap_or(crate::function::OptionalArg::Missing)
+            .map(#rp_path::function::OptionalArg::Present)
+            .unwrap_or(#rp_path::function::OptionalArg::Missing)
         }
     } else {
         let err = match attr.kind {
             ParameterKind::PositionalOnly | ParameterKind::PositionalOrKeyword => quote! {
-                crate::function::ArgumentError::TooFewArgs
+                #rp_path::function::ArgumentError::TooFewArgs
             },
             ParameterKind::KeywordOnly => quote! {
-                crate::function::ArgumentError::RequiredKeywordArgument(tringify!(#name))
+                #rp_path::function::ArgumentError::RequiredKeywordArgument(tringify!(#name))
             },
         };
         quote! {
@@ -181,7 +181,10 @@ pub fn impl_from_args(input: DeriveInput) -> TokenStream2 {
     let fields = match input.data {
         Data::Struct(ref data) => {
             match data.fields {
-                Fields::Named(ref fields) => fields.named.iter().map(generate_field),
+                Fields::Named(ref fields) => fields
+                    .named
+                    .iter()
+                    .map(|field| generate_field(field, &rp_path)),
                 Fields::Unnamed(_) | Fields::Unit => unimplemented!(), // TODO: better error message
             }
         }
@@ -192,9 +195,9 @@ pub fn impl_from_args(input: DeriveInput) -> TokenStream2 {
     quote! {
         impl #rp_path::function::FromArgs for #name {
             fn from_args(
-                vm: &crate::vm::VirtualMachine,
-                args: &mut crate::function::PyFuncArgs
-            ) -> Result<Self, crate::function::ArgumentError> {
+                vm: &#rp_path::VirtualMachine,
+                args: &mut #rp_path::function::PyFuncArgs
+            ) -> Result<Self, #rp_path::function::ArgumentError> {
                 Ok(#name { #(#fields)* })
             }
         }

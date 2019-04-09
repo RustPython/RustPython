@@ -7,16 +7,13 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::obj::{
-    objdict::PyDictRef,
-    objfunction::PyFunction,
-    objint,
-    objstr::{self, PyStringRef},
+    objdict::PyDictRef, objfunction::PyFunctionRef, objint::PyIntRef, objstr::PyStringRef,
     objtype::PyClassRef,
 };
-use rustpython_vm::pyobject::{PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use rustpython_vm::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
-use crate::{convert, vm_class::AccessibleVM, wasm_builtins::window};
+use crate::{convert, vm_class::weak_vm, wasm_builtins::window};
 
 enum FetchResponseFormat {
     Json,
@@ -42,25 +39,38 @@ impl FetchResponseFormat {
     }
 }
 
-fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(url, Some(vm.ctx.str_type()))]);
+#[derive(FromArgs)]
+struct FetchArgs {
+    #[pyarg(keyword_only, default = "None")]
+    response_format: Option<PyStringRef>,
+    #[pyarg(keyword_only, default = "None")]
+    method: Option<PyStringRef>,
+    #[pyarg(keyword_only, default = "None")]
+    headers: Option<PyDictRef>,
+    #[pyarg(keyword_only, default = "None")]
+    body: Option<PyObjectRef>,
+    #[pyarg(keyword_only, default = "None")]
+    content_type: Option<PyStringRef>,
+}
 
-    let response_format =
-        args.get_optional_kwarg_with_type("response_format", vm.ctx.str_type(), vm)?;
-    let method = args.get_optional_kwarg_with_type("method", vm.ctx.str_type(), vm)?;
-    let headers = args.get_optional_kwarg_with_type("headers", vm.ctx.dict_type(), vm)?;
-    let body = args.get_optional_kwarg("body");
-    let content_type = args.get_optional_kwarg_with_type("content_type", vm.ctx.str_type(), vm)?;
+fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyResult {
+    let FetchArgs {
+        response_format,
+        method,
+        headers,
+        body,
+        content_type,
+    } = args;
 
     let response_format = match response_format {
-        Some(s) => FetchResponseFormat::from_str(vm, &objstr::get_value(&s))?,
+        Some(s) => FetchResponseFormat::from_str(vm, s.as_str())?,
         None => FetchResponseFormat::Text,
     };
 
     let mut opts = web_sys::RequestInit::new();
 
     match method {
-        Some(s) => opts.method(&objstr::get_value(&s)),
+        Some(s) => opts.method(s.as_str()),
         None => opts.method("GET"),
     };
 
@@ -68,16 +78,15 @@ fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         opts.body(Some(&convert::py_to_js(vm, body)));
     }
 
-    let request = web_sys::Request::new_with_str_and_init(&objstr::get_value(url), &opts)
+    let request = web_sys::Request::new_with_str_and_init(url.as_str(), &opts)
         .map_err(|err| convert::js_py_typeerror(vm, err))?;
 
     if let Some(headers) = headers {
         let h = request.headers();
-        let headers: PyDictRef = headers.downcast().unwrap();
         for (key, value) in headers.get_key_value_pairs() {
-            let key = &vm.to_str(&key)?.value;
-            let value = &vm.to_str(&value)?.value;
-            h.set(key, value)
+            let key = vm.to_str(&key)?;
+            let value = vm.to_str(&value)?;
+            h.set(key.as_str(), value.as_str())
                 .map_err(|err| convert::js_py_typeerror(vm, err))?;
         }
     }
@@ -85,7 +94,7 @@ fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(content_type) = content_type {
         request
             .headers()
-            .set("Content-Type", &objstr::get_value(&content_type))
+            .set("Content-Type", content_type.as_str())
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
     }
 
@@ -104,9 +113,7 @@ fn browser_fetch(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(PyPromise::from_future(future).into_ref(vm).into_object())
 }
 
-fn browser_request_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(func, Some(vm.ctx.function_type()))]);
-
+fn browser_request_animation_frame(func: PyFunctionRef, vm: &VirtualMachine) -> PyResult {
     use std::{cell::RefCell, rc::Rc};
 
     // this basic setup for request_animation_frame taken from:
@@ -115,18 +122,16 @@ fn browser_request_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyR
     let f = Rc::new(RefCell::new(None));
     let g = f.clone();
 
-    let func = func.clone();
-
-    let acc_vm = AccessibleVM::from(vm);
+    let weak_vm = weak_vm(vm);
 
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move |time: f64| {
-        let stored_vm = acc_vm
+        let stored_vm = weak_vm
             .upgrade()
             .expect("that the vm is valid from inside of request_animation_frame");
         let vm = &stored_vm.vm;
         let func = func.clone();
         let args = vec![vm.ctx.new_float(time)];
-        let _ = vm.invoke(func, args);
+        let _ = vm.invoke(func.into_object(), args);
 
         let closure = f.borrow_mut().take();
         drop(closure);
@@ -141,10 +146,8 @@ fn browser_request_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyR
     Ok(vm.ctx.new_int(id))
 }
 
-fn browser_cancel_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(id, Some(vm.ctx.int_type()))]);
-
-    let id = objint::get_value(id).to_i32().ok_or_else(|| {
+fn browser_cancel_animation_frame(id: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    let id = id.as_bigint().to_i32().ok_or_else(|| {
         vm.new_exception(
             vm.ctx.exceptions.value_error.clone(),
             "Integer too large to convert to i32 for animationFrame id".into(),
@@ -158,6 +161,7 @@ fn browser_cancel_animation_frame(vm: &VirtualMachine, args: PyFuncArgs) -> PyRe
     Ok(vm.get_none())
 }
 
+#[pyclass(name = "Promise")]
 #[derive(Debug)]
 pub struct PyPromise {
     value: Promise,
@@ -170,6 +174,7 @@ impl PyValue for PyPromise {
     }
 }
 
+#[pyimpl]
 impl PyPromise {
     pub fn new(value: Promise) -> PyPromise {
         PyPromise { value }
@@ -184,16 +189,17 @@ impl PyPromise {
         self.value.clone()
     }
 
+    #[pymethod]
     fn then(
-        zelf: PyPromiseRef,
-        on_fulfill: PyRef<PyFunction>,
-        on_reject: OptionalArg<PyRef<PyFunction>>,
+        &self,
+        on_fulfill: PyFunctionRef,
+        on_reject: OptionalArg<PyFunctionRef>,
         vm: &VirtualMachine,
     ) -> PyPromiseRef {
-        let acc_vm = AccessibleVM::from(vm);
+        let weak_vm = weak_vm(vm);
 
-        let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
-            let stored_vm = &acc_vm
+        let ret_future = JsFuture::from(self.value.clone()).then(move |res| {
+            let stored_vm = &weak_vm
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
             let vm = &stored_vm.vm;
@@ -217,16 +223,13 @@ impl PyPromise {
         PyPromise::from_future(ret_future).into_ref(vm)
     }
 
-    fn catch(
-        zelf: PyPromiseRef,
-        on_reject: PyRef<PyFunction>,
-        vm: &VirtualMachine,
-    ) -> PyPromiseRef {
-        let acc_vm = AccessibleVM::from(vm);
+    #[pymethod]
+    fn catch(&self, on_reject: PyFunctionRef, vm: &VirtualMachine) -> PyPromiseRef {
+        let weak_vm = weak_vm(vm);
 
-        let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
+        let ret_future = JsFuture::from(self.value.clone()).then(move |res| {
             res.or_else(|err| {
-                let stored_vm = acc_vm
+                let stored_vm = weak_vm
                     .upgrade()
                     .expect("that the vm is valid when the promise resolves");
                 let vm = &stored_vm.vm;
@@ -240,11 +243,11 @@ impl PyPromise {
     }
 }
 
+#[pyclass]
 #[derive(Debug)]
 struct Document {
     doc: web_sys::Document,
 }
-type DocumentRef = PyRef<Document>;
 
 impl PyValue for Document {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -252,9 +255,11 @@ impl PyValue for Document {
     }
 }
 
+#[pyimpl]
 impl Document {
-    fn query(zelf: DocumentRef, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        let elem = zelf
+    #[pymethod]
+    fn query(&self, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let elem = self
             .doc
             .query_selector(&query.value)
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
@@ -266,11 +271,11 @@ impl Document {
     }
 }
 
+#[pyclass]
 #[derive(Debug)]
 struct Element {
     elem: web_sys::Element,
 }
-type ElementRef = PyRef<Element>;
 
 impl PyValue for Element {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -278,66 +283,54 @@ impl PyValue for Element {
     }
 }
 
+#[pyimpl]
 impl Element {
+    #[pymethod]
     fn get_attr(
-        zelf: ElementRef,
+        &self,
         attr: PyStringRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        match zelf.elem.get_attribute(&attr.value) {
+        match self.elem.get_attribute(&attr.value) {
             Some(s) => vm.new_str(s),
             None => default.into_option().unwrap_or_else(|| vm.get_none()),
         }
     }
 
-    fn set_attr(
-        zelf: ElementRef,
-        attr: PyStringRef,
-        value: PyStringRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        zelf.elem
+    #[pymethod]
+    fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.elem
             .set_attribute(&attr.value, &value.value)
             .map_err(|err| convert::js_to_py(vm, err))
     }
 }
 
-fn browser_alert(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(message, Some(vm.ctx.str_type()))]);
-
+fn browser_alert(message: PyStringRef, vm: &VirtualMachine) -> PyResult {
     window()
-        .alert_with_message(&objstr::get_value(message))
+        .alert_with_message(message.as_str())
         .expect("alert() not to fail");
 
     Ok(vm.get_none())
 }
 
-fn browser_confirm(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(message, Some(vm.ctx.str_type()))]);
-
+fn browser_confirm(message: PyStringRef, vm: &VirtualMachine) -> PyResult {
     let result = window()
-        .confirm_with_message(&objstr::get_value(message))
+        .confirm_with_message(message.as_str())
         .expect("confirm() not to fail");
 
     Ok(vm.new_bool(result))
 }
 
-fn browser_prompt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(message, Some(vm.ctx.str_type()))],
-        optional = [(default, Some(vm.ctx.str_type()))]
-    );
-
-    let result = if let Some(default) = default {
-        window().prompt_with_message_and_default(
-            &objstr::get_value(message),
-            &objstr::get_value(default),
-        )
+fn browser_prompt(
+    message: PyStringRef,
+    default: OptionalArg<PyStringRef>,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let result = if let OptionalArg::Present(default) = default {
+        window().prompt_with_message_and_default(message.as_str(), default.as_str())
     } else {
-        window().prompt_with_message(&objstr::get_value(message))
+        window().prompt_with_message(message.as_str())
     };
 
     let result = match result.expect("prompt() not to fail") {
@@ -351,14 +344,9 @@ fn browser_prompt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let promise = py_class!(ctx, "Promise", ctx.object(), {
-        "then" => ctx.new_rustfunc(PyPromise::then),
-        "catch" => ctx.new_rustfunc(PyPromise::catch),
-    });
+    let promise = PyPromise::make_class(ctx);
 
-    let document_class = py_class!(ctx, "Document", ctx.object(), {
-        "query" => ctx.new_rustfunc(Document::query),
-    });
+    let document_class = Document::make_class(ctx);
 
     let document = PyObject::new(
         Document {
@@ -368,10 +356,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         None,
     );
 
-    let element = py_class!(ctx, "Element", ctx.object(), {
-        "get_attr" => ctx.new_rustfunc(Element::get_attr),
-        "set_attr" => ctx.new_rustfunc(Element::set_attr),
-    });
+    let element = Element::make_class(ctx);
 
     py_module!(vm, "browser", {
         "fetch" => ctx.new_rustfunc(browser_fetch),
