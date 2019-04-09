@@ -10,7 +10,7 @@ use rustpython_vm::obj::{
     objdict::PyDictRef, objfunction::PyFunctionRef, objint::PyIntRef, objstr::PyStringRef,
     objtype::PyClassRef,
 };
-use rustpython_vm::pyobject::{PyObject, PyObjectRef, PyRef, PyResult, PyValue};
+use rustpython_vm::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
 use crate::{convert, vm_class::weak_vm, wasm_builtins::window};
@@ -161,6 +161,7 @@ fn browser_cancel_animation_frame(id: PyIntRef, vm: &VirtualMachine) -> PyResult
     Ok(vm.get_none())
 }
 
+#[pyclass(name = "Promise")]
 #[derive(Debug)]
 pub struct PyPromise {
     value: Promise,
@@ -173,6 +174,7 @@ impl PyValue for PyPromise {
     }
 }
 
+#[pyimpl]
 impl PyPromise {
     pub fn new(value: Promise) -> PyPromise {
         PyPromise { value }
@@ -187,15 +189,16 @@ impl PyPromise {
         self.value.clone()
     }
 
+    #[pymethod]
     fn then(
-        zelf: PyPromiseRef,
+        &self,
         on_fulfill: PyFunctionRef,
         on_reject: OptionalArg<PyFunctionRef>,
         vm: &VirtualMachine,
     ) -> PyPromiseRef {
         let weak_vm = weak_vm(vm);
 
-        let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
+        let ret_future = JsFuture::from(self.value.clone()).then(move |res| {
             let stored_vm = &weak_vm
                 .upgrade()
                 .expect("that the vm is valid when the promise resolves");
@@ -220,10 +223,11 @@ impl PyPromise {
         PyPromise::from_future(ret_future).into_ref(vm)
     }
 
-    fn catch(zelf: PyPromiseRef, on_reject: PyFunctionRef, vm: &VirtualMachine) -> PyPromiseRef {
+    #[pymethod]
+    fn catch(&self, on_reject: PyFunctionRef, vm: &VirtualMachine) -> PyPromiseRef {
         let weak_vm = weak_vm(vm);
 
-        let ret_future = JsFuture::from(zelf.value.clone()).then(move |res| {
+        let ret_future = JsFuture::from(self.value.clone()).then(move |res| {
             res.or_else(|err| {
                 let stored_vm = weak_vm
                     .upgrade()
@@ -239,11 +243,11 @@ impl PyPromise {
     }
 }
 
+#[pyclass]
 #[derive(Debug)]
 struct Document {
     doc: web_sys::Document,
 }
-type DocumentRef = PyRef<Document>;
 
 impl PyValue for Document {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -251,9 +255,11 @@ impl PyValue for Document {
     }
 }
 
+#[pyimpl]
 impl Document {
-    fn query(zelf: DocumentRef, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        let elem = zelf
+    #[pymethod]
+    fn query(&self, query: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let elem = self
             .doc
             .query_selector(&query.value)
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
@@ -265,11 +271,11 @@ impl Document {
     }
 }
 
+#[pyclass]
 #[derive(Debug)]
 struct Element {
     elem: web_sys::Element,
 }
-type ElementRef = PyRef<Element>;
 
 impl PyValue for Element {
     fn class(vm: &VirtualMachine) -> PyClassRef {
@@ -277,26 +283,24 @@ impl PyValue for Element {
     }
 }
 
+#[pyimpl]
 impl Element {
+    #[pymethod]
     fn get_attr(
-        zelf: ElementRef,
+        &self,
         attr: PyStringRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        match zelf.elem.get_attribute(&attr.value) {
+        match self.elem.get_attribute(&attr.value) {
             Some(s) => vm.new_str(s),
             None => default.into_option().unwrap_or_else(|| vm.get_none()),
         }
     }
 
-    fn set_attr(
-        zelf: ElementRef,
-        attr: PyStringRef,
-        value: PyStringRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        zelf.elem
+    #[pymethod]
+    fn set_attr(&self, attr: PyStringRef, value: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.elem
             .set_attribute(&attr.value, &value.value)
             .map_err(|err| convert::js_to_py(vm, err))
     }
@@ -340,14 +344,9 @@ fn browser_prompt(
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
-    let promise = py_class!(ctx, "Promise", ctx.object(), {
-        "then" => ctx.new_rustfunc(PyPromise::then),
-        "catch" => ctx.new_rustfunc(PyPromise::catch),
-    });
+    let promise = PyPromise::make_class(ctx);
 
-    let document_class = py_class!(ctx, "Document", ctx.object(), {
-        "query" => ctx.new_rustfunc(Document::query),
-    });
+    let document_class = Document::make_class(ctx);
 
     let document = PyObject::new(
         Document {
@@ -357,10 +356,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         None,
     );
 
-    let element = py_class!(ctx, "Element", ctx.object(), {
-        "get_attr" => ctx.new_rustfunc(Element::get_attr),
-        "set_attr" => ctx.new_rustfunc(Element::set_attr),
-    });
+    let element = Element::make_class(ctx);
 
     py_module!(vm, "browser", {
         "fetch" => ctx.new_rustfunc(browser_fetch),
