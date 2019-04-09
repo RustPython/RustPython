@@ -37,10 +37,40 @@ for key in a.keys():
         res.add(key)
 assert res == set(['a','b'])
 
+# Deleted values are correctly skipped over:
+x = {'a': 1, 'b': 2, 'c': 3, 'd': 3}
+del x['c']
+it = iter(x.items())
+assert ('a', 1) == next(it)
+assert ('b', 2) == next(it)
+assert ('d', 3) == next(it)
+with assertRaises(StopIteration):
+    next(it)
+
+# Iterating a dictionary is just its keys:
+assert ['a', 'b', 'd'] == list(x)
+
+# Iterating view captures dictionary when iterated.
+data = {1: 2, 3: 4}
+items = data.items()
+assert list(items) == [(1, 2), (3, 4)]
+data[5] = 6
+assert list(items) == [(1, 2), (3, 4), (5, 6)]
+
+# Values can be changed during iteration.
+data = {1: 2, 3: 4}
+items = iter(data.items())
+assert (1, 2) == next(items)
+data[3] = "changed"
+assert (3, "changed") == next(items)
+
+# View isn't itself an iterator.
+with assertRaises(TypeError):
+    next(data.keys())
+
 x = {}
 x[1] = 1
 assert x[1] == 1
-
 
 x[7] = 7
 x[2] = 2

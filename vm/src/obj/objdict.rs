@@ -8,12 +8,11 @@ use crate::pyobject::{
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
-use crate::dictdatatype;
-
 use super::objiter;
-use super::objlist::PyListIterator;
 use super::objstr;
+use crate::dictdatatype;
 use crate::obj::objtype::PyClassRef;
+use crate::pyobject::PyClassImpl;
 
 pub type DictContentType = dictdatatype::Dict;
 
@@ -131,56 +130,20 @@ impl PyDictRef {
         self.entries.borrow_mut().clear()
     }
 
-    /// When iterating over a dictionary, we iterate over the keys of it.
-    fn iter(self, vm: &VirtualMachine) -> PyListIterator {
-        // TODO: separate type, not a list iterator
-        let keys = self
-            .entries
-            .borrow()
-            .get_items()
-            .iter()
-            .map(|(k, _v)| k.clone())
-            .collect();
-        let key_list = vm.ctx.new_list(keys);
-
-        PyListIterator {
-            position: Cell::new(0),
-            list: key_list.downcast().unwrap(),
-        }
+    fn iter(self, _vm: &VirtualMachine) -> PyDictKeyIterator {
+        PyDictKeyIterator::new(self)
     }
 
-    fn values(self, vm: &VirtualMachine) -> PyListIterator {
-        // TODO: separate type. `values` should be a live view over the collection, not an iterator.
-        let values = self
-            .entries
-            .borrow()
-            .get_items()
-            .iter()
-            .map(|(_k, v)| v.clone())
-            .collect();
-        let values_list = vm.ctx.new_list(values);
-
-        PyListIterator {
-            position: Cell::new(0),
-            list: values_list.downcast().unwrap(),
-        }
+    fn keys(self, _vm: &VirtualMachine) -> PyDictKeys {
+        PyDictKeys::new(self)
     }
 
-    fn items(self, vm: &VirtualMachine) -> PyListIterator {
-        // TODO: separate type. `items` should be a live view over the collection, not an iterator.
-        let items = self
-            .entries
-            .borrow()
-            .get_items()
-            .iter()
-            .map(|(k, v)| vm.ctx.new_tuple(vec![k.clone(), v.clone()]))
-            .collect();
-        let items_list = vm.ctx.new_list(items);
+    fn values(self, _vm: &VirtualMachine) -> PyDictValues {
+        PyDictValues::new(self)
+    }
 
-        PyListIterator {
-            position: Cell::new(0),
-            list: items_list.downcast().unwrap(),
-        }
+    fn items(self, _vm: &VirtualMachine) -> PyDictItems {
+        PyDictItems::new(self)
     }
 
     pub fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
@@ -284,6 +247,104 @@ impl ItemProtocol for PyDictRef {
     }
 }
 
+macro_rules! dict_iterator {
+    ( $name: ident, $iter_name: ident, $class: ident, $iter_class: ident, $class_name: literal, $iter_class_name: literal, $result_fn: expr) => {
+        #[pyclass(name = $class_name, __inside_vm)]
+        #[derive(Debug)]
+        struct $name {
+            pub dict: PyDictRef,
+        }
+
+        #[pyimpl(__inside_vm)]
+        impl $name {
+            fn new(dict: PyDictRef) -> Self {
+                $name { dict: dict }
+            }
+
+            #[pymethod(name = "__iter__")]
+            fn iter(&self, _vm: &VirtualMachine) -> $iter_name {
+                $iter_name::new(self.dict.clone())
+            }
+        }
+
+        impl PyValue for $name {
+            fn class(vm: &VirtualMachine) -> PyClassRef {
+                vm.ctx.$class.clone()
+            }
+        }
+
+        #[pyclass(name = $iter_class_name, __inside_vm)]
+        #[derive(Debug)]
+        struct $iter_name {
+            pub dict: PyDictRef,
+            pub position: Cell<usize>,
+        }
+
+        #[pyimpl(__inside_vm)]
+        impl $iter_name {
+            fn new(dict: PyDictRef) -> Self {
+                $iter_name {
+                    position: Cell::new(0),
+                    dict,
+                }
+            }
+
+            #[pymethod(name = "__next__")]
+            fn next(&self, vm: &VirtualMachine) -> PyResult {
+                match self.dict.entries.borrow().next_entry(self.position.get()) {
+                    Some((new_position, key, value)) => {
+                        self.position.set(new_position);
+                        Ok($result_fn(vm, key, value))
+                    }
+                    None => Err(objiter::new_stop_iteration(vm)),
+                }
+            }
+
+            #[pymethod(name = "__iter__")]
+            fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+                zelf
+            }
+        }
+
+        impl PyValue for $iter_name {
+            fn class(vm: &VirtualMachine) -> PyClassRef {
+                vm.ctx.$iter_class.clone()
+            }
+        }
+    };
+}
+
+dict_iterator! {
+    PyDictKeys,
+    PyDictKeyIterator,
+    dictkeys_type,
+    dictkeyiterator_type,
+    "dictkeys",
+    "dictkeyiterator",
+    |_vm: &VirtualMachine, key: &PyObjectRef, _value: &PyObjectRef| key.clone()
+}
+
+dict_iterator! {
+    PyDictValues,
+    PyDictValueIterator,
+    dictvalues_type,
+    dictvalueiterator_type,
+    "dictvalues",
+    "dictvalueiterator",
+    |_vm: &VirtualMachine, _key: &PyObjectRef, value: &PyObjectRef| value.clone()
+}
+
+dict_iterator! {
+    PyDictItems,
+    PyDictItemIterator,
+    dictitems_type,
+    dictitemiterator_type,
+    "dictitems",
+    "dictitemiterator",
+    |vm: &VirtualMachine, key: &PyObjectRef, value: &PyObjectRef|
+        vm.ctx.new_tuple(vec![key.clone(), value.clone()])
+}
+
 pub fn init(context: &PyContext) {
     extend_class!(context, &context.dict_type, {
         "__bool__" => context.new_rustfunc(PyDictRef::bool),
@@ -299,10 +360,16 @@ pub fn init(context: &PyContext) {
         "clear" => context.new_rustfunc(PyDictRef::clear),
         "values" => context.new_rustfunc(PyDictRef::values),
         "items" => context.new_rustfunc(PyDictRef::items),
-        // TODO: separate type. `keys` should be a live view over the collection, not an iterator.
-        "keys" => context.new_rustfunc(PyDictRef::iter),
+        "keys" => context.new_rustfunc(PyDictRef::keys),
         "get" => context.new_rustfunc(PyDictRef::get),
         "copy" => context.new_rustfunc(PyDictRef::copy),
         "update" => context.new_rustfunc(PyDictRef::update),
     });
+
+    PyDictKeys::extend_class(context, &context.dictkeys_type);
+    PyDictKeyIterator::extend_class(context, &context.dictkeyiterator_type);
+    PyDictValues::extend_class(context, &context.dictvalues_type);
+    PyDictValueIterator::extend_class(context, &context.dictvalueiterator_type);
+    PyDictItems::extend_class(context, &context.dictitems_type);
+    PyDictItemIterator::extend_class(context, &context.dictitemiterator_type);
 }
