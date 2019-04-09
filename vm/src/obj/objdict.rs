@@ -3,8 +3,7 @@ use std::fmt;
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue,
+    IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -63,9 +62,8 @@ impl PyDictRef {
         if let OptionalArg::Present(dict_obj) = dict_obj {
             let dicted: PyResult<PyDictRef> = dict_obj.clone().downcast();
             if let Ok(dict_obj) = dicted {
-                let mut dict_borrowed = dict.borrow_mut();
-                for (key, value) in dict_obj.entries.borrow().iter_items() {
-                    dict_borrowed.insert(vm, &key, value)?;
+                for (key, value) in dict_obj {
+                    dict.borrow_mut().insert(vm, &key, value)?;
                 }
             } else {
                 let iter = objiter::get_iter(vm, &dict_obj)?;
@@ -105,7 +103,7 @@ impl PyDictRef {
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             let mut str_parts = vec![];
-            for (key, value) in self.get_key_value_pairs() {
+            for (key, value) in self {
                 let key_repr = vm.to_repr(&key)?;
                 let value_repr = vm.to_repr(&value)?;
                 str_parts.push(format!("{}: {}", key_repr.value, value_repr.value));
@@ -144,10 +142,6 @@ impl PyDictRef {
 
     fn items(self, _vm: &VirtualMachine) -> PyDictItems {
         PyDictItems::new(self)
-    }
-
-    pub fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        self.entries.borrow().get_items()
     }
 
     fn inner_setitem(
@@ -194,24 +188,17 @@ impl PyDictRef {
 
     fn update(
         self,
-        mut dict_obj: OptionalArg<PyObjectRef>,
+        dict_obj: OptionalArg<PyObjectRef>,
         kwargs: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if let OptionalArg::Present(ref other) = dict_obj {
-            if self.is(other) {
-                // Updating yourself is a noop, and this avoids a borrow error
-                dict_obj = OptionalArg::Missing;
-            }
-        }
-
         PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
     }
 
     /// Take a python dictionary and convert it to attributes.
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::new();
-        for (key, value) in self.get_key_value_pairs() {
+        for (key, value) in self {
             let key = objstr::get_value(&key);
             attrs.insert(key, value);
         }
@@ -244,6 +231,54 @@ impl ItemProtocol for PyDictRef {
 
     fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
         self.as_object().del_item(key, vm)
+    }
+}
+
+// Implement IntoIterator so that we can easily iterate dictionaries from rust code.
+impl IntoIterator for PyDictRef {
+    type Item = (PyObjectRef, PyObjectRef);
+    type IntoIter = DictIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DictIterator::new(self)
+    }
+}
+
+impl IntoIterator for &PyDictRef {
+    type Item = (PyObjectRef, PyObjectRef);
+    type IntoIter = DictIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DictIterator::new(self.clone())
+    }
+}
+
+pub struct DictIterator {
+    dict: PyDictRef,
+    position: Cell<usize>,
+}
+
+impl DictIterator {
+    pub fn new(dict: PyDictRef) -> DictIterator {
+        DictIterator {
+            dict,
+            position: Cell::new(0),
+        }
+    }
+}
+
+impl Iterator for DictIterator {
+    type Item = (PyObjectRef, PyObjectRef);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.dict
+            .entries
+            .borrow()
+            .next_entry(self.position.get())
+            .map(|(new_position, key, value)| {
+                self.position.set(new_position);
+                (key.clone(), value.clone())
+            })
     }
 }
 

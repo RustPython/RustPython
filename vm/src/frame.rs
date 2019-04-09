@@ -393,9 +393,8 @@ impl Frame {
                         // Take all key-value pairs from the dict:
                         let dict: PyDictRef =
                             obj.downcast().expect("Need a dictionary to build a map.");
-                        let dict_elements = dict.get_key_value_pairs();
-                        for (key, value) in dict_elements.iter() {
-                            map_obj.set_item(key.clone(), value.clone(), vm).unwrap();
+                        for (key, value) in dict {
+                            map_obj.set_item(key, value, vm).unwrap();
                         }
                     }
                 } else {
@@ -636,8 +635,7 @@ impl Frame {
                         let kwargs = if *has_kwargs {
                             let kw_dict: PyDictRef =
                                 self.pop_value().downcast().expect("Kwargs must be a dict.");
-                            let dict_elements = kw_dict.get_key_value_pairs();
-                            dict_elements
+                            kw_dict
                                 .into_iter()
                                 .map(|elem| (objstr::get_value(&elem.0), elem.1))
                                 .collect()
@@ -862,8 +860,8 @@ impl Frame {
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {
-            for (k, v) in dict.get_key_value_pairs().iter() {
-                self.scope.store_name(&vm, &objstr::get_value(k), v.clone());
+            for (k, v) in dict {
+                self.scope.store_name(&vm, &objstr::get_value(&k), v);
             }
         }
         Ok(None)
@@ -1230,8 +1228,7 @@ impl fmt::Debug for Frame {
             .collect::<String>();
         let dict = self.scope.get_locals();
         let local_str = dict
-            .get_key_value_pairs()
-            .iter()
+            .into_iter()
             .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
             .collect::<String>();
         write!(

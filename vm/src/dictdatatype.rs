@@ -131,18 +131,6 @@ impl<T: Clone> Dict<T> {
         None
     }
 
-    pub fn iter_items(&self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
-        self.entries
-            .iter()
-            .filter(|e| e.is_some())
-            .map(|e| e.as_ref().unwrap())
-            .map(|e| (e.key.clone(), e.value.clone()))
-    }
-
-    pub fn get_items(&self) -> Vec<(PyObjectRef, T)> {
-        self.iter_items().collect()
-    }
-
     /// Lookup the index for the given key.
     fn lookup(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<LookupResult> {
         let hash_value = calc_hash(vm, key)?;
