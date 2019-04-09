@@ -7,6 +7,7 @@ use crate::pyobject::{
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
+use super::objbool;
 use super::objiter;
 use super::objstr;
 use crate::dictdatatype;
@@ -94,6 +95,35 @@ impl PyDictRef {
 
     fn bool(self, _vm: &VirtualMachine) -> bool {
         !self.entries.borrow().is_empty()
+    }
+
+    fn inner_eq(self, other: &PyDict, vm: &VirtualMachine) -> PyResult<bool> {
+        if other.entries.borrow().len() != self.entries.borrow().len() {
+            return Ok(false);
+        }
+        for (k, v1) in self {
+            match other.entries.borrow().get(vm, &k)? {
+                Some(v2) => {
+                    let value = objbool::boolval(vm, vm._eq(v1, v2)?)?;
+                    if !value {
+                        return Ok(false);
+                    }
+                }
+                None => {
+                    return Ok(false);
+                }
+            }
+        }
+        return Ok(true);
+    }
+
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(other) = other.payload::<PyDict>() {
+            let eq = self.inner_eq(other, vm)?;
+            Ok(vm.ctx.new_bool(eq))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
     }
 
     fn len(self, _vm: &VirtualMachine) -> usize {
@@ -387,6 +417,7 @@ pub fn init(context: &PyContext) {
         "__len__" => context.new_rustfunc(PyDictRef::len),
         "__contains__" => context.new_rustfunc(PyDictRef::contains),
         "__delitem__" => context.new_rustfunc(PyDictRef::inner_delitem),
+        "__eq__" => context.new_rustfunc(PyDictRef::eq),
         "__getitem__" => context.new_rustfunc(PyDictRef::inner_getitem),
         "__iter__" => context.new_rustfunc(PyDictRef::iter),
         "__new__" => context.new_rustfunc(PyDictRef::new),
