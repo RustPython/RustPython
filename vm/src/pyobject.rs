@@ -48,7 +48,7 @@ use crate::obj::objslice;
 use crate::obj::objstaticmethod;
 use crate::obj::objstr;
 use crate::obj::objsuper;
-use crate::obj::objtuple::{self, PyTuple};
+use crate::obj::objtuple::{self, PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::obj::objweakref;
 use crate::obj::objzip;
@@ -658,10 +658,11 @@ impl PyContext {
         &self,
         code_obj: PyCodeRef,
         scope: Scope,
-        defaults: PyObjectRef,
+        defaults: Option<PyTupleRef>,
+        kw_only_defaults: Option<PyDictRef>,
     ) -> PyObjectRef {
         PyObject::new(
-            PyFunction::new(code_obj, scope, defaults),
+            PyFunction::new(code_obj, scope, defaults, kw_only_defaults),
             self.function_type(),
             Some(self.new_dict()),
         )

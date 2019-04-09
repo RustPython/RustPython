@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::ops::RangeInclusive;
 
 use crate::obj::objtype::{isinstance, PyClassRef};
-use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use crate::pyobject::{
+    IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 use self::OptionalArg::*;
@@ -403,6 +405,7 @@ tuple_from_py_func_args!(A, B);
 tuple_from_py_func_args!(A, B, C);
 tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
+tuple_from_py_func_args!(A, B, C, D, E, F);
 
 /// A built-in Python function.
 pub type PyNativeFunc = Box<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
@@ -440,17 +443,19 @@ impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
     }
 }
 
+pub struct OwnedParam<T>(std::marker::PhantomData<T>);
+pub struct RefParam<T>(std::marker::PhantomData<T>);
+
 // This is the "magic" that allows rust functions of varying signatures to
 // generate native python functions.
 //
 // Note that this could be done without a macro - it is simply to avoid repetition.
 macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
-        impl<F, $($T,)* R> IntoPyNativeFunc<($($T,)*), R> for F
+        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R> for F
         where
             F: Fn($($T,)* &VirtualMachine) -> R + 'static,
             $($T: FromArgs,)*
-            ($($T,)*): FromArgs,
             R: IntoPyObject,
         {
             fn into_func(self) -> PyNativeFunc {
@@ -458,6 +463,22 @@ macro_rules! into_py_native_func_tuple {
                     let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
                     (self)($($n,)* vm).into_pyobject(vm)
+                })
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R> for F
+        where
+            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static,
+            S: PyValue,
+            $($T: FromArgs,)*
+            R: IntoPyObject,
+        {
+            fn into_func(self) -> PyNativeFunc {
+                Box::new(move |vm, args| {
+                    let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+
+                    (self)(&zelf, $($n,)* vm).into_pyobject(vm)
                 })
             }
         }

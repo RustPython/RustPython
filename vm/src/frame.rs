@@ -12,12 +12,13 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict::PyDictRef;
+use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
@@ -578,16 +579,33 @@ impl Frame {
                     vm.ctx.new_dict().into_object()
                 };
 
+                let kw_only_defaults =
+                    if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
+                        Some(
+                            self.pop_value().downcast::<PyDict>().expect(
+                                "Stack value for keyword only defaults expected to be a dict",
+                            ),
+                        )
+                    } else {
+                        None
+                    };
+
                 let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
-                    self.pop_value()
+                    Some(
+                        self.pop_value()
+                            .downcast::<PyTuple>()
+                            .expect("Stack value for defaults expected to be a tuple"),
+                    )
                 } else {
-                    vm.get_none()
+                    None
                 };
 
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.scope.clone();
-                let obj = vm.ctx.new_function(code_obj, scope, defaults);
+                let obj = vm
+                    .ctx
+                    .new_function(code_obj, scope, defaults, kw_only_defaults);
 
                 vm.set_attr(&obj, "__annotations__", annotations)?;
 
