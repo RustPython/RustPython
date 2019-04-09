@@ -584,8 +584,20 @@ impl PyListRef {
         } else {
             // calculate the range for the reverse slice, first the bounds needs to be made
             // exclusive around stop, the lower number
-            let start = start.as_ref().map(|x| x + 1);
-            let stop = stop.as_ref().map(|x| x + 1);
+            let start = start.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len() + BigInt::one() //.to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
+            let stop = stop.as_ref().map(|x| {
+                if *x == (-1).to_bigint().unwrap() {
+                    self.get_len().to_bigint().unwrap()
+                } else {
+                    x + 1
+                }
+            });
             let range = self.get_slice_range(&stop, &start);
             if range.start < range.end {
                 match (-step).to_i32() {

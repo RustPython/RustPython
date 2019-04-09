@@ -220,11 +220,11 @@ assert x[1] == [100]
 #index bounds
 def set_index_out_of_bounds_high():
   x = [0, 1, 2, 3, 4]
-  x[5] = 'a' 
+  x[5] = 'a'
 
 def set_index_out_of_bounds_low():
   x = [0, 1, 2, 3, 4]
-  x[-6] = 'a' 
+  x[-6] = 'a'
 
 assert_raises(IndexError, set_index_out_of_bounds_high)
 assert_raises(IndexError, set_index_out_of_bounds_low)
@@ -301,7 +301,7 @@ assert x == y
 x = a[:]
 x[3:5] = ['a']
 assert x == [0, 1, 2, 'a', 5, 6, 7, 8, 9]
-# assign empty to non stepped empty slice does nothing 
+# assign empty to non stepped empty slice does nothing
 x = a[:]
 y = a[:]
 x[5:2] = []
@@ -470,7 +470,6 @@ def bad_iter_assign():
 assert_raises(RuntimeError, bad_iter_assign)
 
 # slice assign when step or stop is -1
-
 a = list(range(10))
 x = a[:]
 x[-1:-5:-1] = ['a', 'b', 'c', 'd']
@@ -478,3 +477,10 @@ assert x == [0, 1, 2, 3, 4, 5, 'd', 'c', 'b', 'a']
 x = a[:]
 x[-5:-1:-1] = []
 assert x == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# is step != 1 and start or stop of slice == -1
+x = list(range(10))
+del x[-1:-5:-1]
+assert x == [0, 1, 2, 3, 4, 5]
+x = list(range(10))
+del x[-5:-1:-1]
