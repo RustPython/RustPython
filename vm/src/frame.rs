@@ -566,7 +566,7 @@ impl Frame {
                 }
             }
             bytecode::Instruction::MakeFunction { flags } => {
-                let _qualified_name = self.pop_value();
+                let qualified_name = self.pop_value();
                 let code_obj = self
                     .pop_value()
                     .downcast()
@@ -606,6 +606,14 @@ impl Frame {
                     .ctx
                     .new_function(code_obj, scope, defaults, kw_only_defaults);
 
+                vm.set_attr(&obj, "__name__", qualified_name.clone())?;
+                vm.set_attr(&obj, "__qualname__", qualified_name)?;
+                let module = self
+                    .scope
+                    .globals
+                    .get_item_option("__name__", vm)?
+                    .unwrap_or_else(|| vm.get_none());
+                vm.set_attr(&obj, "__module__", module)?;
                 vm.set_attr(&obj, "__annotations__", annotations)?;
 
                 self.push_value(obj);
