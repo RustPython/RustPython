@@ -237,34 +237,34 @@ impl ItemProtocol for PyDictRef {
 // Implement IntoIterator so that we can easily iterate dictionaries from rust code.
 impl IntoIterator for PyDictRef {
     type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIterator;
+    type IntoIter = DictIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictIterator::new(self)
+        DictIter::new(self)
     }
 }
 
 impl IntoIterator for &PyDictRef {
     type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIterator;
+    type IntoIter = DictIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictIterator::new(self.clone())
+        DictIter::new(self.clone())
     }
 }
 
-pub struct DictIterator {
+pub struct DictIter {
     dict: PyDictRef,
     position: usize,
 }
 
-impl DictIterator {
-    pub fn new(dict: PyDictRef) -> DictIterator {
-        DictIterator { dict, position: 0 }
+impl DictIter {
+    pub fn new(dict: PyDictRef) -> DictIter {
+        DictIter { dict, position: 0 }
     }
 }
 
-impl Iterator for DictIterator {
+impl Iterator for DictIter {
     type Item = (PyObjectRef, PyObjectRef);
 
     fn next(&mut self) -> Option<Self::Item> {
