@@ -28,6 +28,7 @@ impl ClassItem {
     fn extract_from_syn(attrs: &mut Vec<Attribute>, sig: &MethodSig) -> Option<ClassItem> {
         let mut item = None;
         let mut attr_idx = None;
+        // TODO: better error handling throughout this
         for (i, meta) in attrs
             .iter()
             .filter_map(|attr| attr.parse_meta().ok())
@@ -38,13 +39,15 @@ impl ClassItem {
                 if item.is_some() {
                     panic!("You can only have one #[py*] attribute on an impl item")
                 }
-                let nesteds = meta_to_vec(meta)
-                    .expect("#[pymethod = ...] must be a list, e.g. #[pymethod(...)]");
+                let nesteds = meta_to_vec(meta).expect(
+                    "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
+                     #[pyproperty(name = \"...\")]",
+                );
                 let mut py_name = None;
                 for meta in nesteds {
                     let meta = match meta {
                         NestedMeta::Meta(meta) => meta,
-                        NestedMeta::Literal(_) => panic!("Expected a meta, found a literal"),
+                        NestedMeta::Literal(_) => continue,
                     };
                     match meta {
                         Meta::NameValue(name_value) => {
@@ -68,14 +71,16 @@ impl ClassItem {
                 if item.is_some() {
                     panic!("You can only have one #[py*] attribute on an impl item")
                 }
-                let nesteds = meta_to_vec(meta)
-                    .expect("#[pyproperty = ...] must be a list, e.g. #[pyproperty(...)]");
+                let nesteds = meta_to_vec(meta).expect(
+                    "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
+                     #[pyproperty(name = \"...\")]",
+                );
                 let mut setter = false;
                 let mut py_name = None;
                 for meta in nesteds {
                     let meta = match meta {
                         NestedMeta::Meta(meta) => meta,
-                        NestedMeta::Literal(_) => panic!("Expected a meta, found a literal"),
+                        NestedMeta::Literal(_) => continue,
                     };
                     match meta {
                         Meta::NameValue(name_value) => {
