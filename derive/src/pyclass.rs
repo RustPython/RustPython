@@ -102,21 +102,25 @@ impl ClassItem {
                 }
                 let py_name = py_name.unwrap_or_else(|| {
                     let item_ident = sig.ident.to_string();
-                    if item_ident.starts_with("set_") {
-                        let name = &item_ident["set_".len()..];
-                        if name.is_empty() {
-                            panic!(
-                                "A #[pyproperty(setter)] fn with a set_* name have something \
-                                 after \"set_\""
-                            )
+                    if setter {
+                        if item_ident.starts_with("set_") {
+                            let name = &item_ident["set_".len()..];
+                            if name.is_empty() {
+                                panic!(
+                                    "A #[pyproperty(setter)] fn with a set_* name have something \
+                                     after \"set_\""
+                                )
+                            } else {
+                                name.to_string()
+                            }
                         } else {
-                            name.to_string()
-                        }
-                    } else {
-                        panic!(
+                            panic!(
                             "A #[pyproperty(setter)] fn must either have a `name` parameter or a \
                              fn name along the lines of \"set_*\""
                         )
+                        }
+                    } else {
+                        item_ident
                     }
                 });
                 item = Some(ClassItem::Property {
@@ -195,7 +199,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
         quote! {
             class.set_str_attr(
                 #name,
-                #rp_path::obj::objproperty::PropertyBuilder
+                #rp_path::obj::objproperty::PropertyBuilder::new(ctx)
                     .add_getter(Self::#getter)
                     #add_setter
                     .create(),

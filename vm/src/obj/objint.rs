@@ -17,6 +17,7 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
 
+#[pyclass(__inside_vm)]
 #[derive(Debug)]
 pub struct PyInt {
     value: BigInt,
@@ -95,7 +96,9 @@ impl_try_from_object_int!(
     (u64, to_u64),
 );
 
+#[pyimpl(__inside_vm)]
 impl PyInt {
+    #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value == *get_value(&other))
@@ -104,6 +107,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__ne__")]
     fn ne(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value != *get_value(&other))
@@ -112,6 +116,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value < *get_value(&other))
@@ -120,6 +125,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value <= *get_value(&other))
@@ -128,6 +134,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value > *get_value(&other))
@@ -136,6 +143,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_bool(self.value >= *get_value(&other))
@@ -144,6 +152,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) + get_value(&other))
@@ -152,6 +161,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__sub__")]
     fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) - get_value(&other))
@@ -160,6 +170,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__rsub__")]
     fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int(get_value(&other) - (&self.value))
@@ -168,6 +179,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__mul__")]
     fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) * get_value(&other))
@@ -176,6 +188,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__truediv__")]
     fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             div_ints(vm, &self.value, &get_value(&other))
@@ -184,6 +197,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__rtruediv__")]
     fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             div_ints(vm, &get_value(&other), &self.value)
@@ -192,6 +206,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__floordiv__")]
     fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
@@ -205,6 +220,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__lshift__")]
     fn lshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
             return Ok(vm.ctx.not_implemented());
@@ -224,6 +240,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__rshift__")]
     fn rshift(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if !objtype::isinstance(&other, &vm.ctx.int_type()) {
             return Ok(vm.ctx.not_implemented());
@@ -243,6 +260,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__xor__")]
     fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) ^ get_value(&other))
@@ -251,6 +269,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__rxor__")]
     fn rxor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int(get_value(&other) ^ (&self.value))
@@ -259,6 +278,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__or__")]
     fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) | get_value(&other))
@@ -267,6 +287,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__and__")]
     fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
@@ -276,6 +297,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__pow__")]
     fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other).to_u32().unwrap();
@@ -288,6 +310,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__mod__")]
     fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
@@ -301,6 +324,7 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__divmod__")]
     fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
@@ -317,20 +341,24 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__neg__")]
     fn neg(&self, _vm: &VirtualMachine) -> BigInt {
         -(&self.value)
     }
 
+    #[pymethod(name = "__hash__")]
     fn hash(&self, _vm: &VirtualMachine) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         self.value.hash(&mut hasher);
         hasher.finish()
     }
 
+    #[pymethod(name = "__abs__")]
     fn abs(&self, _vm: &VirtualMachine) -> BigInt {
         self.value.abs()
     }
 
+    #[pymethod(name = "__round__")]
     fn round(
         zelf: PyRef<Self>,
         _precision: OptionalArg<PyObjectRef>,
@@ -339,14 +367,17 @@ impl PyInt {
         zelf
     }
 
+    #[pymethod(name = "__int__")]
     fn int(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
     }
 
+    #[pymethod(name = "__pos__")]
     fn pos(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
     }
 
+    #[pymethod(name = "__float__")]
     fn float(&self, vm: &VirtualMachine) -> PyResult<PyFloat> {
         self.value
             .to_f64()
@@ -354,30 +385,37 @@ impl PyInt {
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))
     }
 
+    #[pymethod(name = "__trunc__")]
     fn trunc(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
     }
 
+    #[pymethod(name = "__floor__")]
     fn floor(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
     }
 
+    #[pymethod(name = "__ceil__")]
     fn ceil(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
     }
 
+    #[pymethod(name = "__index__")]
     fn index(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
     }
 
+    #[pymethod(name = "__invert__")]
     fn invert(&self, _vm: &VirtualMachine) -> BigInt {
         !(&self.value)
     }
 
+    #[pymethod(name = "__repr__")]
     fn repr(&self, _vm: &VirtualMachine) -> String {
         self.value.to_string()
     }
 
+    #[pymethod(name = "__format__")]
     fn format(&self, spec: PyStringRef, vm: &VirtualMachine) -> PyResult<String> {
         let format_spec = FormatSpec::parse(&spec.value);
         match format_spec.format_int(&self.value) {
@@ -386,22 +424,27 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__bool__")]
     fn bool(&self, _vm: &VirtualMachine) -> bool {
         !self.value.is_zero()
     }
 
+    #[pymethod]
     fn bit_length(&self, _vm: &VirtualMachine) -> usize {
         self.value.bits()
     }
 
+    #[pymethod]
     fn conjugate(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
     }
 
+    #[pyproperty]
     fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
     }
 
+    #[pyproperty]
     fn imag(&self, _vm: &VirtualMachine) -> usize {
         0
     }
