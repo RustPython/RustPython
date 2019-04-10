@@ -7,10 +7,8 @@ assert bytes(range(4))
 assert bytes(3)
 assert b"bla"
 assert bytes("bla", "utf8")
-try:
+with assertRaises(TypeError):
     bytes("bla")
-except TypeError:
-    assert True
 
 
 a = b"abcd"
@@ -48,7 +46,7 @@ hash(a) == hash(b"abcd")
 
 # iter
 [i for i in b"abcd"] == ["a", "b", "c", "d"]
-assert list(bytes(3)) ==  [0,0,0]
+assert list(bytes(3)) == [0, 0, 0]
 
 # add
 assert a + b == b"abcdab"
@@ -62,10 +60,8 @@ assert b"d" in b"abcd"
 assert b"dc" not in b"abcd"
 assert 97 in b"abcd"
 assert 150 not in b"abcd"
-try:
+with assertRaises(ValueError):
     350 in b"abcd"
-except ValueError:
-    pass
 
 
 # getitem
@@ -113,7 +109,7 @@ assert not bytes(b"tuPpEr").isupper()
 assert bytes(b"Is Title Case").istitle()
 assert not bytes(b"is Not title casE").istitle()
 
-# upper lower 
+# upper lower
 l = bytes(b"lower")
 b = bytes(b"UPPER")
 assert l.lower().islower()

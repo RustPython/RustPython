@@ -31,8 +31,8 @@ impl PyByteInner {
             if let OptionalArg::Present(eval) = val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
                     if let Ok(encoding) = enc.clone().downcast::<PyString>() {
-                        if encoding.value.to_lowercase() == "utf8".to_string()
-                            || encoding.value.to_lowercase() == "utf-8".to_string()
+                        if &encoding.value.to_lowercase() == "utf8"
+                            || &encoding.value.to_lowercase() == "utf-8"
                         // TODO: different encoding
                         {
                             return Ok(PyByteInner {
@@ -62,12 +62,10 @@ impl PyByteInner {
                     i @ PyInt => {
                             let size = objint::get_value(&i.into_object()).to_usize().unwrap();
                             Ok(vec![0; size])},
-                    _l @ PyString=> {return Err(vm.new_type_error(format!(
-                        "string argument without an encoding"
-                    )));},
+                    _l @ PyString=> {return Err(vm.new_type_error("string argument without an encoding".to_string()));},
                     obj => {
-                        let elements = vm.extract_elements(&obj).or_else(|_| {return Err(vm.new_type_error(format!(
-                        "cannot convert {} object to bytes", obj.class().name)));});
+                        let elements = vm.extract_elements(&obj).or_else(|_| {Err(vm.new_type_error(format!(
+                        "cannot convert {} object to bytes", obj.class().name)))});
 
                         let mut data_bytes = vec![];
                         for elem in elements.unwrap(){
@@ -109,6 +107,10 @@ impl PyByteInner {
 
     pub fn len(&self) -> usize {
         self.elements.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.elements.len() == 0
     }
 
     pub fn eq(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
@@ -169,10 +171,11 @@ impl PyByteInner {
 
     pub fn contains_bytes(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
         for (n, i) in self.elements.iter().enumerate() {
-            if n + other.len() <= self.len() && *i == other.elements[0] {
-                if &self.elements[n..n + other.len()] == other.elements.as_slice() {
-                    return Ok(vm.new_bool(true));
-                }
+            if n + other.len() <= self.len()
+                && *i == other.elements[0]
+                && &self.elements[n..n + other.len()] == other.elements.as_slice()
+            {
+                return Ok(vm.new_bool(true));
             }
         }
         Ok(vm.new_bool(false))
@@ -186,7 +189,7 @@ impl PyByteInner {
                 Ok(vm.new_bool(false))
             }
         } else {
-            Err(vm.new_value_error("byte mu st be in range(0, 256)".to_string()))
+            Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
         }
     }
 
@@ -344,6 +347,3 @@ impl PyByteInner {
             .collect::<Vec<u8>>())
     }
 }
-
-// TODO
-// fix b"é" not allowed should be bytes("é", "utf8")
