@@ -61,11 +61,7 @@ impl PyByteInner {
                 match_class!(ival.clone(),
                     i @ PyInt => {
                             let size = objint::get_value(&i.into_object()).to_usize().unwrap();
-                            let mut res: Vec<u8> = Vec::with_capacity(size);
-                            for _ in 0..size {
-                                res.push(0)
-                            }
-                            Ok(res)},
+                            Ok(vec![0; size])},
                     _l @ PyString=> {return Err(vm.new_type_error(format!(
                         "string argument without an encoding"
                     )));},

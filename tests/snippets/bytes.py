@@ -4,8 +4,8 @@ from testutils import assertRaises
 assert bytes([1, 2, 3])
 assert bytes((1, 2, 3))
 assert bytes(range(4))
-assert b"bla"
 assert bytes(3)
+assert b"bla"
 assert bytes("bla", "utf8")
 try:
     bytes("bla")
@@ -13,6 +13,9 @@ except TypeError:
     assert True
 else:
     assert False
+
+
+
 
 a = b"abcd"
 b = b"ab"
@@ -49,6 +52,7 @@ hash(a) == hash(b"abcd")
 
 # iter
 [i for i in b"abcd"] == ["a", "b", "c", "d"]
+assert list(bytes(3)) ==  [0,0,0]
 
 # add
 assert a + b == b"abcdab"
