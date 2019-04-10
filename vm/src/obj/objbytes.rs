@@ -1,4 +1,5 @@
 use crate::obj::objint::PyInt;
+use crate::obj::objstr::PyString;
 use crate::vm::VirtualMachine;
 use core::cell::Cell;
 use std::ops::Deref;
@@ -55,11 +56,15 @@ pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a 
 
 pub fn init(context: &PyContext) {
     PyBytesRef::extend_class(context, &context.bytes_type);
+    let bytes_type = &context.bytes_type;
+    extend_class!(context, bytes_type, {
+"fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
+});
     let bytesiterator_type = &context.bytesiterator_type;
     extend_class!(context, bytesiterator_type, {
-            "__next__" => context.new_rustfunc(PyBytesIteratorRef::next),
-            "__iter__" => context.new_rustfunc(PyBytesIteratorRef::iter),
-    });
+"__next__" => context.new_rustfunc(PyBytesIteratorRef::next),
+"__iter__" => context.new_rustfunc(PyBytesIteratorRef::iter),
+});
 }
 
 #[pyimpl(__inside_vm)]
@@ -207,6 +212,17 @@ impl PyBytesRef {
     #[pymethod(name = "hex")]
     fn hex(self, vm: &VirtualMachine) -> PyResult {
         self.inner.hex(vm)
+    }
+
+    // #[pymethod(name = "fromhex")]
+    fn fromhex(string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(string,
+        s @ PyString => {
+        match PyByteInner::fromhex(s.to_string(), vm) {
+        Ok(x) => Ok(vm.ctx.new_bytes(x)),
+        Err(y) => Err(y)}},
+        obj => Err(vm.new_type_error(format!("fromhex() argument must be str, not {}", obj )))
+        )
     }
 }
 

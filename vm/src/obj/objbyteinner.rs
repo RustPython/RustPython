@@ -314,6 +314,39 @@ impl PyByteInner {
             .collect::<String>();
         Ok(vm.ctx.new_str(bla))
     }
+
+    pub fn fromhex(string: String, vm: &VirtualMachine) -> Result<Vec<u8>, PyObjectRef> {
+        // first check for invalid character
+        for (i, c) in string.char_indices() {
+            if !c.is_digit(16) && !c.is_whitespace() {
+                return Err(vm.new_value_error(format!(
+                    "non-hexadecimal number found in fromhex() arg at position {}",
+                    i
+                )));
+            }
+        }
+
+        // strip white spaces
+        let stripped = string.split_whitespace().collect::<String>();
+
+        // Hex is evaluated on 2 digits
+        if stripped.len() % 2 != 0 {
+            return Err(vm.new_value_error(format!(
+                "non-hexadecimal number found in fromhex() arg at position {}",
+                stripped.len() - 1
+            )));
+        }
+
+        // parse even string
+        Ok(stripped
+            .chars()
+            .collect::<Vec<char>>()
+            .chunks(2)
+            .map(|x| x.to_vec().iter().collect::<String>())
+            .map(|x| u8::from_str_radix(&x, 16))
+            .map(|x| x.unwrap())
+            .collect::<Vec<u8>>())
+    }
 }
 
 // TODO
