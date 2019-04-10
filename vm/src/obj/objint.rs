@@ -8,7 +8,8 @@ use num_traits::{Pow, Signed, ToPrimitive, Zero};
 use crate::format::FormatSpec;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    IntoPyObject, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -17,6 +18,20 @@ use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
 
+/// int(x=0) -> integer
+/// int(x, base=10) -> integer
+///
+/// Convert a number or string to an integer, or return 0 if no arguments
+/// are given.  If x is a number, return x.__int__().  For floating point
+/// numbers, this truncates towards zero.
+///
+/// If x is not a number or if base is given, then x must be a string,
+/// bytes, or bytearray instance representing an integer literal in the
+/// given base.  The literal can be preceded by '+' or '-' and be surrounded
+/// by whitespace.  The base defaults to 10.  Valid bases are 0 and 2-36.
+/// Base 0 means to interpret the base from the string as an integer literal.
+/// >>> int('0b100', base=0)
+/// 4
 #[pyclass(__inside_vm)]
 #[derive(Debug)]
 pub struct PyInt {
@@ -543,68 +558,9 @@ fn div_ints(vm: &VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
     }
 }
 
-#[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
-    let int_doc = "int(x=0) -> integer
-int(x, base=10) -> integer
-
-Convert a number or string to an integer, or return 0 if no arguments
-are given.  If x is a number, return x.__int__().  For floating point
-numbers, this truncates towards zero.
-
-If x is not a number or if base is given, then x must be a string,
-bytes, or bytearray instance representing an integer literal in the
-given base.  The literal can be preceded by '+' or '-' and be surrounded
-by whitespace.  The base defaults to 10.  Valid bases are 0 and 2-36.
-Base 0 means to interpret the base from the string as an integer literal.
->>> int('0b100', base=0)
-4";
-    let int_type = &context.int_type;
-    extend_class!(context, int_type, {
-        "__doc__" => context.new_str(int_doc.to_string()),
-        "__eq__" => context.new_rustfunc(PyInt::eq),
-        "__ne__" => context.new_rustfunc(PyInt::ne),
-        "__lt__" => context.new_rustfunc(PyInt::lt),
-        "__le__" => context.new_rustfunc(PyInt::le),
-        "__gt__" => context.new_rustfunc(PyInt::gt),
-        "__ge__" => context.new_rustfunc(PyInt::ge),
-        "__abs__" => context.new_rustfunc(PyInt::abs),
-        "__add__" => context.new_rustfunc(PyInt::add),
-        "__radd__" => context.new_rustfunc(PyInt::add),
-        "__and__" => context.new_rustfunc(PyInt::and),
-        "__divmod__" => context.new_rustfunc(PyInt::divmod),
-        "__float__" => context.new_rustfunc(PyInt::float),
-        "__round__" => context.new_rustfunc(PyInt::round),
-        "__ceil__" => context.new_rustfunc(PyInt::ceil),
-        "__floor__" => context.new_rustfunc(PyInt::floor),
-        "__index__" => context.new_rustfunc(PyInt::index),
-        "__trunc__" => context.new_rustfunc(PyInt::trunc),
-        "__int__" => context.new_rustfunc(PyInt::int),
-        "__floordiv__" => context.new_rustfunc(PyInt::floordiv),
-        "__hash__" => context.new_rustfunc(PyInt::hash),
-        "__lshift__" => context.new_rustfunc(PyInt::lshift),
-        "__rshift__" => context.new_rustfunc(PyInt::rshift),
+    PyInt::extend_class(context, &context.int_type);
+    extend_class!(context, &context.int_type, {
         "__new__" => context.new_rustfunc(int_new),
-        "__mod__" => context.new_rustfunc(PyInt::mod_),
-        "__mul__" => context.new_rustfunc(PyInt::mul),
-        "__rmul__" => context.new_rustfunc(PyInt::mul),
-        "__or__" => context.new_rustfunc(PyInt::or),
-        "__neg__" => context.new_rustfunc(PyInt::neg),
-        "__pos__" => context.new_rustfunc(PyInt::pos),
-        "__pow__" => context.new_rustfunc(PyInt::pow),
-        "__repr__" => context.new_rustfunc(PyInt::repr),
-        "__sub__" => context.new_rustfunc(PyInt::sub),
-        "__rsub__" => context.new_rustfunc(PyInt::rsub),
-        "__format__" => context.new_rustfunc(PyInt::format),
-        "__truediv__" => context.new_rustfunc(PyInt::truediv),
-        "__rtruediv__" => context.new_rustfunc(PyInt::rtruediv),
-        "__xor__" => context.new_rustfunc(PyInt::xor),
-        "__rxor__" => context.new_rustfunc(PyInt::rxor),
-        "__bool__" => context.new_rustfunc(PyInt::bool),
-        "__invert__" => context.new_rustfunc(PyInt::invert),
-        "bit_length" => context.new_rustfunc(PyInt::bit_length),
-        "conjugate" => context.new_rustfunc(PyInt::conjugate),
-        "real" => context.new_property(PyInt::real),
-        "imag" => context.new_property(PyInt::imag)
     });
 }
