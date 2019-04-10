@@ -4,17 +4,16 @@ use quote::quote;
 use std::collections::HashMap;
 use syn::{Attribute, AttributeArgs, Ident, ImplItem, Item, Lit, Meta, MethodSig, NestedMeta};
 
-#[derive(PartialEq, Clone, Copy)]
-enum ClassItemKind {
-    Method,
-    PropertyGetter,
-    PropertySetter,
-}
-
-struct ClassItem {
-    item_name: Ident,
-    py_name: String,
-    kind: ClassItemKind,
+enum ClassItem {
+    Method {
+        item_name: Ident,
+        py_name: String,
+    },
+    Property {
+        item_name: Ident,
+        py_name: String,
+        setter: bool,
+    },
 }
 
 fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
@@ -60,10 +59,9 @@ impl ClassItem {
                         _ => {}
                     }
                 }
-                item = Some(ClassItem {
+                item = Some(ClassItem::Method {
                     item_name: sig.ident.clone(),
                     py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
-                    kind: ClassItemKind::Method,
                 });
                 attr_idx = Some(i);
             } else if name == "pyproperty" {
@@ -97,11 +95,6 @@ impl ClassItem {
                         _ => {}
                     }
                 }
-                let kind = if setter {
-                    ClassItemKind::PropertySetter
-                } else {
-                    ClassItemKind::PropertyGetter
-                };
                 let py_name = py_name.unwrap_or_else(|| {
                     let item_name = sig.ident.to_string();
                     if item_name.starts_with("set_") {
@@ -121,10 +114,10 @@ impl ClassItem {
                         )
                     }
                 });
-                item = Some(ClassItem {
+                item = Some(ClassItem::Property {
                     py_name,
                     item_name: sig.ident.clone(),
-                    kind,
+                    setter,
                 });
                 attr_idx = Some(i);
             }
@@ -159,29 +152,24 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
     let ty = &imp.self_ty;
     let mut properties: HashMap<&str, (Option<&Ident>, Option<&Ident>)> = HashMap::new();
     for item in items.iter() {
-        match item.kind {
-            ClassItemKind::PropertyGetter => {
-                let (ref mut getter, _) = properties.entry(&item.py_name).or_default();
-                if getter.is_some() {
-                    panic!("Multiple property getters with name {:?}", &item.py_name)
+        match item {
+            ClassItem::Property {
+                item_name,
+                py_name,
+                setter,
+            } => {
+                let entry = properties.entry(py_name).or_default();
+                let func = if *setter { &mut entry.1 } else { &mut entry.0 };
+                if func.is_some() {
+                    panic!("Multiple property accessors with name {:?}", py_name)
                 }
-                *getter = Some(&item.item_name);
+                *func = Some(item_name);
             }
-            ClassItemKind::PropertySetter => {
-                let (_, ref mut setter) = properties.entry(&item.py_name).or_default();
-                if setter.is_some() {
-                    panic!("Multiple property getters with name {:?}", &item.py_name)
-                }
-                *setter = Some(&item.item_name);
-            }
-            ClassItemKind::Method => {}
+            _ => {}
         }
     }
     let methods = items.iter().filter_map(|item| {
-        if let ClassItemKind::Method = item.kind {
-            let ClassItem {
-                py_name, item_name, ..
-            } = item;
+        if let ClassItem::Method { item_name, py_name } = item {
             Some(quote! {
                 class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_name));
             })
