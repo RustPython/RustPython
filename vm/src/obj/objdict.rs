@@ -255,15 +255,12 @@ impl IntoIterator for &PyDictRef {
 
 pub struct DictIterator {
     dict: PyDictRef,
-    position: Cell<usize>,
+    position: usize,
 }
 
 impl DictIterator {
     pub fn new(dict: PyDictRef) -> DictIterator {
-        DictIterator {
-            dict,
-            position: Cell::new(0),
-        }
+        DictIterator { dict, position: 0 }
     }
 }
 
@@ -271,14 +268,13 @@ impl Iterator for DictIterator {
     type Item = (PyObjectRef, PyObjectRef);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.dict
-            .entries
-            .borrow()
-            .next_entry(self.position.get())
-            .map(|(new_position, key, value)| {
-                self.position.set(new_position);
-                (key.clone(), value.clone())
-            })
+        match self.dict.entries.borrow().next_entry(self.position) {
+            Some((new_position, key, value)) => {
+                self.position = new_position;
+                Some((key.clone(), value.clone()))
+            }
+            None => None,
+        }
     }
 }
 
