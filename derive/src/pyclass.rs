@@ -6,11 +6,11 @@ use syn::{Attribute, AttributeArgs, Ident, ImplItem, Item, Lit, Meta, MethodSig,
 
 enum ClassItem {
     Method {
-        item_name: Ident,
+        item_ident: Ident,
         py_name: String,
     },
     Property {
-        item_name: Ident,
+        item_ident: Ident,
         py_name: String,
         setter: bool,
     },
@@ -60,7 +60,7 @@ impl ClassItem {
                     }
                 }
                 item = Some(ClassItem::Method {
-                    item_name: sig.ident.clone(),
+                    item_ident: sig.ident.clone(),
                     py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
                 });
                 attr_idx = Some(i);
@@ -96,9 +96,9 @@ impl ClassItem {
                     }
                 }
                 let py_name = py_name.unwrap_or_else(|| {
-                    let item_name = sig.ident.to_string();
-                    if item_name.starts_with("set_") {
-                        let name = &item_name["set_".len()..];
+                    let item_ident = sig.ident.to_string();
+                    if item_ident.starts_with("set_") {
+                        let name = &item_ident["set_".len()..];
                         if name.is_empty() {
                             panic!(
                                 "A #[pyproperty(setter)] fn with a set_* name have something \
@@ -116,7 +116,7 @@ impl ClassItem {
                 });
                 item = Some(ClassItem::Property {
                     py_name,
-                    item_name: sig.ident.clone(),
+                    item_ident: sig.ident.clone(),
                     setter,
                 });
                 attr_idx = Some(i);
@@ -154,7 +154,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
     for item in items.iter() {
         match item {
             ClassItem::Property {
-                item_name,
+                item_ident,
                 py_name,
                 setter,
             } => {
@@ -163,15 +163,19 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
                 if func.is_some() {
                     panic!("Multiple property accessors with name {:?}", py_name)
                 }
-                *func = Some(item_name);
+                *func = Some(item_ident);
             }
             _ => {}
         }
     }
     let methods = items.iter().filter_map(|item| {
-        if let ClassItem::Method { item_name, py_name } = item {
+        if let ClassItem::Method {
+            item_ident,
+            py_name,
+        } = item
+        {
             Some(quote! {
-                class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_name));
+                class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
             })
         } else {
             None
