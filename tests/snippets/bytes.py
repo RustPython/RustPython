@@ -11,10 +11,6 @@ try:
     bytes("bla")
 except TypeError:
     assert True
-else:
-    assert False
-
-
 
 
 a = b"abcd"
