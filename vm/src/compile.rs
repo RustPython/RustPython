@@ -10,13 +10,14 @@ use crate::error::CompileError;
 use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::pyobject::PyValue;
-use crate::symboltable::SymbolTable;
+use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolRole, SymbolScope};
 use crate::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
+    scope_stack: Vec<SymbolScope>,
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
@@ -38,17 +39,18 @@ pub fn compile(
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
-            let mut symbol_table = SymbolTable::new();
-            symbol_table.scan_program(&ast);
-            compiler.compile_program(&ast)
+            let symbol_table = make_symbol_table(&ast);
+            compiler.compile_program(&ast, symbol_table)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source).map_err(CompileError::Parse)?;
-            compiler.compile_statement_eval(&statement)
+            let symbol_table = statements_to_symbol_table(&statement);
+            compiler.compile_statement_eval(&statement, symbol_table)
         }
         Mode::Single => {
             let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
-            compiler.compile_program_single(&ast)
+            let symbol_table = make_symbol_table(&ast);
+            compiler.compile_program_single(&ast, symbol_table)
         }
     }?;
 
@@ -75,6 +77,7 @@ impl Compiler {
     fn new() -> Self {
         Compiler {
             code_object_stack: Vec::new(),
+            scope_stack: Vec::new(),
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
@@ -97,11 +100,17 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
+        // self.scope_stack.pop().unwrap();
         self.code_object_stack.pop().unwrap()
     }
 
-    fn compile_program(&mut self, program: &ast::Program) -> Result<(), CompileError> {
+    fn compile_program(
+        &mut self,
+        program: &ast::Program,
+        symbol_scope: SymbolScope,
+    ) -> Result<(), CompileError> {
         let size_before = self.code_object_stack.len();
+        self.scope_stack.push(symbol_scope);
         self.compile_statements(&program.statements)?;
         assert!(self.code_object_stack.len() == size_before);
 
@@ -113,7 +122,12 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_program_single(&mut self, program: &ast::Program) -> Result<(), CompileError> {
+    fn compile_program_single(
+        &mut self,
+        program: &ast::Program,
+        symbol_scope: SymbolScope,
+    ) -> Result<(), CompileError> {
+        self.scope_stack.push(symbol_scope);
         for statement in &program.statements {
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
@@ -133,7 +147,9 @@ impl Compiler {
     fn compile_statement_eval(
         &mut self,
         statements: &[ast::LocatedStatement],
+        symbol_table: SymbolScope,
     ) -> Result<(), CompileError> {
+        self.scope_stack.push(symbol_table);
         for statement in statements {
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
@@ -464,6 +480,7 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
+        self.enter_scope();
 
         let mut flags = bytecode::FunctionOpArg::empty();
         if have_defaults {
@@ -624,6 +641,7 @@ impl Compiler {
         });
         self.emit(Instruction::ReturnValue);
         let code = self.pop_code_object();
+        self.leave_scope();
 
         // Prepare type annotations:
         let mut num_annotations = 0;
@@ -708,6 +726,7 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
+        self.enter_scope();
 
         let (new_body, doc_str) = get_doc(body);
 
@@ -718,6 +737,7 @@ impl Compiler {
         self.emit(Instruction::ReturnValue);
 
         let code = self.pop_code_object();
+        self.leave_scope();
 
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
@@ -1212,6 +1232,8 @@ impl Compiler {
                 });
             }
             ast::Expression::Identifier { name } => {
+                self.lookup_name(name);
+                // TODO: if global, do something else!
                 self.emit(Instruction::LoadName {
                     name: name.to_string(),
                 });
@@ -1223,6 +1245,7 @@ impl Compiler {
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
+                self.leave_scope();
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code {
                         code: Box::new(code),
@@ -1569,6 +1592,30 @@ impl Compiler {
         Ok(())
     }
 
+    // Scope helpers:
+    fn enter_scope(&mut self) {
+        // println!("Enter scope {:?}", self.scope_stack);
+        // Enter first subscope!
+        let scope = self.scope_stack.last_mut().unwrap().sub_scopes.remove(0);
+        self.scope_stack.push(scope);
+    }
+
+    fn leave_scope(&mut self) {
+        // println!("Leave scope {:?}", self.scope_stack);
+        let scope = self.scope_stack.pop().unwrap();
+        assert!(scope.sub_scopes.is_empty());
+    }
+
+    fn lookup_name(&self, name: &str) -> &SymbolRole {
+        // println!("Looking up {:?}", name);
+        for scope in self.scope_stack.iter().rev() {
+            if let Some(role) = scope.lookup(name) {
+                return role;
+            }
+        }
+        unreachable!();
+    }
+
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
         let location = self.current_source_location.clone();
@@ -1624,13 +1671,13 @@ fn get_doc(body: &[ast::LocatedStatement]) -> (&[ast::LocatedStatement], Option<
     (body, None)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::Compiler;
     use crate::bytecode::CodeObject;
     use crate::bytecode::Constant::*;
     use crate::bytecode::Instruction::*;
+    use crate::symboltable::make_symbol_table;
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
@@ -1638,7 +1685,8 @@ mod tests {
         compiler.source_path = Some("source_path".to_string());
         compiler.push_new_code_object("<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
-        compiler.compile_program(&ast).unwrap();
+        let symbol_scope = make_symbol_table(&ast);
+        compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()
     }
 
