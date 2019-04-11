@@ -1,6 +1,6 @@
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
-use super::objstr::PyStringRef;
+use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
@@ -117,13 +117,29 @@ fn object_repr(zelf: PyObjectRef, _vm: &VirtualMachine) -> String {
     format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
 }
 
-pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyList {
-    let attributes = get_attributes(&obj);
+pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
+    let mut attributes: PyAttributes = objtype::get_attributes(obj.class());
+
+    // Get instance attributes:
+    if let Some(dict) = &obj.dict {
+        for (key, value) in dict {
+            if let Some(key_string) = key.payload::<PyString>() {
+                attributes.insert(key_string.to_string(), value.clone());
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "Attribute is not a string: {:?}",
+                    vm.to_pystr(&key)?
+                )));
+            }
+        }
+    }
+
     let attributes: Vec<PyObjectRef> = attributes
         .keys()
         .map(|k| vm.ctx.new_str(k.to_string()))
         .collect();
-    PyList::from(attributes)
+
+    Ok(PyList::from(attributes))
 }
 
 fn object_format(
@@ -229,18 +245,4 @@ fn object_getattr(
     } else {
         Ok(None)
     }
-}
-
-pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
-    // Get class attributes:
-    let mut attributes = objtype::get_attributes(obj.class());
-
-    // Get instance attributes:
-    if let Some(dict) = &obj.dict {
-        for (key, value) in dict {
-            attributes.insert(key.to_string(), value.clone());
-        }
-    }
-
-    attributes
 }
