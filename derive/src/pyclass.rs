@@ -1,91 +1,140 @@
 use super::rustpython_path_attr;
-use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
+use std::collections::HashMap;
 use syn::{Attribute, AttributeArgs, Ident, ImplItem, Item, Lit, Meta, MethodSig, NestedMeta};
 
-enum MethodKind {
-    Method,
-    Property,
+enum ClassItem {
+    Method {
+        item_ident: Ident,
+        py_name: String,
+    },
+    Property {
+        item_ident: Ident,
+        py_name: String,
+        setter: bool,
+    },
 }
 
-impl MethodKind {
-    fn to_ctx_constructor_fn(&self) -> Ident {
-        let f = match self {
-            MethodKind::Method => "new_rustfunc",
-            MethodKind::Property => "new_property",
-        };
-        Ident::new(f, Span::call_site())
+fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
+    match meta {
+        Meta::Word(_) => Ok(Vec::new()),
+        Meta::List(list) => Ok(list.nested.into_iter().collect()),
+        Meta::NameValue(_) => Err(meta),
     }
 }
 
-struct Method {
-    fn_name: Ident,
-    py_name: String,
-    kind: MethodKind,
-}
-
-impl Method {
-    fn from_syn(attrs: &mut Vec<Attribute>, sig: &MethodSig) -> Option<Method> {
-        let mut py_name = None;
-        let mut kind = MethodKind::Method;
-        let mut pymethod_to_remove = Vec::new();
-        let metas = attrs
+impl ClassItem {
+    fn extract_from_syn(attrs: &mut Vec<Attribute>, sig: &MethodSig) -> Option<ClassItem> {
+        let mut item = None;
+        let mut attr_idx = None;
+        // TODO: better error handling throughout this
+        for (i, meta) in attrs
             .iter()
+            .filter_map(|attr| attr.parse_meta().ok())
             .enumerate()
-            .filter_map(|(i, attr)| {
-                if attr.path.is_ident("pymethod") {
-                    let meta = attr.parse_meta().expect("Invalid attribute");
-                    // remove #[pymethod] because there's no actual proc macro
-                    // implementation for it
-                    pymethod_to_remove.push(i);
-                    match meta {
-                        Meta::List(list) => Some(list),
-                        Meta::Word(_) => None,
-                        Meta::NameValue(_) => panic!(
-                            "#[pymethod = ...] attribute on a method should be a list, like \
-                             #[pymethod(...)]"
-                        ),
-                    }
-                } else {
-                    None
+        {
+            let name = meta.name();
+            if name == "pymethod" {
+                if item.is_some() {
+                    panic!("You can only have one #[py*] attribute on an impl item")
                 }
-            })
-            .flat_map(|attr| attr.nested);
-        for meta in metas {
-            if let NestedMeta::Meta(meta) = meta {
-                match meta {
-                    Meta::NameValue(name_value) => {
-                        if name_value.ident == "name" {
-                            if let Lit::Str(s) = &name_value.lit {
-                                py_name = Some(s.value());
-                            } else {
-                                panic!("#[pymethod(name = ...)] must be a string");
+                let nesteds = meta_to_vec(meta).expect(
+                    "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
+                     #[pyproperty(name = \"...\")]",
+                );
+                let mut py_name = None;
+                for meta in nesteds {
+                    let meta = match meta {
+                        NestedMeta::Meta(meta) => meta,
+                        NestedMeta::Literal(_) => continue,
+                    };
+                    match meta {
+                        Meta::NameValue(name_value) => {
+                            if name_value.ident == "name" {
+                                if let Lit::Str(s) = &name_value.lit {
+                                    py_name = Some(s.value());
+                                } else {
+                                    panic!("#[pymethod(name = ...)] must be a string");
+                                }
                             }
                         }
+                        _ => {}
                     }
-                    Meta::Word(ident) => {
-                        if ident == "property" {
-                            kind = MethodKind::Property
-                        }
-                    }
-                    _ => {}
                 }
+                item = Some(ClassItem::Method {
+                    item_ident: sig.ident.clone(),
+                    py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+                });
+                attr_idx = Some(i);
+            } else if name == "pyproperty" {
+                if item.is_some() {
+                    panic!("You can only have one #[py*] attribute on an impl item")
+                }
+                let nesteds = meta_to_vec(meta).expect(
+                    "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
+                     #[pyproperty(name = \"...\")]",
+                );
+                let mut setter = false;
+                let mut py_name = None;
+                for meta in nesteds {
+                    let meta = match meta {
+                        NestedMeta::Meta(meta) => meta,
+                        NestedMeta::Literal(_) => continue,
+                    };
+                    match meta {
+                        Meta::NameValue(name_value) => {
+                            if name_value.ident == "name" {
+                                if let Lit::Str(s) = &name_value.lit {
+                                    py_name = Some(s.value());
+                                } else {
+                                    panic!("#[pyproperty(name = ...)] must be a string");
+                                }
+                            }
+                        }
+                        Meta::Word(ident) => {
+                            if ident == "setter" {
+                                setter = true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let py_name = py_name.unwrap_or_else(|| {
+                    let item_ident = sig.ident.to_string();
+                    if setter {
+                        if item_ident.starts_with("set_") {
+                            let name = &item_ident["set_".len()..];
+                            if name.is_empty() {
+                                panic!(
+                                    "A #[pyproperty(setter)] fn with a set_* name have something \
+                                     after \"set_\""
+                                )
+                            } else {
+                                name.to_string()
+                            }
+                        } else {
+                            panic!(
+                            "A #[pyproperty(setter)] fn must either have a `name` parameter or a \
+                             fn name along the lines of \"set_*\""
+                        )
+                        }
+                    } else {
+                        item_ident
+                    }
+                });
+                item = Some(ClassItem::Property {
+                    py_name,
+                    item_ident: sig.ident.clone(),
+                    setter,
+                });
+                attr_idx = Some(i);
             }
         }
-        // if there are no #[pymethods]s, then it's not a method, so exclude it from
-        // the final result
-        if pymethod_to_remove.is_empty() {
-            return None;
+        if let Some(attr_idx) = attr_idx {
+            attrs.remove(attr_idx);
         }
-        for i in pymethod_to_remove {
-            attrs.remove(i);
-        }
-        let py_name = py_name.unwrap_or_else(|| sig.ident.to_string());
-        Some(Method {
-            fn_name: sig.ident.clone(),
-            py_name,
-            kind,
-        })
+        item
     }
 }
 
@@ -98,30 +147,65 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
 
     let rp_path = rustpython_path_attr(&attr);
 
-    let methods = imp
+    let items = imp
         .items
         .iter_mut()
         .filter_map(|item| {
             if let ImplItem::Method(meth) = item {
-                Method::from_syn(&mut meth.attrs, &meth.sig)
+                ClassItem::extract_from_syn(&mut meth.attrs, &meth.sig)
             } else {
                 None
             }
         })
         .collect::<Vec<_>>();
     let ty = &imp.self_ty;
-    let methods = methods.iter().map(
-        |Method {
-             py_name,
-             fn_name,
-             kind,
-         }| {
-            let constructor_fn = kind.to_ctx_constructor_fn();
-            quote! {
-                class.set_str_attr(#py_name, ctx.#constructor_fn(Self::#fn_name));
+    let mut properties: HashMap<&str, (Option<&Ident>, Option<&Ident>)> = HashMap::new();
+    for item in items.iter() {
+        match item {
+            ClassItem::Property {
+                item_ident,
+                py_name,
+                setter,
+            } => {
+                let entry = properties.entry(py_name).or_default();
+                let func = if *setter { &mut entry.1 } else { &mut entry.0 };
+                if func.is_some() {
+                    panic!("Multiple property accessors with name {:?}", py_name)
+                }
+                *func = Some(item_ident);
             }
-        },
-    );
+            _ => {}
+        }
+    }
+    let methods = items.iter().filter_map(|item| {
+        if let ClassItem::Method {
+            item_ident,
+            py_name,
+        } = item
+        {
+            Some(quote! {
+                class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
+            })
+        } else {
+            None
+        }
+    });
+    let properties = properties.iter().map(|(name, prop)| {
+        let getter = match prop.0 {
+            Some(getter) => getter,
+            None => panic!("Property {:?} is missing a getter", name),
+        };
+        let add_setter = prop.1.map(|setter| quote!(.add_setter(Self::#setter)));
+        quote! {
+            class.set_str_attr(
+                #name,
+                #rp_path::obj::objproperty::PropertyBuilder::new(ctx)
+                    .add_getter(Self::#getter)
+                    #add_setter
+                    .create(),
+            );
+        }
+    });
 
     quote! {
         #imp
@@ -131,6 +215,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
                 class: &#rp_path::obj::objtype::PyClassRef,
             ) {
                 #(#methods)*
+                #(#properties)*
             }
         }
     }

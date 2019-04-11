@@ -68,6 +68,8 @@ assert (3, "changed") == next(items)
 with assertRaises(TypeError):
     next(data.keys())
 
+assert len(data.keys()) == 2
+
 x = {}
 x[1] = 1
 assert x[1] == 1
