@@ -83,7 +83,7 @@ fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyRe
 
     if let Some(headers) = headers {
         let h = request.headers();
-        for (key, value) in headers.get_key_value_pairs() {
+        for (key, value) in headers {
             let key = vm.to_str(&key)?;
             let value = vm.to_str(&value)?;
             h.set(key.as_str(), value.as_str())

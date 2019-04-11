@@ -237,7 +237,7 @@ pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
 
     // Get instance attributes:
     if let Some(dict) = &obj.dict {
-        for (key, value) in dict.get_key_value_pairs() {
+        for (key, value) in dict {
             attributes.insert(key.to_string(), value.clone());
         }
     }
