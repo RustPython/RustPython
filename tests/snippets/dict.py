@@ -69,6 +69,18 @@ assert (1, 2) == next(items)
 data[3] = "changed"
 assert (3, "changed") == next(items)
 
+# But we can't add or delete items during iteration.
+d = {}
+a = iter(d.items())
+d['a'] = 2
+b = iter(d.items())
+assert ('a', 2) == next(b)
+with assertRaises(RuntimeError):
+    next(a)
+del d['a']
+with assertRaises(RuntimeError):
+    next(b)
+
 # View isn't itself an iterator.
 with assertRaises(TypeError):
     next(data.keys())
