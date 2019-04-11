@@ -176,6 +176,11 @@ impl PyInt {
         }
     }
 
+    #[pymethod(name = "__radd__")]
+    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        self.add(other, vm)
+    }
+
     #[pymethod(name = "__sub__")]
     fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
@@ -201,6 +206,11 @@ impl PyInt {
         } else {
             vm.ctx.not_implemented()
         }
+    }
+
+    #[pymethod(name = "__rmul__")]
+    fn rmul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        self.mul(other, vm)
     }
 
     #[pymethod(name = "__truediv__")]
