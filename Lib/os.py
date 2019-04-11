@@ -39,23 +39,7 @@ class _Environ():
             self[key] = value
         return self[key]
 
-try:
-    _putenv = putenv
-except NameError:
-    _putenv = lambda key, value: None
-
-try:
-    _unsetenv = unsetenv
-except NameError:
-    _unsetenv = lambda key: _putenv(key, "")
-
-def _createenviron():
-    return _Environ(environ,_putenv, _unsetenv)
-
-# unicode environ
-environ = _createenviron()
-del _createenviron
-
+environ = _Environ(environ, putenv, unsetenv)
 
 def getenv(key, default=None):
     """Get an environment variable, return None if it doesn't exist.
