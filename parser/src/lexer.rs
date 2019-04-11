@@ -540,8 +540,12 @@ where
         let end_pos = self.get_pos();
 
         let tok = if is_bytes {
-            Tok::Bytes {
-                value: string_content.as_bytes().to_vec(),
+            if string_content.is_ascii() {
+                Tok::Bytes {
+                    value: string_content.as_bytes().to_vec(),
+                }
+            } else {
+                return Err(LexicalError::StringError);
             }
         } else {
             Tok::String {
