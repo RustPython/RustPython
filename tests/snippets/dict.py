@@ -11,6 +11,9 @@ assert not {'b': 2} == {'a': 2}
 assert not {'a': 4} == {'a': 2}
 assert {'a': 2} == {'a': 2}
 
+nan = float('nan')
+assert {'a': nan} == {'a': nan}
+
 a = {'g': 5}
 b = {'a': a, 'd': 9}
 c = dict(b)

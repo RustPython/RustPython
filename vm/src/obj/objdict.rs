@@ -3,7 +3,8 @@ use std::fmt;
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult,
+    PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -104,6 +105,9 @@ impl PyDictRef {
         for (k, v1) in self {
             match other.entries.borrow().get(vm, &k)? {
                 Some(v2) => {
+                    if v1.is(&v2) {
+                        continue;
+                    }
                     let value = objbool::boolval(vm, vm._eq(v1, v2)?)?;
                     if !value {
                         return Ok(false);
