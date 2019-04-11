@@ -10,7 +10,6 @@ use crate::builtins;
 use crate::bytecode;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
-use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objint::PyInt;
@@ -18,6 +17,7 @@ use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
+use crate::obj::objstr::PyString;
 use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -566,7 +566,10 @@ impl Frame {
                 }
             }
             bytecode::Instruction::MakeFunction { flags } => {
-                let qualified_name = self.pop_value();
+                let qualified_name = self
+                    .pop_value()
+                    .downcast::<PyString>()
+                    .expect("qualified name to be a string");
                 let code_obj = self
                     .pop_value()
                     .downcast()
@@ -606,7 +609,8 @@ impl Frame {
                     .ctx
                     .new_function(code_obj, scope, defaults, kw_only_defaults);
 
-                vm.set_attr(&obj, "__name__", qualified_name.clone())?;
+                let name = qualified_name.value.split('.').next_back().unwrap();
+                vm.set_attr(&obj, "__name__", vm.new_str(name.to_string()))?;
                 vm.set_attr(&obj, "__qualname__", qualified_name)?;
                 let module = self
                     .scope
@@ -747,9 +751,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                let rustfunc =
-                    PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_)).into_ref(vm);
-                self.push_value(rustfunc.into_object());
+                self.push_value(vm.ctx.new_rustfunc(builtins::builtin_build_class_));
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {

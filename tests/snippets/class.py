@@ -22,7 +22,7 @@ assert Foo.__qualname__ == "Foo"
 assert Foo.__module__ == "class"
 assert Foo.square.__name__ == "square"
 assert Foo.square.__qualname__ == "Foo.square"
-
+assert Foo.square.__module__ == "class"
 
 class Bar:
     """ W00t """
