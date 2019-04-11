@@ -201,7 +201,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let environ = _os_environ(vm);
 
-    py_module!(vm, "os", {
+    py_module!(vm, "_os", {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),

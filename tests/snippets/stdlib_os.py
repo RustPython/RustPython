@@ -40,3 +40,17 @@ assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', 0))
 assert os.O_RDONLY == 0
 assert os.O_WRONLY == 1
 assert os.O_RDWR == 2
+
+ENV_KEY = "TEST_ENV_VAR"
+ENV_VALUE = "value"
+
+assert os.getenv(ENV_KEY) == None
+assert ENV_KEY not in os.environ
+assert os.getenv(ENV_KEY, 5) == 5
+os.environ[ENV_KEY] = ENV_VALUE
+assert ENV_KEY in os.environ
+assert os.getenv(ENV_KEY) == ENV_VALUE
+del os.environ[ENV_KEY]
+os.unsetenv(ENV_KEY)
+assert ENV_KEY not in os.environ
+assert os.getenv(ENV_KEY) == None
