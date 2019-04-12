@@ -117,13 +117,22 @@ fn object_repr(zelf: PyObjectRef, _vm: &VirtualMachine) -> String {
     format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
 }
 
-pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyList {
-    let attributes = get_attributes(&obj);
-    let attributes: Vec<PyObjectRef> = attributes
-        .keys()
-        .map(|k| vm.ctx.new_str(k.to_string()))
-        .collect();
-    PyList::from(attributes)
+pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
+    let attributes: PyAttributes = objtype::get_attributes(obj.class());
+
+    let dict = PyDictRef::from_attributes(attributes, vm)?;
+
+    // Get instance attributes:
+    if let Some(object_dict) = &obj.dict {
+        vm.invoke(
+            vm.get_attribute(dict.clone().into_object(), "update")?,
+            object_dict.clone().into_object(),
+        )?;
+    }
+
+    let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k.clone()).collect();
+
+    Ok(PyList::from(attributes))
 }
 
 fn object_format(
@@ -229,18 +238,4 @@ fn object_getattr(
     } else {
         Ok(None)
     }
-}
-
-pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
-    // Get class attributes:
-    let mut attributes = objtype::get_attributes(obj.class());
-
-    // Get instance attributes:
-    if let Some(dict) = &obj.dict {
-        for (key, value) in dict {
-            attributes.insert(key.to_string(), value.clone());
-        }
-    }
-
-    attributes
 }
