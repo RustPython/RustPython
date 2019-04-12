@@ -239,6 +239,19 @@ impl PyDictRef {
         attrs
     }
 
+    pub fn from_attributes(attrs: PyAttributes, vm: &VirtualMachine) -> PyResult<Self> {
+        let dict = DictContentType::default();
+        let entries = RefCell::new(dict);
+
+        for (key, value) in attrs {
+            entries
+                .borrow_mut()
+                .insert(vm, &vm.ctx.new_str(key), value)?;
+        }
+
+        Ok(PyDict { entries }.into_ref(vm))
+    }
+
     fn hash(self, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("unhashable type".to_string()))
     }

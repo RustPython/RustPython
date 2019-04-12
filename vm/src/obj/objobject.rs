@@ -1,6 +1,6 @@
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
-use super::objstr::{PyString, PyStringRef};
+use super::objstr::PyStringRef;
 use super::objtype;
 use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
@@ -118,26 +118,19 @@ fn object_repr(zelf: PyObjectRef, _vm: &VirtualMachine) -> String {
 }
 
 pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-    let mut attributes: PyAttributes = objtype::get_attributes(obj.class());
+    let attributes: PyAttributes = objtype::get_attributes(obj.class());
+
+    let dict = PyDictRef::from_attributes(attributes, vm)?;
 
     // Get instance attributes:
-    if let Some(dict) = &obj.dict {
-        for (key, value) in dict {
-            if let Some(key_string) = key.payload::<PyString>() {
-                attributes.insert(key_string.to_string(), value.clone());
-            } else {
-                return Err(vm.new_type_error(format!(
-                    "Attribute is not a string: {:?}",
-                    vm.to_pystr(&key)?
-                )));
-            }
-        }
+    if let Some(object_dict) = &obj.dict {
+        vm.invoke(
+            vm.get_attribute(dict.clone().into_object(), "update")?,
+            object_dict.clone().into_object(),
+        )?;
     }
 
-    let attributes: Vec<PyObjectRef> = attributes
-        .keys()
-        .map(|k| vm.ctx.new_str(k.to_string()))
-        .collect();
+    let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k.clone()).collect();
 
     Ok(PyList::from(attributes))
 }
