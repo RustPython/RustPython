@@ -1,4 +1,4 @@
-
+from testutils import assertRaises
 
 try:
     raise BaseException()
@@ -117,10 +117,8 @@ try:
 except ZeroDivisionError as ex:
     assert ex.__cause__ == None
 
-try:
+with assertRaises(TypeError):
     raise ZeroDivisionError from 5
-except TypeError:
-    pass
 
 try:
     raise ZeroDivisionError from NameError
