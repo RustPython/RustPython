@@ -1,4 +1,4 @@
-
+from testutils import assertRaises
 
 try:
     raise BaseException()
@@ -95,3 +95,33 @@ except TypeError as ex:
     l.append(3)
     print('boom', type(ex))
 assert l == [1, 3]
+
+cause = None
+try:
+    try:
+        raise ZeroDivisionError
+    except ZeroDivisionError as ex:
+        assert ex.__cause__ == None
+        cause = ex
+        raise NameError from ex
+except NameError as ex2:
+    assert ex2.__cause__ == cause
+
+try:
+    raise ZeroDivisionError from None
+except ZeroDivisionError as ex:
+    assert ex.__cause__ == None
+
+try:
+    raise ZeroDivisionError
+except ZeroDivisionError as ex:
+    assert ex.__cause__ == None
+
+with assertRaises(TypeError):
+    raise ZeroDivisionError from 5
+
+try:
+    raise ZeroDivisionError from NameError
+except ZeroDivisionError as ex:
+    assert type(ex.__cause__) == NameError
+

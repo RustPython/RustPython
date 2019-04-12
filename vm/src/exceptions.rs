@@ -2,7 +2,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objsequence;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{create_type, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{create_type, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -18,8 +18,19 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-// Print exception including traceback:
+// print excption chain
 pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
+    if let Ok(cause) = vm.get_attribute(exc.clone(), "__cause__") {
+        if !vm.get_none().is(&cause) {
+            print_exception(vm, &cause);
+            println!("\nThe above exception was the direct cause of the following exception:\n");
+        }
+    }
+    print_exception_inner(vm, exc)
+}
+
+// Print exception including traceback:
+pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
