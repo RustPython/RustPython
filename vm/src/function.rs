@@ -437,12 +437,6 @@ where
     }
 }
 
-impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
-    fn into_func(self) -> PyNativeFunc {
-        self
-    }
-}
-
 pub struct OwnedParam<T>(std::marker::PhantomData<T>);
 pub struct RefParam<T>(std::marker::PhantomData<T>);
 
