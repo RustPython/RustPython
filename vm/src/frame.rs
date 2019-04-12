@@ -677,31 +677,17 @@ impl Frame {
             }
 
             bytecode::Instruction::Raise { argc } => {
+                let cause = match argc {
+                    2 => self.get_exception(vm, true)?,
+                    _ => vm.get_none(),
+                };
                 let exception = match argc {
-                    1 => self.pop_value(),
-                    0 | 2 | 3 => panic!("Not implemented!"),
+                    1 | 2 => self.get_exception(vm, false)?,
+                    0 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
-                    info!("Exception raised: {:?}", exception);
-                    Err(exception)
-                } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
-                    if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
-                        let exception = vm.new_empty_exception(exception)?;
-                        info!("Exception raised: {:?}", exception);
-                        Err(exception)
-                    } else {
-                        let msg = format!(
-                            "Can only raise BaseException derived types, not {}",
-                            exception
-                        );
-                        let type_error_type = vm.ctx.exceptions.type_error.clone();
-                        let type_error = vm.new_exception(type_error_type, msg);
-                        Err(type_error)
-                    }
-                } else {
-                    Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
-                }
+                vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
+                Err(exception)
             }
 
             bytecode::Instruction::Break => {
@@ -1203,6 +1189,30 @@ impl Frame {
     fn nth_value(&self, depth: usize) -> PyObjectRef {
         let stack = self.stack.borrow_mut();
         stack[stack.len() - depth - 1].clone()
+    }
+
+    fn get_exception(&self, vm: &VirtualMachine, none_allowed: bool) -> PyResult {
+        let exception = self.pop_value();
+        if none_allowed && vm.get_none().is(&exception) {
+            Ok(exception)
+        } else if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
+            Ok(exception)
+        } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
+            if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
+                let exception = vm.new_empty_exception(exception)?;
+                Ok(exception)
+            } else {
+                let msg = format!(
+                    "Can only raise BaseException derived types, not {}",
+                    exception
+                );
+                let type_error_type = vm.ctx.exceptions.type_error.clone();
+                let type_error = vm.new_exception(type_error_type, msg);
+                Err(type_error)
+            }
+        } else {
+            Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
+        }
     }
 }
 
