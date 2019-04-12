@@ -686,6 +686,7 @@ impl Frame {
                     0 | 3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
+                info!("Exception raised: {:?} with cause: {:?}", exception, cause);
                 vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
                 Err(exception)
             }
