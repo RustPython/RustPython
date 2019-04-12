@@ -105,9 +105,14 @@ impl SymbolTableBuilder {
 
     fn scan_parameters(&mut self, parameters: &[ast::Parameter]) -> SymbolTableResult {
         for parameter in parameters {
-            if let Some(annotation) = &parameter.annotation {
-                self.scan_expression(&annotation)?;
-            }
+            self.scan_parameter(parameter)?;
+        }
+        Ok(())
+    }
+
+    fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
+        if let Some(annotation) = &parameter.annotation {
+            self.scan_expression(&annotation)?;
         }
         Ok(())
     }
@@ -134,16 +139,7 @@ impl SymbolTableBuilder {
                 self.scan_expressions(decorator_list)?;
                 self.register_name(name, SymbolRole::Assigned)?;
 
-                self.enter_scope();
-                self.scan_parameters(&args.args)?;
-                self.scan_parameters(&args.kwonlyargs)?;
-
-                self.scan_expressions(&args.defaults)?;
-                for kw_default in &args.kw_defaults {
-                    if let Some(expression) = kw_default {
-                        self.scan_expression(&expression)?;
-                    }
-                }
+                self.enter_function(args)?;
 
                 self.scan_statements(body)?;
                 if let Some(expression) = returns {
@@ -376,9 +372,7 @@ impl SymbolTableBuilder {
                 self.register_name(name, SymbolRole::Used)?;
             }
             ast::Expression::Lambda { args, body } => {
-                self.scan_parameters(&args.args)?;
-                self.scan_parameters(&args.kwonlyargs)?;
-                self.enter_scope();
+                self.enter_function(args)?;
                 self.scan_expression(body)?;
                 self.leave_scope();
             }
@@ -387,6 +381,27 @@ impl SymbolTableBuilder {
                 self.scan_expression(body)?;
                 self.scan_expression(orelse)?;
             }
+        }
+        Ok(())
+    }
+
+    fn enter_function(&mut self, args: &ast::Parameters) -> SymbolTableResult {
+        // Evaulate eventual default parameters:
+        self.scan_expressions(&args.defaults)?;
+        for kw_default in &args.kw_defaults {
+            if let Some(expression) = kw_default {
+                self.scan_expression(&expression)?;
+            }
+        }
+
+        self.enter_scope();
+        self.scan_parameters(&args.args)?;
+        self.scan_parameters(&args.kwonlyargs)?;
+        if let ast::Varargs::Named(name) = &args.vararg {
+            self.scan_parameter(name)?;
+        }
+        if let ast::Varargs::Named(name) = &args.kwarg {
+            self.scan_parameter(name)?;
         }
         Ok(())
     }
@@ -408,9 +423,15 @@ impl SymbolTableBuilder {
 
     fn register_name(&mut self, name: &str, role: SymbolRole) -> SymbolTableResult {
         let current_scope = self.scopes.last_mut().unwrap();
-        if let Some(old_role) = current_scope.symbols.get(name) {
-            debug!("TODO: {:?}", old_role);
-        // Role already set..
+        if let Some(_old_role) = current_scope.symbols.get(name) {
+            // Role already set..
+            // debug!("TODO: {:?}", old_role);
+            match role {
+                SymbolRole::Global => return Err("global must appear first".to_string()),
+                _ => {
+                    // Ok?
+                }
+            }
         } else {
             current_scope.symbols.insert(name.to_string(), role);
         }

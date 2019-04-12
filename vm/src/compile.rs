@@ -171,6 +171,31 @@ impl Compiler {
         Ok(())
     }
 
+    fn scope_for_name(&self, name: &str) -> bytecode::NameScope {
+        let role = self.lookup_name(name);
+        match role {
+            SymbolRole::Global => bytecode::NameScope::Global,
+            _ => bytecode::NameScope::Local,
+        }
+    }
+
+    fn load_name(&mut self, name: &str) {
+        // TODO: if global, do something else!
+        let scope = self.scope_for_name(name);
+        self.emit(Instruction::LoadName {
+            name: name.to_string(),
+            scope,
+        });
+    }
+
+    fn store_name(&mut self, name: &str) {
+        let scope = self.scope_for_name(name);
+        self.emit(Instruction::StoreName {
+            name: name.to_string(),
+            scope,
+        });
+    }
+
     fn compile_statement(&mut self, statement: &ast::LocatedStatement) -> Result<(), CompileError> {
         trace!("Compiling {:?}", statement);
         self.set_source_location(&statement.location);
@@ -194,15 +219,14 @@ impl Compiler {
                                 name: module.clone(),
                                 symbol: symbol.clone(),
                             });
-                            self.emit(Instruction::StoreName {
-                                name: match alias {
-                                    Some(alias) => alias.clone(),
-                                    None => match symbol {
-                                        Some(symbol) => symbol.clone(),
-                                        None => module.clone(),
-                                    },
+                            let name = match alias {
+                                Some(alias) => alias.clone(),
+                                None => match symbol {
+                                    Some(symbol) => symbol.clone(),
+                                    None => module.clone(),
                                 },
-                            });
+                            };
+                            self.store_name(&name);
                         }
                     }
                 }
@@ -337,6 +361,7 @@ impl Compiler {
                 self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
                 self.emit(Instruction::LoadName {
                     name: String::from("AssertionError"),
+                    scope: bytecode::NameScope::Local,
                 });
                 match msg {
                     Some(e) => {
@@ -544,6 +569,7 @@ impl Compiler {
                 // Check exception type:
                 self.emit(Instruction::LoadName {
                     name: String::from("isinstance"),
+                    scope: bytecode::NameScope::Local,
                 });
                 self.emit(Instruction::Rotate { amount: 2 });
                 self.compile_expression(exc_type)?;
@@ -558,9 +584,7 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = &handler.name {
-                    self.emit(Instruction::StoreName {
-                        name: alias.clone(),
-                    });
+                    self.store_name(alias);
                 } else {
                     // Drop exception from top of stack:
                     self.emit(Instruction::Pop);
@@ -695,9 +719,7 @@ impl Compiler {
         self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
-        self.emit(Instruction::StoreName {
-            name: name.to_string(),
-        });
+        self.store_name(name);
 
         self.in_loop = was_in_loop;
         self.in_function_def = was_in_function_def;
@@ -796,9 +818,7 @@ impl Compiler {
         self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
-        self.emit(Instruction::StoreName {
-            name: name.to_string(),
-        });
+        self.store_name(name);
         self.in_loop = was_in_loop;
         Ok(())
     }
@@ -943,9 +963,7 @@ impl Compiler {
     fn compile_store(&mut self, target: &ast::Expression) -> Result<(), CompileError> {
         match target {
             ast::Expression::Identifier { name } => {
-                self.emit(Instruction::StoreName {
-                    name: name.to_string(),
-                });
+                self.store_name(name);
             }
             ast::Expression::Subscript { a, b } => {
                 self.compile_expression(a)?;
@@ -1232,11 +1250,7 @@ impl Compiler {
                 });
             }
             ast::Expression::Identifier { name } => {
-                self.lookup_name(name);
-                // TODO: if global, do something else!
-                self.emit(Instruction::LoadName {
-                    name: name.to_string(),
-                });
+                self.load_name(name);
             }
             ast::Expression::Lambda { args, body } => {
                 let name = "<lambda>".to_string();
@@ -1453,6 +1467,7 @@ impl Compiler {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
                     name: String::from(".0"),
+                    scope: bytecode::NameScope::Local,
                 });
             } else {
                 // Evaluate iterated item:
@@ -1608,12 +1623,8 @@ impl Compiler {
 
     fn lookup_name(&self, name: &str) -> &SymbolRole {
         // println!("Looking up {:?}", name);
-        for scope in self.scope_stack.iter().rev() {
-            if let Some(role) = scope.lookup(name) {
-                return role;
-            }
-        }
-        unreachable!();
+        let scope = self.scope_stack.last().unwrap();
+        scope.lookup(name).unwrap()
     }
 
     // Low level helper functions:

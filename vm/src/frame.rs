@@ -315,8 +315,14 @@ impl Frame {
                 ref symbol,
             } => self.import(vm, name, symbol),
             bytecode::Instruction::ImportStar { ref name } => self.import_star(vm, name),
-            bytecode::Instruction::LoadName { ref name } => self.load_name(vm, name),
-            bytecode::Instruction::StoreName { ref name } => self.store_name(vm, name),
+            bytecode::Instruction::LoadName {
+                ref name,
+                ref scope,
+            } => self.load_name(vm, name, scope),
+            bytecode::Instruction::StoreName {
+                ref name,
+                ref scope,
+            } => self.store_name(vm, name, scope),
             bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
@@ -984,9 +990,21 @@ impl Frame {
         vm.call_method(context_manager, "__exit__", args)
     }
 
-    fn store_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
+    fn store_name(
+        &self,
+        vm: &VirtualMachine,
+        name: &str,
+        scope: &bytecode::NameScope,
+    ) -> FrameResult {
         let obj = self.pop_value();
-        self.scope.store_name(&vm, name, obj);
+        match scope {
+            bytecode::NameScope::Global => {
+                self.scope.globals.set_item(name, obj, vm)?;
+            }
+            bytecode::NameScope::Local => {
+                self.scope.store_name(&vm, name, obj);
+            }
+        }
         Ok(None)
     }
 
@@ -995,19 +1013,27 @@ impl Frame {
         Ok(None)
     }
 
-    fn load_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
-        match self.scope.load_name(&vm, name) {
-            Some(value) => {
-                self.push_value(value);
-                Ok(None)
-            }
-            None => {
-                let name_error_type = vm.ctx.exceptions.name_error.clone();
-                let msg = format!("name '{}' is not defined", name);
-                let name_error = vm.new_exception(name_error_type, msg);
-                Err(name_error)
-            }
-        }
+    fn load_name(
+        &self,
+        vm: &VirtualMachine,
+        name: &str,
+        scope: &bytecode::NameScope,
+    ) -> FrameResult {
+        let value = match scope {
+            bytecode::NameScope::Global => self.scope.globals.get_item(name, vm)?,
+            bytecode::NameScope::Local => match self.scope.load_name(&vm, name) {
+                Some(value) => value,
+                None => {
+                    let name_error_type = vm.ctx.exceptions.name_error.clone();
+                    let msg = format!("name '{}' is not defined", name);
+                    let name_error = vm.new_exception(name_error_type, msg);
+                    return Err(name_error);
+                }
+            },
+        };
+
+        self.push_value(value);
+        Ok(None)
     }
 
     fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
