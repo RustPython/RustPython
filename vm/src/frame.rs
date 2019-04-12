@@ -283,6 +283,17 @@ impl Frame {
         }
     }
 
+    pub fn throw(
+        &self,
+        vm: &VirtualMachine,
+        exception: PyObjectRef,
+    ) -> Result<ExecutionResult, PyObjectRef> {
+        match self.unwind_exception(vm, exception) {
+            None => self.run(vm),
+            Some(exception) => Err(exception),
+        }
+    }
+
     pub fn fetch_instruction(&self) -> &bytecode::Instruction {
         let ins2 = &self.code.instructions[*self.lasti.borrow()];
         *self.lasti.borrow_mut() += 1;

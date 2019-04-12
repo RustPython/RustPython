@@ -1,3 +1,5 @@
+from testutils import assertRaises
+
 
 r = []
 
@@ -42,3 +44,23 @@ def g4():
 r = list(g4())
 assert r == [None, (2,)]
 
+
+def catch_exception():
+    try:
+        yield 1
+    except ValueError:
+        yield 2
+        yield 3
+
+
+g = catch_exception()
+assert next(g) == 1
+
+assert g.throw(ValueError, ValueError(), None) == 2
+assert next(g) == 3
+
+g = catch_exception()
+assert next(g) == 1
+
+with assertRaises(KeyError):
+    assert g.throw(KeyError, KeyError(), None) == 2
