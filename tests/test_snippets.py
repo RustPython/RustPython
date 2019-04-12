@@ -1,4 +1,3 @@
-
 # This is a python unittest class automatically populating with all tests
 # in the tests folder.
 
@@ -11,6 +10,8 @@ import logging
 import subprocess
 import contextlib
 import enum
+from pathlib import Path
+import shutil
 
 import compile_code
 
@@ -19,13 +20,11 @@ class _TestType(enum.Enum):
     functional = 1
 
 
-logger = logging.getLogger('tests')
-ROOT_DIR = '..'
-TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, 'tests'))
-TEST_DIRS = {
-    _TestType.functional: os.path.join(TEST_ROOT, 'snippets'),
-}
-CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, 'py_code_object'))
+logger = logging.getLogger("tests")
+ROOT_DIR = ".."
+TEST_ROOT = os.path.abspath(os.path.join(ROOT_DIR, "tests"))
+TEST_DIRS = {_TestType.functional: os.path.join(TEST_ROOT, "snippets")}
+CPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR, "py_code_object"))
 RUSTPYTHON_RUNNER_DIR = os.path.abspath(os.path.join(ROOT_DIR))
 RUSTPYTHON_LIB_DIR = os.path.abspath(os.path.join(ROOT_DIR, "Lib"))
 
@@ -38,12 +37,12 @@ def pushd(path):
 
 
 def perform_test(filename, method, test_type):
-    logger.info('Running %s via %s', filename, method)
-    if method == 'cpython':
+    logger.info("Running %s via %s", filename, method)
+    if method == "cpython":
         run_via_cpython(filename)
-    elif method == 'cpython_bytecode':
+    elif method == "cpython_bytecode":
         run_via_cpython_bytecode(filename, test_type)
-    elif method == 'rustpython':
+    elif method == "rustpython":
         run_via_rustpython(filename, test_type)
     else:
         raise NotImplementedError(method)
@@ -57,16 +56,16 @@ def run_via_cpython(filename):
 
 def run_via_cpython_bytecode(filename, test_type):
     # Step1: Create bytecode file:
-    bytecode_filename = filename + '.bytecode'
-    with open(bytecode_filename, 'w') as f:
+    bytecode_filename = filename + ".bytecode"
+    with open(bytecode_filename, "w") as f:
         compile_code.compile_to_bytecode(filename, out_file=f)
 
     # Step2: run cpython bytecode:
     env = os.environ.copy()
-    env['RUST_LOG'] = 'info,cargo=error,jobserver=error'
-    env['RUST_BACKTRACE'] = '1'
+    env["RUST_LOG"] = "info,cargo=error,jobserver=error"
+    env["RUST_BACKTRACE"] = "1"
     with pushd(CPYTHON_RUNNER_DIR):
-        subprocess.check_call(['cargo', 'run', bytecode_filename], env=env)
+        subprocess.check_call(["cargo", "run", bytecode_filename], env=env)
 
 
 def run_via_rustpython(filename, test_type):
@@ -75,10 +74,10 @@ def run_via_rustpython(filename, test_type):
     env['RUST_BACKTRACE'] = '1'
     env['PYTHONPATH'] = RUSTPYTHON_LIB_DIR
 
-    target = 'release'
-    if env.get('CODE_COVERAGE', 'false') == 'true':
-        target = 'debug'
-    binary = os.path.abspath(os.path.join(ROOT_DIR, 'target', target, 'rustpython'))
+    target = "release"
+    if env.get("CODE_COVERAGE", "false") == "true":
+        target = "debug"
+    binary = os.path.abspath(os.path.join(ROOT_DIR, "target", target, "rustpython"))
 
     subprocess.check_call([binary, filename], env=env)
 
@@ -86,15 +85,15 @@ def run_via_rustpython(filename, test_type):
 def create_test_function(cls, filename, method, test_type):
     """ Create a test function for a single snippet """
     core_test_directory, snippet_filename = os.path.split(filename)
-    test_function_name = 'test_{}_'.format(method) \
-        + os.path.splitext(snippet_filename)[0] \
-        .replace('.', '_').replace('-', '_')
+    test_function_name = "test_{}_".format(method) + os.path.splitext(snippet_filename)[
+        0
+    ].replace(".", "_").replace("-", "_")
 
     def test_function(self):
         perform_test(filename, method, test_type)
 
     if hasattr(cls, test_function_name):
-        raise ValueError('Duplicate test case {}'.format(test_function_name))
+        raise ValueError("Duplicate test case {}".format(test_function_name))
     setattr(cls, test_function_name, test_function)
 
 
@@ -104,25 +103,61 @@ def populate(method):
         for test_type, filename in get_test_files():
             create_test_function(cls, filename, method, test_type)
         return cls
+
     return wrapper
 
 
 def get_test_files():
     """ Retrieve test files """
     for test_type, test_dir in TEST_DIRS.items():
-        for filepath in sorted(glob.iglob(os.path.join(test_dir, '*.py'))):
+        for filepath in sorted(glob.iglob(os.path.join(test_dir, "*.py"))):
             filename = os.path.split(filepath)[1]
-            if filename.startswith('xfail_'):
+            if filename.startswith("xfail_"):
                 continue
 
             yield test_type, os.path.abspath(filepath)
 
 
-@populate('cpython')
+def generate_slices(path):
+    # loop used to build slices_res.py with cpython
+    ll = [0, 1, 2, 3]
+    start = list(range(-7, 7))
+    end = list(range(-7, 7))
+    step = list(range(-5, 5))
+    step.pop(step.index(0))
+    for i in [start, end, step]:
+        i.append(None)
+
+    slices_res = []
+    for s in start:
+        for e in end:
+            for t in step:
+                slices_res.append(ll[s:e:t])
+
+    path.write_text(
+        "SLICES_RES={}\nSTART= {}\nEND= {}\nSTEP= {}\nLL={}\n".format(
+            slices_res, start, end, step, ll
+        )
+    )
+
+
+@populate("cpython")
 # @populate('cpython_bytecode')
-@populate('rustpython')
+@populate("rustpython")
 class SampleTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        subprocess.check_call(['cargo', 'build'])
-        subprocess.check_call(['cargo', 'build', '--release'])
+        # Here add resource files
+        cls.slices_resource_path = Path(TEST_DIRS[_TestType.functional]) / "cpython_generated_slices.py"
+        if cls.slices_resource_path.exists():
+            cls.slices_resource_path.unlink()
+
+        generate_slices(cls.slices_resource_path)
+
+        # cargo stuff
+        subprocess.check_call(["cargo", "build"])
+        subprocess.check_call(["cargo", "build", "--release"])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.slices_resource_path.unlink()

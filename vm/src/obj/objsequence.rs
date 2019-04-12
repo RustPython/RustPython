@@ -2,11 +2,11 @@ use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
 
-use num_bigint::BigInt;
-use num_traits::{One, Signed, ToPrimitive, Zero};
-
 use crate::pyobject::{IdProtocol, PyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+
 use crate::vm::VirtualMachine;
+use num_bigint::{BigInt, ToBigInt};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use super::objbool;
 use super::objint::PyInt;
@@ -86,8 +86,20 @@ pub trait PySliceableSequence {
                 } else {
                     // calculate the range for the reverse slice, first the bounds needs to be made
                     // exclusive around stop, the lower number
-                    let start = start.as_ref().map(|x| x + 1);
-                    let stop = stop.as_ref().map(|x| x + 1);
+                    let start = start.as_ref().map(|x| {
+                        if *x == (-1).to_bigint().unwrap() {
+                            self.len() + BigInt::one() //.to_bigint().unwrap()
+                        } else {
+                            x + 1
+                        }
+                    });
+                    let stop = stop.as_ref().map(|x| {
+                        if *x == (-1).to_bigint().unwrap() {
+                            self.len().to_bigint().unwrap()
+                        } else {
+                            x + 1
+                        }
+                    });
                     let range = self.get_slice_range(&stop, &start);
                     if range.start < range.end {
                         match (-step).to_i32() {
