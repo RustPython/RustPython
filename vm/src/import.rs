@@ -74,8 +74,6 @@ fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result
         }
     }
 
-    println!("{:?}", file_paths);
-
     match file_paths.iter().find(|p| p.exists()) {
         Some(path) => Ok(path.to_path_buf()),
         None => Err(format!("No module named '{}'", name)),

@@ -4,7 +4,7 @@ from unittest import TestLoader, TextTestRunner
 
 
 def main():
-    sys.path.insert(0, 'tests/cpython_tests/test')
+    sys.path.insert(0, 'tests/cpython_tests')
 
     loader = TestLoader()
     # doesn't work yet without os.path support
