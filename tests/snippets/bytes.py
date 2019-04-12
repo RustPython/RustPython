@@ -131,3 +131,30 @@ try:
 except ValueError as e:
     str(e) == "non-hexadecimal number found in fromhex() arg at position 1"
 
+# center
+assert [b"koki".center(i, b"|") for i in range(3, 10)] == [
+    b"koki",
+    b"koki",
+    b"|koki",
+    b"|koki|",
+    b"||koki|",
+    b"||koki||",
+    b"|||koki||",
+]
+
+assert [b"kok".center(i, b"|") for i in range(2, 10)] == [
+    b"kok",
+    b"kok",
+    b"kok|",
+    b"|kok|",
+    b"|kok||",
+    b"||kok||",
+    b"||kok|||",
+    b"|||kok|||",
+]
+b"kok".center(4) == b" kok"  # " test no arg"
+with assertRaises(TypeError):
+    b"b".center(2, "a")
+with assertRaises(TypeError):
+    b"b".center(2, b"ba")
+b"kok".center(5, bytearray(b"x"))

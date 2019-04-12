@@ -1,4 +1,5 @@
 use crate::pyobject::PyObjectRef;
+use num_bigint::BigInt;
 
 use crate::function::OptionalArg;
 
@@ -13,7 +14,11 @@ use std::hash::{Hash, Hasher};
 use super::objint;
 use super::objsequence::PySliceableSequence;
 use crate::obj::objint::PyInt;
+use num_integer::Integer;
 use num_traits::ToPrimitive;
+
+use super::objbytearray::{get_value as get_value_bytearray, PyByteArray};
+use super::objbytes::PyBytes;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyByteInner {
@@ -355,4 +360,39 @@ impl PyByteInner {
             .map(|x| x.unwrap())
             .collect::<Vec<u8>>())
     }
+
+    pub fn center(&self, width: &BigInt, fillbyte: u8, _vm: &VirtualMachine) -> Vec<u8> {
+        let width = width.to_usize().unwrap();
+
+        // adjust right et left side
+        if width <= self.len() {
+            return self.elements.clone();
+        }
+        let diff: usize = width - self.len();
+        let mut ln: usize = diff / 2;
+        let mut rn: usize = ln;
+
+        if diff.is_odd() && self.len() % 2 == 0 {
+            ln += 1
+        }
+
+        if diff.is_odd() && self.len() % 2 != 0 {
+            rn += 1
+        }
+
+        // merge all
+        let mut res = vec![fillbyte; ln];
+        res.extend_from_slice(&self.elements[..]);
+        res.extend_from_slice(&vec![fillbyte; rn][..]);
+
+        res
+    }
+}
+
+pub fn is_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
+    match_class!(obj.clone(),
+
+    i @ PyBytes => Some(i.get_value().to_vec()),
+    j @ PyByteArray => Some(get_value_bytearray(&j.as_object()).to_vec()),
+    _ => None)
 }
