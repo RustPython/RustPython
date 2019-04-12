@@ -1207,9 +1207,7 @@ impl Frame {
                     "Can only raise BaseException derived types, not {}",
                     exception
                 );
-                let type_error_type = vm.ctx.exceptions.type_error.clone();
-                let type_error = vm.new_exception(type_error_type, msg);
-                Err(type_error)
+                Err(vm.new_type_error(msg))
             }
         } else {
             Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
