@@ -52,7 +52,7 @@ dict_keys = type({}.keys())
 dict_values = type({}.values())
 dict_items = type({}.items())
 ## misc ##
-mappingproxy = type(type.__dict__)
+# mappingproxy = type(type.__dict__)
 # generator = type((lambda: (yield))())
 ## coroutine ##
 # async def _coro(): pass

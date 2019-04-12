@@ -174,31 +174,32 @@ class TestResult(object):
     def _exc_info_to_string(self, err, test):
         """Converts a sys.exc_info()-style tuple of values into a string."""
         exctype, value, tb = err
-        # Skip test runner traceback levels
-        while tb and self._is_relevant_tb_level(tb):
-            tb = tb.tb_next
-
-        if exctype is test.failureException:
-            # Skip assert*() traceback levels
-            length = self._count_relevant_tb_levels(tb)
-        else:
-            length = None
-        tb_e = traceback.TracebackException(
-            exctype, value, tb, limit=length, capture_locals=self.tb_locals)
-        msgLines = list(tb_e.format())
-
-        if self.buffer:
-            output = sys.stdout.getvalue()
-            error = sys.stderr.getvalue()
-            if output:
-                if not output.endswith('\n'):
-                    output += '\n'
-                msgLines.append(STDOUT_LINE % output)
-            if error:
-                if not error.endswith('\n'):
-                    error += '\n'
-                msgLines.append(STDERR_LINE % error)
-        return ''.join(msgLines)
+        return str(value)
+        # # Skip test runner traceback levels
+        # while tb and self._is_relevant_tb_level(tb):
+        #     tb = tb.tb_next
+        #
+        # if exctype is test.failureException:
+        #     # Skip assert*() traceback levels
+        #     length = self._count_relevant_tb_levels(tb)
+        # else:
+        #     length = None
+        # tb_e = traceback.TracebackException(
+        #     exctype, value, tb, limit=length, capture_locals=self.tb_locals)
+        # msgLines = list(tb_e.format())
+        #
+        # if self.buffer:
+        #     output = sys.stdout.getvalue()
+        #     error = sys.stderr.getvalue()
+        #     if output:
+        #         if not output.endswith('\n'):
+        #             output += '\n'
+        #         msgLines.append(STDOUT_LINE % output)
+        #     if error:
+        #         if not error.endswith('\n'):
+        #             error += '\n'
+        #         msgLines.append(STDERR_LINE % error)
+        # return ''.join(msgLines)
 
 
     def _is_relevant_tb_level(self, tb):

@@ -111,9 +111,9 @@ class TextTestResult(TestResult):
     def printErrorList(self, flavour, errors):
         for test, err in errors:
             self.stream.writeln(self.separator1)
-            self.stream.writeln("%s: %s" % (flavour,self.getDescription(test)))
+            self.stream.writeln(f"{flavour}: {self.getDescription(test)}")
             self.stream.writeln(self.separator2)
-            self.stream.writeln("%s" % err)
+            self.stream.writeln(str(err))
 
 
 class TextTestRunner(object):
@@ -182,8 +182,9 @@ class TextTestRunner(object):
         if hasattr(result, 'separator2'):
             self.stream.writeln(result.separator2)
         run = result.testsRun
-        self.stream.writeln("Ran %d test%s in %.3fs" %
-                            (run, run != 1 and "s" or "", timeTaken))
+        # self.stream.writeln("Ran %d test%s in %.3fs" %
+        #                     (run, run != 1 and "s" or "", timeTaken))
+        self.stream.writeln(f"Ran {run} tests in {timeTaken}s")
         self.stream.writeln()
 
         expectedFails = unexpectedSuccesses = skipped = 0
@@ -201,9 +202,9 @@ class TextTestRunner(object):
             self.stream.write("FAILED")
             failed, errored = len(result.failures), len(result.errors)
             if failed:
-                infos.append("failures=%d" % failed)
+                infos.append(f"failures={failed}")
             if errored:
-                infos.append("errors=%d" % errored)
+                infos.append(f"errors={errored}")
         else:
             self.stream.write("OK")
         if skipped:
@@ -213,7 +214,7 @@ class TextTestRunner(object):
         if unexpectedSuccesses:
             infos.append("unexpected successes=%d" % unexpectedSuccesses)
         if infos:
-            self.stream.writeln(" (%s)" % (", ".join(infos),))
+            self.stream.writeln(" ({})".format(", ".join(infos)))
         else:
             self.stream.write("\n")
         return result

@@ -55,23 +55,25 @@ class _Outcome(object):
         self.success = True
         try:
             yield
-        except KeyboardInterrupt:
-            raise
+        # except KeyboardInterrupt:
+        #     raise
         except SkipTest as e:
             self.success = False
             self.skipped.append((test_case, str(e)))
         except _ShouldStop:
             pass
-        except:
-            exc_info = sys.exc_info()
-            if self.expecting_failure:
-                self.expectedFailure = exc_info
-            else:
-                self.success = False
-                self.errors.append((test_case, exc_info))
-            # explicitly break a reference cycle:
-            # exc_info -> frame -> exc_info
-            exc_info = None
+        except BaseException as e:
+            self.success = False
+            self.errors.append((test_case, (type(e), e, None)))
+            # exc_info = sys.exc_info()
+            # if self.expecting_failure:
+            #     self.expectedFailure = exc_info
+            # else:
+            #     self.success = False
+            #     self.errors.append((test_case, exc_info))
+            # # explicitly break a reference cycle:
+            # # exc_info -> frame -> exc_info
+            # exc_info = None
         else:
             if self.result_supports_subtests and self.success:
                 self.errors.append((test_case, None))
@@ -427,7 +429,7 @@ class TestCase(object):
         return hash((type(self), self._testMethodName))
 
     def __str__(self):
-        return "%s (%s)" % (self._testMethodName, strclass(self.__class__))
+        return f"{self._testMethodName} ({strclass(self.__class__)})"
 
     def __repr__(self):
         return "<%s testMethod=%s>" % \
