@@ -715,14 +715,20 @@ impl Frame {
                 Ok(None)
             }
 
-            bytecode::Instruction::Raise { argc } => {
+            bytecode::Instruction::Raise { argc, in_exc } => {
+                if argc.clone() == 0 && in_exc.clone() == false {
+                    return Err(vm.new_exception(
+                        vm.ctx.exceptions.runtime_error.clone(),
+                        "No active exception to reraise".to_string(),
+                    ));
+                }
                 let cause = match argc {
                     2 => self.get_exception(vm, true)?,
                     _ => vm.get_none(),
                 };
                 let exception = match argc {
-                    1 | 2 => self.get_exception(vm, false)?,
-                    0 | 3 => panic!("Not implemented!"),
+                    0 | 1 | 2 => self.get_exception(vm, false)?,
+                    3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
                 info!("Exception raised: {:?} with cause: {:?}", exception, cause);
