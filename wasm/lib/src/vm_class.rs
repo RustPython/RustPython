@@ -199,15 +199,15 @@ impl WASMVirtualMachine {
             fn error() -> JsValue {
                 TypeError::new("Unknown stdout option, please pass a function or 'console'").into()
             }
-            let print_fn: Box<Fn(&VirtualMachine, PyFuncArgs) -> PyResult> =
-                if let Some(s) = stdout.as_string() {
-                    match s.as_str() {
-                        "console" => Box::new(wasm_builtins::builtin_print_console),
-                        _ => return Err(error()),
-                    }
-                } else if stdout.is_function() {
-                    let func = js_sys::Function::from(stdout);
-                    Box::new(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
+            let print_fn: PyObjectRef = if let Some(s) = stdout.as_string() {
+                match s.as_str() {
+                    "console" => vm.ctx.new_rustfunc(wasm_builtins::builtin_print_console),
+                    _ => return Err(error()),
+                }
+            } else if stdout.is_function() {
+                let func = js_sys::Function::from(stdout);
+                vm.ctx
+                    .new_rustfunc(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
                         func.call1(
                             &JsValue::UNDEFINED,
                             &wasm_builtins::format_print_args(vm, args)?.into(),
@@ -215,16 +215,15 @@ impl WASMVirtualMachine {
                         .map_err(|err| convert::js_to_py(vm, err))?;
                         Ok(vm.get_none())
                     })
-                } else if stdout.is_undefined() || stdout.is_null() {
-                    fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-                        Ok(vm.get_none())
-                    }
-                    Box::new(noop)
-                } else {
-                    return Err(error());
-                };
-            vm.set_attr(&vm.builtins, "print", vm.ctx.new_rustfunc(print_fn))
-                .unwrap();
+            } else if stdout.is_undefined() || stdout.is_null() {
+                fn noop(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
+                    Ok(vm.get_none())
+                }
+                vm.ctx.new_rustfunc(noop)
+            } else {
+                return Err(error());
+            };
+            vm.set_attr(&vm.builtins, "print", print_fn).unwrap();
             Ok(())
         })?
     }
