@@ -205,7 +205,8 @@ class _AssertRaisesContext(_AssertRaisesBaseContext):
             # let unexpected exceptions pass through
             return False
         # store exception, without traceback, for later retrieval
-        self.exception = exc_value.with_traceback(None)
+        #self.exception = exc_value.with_traceback(None)
+        self.exception = exc_value
         if self.expected_regex is None:
             return True
 
@@ -1045,8 +1046,7 @@ class TestCase(object):
     def assertIs(self, expr1, expr2, msg=None):
         """Just like self.assertTrue(a is b), but with a nicer default message."""
         if expr1 is not expr2:
-            standardMsg = '%s is not %s' % (safe_repr(expr1),
-                                             safe_repr(expr2))
+            standardMsg = f'{safe_repr(expr1)} is not {safe_repr(expr2)}'
             self.fail(self._formatMessage(msg, standardMsg))
 
     def assertIsNot(self, expr1, expr2, msg=None):

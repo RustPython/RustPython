@@ -48,8 +48,8 @@ class TestResult(object):
         self.tb_locals = False
         self._stdout_buffer = None
         self._stderr_buffer = None
-        self._original_stdout = sys.stdout
-        self._original_stderr = sys.stderr
+        # self._original_stdout = sys.stdout
+        # self._original_stderr = sys.stderr
         self._mirrorOutput = False
 
     def printErrors(self):
@@ -81,25 +81,26 @@ class TestResult(object):
         self._mirrorOutput = False
 
     def _restoreStdout(self):
-        if self.buffer:
-            if self._mirrorOutput:
-                output = sys.stdout.getvalue()
-                error = sys.stderr.getvalue()
-                if output:
-                    if not output.endswith('\n'):
-                        output += '\n'
-                    self._original_stdout.write(STDOUT_LINE % output)
-                if error:
-                    if not error.endswith('\n'):
-                        error += '\n'
-                    self._original_stderr.write(STDERR_LINE % error)
-
-            sys.stdout = self._original_stdout
-            sys.stderr = self._original_stderr
-            self._stdout_buffer.seek(0)
-            self._stdout_buffer.truncate()
-            self._stderr_buffer.seek(0)
-            self._stderr_buffer.truncate()
+        # if self.buffer:
+        #     if self._mirrorOutput:
+        #         output = sys.stdout.getvalue()
+        #         error = sys.stderr.getvalue()
+        #         if output:
+        #             if not output.endswith('\n'):
+        #                 output += '\n'
+        #             self._original_stdout.write(STDOUT_LINE % output)
+        #         if error:
+        #             if not error.endswith('\n'):
+        #                 error += '\n'
+        #             self._original_stderr.write(STDERR_LINE % error)
+        #
+        #     sys.stdout = self._original_stdout
+        #     sys.stderr = self._original_stderr
+        #     self._stdout_buffer.seek(0)
+        #     self._stdout_buffer.truncate()
+        #     self._stderr_buffer.seek(0)
+        #     self._stderr_buffer.truncate()
+        pass
 
     def stopTestRun(self):
         """Called once after all tests are executed.

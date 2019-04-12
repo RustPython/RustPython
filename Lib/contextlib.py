@@ -156,9 +156,10 @@ class _GeneratorContextManager(_GeneratorContextManagerBase,
                 # async implementation) to maintain compatibility with
                 # Python 2, where old-style class exceptions are not caught
                 # by 'except BaseException'.
-                if sys.exc_info()[1] is value:
-                    return False
-                raise
+                # if sys.exc_info()[1] is value:
+                #     return False
+                # raise
+                return False
             raise RuntimeError("generator didn't stop after throw()")
 
 
