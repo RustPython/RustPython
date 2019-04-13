@@ -694,8 +694,22 @@ impl PyString {
     ) -> PyResult<String> {
         let value = &self.value;
         let rep_char = Self::get_fill_char(&rep, vm)?;
-        let left_buff: usize = (len - value.len()) / 2;
-        let right_buff = len - value.len() - left_buff;
+        let value_len = self.value.chars().count();
+
+        if len <= value_len {
+            return Ok(value.to_string());
+        }
+        let diff: usize = len - value_len;
+        let mut left_buff: usize = diff / 2;
+        let mut right_buff: usize = left_buff;
+
+        if diff % 2 != 0 && value_len % 2 == 0 {
+            left_buff += 1
+        }
+
+        if diff % 2 != 0 && value_len % 2 != 0 {
+            right_buff += 1
+        }
         Ok(format!(
             "{}{}{}",
             rep_char.repeat(left_buff),

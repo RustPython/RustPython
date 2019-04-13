@@ -8,6 +8,9 @@ a = A()
 assert "test" in dir(a), "test not in a"
 assert "test" in dir(A), "test not in A"
 
+a.x = 3
+assert "x" in dir(a), "x not in a"
+
 class B(A):
 	def __dir__(self):
 		return ('q', 'h')

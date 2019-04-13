@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -129,6 +130,12 @@ pub struct PyContext {
     pub false_value: PyIntRef,
     pub list_type: PyClassRef,
     pub listiterator_type: PyClassRef,
+    pub dictkeyiterator_type: PyClassRef,
+    pub dictvalueiterator_type: PyClassRef,
+    pub dictitemiterator_type: PyClassRef,
+    pub dictkeys_type: PyClassRef,
+    pub dictvalues_type: PyClassRef,
+    pub dictitems_type: PyClassRef,
     pub map_type: PyClassRef,
     pub memoryview_type: PyClassRef,
     pub none: PyNoneRef,
@@ -254,6 +261,12 @@ impl PyContext {
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
         let listiterator_type = create_type("list_iterator", &type_type, &object_type);
+        let dictkeys_type = create_type("dict_keys", &type_type, &object_type);
+        let dictvalues_type = create_type("dict_values", &type_type, &object_type);
+        let dictitems_type = create_type("dict_items", &type_type, &object_type);
+        let dictkeyiterator_type = create_type("dict_keyiterator", &type_type, &object_type);
+        let dictvalueiterator_type = create_type("dict_valueiterator", &type_type, &object_type);
+        let dictitemiterator_type = create_type("dict_itemiterator", &type_type, &object_type);
         let set_type = create_type("set", &type_type, &object_type);
         let frozenset_type = create_type("frozenset", &type_type, &object_type);
         let int_type = create_type("int", &type_type, &object_type);
@@ -313,6 +326,12 @@ impl PyContext {
             staticmethod_type,
             list_type,
             listiterator_type,
+            dictkeys_type,
+            dictvalues_type,
+            dictitems_type,
+            dictkeyiterator_type,
+            dictvalueiterator_type,
+            dictitemiterator_type,
             set_type,
             frozenset_type,
             true_value,
@@ -1044,10 +1063,24 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(PyIterable {
-            method: vm.get_method(obj, "__iter__")?,
-            _item: std::marker::PhantomData,
-        })
+        if let Ok(method) = vm.get_method(obj.clone(), "__iter__") {
+            Ok(PyIterable {
+                method: method,
+                _item: std::marker::PhantomData,
+            })
+        } else if vm.get_method(obj.clone(), "__getitem__").is_ok() {
+            Self::try_from_object(
+                vm,
+                objiter::PySequenceIterator {
+                    position: Cell::new(0),
+                    obj: obj.clone(),
+                }
+                .into_ref(vm)
+                .into_object(),
+            )
+        } else {
+            Err(vm.new_type_error(format!("'{}' object is not iterable", obj.class().name)))
+        }
     }
 }
 

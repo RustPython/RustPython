@@ -1,17 +1,18 @@
-use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Read, Write};
+use std::{env, fs};
 
 use num_traits::cast::ToPrimitive;
 
 use crate::function::PyFuncArgs;
 use crate::obj::objbytes::PyBytesRef;
+use crate::obj::objdict::PyDictRef;
 use crate::obj::objint;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -173,6 +174,22 @@ fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn os_putenv(key: PyStringRef, value: PyStringRef, _vm: &VirtualMachine) -> () {
+    env::set_var(&key.value, &value.value)
+}
+
+fn os_unsetenv(key: PyStringRef, _vm: &VirtualMachine) -> () {
+    env::remove_var(&key.value)
+}
+
+fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
+    let environ = vm.ctx.new_dict();
+    for (key, value) in env::vars() {
+        environ.set_item(&key, vm.new_str(value), vm).unwrap();
+    }
+    environ
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -182,7 +199,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "posix".to_string()
     };
 
-    py_module!(vm, "os", {
+    let environ = _os_environ(vm);
+
+    py_module!(vm, "_os", {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),
@@ -194,6 +213,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "mkdirs" => ctx.new_rustfunc(os_mkdirs),
         "rmdir" => ctx.new_rustfunc(os_rmdir),
         "listdir" => ctx.new_rustfunc(os_listdir),
+        "putenv" => ctx.new_rustfunc(os_putenv),
+        "unsetenv" => ctx.new_rustfunc(os_unsetenv),
+        "environ" => environ,
         "name" => ctx.new_str(os_name),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),

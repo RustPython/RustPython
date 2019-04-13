@@ -21,6 +21,7 @@ struct Compiler {
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
+    current_qualified_path: Option<String>,
     in_loop: bool,
     in_function_def: bool,
 }
@@ -81,6 +82,7 @@ impl Compiler {
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
+            current_qualified_path: None,
             in_loop: false,
             in_function_def: false,
         }
@@ -651,6 +653,10 @@ impl Compiler {
         self.in_loop = false;
         self.in_function_def = true;
 
+        let old_qualified_path = self.current_qualified_path.clone();
+        let qualified_name = self.create_qualified_name(name, "");
+        self.current_qualified_path = Some(self.create_qualified_name(name, ".<locals>"));
+
         self.prepare_decorators(decorator_list)?;
 
         let mut flags = self.enter_function(name, args)?;
@@ -710,7 +716,7 @@ impl Compiler {
         });
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
-                value: name.to_string(),
+                value: qualified_name,
             },
         });
 
@@ -721,6 +727,7 @@ impl Compiler {
 
         self.store_name(name);
 
+        self.current_qualified_path = old_qualified_path;
         self.in_loop = was_in_loop;
         self.in_function_def = was_in_function_def;
         Ok(())
@@ -736,6 +743,11 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         let was_in_loop = self.in_loop;
         self.in_loop = false;
+
+        let old_qualified_path = self.current_qualified_path.clone();
+        let qualified_name = self.create_qualified_name(name, "");
+        self.current_qualified_path = Some(qualified_name.clone());
+
         self.prepare_decorators(decorator_list)?;
         self.emit(Instruction::LoadBuildClass);
         let line_number = self.get_source_line_number();
@@ -752,6 +764,14 @@ impl Compiler {
 
         let (new_body, doc_str) = get_doc(body);
 
+        self.emit(Instruction::LoadName {
+            name: "__name__".to_string(),
+            scope: bytecode::NameScope::Local,
+        });
+        self.emit(Instruction::StoreName {
+            name: "__module__".to_string(),
+            scope: bytecode::NameScope::Local,
+        });
         self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::None,
@@ -779,7 +799,7 @@ impl Compiler {
 
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
-                value: name.to_string(),
+                value: qualified_name,
             },
         });
 
@@ -819,6 +839,7 @@ impl Compiler {
         self.apply_decorators(decorator_list);
 
         self.store_name(name);
+        self.current_qualified_path = old_qualified_path;
         self.in_loop = was_in_loop;
         Ok(())
     }
@@ -1660,6 +1681,14 @@ impl Compiler {
 
     fn get_source_line_number(&mut self) -> usize {
         self.current_source_location.get_row()
+    }
+
+    fn create_qualified_name(&self, name: &str, suffix: &str) -> String {
+        if let Some(ref qualified_path) = self.current_qualified_path {
+            format!("{}.{}{}", qualified_path, name, suffix)
+        } else {
+            format!("{}{}", name, suffix)
+        }
     }
 
     fn mark_generator(&mut self) {

@@ -1,9 +1,16 @@
+
+__name__ = "function"
+
+
 def foo():
     """test"""
     return 42
 
 assert foo() == 42
 assert foo.__doc__ == "test"
+assert foo.__name__ == "foo"
+assert foo.__qualname__ == "foo"
+assert foo.__module__ == "function"
 
 def my_func(a,):
     return a+2
@@ -55,3 +62,13 @@ def f5():
 
 assert f5.__doc__ == 'abcw00t', f5.__doc__
 
+
+def f6():
+    def nested():
+        pass
+
+    assert nested.__name__ == "nested"
+    assert nested.__qualname__ == "f6.<locals>.nested"
+
+
+f6()

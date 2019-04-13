@@ -120,16 +120,15 @@ impl<T: Clone> Dict<T> {
         self.len() == 0
     }
 
-    pub fn iter_items(&self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
-        self.entries
-            .iter()
-            .filter(|e| e.is_some())
-            .map(|e| e.as_ref().unwrap())
-            .map(|e| (e.key.clone(), e.value.clone()))
-    }
-
-    pub fn get_items(&self) -> Vec<(PyObjectRef, T)> {
-        self.iter_items().collect()
+    pub fn next_entry(&self, mut position: usize) -> Option<(usize, &PyObjectRef, &T)> {
+        while position < self.entries.len() {
+            if let Some(DictEntry { key, value, .. }) = &self.entries[position] {
+                return Some((position + 1, key, value));
+            } else {
+                position += 1;
+            }
+        }
+        None
     }
 
     /// Lookup the index for the given key.

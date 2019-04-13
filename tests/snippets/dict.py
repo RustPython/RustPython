@@ -1,21 +1,26 @@
 from testutils import assertRaises
 
-def dict_eq(d1, d2):
-    return (all(k in d2 and d1[k] == d2[k] for k in d1)
-            and all(k in d1 and d1[k] == d2[k] for k in d2))
+assert dict(a=2, b=3) == {'a': 2, 'b': 3}
+assert dict({'a': 2, 'b': 3}, b=4) == {'a': 2, 'b': 4}
+assert dict([('a', 2), ('b', 3)]) == {'a': 2, 'b': 3}
 
+assert {} == {}
+assert not {'a': 2} == {}
+assert not {} == {'a': 2}
+assert not {'b': 2} == {'a': 2}
+assert not {'a': 4} == {'a': 2}
+assert {'a': 2} == {'a': 2}
 
-assert dict_eq(dict(a=2, b=3), {'a': 2, 'b': 3})
-assert dict_eq(dict({'a': 2, 'b': 3}, b=4), {'a': 2, 'b': 4})
-assert dict_eq(dict([('a', 2), ('b', 3)]), {'a': 2, 'b': 3})
+nan = float('nan')
+assert {'a': nan} == {'a': nan}
 
 a = {'g': 5}
 b = {'a': a, 'd': 9}
 c = dict(b)
 c['d'] = 3
 c['a']['g'] = 2
-assert dict_eq(a, {'g': 2})
-assert dict_eq(b, {'a': a, 'd': 9})
+assert a == {'g': 2}
+assert b == {'a': a, 'd': 9}
 
 a.clear()
 assert len(a) == 0
@@ -37,10 +42,42 @@ for key in a.keys():
         res.add(key)
 assert res == set(['a','b'])
 
+# Deleted values are correctly skipped over:
+x = {'a': 1, 'b': 2, 'c': 3, 'd': 3}
+del x['c']
+it = iter(x.items())
+assert ('a', 1) == next(it)
+assert ('b', 2) == next(it)
+assert ('d', 3) == next(it)
+with assertRaises(StopIteration):
+    next(it)
+
+# Iterating a dictionary is just its keys:
+assert ['a', 'b', 'd'] == list(x)
+
+# Iterating view captures dictionary when iterated.
+data = {1: 2, 3: 4}
+items = data.items()
+assert list(items) == [(1, 2), (3, 4)]
+data[5] = 6
+assert list(items) == [(1, 2), (3, 4), (5, 6)]
+
+# Values can be changed during iteration.
+data = {1: 2, 3: 4}
+items = iter(data.items())
+assert (1, 2) == next(items)
+data[3] = "changed"
+assert (3, "changed") == next(items)
+
+# View isn't itself an iterator.
+with assertRaises(TypeError):
+    next(data.keys())
+
+assert len(data.keys()) == 2
+
 x = {}
 x[1] = 1
 assert x[1] == 1
-
 
 x[7] = 7
 x[2] = 2
@@ -110,16 +147,10 @@ assert list(x) == ['a', 'b']
 
 y = x.copy()
 x['c'] = 12
-assert list(y) == ['a', 'b']
-assert y['a'] == 2
-assert y['b'] == 10
+assert y == {'a': 2, 'b': 10}
 
 y.update({'c': 19, "d": -1, 'b': 12})
-assert list(y) == ['a', 'b', 'c', 'd']
-assert y['a'] == 2
-assert y['b'] == 12
-assert y['c'] == 19
-assert y['d'] == -1
+assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}
 
 y.update(y)
-assert list(y) == ['a', 'b', 'c', 'd']
+assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}  # hasn't changed
