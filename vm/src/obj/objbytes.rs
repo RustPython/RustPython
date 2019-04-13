@@ -7,7 +7,7 @@ use std::ops::Deref;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
-use super::objbyteinner::{is_byte, PyByteInner};
+use super::objbyteinner::{is_byte, is_bytes_like, PyByteInner};
 use super::objiter;
 use super::objslice::PySlice;
 use super::objtype::PyClassRef;
@@ -268,6 +268,16 @@ impl PyBytesRef {
         i @PyInt => Ok(vm.ctx.new_bytes(self.inner.center(i.as_bigint(), sym, vm))),
         obj => {Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)))}
         )
+    }
+
+    #[pymethod(name = "count")]
+    fn count(self, width: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match is_bytes_like(&width) {
+            Some(value) => Ok(vm.new_int(self.inner.count(value))),
+            None => {
+                Err(vm.new_type_error(format!("a bytes-like object is required, not {}", width)))
+            }
+        }
     }
 }
 

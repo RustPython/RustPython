@@ -19,6 +19,7 @@ use num_traits::ToPrimitive;
 
 use super::objbytearray::{get_value as get_value_bytearray, PyByteArray};
 use super::objbytes::PyBytes;
+use super::objmemory::PyMemoryView;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyByteInner {
@@ -386,6 +387,23 @@ impl PyByteInner {
 
         res
     }
+
+    pub fn count(&self, sub: Vec<u8>) -> usize {
+        if sub.is_empty() {
+            return self.len() + 1;
+        }
+
+        let mut total: usize = 0;
+        for (n, i) in self.elements.iter().enumerate() {
+            if n + sub.len() <= self.len()
+                && *i == sub[0]
+                && &self.elements[n..n + sub.len()] == sub.as_slice()
+            {
+                total += 1;
+            }
+        }
+        total
+    }
 }
 
 pub fn is_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
@@ -393,5 +411,14 @@ pub fn is_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
 
     i @ PyBytes => Some(i.get_value().to_vec()),
     j @ PyByteArray => Some(get_value_bytearray(&j.as_object()).to_vec()),
+    _ => None)
+}
+
+pub fn is_bytes_like(obj: &PyObjectRef) -> Option<Vec<u8>> {
+    match_class!(obj.clone(),
+
+    i @ PyBytes => Some(i.get_value().to_vec()),
+    j @ PyByteArray => Some(get_value_bytearray(&j.as_object()).to_vec()),
+    k @ PyMemoryView => Some(k.get_obj_value().unwrap()),
     _ => None)
 }

@@ -162,3 +162,11 @@ with assertRaises(TypeError):
 with assertRaises(TypeError):
     b"b".center(2, b"ba")
 b"kok".center(5, bytearray(b"x"))
+
+# count
+assert b"azeazerazeazopia".count(b"aze") == 3
+assert b"azeazerazeazopia".count(b"az") == 4
+assert b"azeazerazeazopia".count(b"a") == 5
+assert b"123456789".count(b"") == 10
+assert b"azeazerazeazopia".count(bytearray(b"aze")) == 3
+assert b"azeazerazeazopia".count(memoryview(b"aze")) == 3
