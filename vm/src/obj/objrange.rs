@@ -144,8 +144,8 @@ impl PyRange {
         vm: &VirtualMachine,
     ) -> PyResult<PyRangeRef> {
         PyRange {
-            start: start,
-            stop: stop,
+            start,
+            stop,
             step: step
                 .into_option()
                 .unwrap_or_else(|| PyInt::new(BigInt::one()).into_ref(vm)),

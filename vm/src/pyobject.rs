@@ -87,7 +87,6 @@ pub type PyAttributes = HashMap<String, PyObjectRef>;
 
 impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::TypeProtocol;
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
             let type_name = self.class().name.clone();
             // We don't have access to a vm, so just assume that if its parent's name
@@ -698,7 +697,7 @@ impl PyContext {
     pub fn new_instance(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: class,
-            dict: dict,
+            dict,
             payload: objobject::PyInstance,
         }
         .into_ref()
@@ -1065,7 +1064,7 @@ where
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if let Ok(method) = vm.get_method(obj.clone(), "__iter__") {
             Ok(PyIterable {
-                method: method,
+                method,
                 _item: std::marker::PhantomData,
             })
         } else if vm.get_method(obj.clone(), "__getitem__").is_ok() {
@@ -1170,12 +1169,7 @@ where
     T: Sized + PyObjectPayload,
 {
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
-        PyObject {
-            typ,
-            dict: dict,
-            payload,
-        }
-        .into_ref()
+        PyObject { typ, dict, payload }.into_ref()
     }
 
     // Move this object into a reference object, transferring ownership.

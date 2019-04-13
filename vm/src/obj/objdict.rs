@@ -118,7 +118,7 @@ impl PyDictRef {
                 }
             }
         }
-        return Ok(true);
+        Ok(true)
     }
 
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {

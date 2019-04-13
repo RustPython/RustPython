@@ -1215,9 +1215,9 @@ impl Frame {
 
     fn get_exception(&self, vm: &VirtualMachine, none_allowed: bool) -> PyResult {
         let exception = self.pop_value();
-        if none_allowed && vm.get_none().is(&exception) {
-            Ok(exception)
-        } else if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
+        if none_allowed && vm.get_none().is(&exception)
+            || objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type)
+        {
             Ok(exception)
         } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
             if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {

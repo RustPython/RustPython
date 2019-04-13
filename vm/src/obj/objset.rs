@@ -262,7 +262,7 @@ impl PySetInner {
         perform_action_with_hash(vm, &mut self.elements, &item, &discard)
     }
 
-    fn clear(&mut self) -> () {
+    fn clear(&mut self) {
         self.elements.clear();
     }
 
@@ -449,11 +449,11 @@ impl PySetRef {
     fn repr(self, vm: &VirtualMachine) -> PyResult {
         let inner = self.inner.borrow();
         let s = if inner.len() == 0 {
-            format!("set()")
+            "set()".to_string()
         } else if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             inner.repr(vm)?
         } else {
-            format!("set(...)")
+            "set(...)".to_string()
         };
         Ok(vm.new_str(s))
     }
@@ -470,7 +470,7 @@ impl PySetRef {
         self.inner.borrow_mut().discard(&item, vm)
     }
 
-    fn clear(self, _vm: &VirtualMachine) -> () {
+    fn clear(self, _vm: &VirtualMachine) {
         self.inner.borrow_mut().clear()
     }
 
@@ -656,11 +656,11 @@ impl PyFrozenSetRef {
     fn repr(self, vm: &VirtualMachine) -> PyResult {
         let inner = &self.inner;
         let s = if inner.len() == 0 {
-            format!("frozenset()")
+            "frozenset()".to_string()
         } else if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             format!("frozenset({})", inner.repr(vm)?)
         } else {
-            format!("frozenset(...)")
+            "frozenset(...)".to_string()
         };
         Ok(vm.new_str(s))
     }

@@ -174,11 +174,11 @@ fn os_listdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-fn os_putenv(key: PyStringRef, value: PyStringRef, _vm: &VirtualMachine) -> () {
+fn os_putenv(key: PyStringRef, value: PyStringRef, _vm: &VirtualMachine) {
     env::set_var(&key.value, &value.value)
 }
 
-fn os_unsetenv(key: PyStringRef, _vm: &VirtualMachine) -> () {
+fn os_unsetenv(key: PyStringRef, _vm: &VirtualMachine) {
     env::remove_var(&key.value)
 }
 
