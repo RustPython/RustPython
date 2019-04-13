@@ -18,7 +18,7 @@ use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 
 use crate::frame::Scope;
-use crate::function::{Args, OptionalArg, PyFuncArgs};
+use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -783,11 +783,17 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     });
 }
 
-pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    let function = args.shift();
-    let name_arg = args.shift();
-    let bases = args.args.clone();
-    let mut metaclass = if let Some(metaclass) = args.get_optional_kwarg("metaclass") {
+pub fn builtin_build_class_(
+    function: PyObjectRef,
+    qualified_name: PyStringRef,
+    bases: Args<PyClassRef>,
+    mut kwargs: KwArgs,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let name = qualified_name.value.split('.').next_back().unwrap();
+    let name_obj = vm.new_str(name.to_string());
+
+    let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
         PyClassRef::try_from_object(vm, metaclass)?
     } else {
         vm.get_type()
@@ -801,21 +807,25 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
         }
     }
 
-    let bases = vm.context().new_tuple(bases);
+    let bases = bases.into_tuple(vm);
 
     // Prepare uses full __getattribute__ resolution chain.
     let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
-    let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
+    let namespace = vm.invoke(prepare, vec![name_obj.clone(), bases.clone()])?;
 
     let namespace: PyDictRef = TryFromObject::try_from_object(vm, namespace)?;
 
     let cells = vm.ctx.new_dict();
 
     vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
+
+    namespace.set_item("__name__", name_obj.clone(), vm)?;
+    namespace.set_item("__qualname__", qualified_name.into_object(), vm)?;
+
     let class = vm.call_method(
         metaclass.as_object(),
         "__call__",
-        vec![name_arg, bases, namespace.into_object()],
+        vec![name_obj, bases, namespace.into_object()],
     )?;
     cells.set_item("__class__", class.clone(), vm)?;
     Ok(class)

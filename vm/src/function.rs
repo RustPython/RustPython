@@ -244,6 +244,12 @@ pub trait FromArgs: Sized {
 /// an appropriate FromArgs implementation must be created.
 pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
 
+impl<T> KwArgs<T> {
+    pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
+        self.0.remove(name)
+    }
+}
+
 impl<T> FromArgs for KwArgs<T>
 where
     T: TryFromObject,
@@ -274,7 +280,15 @@ impl<T> IntoIterator for KwArgs<T> {
 ///
 /// `Args` optionally accepts a generic type parameter to allow type checks
 /// or conversions of each argument.
+#[derive(Clone)]
 pub struct Args<T = PyObjectRef>(Vec<T>);
+
+impl<T: PyValue> Args<PyRef<T>> {
+    pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx
+            .new_tuple(self.0.into_iter().map(|obj| obj.into_object()).collect())
+    }
+}
 
 impl<T> FromArgs for Args<T>
 where

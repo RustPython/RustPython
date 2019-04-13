@@ -1,3 +1,6 @@
+__name__ = "class"
+
+
 class Foo:
     def __init__(self, x):
         assert x == 5
@@ -14,7 +17,12 @@ foo = Foo(5)
 assert foo.y == Foo.y
 assert foo.x == 5
 assert foo.square() == 25
-
+assert Foo.__name__ == "Foo"
+assert Foo.__qualname__ == "Foo"
+assert Foo.__module__ == "class"
+assert Foo.square.__name__ == "square"
+assert Foo.square.__qualname__ == "Foo.square"
+assert Foo.square.__module__ == "class"
 
 class Bar:
     """ W00t """
