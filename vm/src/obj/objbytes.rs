@@ -62,13 +62,13 @@ pub fn init(context: &PyContext) {
     PyBytesRef::extend_class(context, &context.bytes_type);
     let bytes_type = &context.bytes_type;
     extend_class!(context, bytes_type, {
-"fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
-});
+    "fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
+    });
     let bytesiterator_type = &context.bytesiterator_type;
     extend_class!(context, bytesiterator_type, {
-"__next__" => context.new_rustfunc(PyBytesIteratorRef::next),
-"__iter__" => context.new_rustfunc(PyBytesIteratorRef::iter),
-});
+    "__next__" => context.new_rustfunc(PyBytesIteratorRef::next),
+    "__iter__" => context.new_rustfunc(PyBytesIteratorRef::iter),
+    });
 }
 
 #[pyimpl(__inside_vm)]
