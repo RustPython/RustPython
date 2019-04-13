@@ -63,7 +63,7 @@ fn slice_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         step: step.map(|x| objint::get_value(x).clone()),
     }
     .into_ref_with_type(vm, cls.clone().downcast().unwrap())
-    .map(|x| x.into_object())
+    .map(PyRef::into_object)
 }
 
 fn get_property_value(vm: &VirtualMachine, value: &Option<BigInt>) -> PyObjectRef {

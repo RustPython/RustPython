@@ -356,8 +356,7 @@ impl PyByteInner {
             .collect::<Vec<char>>()
             .chunks(2)
             .map(|x| x.to_vec().iter().collect::<String>())
-            .map(|x| u8::from_str_radix(&x, 16))
-            .map(|x| x.unwrap())
+            .map(|x| u8::from_str_radix(&x, 16).unwrap())
             .collect::<Vec<u8>>())
     }
 

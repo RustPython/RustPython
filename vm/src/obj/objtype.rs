@@ -235,7 +235,7 @@ pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(args.args[1].class().into_object())
     } else if args.args.len() == 4 {
         let (typ, name, bases, dict) = args.bind(vm)?;
-        type_new_class(vm, typ, name, bases, dict).map(|x| x.into_object())
+        type_new_class(vm, typ, name, bases, dict).map(PyRef::into_object)
     } else {
         Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }

@@ -518,7 +518,7 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
         f @ PyFloat => Ok(f.to_f64().to_bigint().unwrap()),
         s @ PyString => {
             i32::from_str_radix(s.as_str(), base)
-                .map(|i| BigInt::from(i))
+                .map(BigInt::from)
                 .map_err(|_|vm.new_value_error(format!(
                     "invalid literal for int() with base {}: '{}'",
                     base, s

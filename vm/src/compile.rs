@@ -871,8 +871,8 @@ impl Compiler {
         vals: &[ast::Expression],
         ops: &[ast::Comparison],
     ) -> Result<(), CompileError> {
-        assert!(ops.len() > 0);
-        assert!(vals.len() == ops.len() + 1);
+        assert!(!ops.is_empty());
+        assert_eq!(vals.len(), ops.len() + 1);
 
         let to_operator = |op: &ast::Comparison| match op {
             ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
