@@ -7,7 +7,7 @@ use std::ops::Deref;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
-use super::objbyteinner::PyByteInner;
+use super::objbyteinner::{is_byte, PyByteInner};
 use super::objiter;
 use super::objslice::PySlice;
 use super::objtype::PyClassRef;
@@ -33,6 +33,10 @@ impl PyBytes {
         PyBytes {
             inner: PyByteInner { elements },
         }
+    }
+
+    pub fn get_value(&self) -> &[u8] {
+        &self.inner.elements
     }
 }
 
@@ -209,6 +213,11 @@ impl PyBytesRef {
         Ok(vm.ctx.new_bytes(self.inner.upper(vm)))
     }
 
+    #[pymethod(name = "capitalize")]
+    fn capitalize(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.capitalize(vm)))
+    }
+
     #[pymethod(name = "hex")]
     fn hex(self, vm: &VirtualMachine) -> PyResult {
         self.inner.hex(vm)
@@ -222,6 +231,42 @@ impl PyBytesRef {
         Ok(x) => Ok(vm.ctx.new_bytes(x)),
         Err(y) => Err(y)}},
         obj => Err(vm.new_type_error(format!("fromhex() argument must be str, not {}", obj )))
+        )
+    }
+
+    #[pymethod(name = "center")]
+    fn center(
+        self,
+        width: PyObjectRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let sym = if let OptionalArg::Present(v) = fillbyte {
+            match is_byte(&v) {
+                Some(x) => {
+                    if x.len() == 1 {
+                        x[0]
+                    } else {
+                        return Err(vm.new_type_error(format!(
+                            "center() argument 2 must be a byte string of length 1, not {}",
+                            &v
+                        )));
+                    }
+                }
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "center() argument 2 must be a byte string of length 1, not {}",
+                        &v
+                    )));
+                }
+            }
+        } else {
+            32 // default is space
+        };
+
+        match_class!(width,
+        i @PyInt => Ok(vm.ctx.new_bytes(self.inner.center(i.as_bigint(), sym, vm))),
+        obj => {Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)))}
         )
     }
 }

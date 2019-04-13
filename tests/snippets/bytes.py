@@ -109,11 +109,14 @@ assert not bytes(b"tuPpEr").isupper()
 assert bytes(b"Is Title Case").istitle()
 assert not bytes(b"is Not title casE").istitle()
 
-# upper lower
+# upper lower, capitalize
 l = bytes(b"lower")
 b = bytes(b"UPPER")
 assert l.lower().islower()
 assert b.upper().isupper()
+assert l.capitalize() == b"Lower"
+assert b.capitalize() == b"Upper"
+assert bytes().capitalize() == bytes()
 
 # hex from hex
 assert bytes([0, 1, 9, 23, 90, 234]).hex() == "000109175aea"
@@ -127,3 +130,31 @@ try:
     bytes.fromhex("6Z2")
 except ValueError as e:
     str(e) == "non-hexadecimal number found in fromhex() arg at position 1"
+
+# center
+assert [b"koki".center(i, b"|") for i in range(3, 10)] == [
+    b"koki",
+    b"koki",
+    b"|koki",
+    b"|koki|",
+    b"||koki|",
+    b"||koki||",
+    b"|||koki||",
+]
+
+assert [b"kok".center(i, b"|") for i in range(2, 10)] == [
+    b"kok",
+    b"kok",
+    b"kok|",
+    b"|kok|",
+    b"|kok||",
+    b"||kok||",
+    b"||kok|||",
+    b"|||kok|||",
+]
+b"kok".center(4) == b" kok"  # " test no arg"
+with assertRaises(TypeError):
+    b"b".center(2, "a")
+with assertRaises(TypeError):
+    b"b".center(2, b"ba")
+b"kok".center(5, bytearray(b"x"))
