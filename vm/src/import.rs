@@ -31,10 +31,7 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
         &compile::Mode::Exec,
         file_path.to_str().unwrap().to_string(),
     )
-    .map_err(|err| {
-        let syntax_error = vm.context().exceptions.syntax_error.clone();
-        vm.new_exception(syntax_error, format!("{}", err))
-    })?;
+    .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj);
 
     let attrs = vm.ctx.new_dict();

@@ -95,9 +95,7 @@ fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn io_base_flush(_zelf: PyObjectRef, _vm: &VirtualMachine) -> () {
-    ()
-}
+fn io_base_flush(_zelf: PyObjectRef, _vm: &VirtualMachine) {}
 
 fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None), (raw, None)]);

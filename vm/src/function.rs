@@ -286,7 +286,7 @@ pub struct Args<T = PyObjectRef>(Vec<T>);
 impl<T: PyValue> Args<PyRef<T>> {
     pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
-            .new_tuple(self.0.into_iter().map(|obj| obj.into_object()).collect())
+            .new_tuple(self.0.into_iter().map(PyRef::into_object).collect())
     }
 }
 

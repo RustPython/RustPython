@@ -11,10 +11,7 @@ pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) 
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)
         }
-        Err(err) => {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            Err(vm.new_exception(syntax_error, format!("{}", err)))
-        }
+        Err(err) => Err(vm.new_syntax_error(&err)),
     }
 }
 

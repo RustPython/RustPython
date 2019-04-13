@@ -9,9 +9,7 @@ fn rlock_acquire(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn rlock_release(_zelf: PyObjectRef, _vm: &VirtualMachine) -> () {
-    ()
-}
+fn rlock_release(_zelf: PyObjectRef, _vm: &VirtualMachine) {}
 
 fn get_ident(_vm: &VirtualMachine) -> u32 {
     1
