@@ -111,6 +111,17 @@ impl SymbolTableBuilder {
     }
 
     fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
+        self.register_name(&parameter.arg, SymbolRole::Assigned)
+    }
+
+    fn scan_parameters_annotations(&mut self, parameters: &[ast::Parameter]) -> SymbolTableResult {
+        for parameter in parameters {
+            self.scan_parameter_annotation(parameter)?;
+        }
+        Ok(())
+    }
+
+    fn scan_parameter_annotation(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
         if let Some(annotation) = &parameter.annotation {
             self.scan_expression(&annotation)?;
         }
@@ -394,7 +405,19 @@ impl SymbolTableBuilder {
             }
         }
 
+        // Annotations are scanned in outer scope:
+        self.scan_parameters_annotations(&args.args)?;
+        self.scan_parameters_annotations(&args.kwonlyargs)?;
+        if let ast::Varargs::Named(name) = &args.vararg {
+            self.scan_parameter_annotation(name)?;
+        }
+        if let ast::Varargs::Named(name) = &args.kwarg {
+            self.scan_parameter_annotation(name)?;
+        }
+
         self.enter_scope();
+
+        // Fill scope with parameter names:
         self.scan_parameters(&args.args)?;
         self.scan_parameters(&args.kwonlyargs)?;
         if let ast::Varargs::Named(name) = &args.vararg {

@@ -129,6 +129,8 @@ pub trait NameProtocol {
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn delete_name(&self, vm: &VirtualMachine, name: &str);
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
 }
 
 impl NameProtocol for Scope {
@@ -161,6 +163,14 @@ impl NameProtocol for Scope {
 
     fn delete_name(&self, vm: &VirtualMachine, key: &str) {
         self.get_locals().del_item(key, vm).unwrap();
+    }
+
+    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+        self.globals.get_item_option(name, vm).unwrap()
+    }
+
+    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+        self.globals.set_item(name, value, vm).unwrap();
     }
 }
 
@@ -994,12 +1004,12 @@ impl Frame {
         &self,
         vm: &VirtualMachine,
         name: &str,
-        scope: &bytecode::NameScope,
+        name_scope: &bytecode::NameScope,
     ) -> FrameResult {
         let obj = self.pop_value();
-        match scope {
+        match name_scope {
             bytecode::NameScope::Global => {
-                self.scope.globals.set_item(name, obj, vm)?;
+                self.scope.store_global(vm, name, obj);
             }
             bytecode::NameScope::Local => {
                 self.scope.store_name(&vm, name, obj);
@@ -1017,19 +1027,21 @@ impl Frame {
         &self,
         vm: &VirtualMachine,
         name: &str,
-        scope: &bytecode::NameScope,
+        name_scope: &bytecode::NameScope,
     ) -> FrameResult {
-        let value = match scope {
-            bytecode::NameScope::Global => self.scope.globals.get_item(name, vm)?,
-            bytecode::NameScope::Local => match self.scope.load_name(&vm, name) {
-                Some(value) => value,
-                None => {
-                    let name_error_type = vm.ctx.exceptions.name_error.clone();
-                    let msg = format!("name '{}' is not defined", name);
-                    let name_error = vm.new_exception(name_error_type, msg);
-                    return Err(name_error);
-                }
-            },
+        let optional_value = match name_scope {
+            bytecode::NameScope::Global => self.scope.load_global(vm, name),
+            bytecode::NameScope::Local => self.scope.load_name(&vm, name),
+        };
+
+        let value = match optional_value {
+            Some(value) => value,
+            None => {
+                let name_error_type = vm.ctx.exceptions.name_error.clone();
+                let msg = format!("name '{}' is not defined", name);
+                let name_error = vm.new_exception(name_error_type, msg);
+                return Err(name_error);
+            }
         };
 
         self.push_value(value);
