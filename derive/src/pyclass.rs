@@ -16,11 +16,11 @@ enum ClassItem {
     },
 }
 
-fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
+fn meta_to_vec(meta: Meta) -> Option<Vec<NestedMeta>> {
     match meta {
-        Meta::Word(_) => Ok(Vec::new()),
-        Meta::List(list) => Ok(list.nested.into_iter().collect()),
-        Meta::NameValue(_) => Err(meta),
+        Meta::Word(_) => Some(Vec::new()),
+        Meta::List(list) => Some(list.nested.into_iter().collect()),
+        Meta::NameValue(_) => None,
     }
 }
 
