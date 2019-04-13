@@ -109,11 +109,14 @@ assert not bytes(b"tuPpEr").isupper()
 assert bytes(b"Is Title Case").istitle()
 assert not bytes(b"is Not title casE").istitle()
 
-# upper lower
+# upper lower, capitalize
 l = bytes(b"lower")
 b = bytes(b"UPPER")
 assert l.lower().islower()
 assert b.upper().isupper()
+assert l.capitalize() == b"Lower"
+assert b.capitalize() == b"Upper"
+assert bytes().capitalize() == bytes()
 
 # hex from hex
 assert bytes([0, 1, 9, 23, 90, 234]).hex() == "000109175aea"
@@ -127,3 +130,4 @@ try:
     bytes.fromhex("6Z2")
 except ValueError as e:
     str(e) == "non-hexadecimal number found in fromhex() arg at position 1"
+

@@ -305,6 +305,15 @@ impl PyByteInner {
         self.elements.to_ascii_uppercase()
     }
 
+    pub fn capitalize(&self, _vm: &VirtualMachine) -> Vec<u8> {
+        let mut new: Vec<u8> = Vec::new();
+        if let Some((first, second)) = self.elements.split_first() {
+            new.push(first.to_ascii_uppercase());
+            second.iter().for_each(|x| new.push(x.to_ascii_lowercase()));
+        }
+        new
+    }
+
     pub fn hex(&self, vm: &VirtualMachine) -> PyResult {
         let bla = self
             .elements
