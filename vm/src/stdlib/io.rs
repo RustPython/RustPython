@@ -95,6 +95,9 @@ fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+// TODO Check if closed, then if so raise ValueError
+fn io_base_flush(_zelf: PyObjectRef, _vm: &VirtualMachine) {}
+
 fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
     vm.set_attr(buffered, "raw", raw.clone())?;
@@ -369,7 +372,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     //IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "IOBase", ctx.object(), {
         "__enter__" => ctx.new_rustfunc(io_base_cm_enter),
-        "__exit__" => ctx.new_rustfunc(io_base_cm_exit)
+        "__exit__" => ctx.new_rustfunc(io_base_cm_exit),
+        "flush" => ctx.new_rustfunc(io_base_flush)
     });
 
     // IOBase Subclasses

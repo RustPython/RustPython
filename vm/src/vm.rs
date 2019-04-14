@@ -234,6 +234,11 @@ impl VirtualMachine {
         self.new_exception(overflow_error, msg)
     }
 
+    pub fn new_syntax_error<T: ToString>(&self, msg: &T) -> PyObjectRef {
+        let syntax_error = self.ctx.exceptions.syntax_error.clone();
+        self.new_exception(syntax_error, msg.to_string())
+    }
+
     pub fn get_none(&self) -> PyObjectRef {
         self.ctx.none()
     }

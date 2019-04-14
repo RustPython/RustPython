@@ -31,6 +31,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     py_module!(vm, "types", {
         "new_class" => ctx.new_rustfunc(types_new_class),
         "FunctionType" => ctx.function_type(),
+        "MethodType" => ctx.bound_method_type(),
         "LambdaType" => ctx.function_type(),
         "CodeType" => ctx.code_type(),
         "FrameType" => ctx.frame_type()
