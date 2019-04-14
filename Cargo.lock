@@ -827,6 +827,7 @@ dependencies = [
  "serde_derive 1.0.89 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.39 (registry+https://github.com/rust-lang/crates.io-index)",
  "statrs 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "unicode-casing 0.1.0 (git+https://github.com/OddCoincidence/unicode-casing)",
  "unicode-segmentation 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1101,6 +1102,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "unic-common 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "unicode-casing"
+version = "0.1.0"
+source = "git+https://github.com/OddCoincidence/unicode-casing#90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb"
 
 [[package]]
 name = "unicode-normalization"
@@ -1431,6 +1437,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum unic-common 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "80d7ff825a6a654ee85a63e80f92f054f904f21e7d12da4e22f9834a4aaa35bc"
 "checksum unic-emoji-char 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "0b07221e68897210270a38bde4babb655869637af0f69407f96053a34f76494d"
 "checksum unic-ucd-version 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "96bd2f2237fe450fcd0a1d2f5f4e91711124f7857ba2e964247776ebeeb7b0c4"
+"checksum unicode-casing 0.1.0 (git+https://github.com/OddCoincidence/unicode-casing)" = "<none>"
 "checksum unicode-normalization 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)" = "141339a08b982d942be2ca06ff8b076563cbe223d1befd5450716790d44e2426"
 "checksum unicode-segmentation 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "aa6024fc12ddfd1c6dbc14a80fa2324d4568849869b779f6bd37e5e4c03344d1"
 "checksum unicode-width 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)" = "882386231c45df4700b275c7ff55b6f3698780a650026380e72dabe76fa46526"

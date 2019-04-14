@@ -5,6 +5,7 @@ use std::str::FromStr;
 use std::string::ToString;
 
 use num_traits::ToPrimitive;
+use unicode_casing::CharExt;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
@@ -413,12 +414,12 @@ impl PyString {
         for c in self.value.chars() {
             if c.is_lowercase() {
                 if !previous_is_cased {
-                    title.extend(c.to_uppercase());
+                    title.extend(c.to_titlecase());
                 } else {
                     title.push(c);
                 }
                 previous_is_cased = true;
-            } else if c.is_uppercase() {
+            } else if c.is_uppercase() || c.is_titlecase() {
                 if previous_is_cased {
                     title.extend(c.to_lowercase());
                 } else {
@@ -652,7 +653,7 @@ impl PyString {
         let mut cased = false;
         let mut previous_is_cased = false;
         for c in self.value.chars() {
-            if c.is_uppercase() {
+            if c.is_uppercase() || c.is_titlecase() {
                 if previous_is_cased {
                     return false;
                 }
@@ -1050,6 +1051,7 @@ mod tests {
             ("Format,This-As*Title;String", "fOrMaT,thIs-aS*titLe;String"),
             ("Getint", "getInt"),
             ("Greek Ωppercases ...", "greek ωppercases ..."),
+            ("Greek ῼitlecases ...", "greek ῳitlecases ..."),
         ];
         for (title, input) in tests {
             assert_eq!(PyString::from(input).title(&vm).as_str(), title);
@@ -1066,6 +1068,7 @@ mod tests {
             "A\nTitlecased Line",
             "A Titlecased, Line",
             "Greek Ωppercases ...",
+            "Greek ῼitlecases ...",
         ];
 
         for s in pos {
