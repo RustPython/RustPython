@@ -24,7 +24,7 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
     let file_path = find_source(vm, current_path, module)
         .map_err(|e| vm.new_exception(notfound_error.clone(), e))?;
     let source = util::read_file(file_path.as_path())
-        .map_err(|e| vm.new_exception(import_error.clone(), format!("{}", e)))?;
+        .map_err(|e| vm.new_exception(import_error.clone(), e.to_string()))?;
     let code_obj = compile::compile(
         vm,
         &source,
