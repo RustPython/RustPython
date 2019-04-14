@@ -20,6 +20,7 @@ use num_traits::ToPrimitive;
 use super::objbytearray::{get_value as get_value_bytearray, PyByteArray};
 use super::objbytes::PyBytes;
 use super::objmemory::PyMemoryView;
+use super::objnone::PyNone;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyByteInner {
@@ -388,21 +389,52 @@ impl PyByteInner {
         res
     }
 
-    pub fn count(&self, sub: Vec<u8>) -> usize {
+    pub fn count(
+        &self,
+        sub: Vec<u8>,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Result<usize, PyObjectRef> {
+        let start = if let OptionalArg::Present(st) = start {
+            match_class!(st,
+            i @ PyInt => {Some(i.as_bigint().clone())},
+            _obj @ PyNone => None,
+            _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
+            )
+        } else {
+            None
+        };
+        let end = if let OptionalArg::Present(e) = end {
+            match_class!(e,
+            i @ PyInt => {Some(i.as_bigint().clone())},
+            _obj @ PyNone => None,
+            _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
+            )
+        } else {
+            None
+        };
+
+        let range = self.elements.get_slice_range(&start, &end);
+
         if sub.is_empty() {
-            return self.len() + 1;
+            return Ok(self.len() + 1);
         }
 
         let mut total: usize = 0;
-        for (n, i) in self.elements.iter().enumerate() {
-            if n + sub.len() <= self.len()
-                && *i == sub[0]
-                && &self.elements[n..n + sub.len()] == sub.as_slice()
+        let mut i_start = range.start;
+        let i_end = range.end;
+
+        for i in self.elements.do_slice(range) {
+            if i_start + sub.len() <= i_end
+                && i == sub[0]
+                && &self.elements[i_start..(i_start + sub.len())] == sub.as_slice()
             {
                 total += 1;
             }
+            i_start += 1;
         }
-        total
+        Ok(total)
     }
 }
 
@@ -422,3 +454,14 @@ pub fn is_bytes_like(obj: &PyObjectRef) -> Option<Vec<u8>> {
     k @ PyMemoryView => Some(k.get_obj_value().unwrap()),
     _ => None)
 }
+
+pub trait IsByte: ToPrimitive {
+    fn is_byte(&self, vm: &VirtualMachine) -> Result<u8, PyObjectRef> {
+        match self.to_u8() {
+            Some(value) => Ok(value),
+            None => Err(vm.new_value_error("byte must be in range(0, 256)".to_string())),
+        }
+    }
+}
+
+impl IsByte for BigInt {}

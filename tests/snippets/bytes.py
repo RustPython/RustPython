@@ -170,3 +170,14 @@ assert b"azeazerazeazopia".count(b"a") == 5
 assert b"123456789".count(b"") == 10
 assert b"azeazerazeazopia".count(bytearray(b"aze")) == 3
 assert b"azeazerazeazopia".count(memoryview(b"aze")) == 3
+assert b"azeazerazeazopia".count(memoryview(b"aze"),1,9 ) == 1
+assert b"azeazerazeazopia".count(b"aze", None, None) == 3
+assert b"azeazerazeazopia".count(b"aze", 2, None) == 2
+assert b"azeazerazeazopia".count(b"aze", 2) == 2
+assert b"azeazerazeazopia".count(b"aze", None, 7) == 2
+assert b"azeazerazeazopia".count(b"aze", None, 7) == 2
+assert b"azeazerazeazopia".count(b"aze", 2, 7) == 1
+assert b"azeazerazeazopia".count(b"aze", -13, -10) == 1
+assert b"azeazerazeazopia".count(b"aze", 1, 10000) == 2
+with assertRaises(ValueError):
+    b"ilj".count(355)
