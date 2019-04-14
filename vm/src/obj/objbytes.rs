@@ -5,13 +5,12 @@ use core::cell::Cell;
 use std::ops::Deref;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
 use super::objbyteinner::{is_byte, is_bytes_like, IsByte, PyByteInner};
 use super::objiter;
 use super::objslice::PySlice;
 use super::objtype::PyClassRef;
-
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
 /// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
@@ -285,6 +284,11 @@ impl PyBytesRef {
                     Ok(vm.new_int(self.inner.count(vec![i.as_bigint().is_byte(vm)?], start, end, vm)?))},
                 obj => {Err(vm.new_type_error(format!("argument should be integer or bytes-like object, not {}", obj)))}),
         }
+    }
+
+    #[pymethod(name = "join")]
+    fn join(self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+        self.inner.join(iter, vm)
     }
 }
 
