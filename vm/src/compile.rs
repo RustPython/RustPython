@@ -10,12 +10,14 @@ use crate::error::CompileError;
 use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::pyobject::PyValue;
+use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolRole, SymbolScope};
 use crate::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
+    scope_stack: Vec<SymbolScope>,
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
@@ -38,15 +40,18 @@ pub fn compile(
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
-            compiler.compile_program(&ast)
+            let symbol_table = make_symbol_table(&ast);
+            compiler.compile_program(&ast, symbol_table)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source).map_err(CompileError::Parse)?;
-            compiler.compile_statement_eval(&statement)
+            let symbol_table = statements_to_symbol_table(&statement);
+            compiler.compile_statement_eval(&statement, symbol_table)
         }
         Mode::Single => {
             let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
-            compiler.compile_program_single(&ast)
+            let symbol_table = make_symbol_table(&ast);
+            compiler.compile_program_single(&ast, symbol_table)
         }
     }?;
 
@@ -73,6 +78,7 @@ impl Compiler {
     fn new() -> Self {
         Compiler {
             code_object_stack: Vec::new(),
+            scope_stack: Vec::new(),
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
@@ -96,11 +102,17 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
+        // self.scope_stack.pop().unwrap();
         self.code_object_stack.pop().unwrap()
     }
 
-    fn compile_program(&mut self, program: &ast::Program) -> Result<(), CompileError> {
+    fn compile_program(
+        &mut self,
+        program: &ast::Program,
+        symbol_scope: SymbolScope,
+    ) -> Result<(), CompileError> {
         let size_before = self.code_object_stack.len();
+        self.scope_stack.push(symbol_scope);
         self.compile_statements(&program.statements)?;
         assert!(self.code_object_stack.len() == size_before);
 
@@ -112,7 +124,12 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_program_single(&mut self, program: &ast::Program) -> Result<(), CompileError> {
+    fn compile_program_single(
+        &mut self,
+        program: &ast::Program,
+        symbol_scope: SymbolScope,
+    ) -> Result<(), CompileError> {
+        self.scope_stack.push(symbol_scope);
         for statement in &program.statements {
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
@@ -132,7 +149,9 @@ impl Compiler {
     fn compile_statement_eval(
         &mut self,
         statements: &[ast::LocatedStatement],
+        symbol_table: SymbolScope,
     ) -> Result<(), CompileError> {
+        self.scope_stack.push(symbol_table);
         for statement in statements {
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
@@ -152,6 +171,31 @@ impl Compiler {
             self.compile_statement(statement)?
         }
         Ok(())
+    }
+
+    fn scope_for_name(&self, name: &str) -> bytecode::NameScope {
+        let role = self.lookup_name(name);
+        match role {
+            SymbolRole::Global => bytecode::NameScope::Global,
+            _ => bytecode::NameScope::Local,
+        }
+    }
+
+    fn load_name(&mut self, name: &str) {
+        // TODO: if global, do something else!
+        let scope = self.scope_for_name(name);
+        self.emit(Instruction::LoadName {
+            name: name.to_string(),
+            scope,
+        });
+    }
+
+    fn store_name(&mut self, name: &str) {
+        let scope = self.scope_for_name(name);
+        self.emit(Instruction::StoreName {
+            name: name.to_string(),
+            scope,
+        });
     }
 
     fn compile_statement(&mut self, statement: &ast::LocatedStatement) -> Result<(), CompileError> {
@@ -177,15 +221,14 @@ impl Compiler {
                                 name: module.clone(),
                                 symbol: symbol.clone(),
                             });
-                            self.emit(Instruction::StoreName {
-                                name: match alias {
-                                    Some(alias) => alias.clone(),
-                                    None => match symbol {
-                                        Some(symbol) => symbol.clone(),
-                                        None => module.clone(),
-                                    },
+                            let name = match alias {
+                                Some(alias) => alias.clone(),
+                                None => match symbol {
+                                    Some(symbol) => symbol.clone(),
+                                    None => module.clone(),
                                 },
-                            });
+                            };
+                            self.store_name(&name);
                         }
                     }
                 }
@@ -196,11 +239,8 @@ impl Compiler {
                 // Pop result of stack, since we not use it:
                 self.emit(Instruction::Pop);
             }
-            ast::Statement::Global { names } => {
-                unimplemented!("global {:?}", names);
-            }
-            ast::Statement::Nonlocal { names } => {
-                unimplemented!("nonlocal {:?}", names);
+            ast::Statement::Global { .. } | ast::Statement::Nonlocal { .. } => {
+                // Handled during symbol table construction.
             }
             ast::Statement::If { test, body, orelse } => {
                 let end_label = self.new_label();
@@ -323,6 +363,7 @@ impl Compiler {
                 self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
                 self.emit(Instruction::LoadName {
                     name: String::from("AssertionError"),
+                    scope: bytecode::NameScope::Local,
                 });
                 match msg {
                     Some(e) => {
@@ -466,6 +507,7 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
+        self.enter_scope();
 
         let mut flags = bytecode::FunctionOpArg::empty();
         if have_defaults {
@@ -529,6 +571,7 @@ impl Compiler {
                 // Check exception type:
                 self.emit(Instruction::LoadName {
                     name: String::from("isinstance"),
+                    scope: bytecode::NameScope::Local,
                 });
                 self.emit(Instruction::Rotate { amount: 2 });
                 self.compile_expression(exc_type)?;
@@ -543,9 +586,7 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = &handler.name {
-                    self.emit(Instruction::StoreName {
-                        name: alias.clone(),
-                    });
+                    self.store_name(alias);
                 } else {
                     // Drop exception from top of stack:
                     self.emit(Instruction::Pop);
@@ -630,6 +671,7 @@ impl Compiler {
         });
         self.emit(Instruction::ReturnValue);
         let code = self.pop_code_object();
+        self.leave_scope();
 
         // Prepare type annotations:
         let mut num_annotations = 0;
@@ -683,9 +725,7 @@ impl Compiler {
         self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
-        self.emit(Instruction::StoreName {
-            name: name.to_string(),
-        });
+        self.store_name(name);
 
         self.current_qualified_path = old_qualified_path;
         self.in_loop = was_in_loop;
@@ -720,14 +760,17 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
+        self.enter_scope();
 
         let (new_body, doc_str) = get_doc(body);
 
         self.emit(Instruction::LoadName {
             name: "__name__".to_string(),
+            scope: bytecode::NameScope::Local,
         });
         self.emit(Instruction::StoreName {
             name: "__module__".to_string(),
+            scope: bytecode::NameScope::Local,
         });
         self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
@@ -736,6 +779,7 @@ impl Compiler {
         self.emit(Instruction::ReturnValue);
 
         let code = self.pop_code_object();
+        self.leave_scope();
 
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
@@ -794,9 +838,7 @@ impl Compiler {
         self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
-        self.emit(Instruction::StoreName {
-            name: name.to_string(),
-        });
+        self.store_name(name);
         self.current_qualified_path = old_qualified_path;
         self.in_loop = was_in_loop;
         Ok(())
@@ -942,9 +984,7 @@ impl Compiler {
     fn compile_store(&mut self, target: &ast::Expression) -> Result<(), CompileError> {
         match target {
             ast::Expression::Identifier { name } => {
-                self.emit(Instruction::StoreName {
-                    name: name.to_string(),
-                });
+                self.store_name(name);
             }
             ast::Expression::Subscript { a, b } => {
                 self.compile_expression(a)?;
@@ -1231,9 +1271,7 @@ impl Compiler {
                 });
             }
             ast::Expression::Identifier { name } => {
-                self.emit(Instruction::LoadName {
-                    name: name.to_string(),
-                });
+                self.load_name(name);
             }
             ast::Expression::Lambda { args, body } => {
                 let name = "<lambda>".to_string();
@@ -1242,6 +1280,7 @@ impl Compiler {
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
+                self.leave_scope();
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code {
                         code: Box::new(code),
@@ -1449,6 +1488,7 @@ impl Compiler {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
                     name: String::from(".0"),
+                    scope: bytecode::NameScope::Local,
                 });
             } else {
                 // Evaluate iterated item:
@@ -1588,6 +1628,26 @@ impl Compiler {
         Ok(())
     }
 
+    // Scope helpers:
+    fn enter_scope(&mut self) {
+        // println!("Enter scope {:?}", self.scope_stack);
+        // Enter first subscope!
+        let scope = self.scope_stack.last_mut().unwrap().sub_scopes.remove(0);
+        self.scope_stack.push(scope);
+    }
+
+    fn leave_scope(&mut self) {
+        // println!("Leave scope {:?}", self.scope_stack);
+        let scope = self.scope_stack.pop().unwrap();
+        assert!(scope.sub_scopes.is_empty());
+    }
+
+    fn lookup_name(&self, name: &str) -> &SymbolRole {
+        // println!("Looking up {:?}", name);
+        let scope = self.scope_stack.last().unwrap();
+        scope.lookup(name).unwrap()
+    }
+
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
         let location = self.current_source_location.clone();
@@ -1657,6 +1717,7 @@ mod tests {
     use crate::bytecode::CodeObject;
     use crate::bytecode::Constant::*;
     use crate::bytecode::Instruction::*;
+    use crate::symboltable::make_symbol_table;
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
@@ -1664,7 +1725,8 @@ mod tests {
         compiler.source_path = Some("source_path".to_string());
         compiler.push_new_code_object("<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
-        compiler.compile_program(&ast).unwrap();
+        let symbol_scope = make_symbol_table(&ast);
+        compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()
     }
 

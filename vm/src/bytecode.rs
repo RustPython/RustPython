@@ -38,6 +38,12 @@ bitflags! {
 
 pub type Label = usize;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum NameScope {
+    Local,
+    Global,
+}
+
 /// A Single bytecode instruction.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
@@ -50,9 +56,11 @@ pub enum Instruction {
     },
     LoadName {
         name: String,
+        scope: NameScope,
     },
     StoreName {
         name: String,
+        scope: NameScope,
     },
     DeleteName {
         name: String,
@@ -322,8 +330,8 @@ impl Instruction {
         match self {
             Import { name, symbol } => w!(Import, name, format!("{:?}", symbol)),
             ImportStar { name } => w!(ImportStar, name),
-            LoadName { name } => w!(LoadName, name),
-            StoreName { name } => w!(StoreName, name),
+            LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
+            StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
             DeleteName { name } => w!(DeleteName, name),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),

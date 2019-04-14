@@ -129,6 +129,8 @@ pub trait NameProtocol {
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn delete_name(&self, vm: &VirtualMachine, name: &str);
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
 }
 
 impl NameProtocol for Scope {
@@ -161,6 +163,14 @@ impl NameProtocol for Scope {
 
     fn delete_name(&self, vm: &VirtualMachine, key: &str) {
         self.get_locals().del_item(key, vm).unwrap();
+    }
+
+    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+        self.globals.get_item_option(name, vm).unwrap()
+    }
+
+    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+        self.globals.set_item(name, value, vm).unwrap();
     }
 }
 
@@ -326,8 +336,14 @@ impl Frame {
                 ref symbol,
             } => self.import(vm, name, symbol),
             bytecode::Instruction::ImportStar { ref name } => self.import_star(vm, name),
-            bytecode::Instruction::LoadName { ref name } => self.load_name(vm, name),
-            bytecode::Instruction::StoreName { ref name } => self.store_name(vm, name),
+            bytecode::Instruction::LoadName {
+                ref name,
+                ref scope,
+            } => self.load_name(vm, name, scope),
+            bytecode::Instruction::StoreName {
+                ref name,
+                ref scope,
+            } => self.store_name(vm, name, scope),
             bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
@@ -990,9 +1006,21 @@ impl Frame {
         vm.call_method(context_manager, "__exit__", args)
     }
 
-    fn store_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
+    fn store_name(
+        &self,
+        vm: &VirtualMachine,
+        name: &str,
+        name_scope: &bytecode::NameScope,
+    ) -> FrameResult {
         let obj = self.pop_value();
-        self.scope.store_name(&vm, name, obj);
+        match name_scope {
+            bytecode::NameScope::Global => {
+                self.scope.store_global(vm, name, obj);
+            }
+            bytecode::NameScope::Local => {
+                self.scope.store_name(&vm, name, obj);
+            }
+        }
         Ok(None)
     }
 
@@ -1001,19 +1029,29 @@ impl Frame {
         Ok(None)
     }
 
-    fn load_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
-        match self.scope.load_name(&vm, name) {
-            Some(value) => {
-                self.push_value(value);
-                Ok(None)
-            }
+    fn load_name(
+        &self,
+        vm: &VirtualMachine,
+        name: &str,
+        name_scope: &bytecode::NameScope,
+    ) -> FrameResult {
+        let optional_value = match name_scope {
+            bytecode::NameScope::Global => self.scope.load_global(vm, name),
+            bytecode::NameScope::Local => self.scope.load_name(&vm, name),
+        };
+
+        let value = match optional_value {
+            Some(value) => value,
             None => {
                 let name_error_type = vm.ctx.exceptions.name_error.clone();
                 let msg = format!("name '{}' is not defined", name);
                 let name_error = vm.new_exception(name_error_type, msg);
-                Err(name_error)
+                return Err(name_error);
             }
-        }
+        };
+
+        self.push_value(value);
+        Ok(None)
     }
 
     fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
