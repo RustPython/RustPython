@@ -9,7 +9,6 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 

@@ -20,7 +20,7 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {

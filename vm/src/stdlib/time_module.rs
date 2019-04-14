@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 fn time_sleep(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

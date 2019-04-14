@@ -4,7 +4,7 @@ use rand::distributions::{Distribution, Normal};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {

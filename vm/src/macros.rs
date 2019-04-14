@@ -9,7 +9,7 @@ macro_rules! replace_expr {
 
 #[macro_export]
 macro_rules! count_tts {
-    ($($tts:tt)*) => {0usize $(+ replace_expr!($tts 1usize))*};
+    ($($tts:tt)*) => {0usize $(+ $crate::replace_expr!($tts 1usize))*};
 }
 
 #[macro_export]
@@ -20,6 +20,8 @@ macro_rules! type_check {
             let arg = &$args.args[$arg_count];
 
             if !$crate::obj::objtype::isinstance(arg, &expected_type) {
+                use $crate::pyobject::TypeProtocol;
+
                 let arg_typ = arg.class();
                 let expected_type_name = $vm.to_pystr(&expected_type)?;
                 let actual_type = $vm.to_pystr(&arg_typ)?;
@@ -45,14 +47,14 @@ macro_rules! arg_check {
         }
     };
     ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*] ) => {
-        arg_check!($vm, $args, required=[$( ($arg_name, $arg_type) ),*], optional=[]);
+        $crate::arg_check!($vm, $args, required=[$( ($arg_name, $arg_type) ),*], optional=[]);
     };
     ( $vm: ident, $args:ident, required=[$( ($arg_name:ident, $arg_type:expr) ),*], optional=[$( ($optional_arg_name:ident, $optional_arg_type:expr) ),*] ) => {
         let mut arg_count = 0;
 
         // use macro magic to compile-time count number of required and optional arguments
-        let minimum_arg_count = count_tts!($($arg_name)*);
-        let maximum_arg_count = minimum_arg_count + count_tts!($($optional_arg_name)*);
+        let minimum_arg_count = $crate::count_tts!($($arg_name)*);
+        let maximum_arg_count = minimum_arg_count + $crate::count_tts!($($optional_arg_name)*);
 
         // verify that the number of given arguments is right
         if $args.args.len() < minimum_arg_count || $args.args.len() > maximum_arg_count {
@@ -72,7 +74,7 @@ macro_rules! arg_check {
         //  check if the type matches. If not, return with error
         //  assign the arg to a variable
         $(
-            type_check!($vm, $args, arg_count, $arg_name, $arg_type);
+            $crate::type_check!($vm, $args, arg_count, $arg_name, $arg_type);
             let $arg_name = &$args.args[arg_count];
             #[allow(unused_assignments)]
             {
@@ -85,7 +87,7 @@ macro_rules! arg_check {
         //  assign the arg to a variable
         $(
             let $optional_arg_name = if arg_count < $args.args.len() {
-                type_check!($vm, $args, arg_count, $optional_arg_name, $optional_arg_type);
+                $crate::type_check!($vm, $args, arg_count, $optional_arg_name, $optional_arg_type);
                 let ret = Some(&$args.args[arg_count]);
                 #[allow(unused_assignments)]
                 {
@@ -226,7 +228,7 @@ macro_rules! match_class {
     ($obj:expr, $binding:ident @ $class:ty => $expr:expr, $($rest:tt)*) => {
         match $obj.downcast::<$class>() {
             Ok($binding) => $expr,
-            Err(_obj) => match_class!(_obj, $($rest)*),
+            Err(_obj) => $crate::match_class!(_obj, $($rest)*),
         }
     };
 
@@ -236,7 +238,7 @@ macro_rules! match_class {
         if $obj.payload_is::<$class>() {
             $expr
         } else {
-            match_class!($obj, $($rest)*)
+            $crate::match_class!($obj, $($rest)*)
         }
     };
 }

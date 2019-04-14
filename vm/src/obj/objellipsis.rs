@@ -1,5 +1,5 @@
 use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyResult, TypeProtocol};
+use crate::pyobject::{PyContext, PyResult};
 use crate::vm::VirtualMachine;
 
 pub fn init(context: &PyContext) {
