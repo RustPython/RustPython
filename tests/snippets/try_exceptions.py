@@ -126,18 +126,14 @@ try:
 except ZeroDivisionError as ex:
     assert type(ex.__cause__) == NameError
 
-try:
+with assertRaises(NameError):
     try:
         raise NameError
     except:
         raise
-except NameError:
-    pass
 
-try:
+with assertRaises(RuntimeError):
     raise
-except RuntimeError:
-    pass
 
 context = None
 try:
