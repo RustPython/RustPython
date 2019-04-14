@@ -1,4 +1,4 @@
-use crate::pyobject::PyObjectRef;
+use crate::pyobject::{PyIterable, PyObjectRef};
 use num_bigint::BigInt;
 
 use crate::function::OptionalArg;
@@ -435,6 +435,25 @@ impl PyByteInner {
             i_start += 1;
         }
         Ok(total)
+    }
+
+    pub fn join(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+        let mut refs = vec![];
+        for (index, v) in iter.iter(vm)?.enumerate() {
+            let v = v?;
+            match is_bytes_like(&v) {
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "sequence item {}: expected a bytes-like object, {} found",
+                        index,
+                        &v.class().name,
+                    )));
+                }
+                Some(value) => refs.extend(value),
+            }
+        }
+
+        Ok(vm.ctx.new_bytes(refs))
     }
 }
 
