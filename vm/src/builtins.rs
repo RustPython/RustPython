@@ -102,10 +102,8 @@ fn builtin_compile(
         }
     };
 
-    compile::compile(vm, &source, &mode, filename.value.to_string()).map_err(|err| {
-        let syntax_error = vm.context().exceptions.syntax_error.clone();
-        vm.new_exception(syntax_error, err.to_string())
-    })
+    compile::compile(vm, &source, &mode, filename.value.to_string())
+        .map_err(|err| vm.new_syntax_error(&err))
 }
 
 fn builtin_delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -151,10 +149,8 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, "<string>".to_string()).map_err(|err| {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            vm.new_exception(syntax_error, err.to_string())
-        })?
+        compile::compile(vm, &source, &mode, "<string>".to_string())
+            .map_err(|err| vm.new_syntax_error(&err))?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
@@ -181,10 +177,8 @@ fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, "<string>".to_string()).map_err(|err| {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            vm.new_exception(syntax_error, err.to_string())
-        })?
+        compile::compile(vm, &source, &mode, "<string>".to_string())
+            .map_err(|err| vm.new_syntax_error(&err))?
     } else if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
         code_obj
     } else {
