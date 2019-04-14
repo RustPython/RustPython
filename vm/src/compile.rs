@@ -572,6 +572,7 @@ impl Compiler {
         self.emit(Instruction::Jump { target: else_label });
 
         // except handlers:
+        let was_in_exc_handler = self.in_exc_handler;
         self.in_exc_handler = true;
         self.set_label(handler_label);
         // Exception is on top of stack now
@@ -609,6 +610,8 @@ impl Compiler {
 
             // Handler code:
             self.compile_statements(&handler.body)?;
+            // Drop exception from top of stack:
+            self.emit(Instruction::Pop);
             self.emit(Instruction::Jump {
                 target: finally_label,
             });
@@ -621,9 +624,6 @@ impl Compiler {
             target: handler_label,
         });
         self.set_label(handler_label);
-        // Drop exception from top of stack:
-        self.emit(Instruction::Pop);
-        self.in_exc_handler = false;
         // If code flows here, we have an unhandled exception,
         // emit finally code and raise again!
         // Duplicate finally code here:
@@ -633,8 +633,8 @@ impl Compiler {
             self.compile_statements(statements)?;
         }
         self.emit(Instruction::Raise {
-            argc: 1,
-            in_exc: false,
+            argc: 0,
+            in_exc: true,
         });
 
         // We successfully ran the try block:
@@ -649,7 +649,7 @@ impl Compiler {
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
         }
-
+        self.in_exc_handler = was_in_exc_handler;
         // unimplemented!();
         Ok(())
     }

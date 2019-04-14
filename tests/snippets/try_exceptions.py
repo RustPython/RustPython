@@ -137,3 +137,8 @@ try:
     raise
 except RuntimeError:
     pass
+
+try:
+    raise ZeroDivisionError
+except ZeroDivisionError as ex:
+    assert ex.__context__ == None

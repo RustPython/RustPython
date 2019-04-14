@@ -716,23 +716,37 @@ impl Frame {
             }
 
             bytecode::Instruction::Raise { argc, in_exc } => {
-                if argc.clone() == 0 && in_exc.clone() == false {
-                    return Err(vm.new_exception(
-                        vm.ctx.exceptions.runtime_error.clone(),
-                        "No active exception to reraise".to_string(),
-                    ));
-                }
                 let cause = match argc {
                     2 => self.get_exception(vm, true)?,
                     _ => vm.get_none(),
                 };
                 let exception = match argc {
-                    0 | 1 | 2 => self.get_exception(vm, false)?,
+                    0 => match in_exc {
+                        true => self.get_exception(vm, false)?,
+                        false => {
+                            return Err(vm.new_exception(
+                                vm.ctx.exceptions.runtime_error.clone(),
+                                "No active exception to reraise".to_string(),
+                            ));
+                        }
+                    },
+                    1 | 2 => self.get_exception(vm, false)?,
                     3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                info!("Exception raised: {:?} with cause: {:?}", exception, cause);
+                let context = match argc {
+                    0 => vm.get_none(), // We have already got the exception,
+                    _ => match in_exc {
+                        true => self.get_exception(vm, false)?,
+                        false => vm.get_none(),
+                    },
+                };
+                info!(
+                    "Exception raised: {:?} with cause: {:?} and context: {:?}",
+                    exception, cause, context
+                );
                 vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
+                vm.set_attr(&exception, vm.new_str("__context__".to_string()), context)?;
                 Err(exception)
             }
 
