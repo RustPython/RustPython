@@ -43,6 +43,14 @@ impl PyString {
     }
 }
 
+impl From<&str> for PyString {
+    fn from(s: &str) -> PyString {
+        PyString {
+            value: s.to_string(),
+        }
+    }
+}
+
 pub type PyStringRef = PyRef<PyString>;
 
 impl fmt::Display for PyString {
@@ -396,9 +404,33 @@ impl PyString {
         }
     }
 
+    /// Return a titlecased version of the string where words start with an
+    /// uppercase character and the remaining characters are lowercase.
     #[pymethod]
     fn title(&self, _vm: &VirtualMachine) -> String {
-        make_title(&self.value)
+        let mut title = String::new();
+        let mut previous_is_cased = false;
+        for c in self.value.chars() {
+            if c.is_lowercase() {
+                if !previous_is_cased {
+                    title.extend(c.to_uppercase());
+                } else {
+                    title.push(c);
+                }
+                previous_is_cased = true;
+            } else if c.is_uppercase() {
+                if previous_is_cased {
+                    title.extend(c.to_lowercase());
+                } else {
+                    title.push(c);
+                }
+                previous_is_cased = true;
+            } else {
+                previous_is_cased = false;
+                title.push(c);
+            }
+        }
+        title
     }
 
     #[pymethod]
@@ -609,13 +641,34 @@ impl PyString {
         vm.ctx.new_tuple(new_tup)
     }
 
+    /// Return `true` if the sequence is ASCII titlecase and the sequence is not
+    /// empty, `false` otherwise.
     #[pymethod]
     fn istitle(&self, _vm: &VirtualMachine) -> bool {
         if self.value.is_empty() {
-            false
-        } else {
-            self.value.split(' ').all(|word| word == make_title(word))
+            return false;
         }
+
+        let mut cased = false;
+        let mut previous_is_cased = false;
+        for c in self.value.chars() {
+            if c.is_uppercase() {
+                if previous_is_cased {
+                    return false;
+                }
+                previous_is_cased = true;
+                cased = true;
+            } else if c.is_lowercase() {
+                if !previous_is_cased {
+                    return false;
+                }
+                previous_is_cased = true;
+                cased = true;
+            } else {
+                previous_is_cased = false;
+            }
+        }
+        cased
     }
 
     #[pymethod]
@@ -981,22 +1034,55 @@ fn adjust_indices(
     }
 }
 
-// helper function to title strings
-fn make_title(s: &str) -> String {
-    let mut titled_str = String::new();
-    let mut capitalize_char: bool = true;
-    for c in s.chars() {
-        if c.is_alphabetic() {
-            if !capitalize_char {
-                titled_str.push(c);
-            } else if capitalize_char {
-                titled_str.push(c.to_ascii_uppercase());
-                capitalize_char = false;
-            }
-        } else {
-            titled_str.push(c);
-            capitalize_char = true;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn str_title() {
+        let vm = VirtualMachine::new();
+
+        let tests = vec![
+            (" Hello ", " hello "),
+            ("Hello ", "hello "),
+            ("Hello ", "Hello "),
+            ("Format This As Title String", "fOrMaT thIs aS titLe String"),
+            ("Format,This-As*Title;String", "fOrMaT,thIs-aS*titLe;String"),
+            ("Getint", "getInt"),
+            ("Greek Ωppercases ...", "greek ωppercases ..."),
+        ];
+        for (title, input) in tests {
+            assert_eq!(PyString::from(input).title(&vm).as_str(), title);
         }
     }
-    titled_str
+
+    #[test]
+    fn str_istitle() {
+        let vm = VirtualMachine::new();
+
+        let pos = vec![
+            "A",
+            "A Titlecased Line",
+            "A\nTitlecased Line",
+            "A Titlecased, Line",
+            "Greek Ωppercases ...",
+        ];
+
+        for s in pos {
+            assert!(PyString::from(s).istitle(&vm));
+        }
+
+        let neg = vec![
+            "",
+            "a",
+            "\n",
+            "Not a capitalized String",
+            "Not\ta Titlecase String",
+            "Not--a Titlecase String",
+            "NOT",
+        ];
+        for s in neg {
+            assert!(!PyString::from(s).istitle(&vm));
+        }
+    }
 }
