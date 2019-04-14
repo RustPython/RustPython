@@ -20,10 +20,20 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // print excption chain
 pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
+    let mut had_casue = false;
     if let Ok(cause) = vm.get_attribute(exc.clone(), "__cause__") {
         if !vm.get_none().is(&cause) {
+            had_casue = true;
             print_exception(vm, &cause);
             println!("\nThe above exception was the direct cause of the following exception:\n");
+        }
+    }
+    if !had_casue {
+        if let Ok(context) = vm.get_attribute(exc.clone(), "__context__") {
+            if !vm.get_none().is(&context) {
+                print_exception(vm, &context);
+                println!("\nDuring handling of the above exception, another exception occurred:\n");
+            }
         }
     }
     print_exception_inner(vm, exc)
