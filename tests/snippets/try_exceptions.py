@@ -106,6 +106,7 @@ try:
         raise NameError from ex
 except NameError as ex2:
     assert ex2.__cause__ == cause
+    assert ex2.__context__ == cause
 
 try:
     raise ZeroDivisionError from None
@@ -138,7 +139,25 @@ try:
 except RuntimeError:
     pass
 
+context = None
+try:
+    try:
+        raise ZeroDivisionError
+    except ZeroDivisionError as ex:
+        assert ex.__context__ == None
+        context = ex
+        raise NameError
+except NameError as ex2:
+    assert ex2.__context__ == context
+    assert type(ex2.__context__) == ZeroDivisionError
+
 try:
     raise ZeroDivisionError
 except ZeroDivisionError as ex:
+    assert ex.__context__ == None
+
+try:
+    raise ZeroDivisionError from NameError
+except ZeroDivisionError as ex:
+    assert type(ex.__cause__) == NameError
     assert ex.__context__ == None
