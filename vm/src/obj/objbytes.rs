@@ -283,7 +283,7 @@ impl PyBytesRef {
             None => match_class!(sub,
                 i @ PyInt => {
                     Ok(vm.new_int(self.inner.count(vec![i.as_bigint().is_byte(vm)?], start, end, vm)?))},
-                obj => {Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj)))}),
+                obj => {Err(vm.new_type_error(format!("argument should be integer or bytes-like object, not {}", obj)))}),
         }
     }
 }
