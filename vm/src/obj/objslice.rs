@@ -1,7 +1,7 @@
 use num_bigint::BigInt;
 
 use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint;

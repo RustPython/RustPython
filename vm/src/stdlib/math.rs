@@ -8,7 +8,7 @@ use statrs::function::gamma::{gamma, ln_gamma};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 // Helper macro:

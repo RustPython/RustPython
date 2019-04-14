@@ -4,7 +4,7 @@ use std::{env, mem};
 use crate::frame::FrameRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 /*

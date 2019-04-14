@@ -10,7 +10,7 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objsequence::get_elements;
 use crate::obj::objstr;
-use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objtype::PyClassRef;

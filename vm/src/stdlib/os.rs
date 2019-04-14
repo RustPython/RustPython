@@ -12,7 +12,7 @@ use crate::obj::objint;
 use crate::obj::objint::PyIntRef;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
