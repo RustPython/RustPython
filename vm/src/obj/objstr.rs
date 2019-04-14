@@ -1038,7 +1038,7 @@ mod tests {
             ("Greek Ωppercases ...", "greek ωppercases ..."),
         ];
         for (title, input) in tests {
-            assert_eq!(PyString::from(input).title(&vm), String::from(title));
+            assert_eq!(PyString::from(input).title(&vm).as_str(), title);
         }
     }
 
