@@ -637,6 +637,8 @@ impl Compiler {
             in_exc: true,
         });
 
+        self.in_exc_handler = was_in_exc_handler;
+
         // We successfully ran the try block:
         // else:
         self.set_label(else_label);
@@ -649,7 +651,6 @@ impl Compiler {
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
         }
-        self.in_exc_handler = was_in_exc_handler;
         // unimplemented!();
         Ok(())
     }

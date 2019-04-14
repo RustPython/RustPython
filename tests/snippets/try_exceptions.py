@@ -161,3 +161,13 @@ try:
 except ZeroDivisionError as ex:
     assert type(ex.__cause__) == NameError
     assert ex.__context__ == None
+
+try:
+    try:
+        raise ZeroDivisionError
+    except ZeroDivisionError as ex:
+        pass
+    finally:
+        raise NameError
+except NameError as ex2:
+    assert ex2.__context__ == None
