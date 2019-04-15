@@ -19,8 +19,7 @@ pub type DictContentType = dictdatatype::Dict;
 
 #[derive(Default)]
 pub struct PyDict {
-    // TODO: should be private
-    pub entries: RefCell<DictContentType>,
+    entries: RefCell<DictContentType>,
 }
 pub type PyDictRef = PyRef<PyDict>;
 
