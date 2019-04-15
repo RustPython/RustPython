@@ -33,6 +33,12 @@ struct DictEntry<T> {
     value: T,
 }
 
+#[derive(Debug)]
+pub struct DictSize {
+    size: usize,
+    entries_size: usize,
+}
+
 impl<T: Clone> Dict<T> {
     pub fn new() -> Self {
         Dict {
@@ -120,15 +126,26 @@ impl<T: Clone> Dict<T> {
         self.len() == 0
     }
 
-    pub fn next_entry(&self, mut position: usize) -> Option<(usize, &PyObjectRef, &T)> {
-        while position < self.entries.len() {
-            if let Some(DictEntry { key, value, .. }) = &self.entries[position] {
-                return Some((position + 1, key, value));
-            } else {
-                position += 1;
+    pub fn size(&self) -> DictSize {
+        DictSize {
+            size: self.size,
+            entries_size: self.entries.len(),
+        }
+    }
+
+    pub fn next_entry(&self, position: &mut usize) -> Option<(&PyObjectRef, &T)> {
+        while *position < self.entries.len() {
+            if let Some(DictEntry { key, value, .. }) = &self.entries[*position] {
+                *position += 1;
+                return Some((key, value));
             }
+            *position += 1;
         }
         None
+    }
+
+    pub fn has_changed_size(&self, position: &DictSize) -> bool {
+        position.size != self.size || self.entries.len() != position.entries_size
     }
 
     /// Lookup the index for the given key.
