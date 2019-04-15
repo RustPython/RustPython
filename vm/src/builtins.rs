@@ -751,6 +751,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "NameError" => ctx.exceptions.name_error.clone(),
         "OverflowError" => ctx.exceptions.overflow_error.clone(),
         "RuntimeError" => ctx.exceptions.runtime_error.clone(),
+        "ReferenceError" => ctx.exceptions.reference_error.clone(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
         "TypeError" => ctx.exceptions.type_error.clone(),
         "ValueError" => ctx.exceptions.value_error.clone(),
