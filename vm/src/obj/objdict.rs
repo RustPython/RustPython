@@ -327,13 +327,13 @@ impl Iterator for DictIter {
 
 macro_rules! dict_iterator {
     ( $name: ident, $iter_name: ident, $class: ident, $iter_class: ident, $class_name: literal, $iter_class_name: literal, $result_fn: expr) => {
-        #[pyclass(name = $class_name, __inside_vm)]
+        #[pyclass(name = $class_name)]
         #[derive(Debug)]
         struct $name {
             pub dict: PyDictRef,
         }
 
-        #[pyimpl(__inside_vm)]
+        #[pyimpl]
         impl $name {
             fn new(dict: PyDictRef) -> Self {
                 $name { dict: dict }
@@ -356,7 +356,7 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyclass(name = $iter_class_name, __inside_vm)]
+        #[pyclass(name = $iter_class_name)]
         #[derive(Debug)]
         struct $iter_name {
             pub dict: PyDictRef,
@@ -364,7 +364,7 @@ macro_rules! dict_iterator {
             pub position: Cell<usize>,
         }
 
-        #[pyimpl(__inside_vm)]
+        #[pyimpl]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {

@@ -1,4 +1,3 @@
-use super::rustpython_path_attr;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use std::collections::HashMap;
@@ -138,14 +137,12 @@ impl ClassItem {
     }
 }
 
-pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
+pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> TokenStream2 {
     let mut imp = if let Item::Impl(imp) = item {
         imp
     } else {
         return quote!(#item);
     };
-
-    let rp_path = rustpython_path_attr(&attr);
 
     let items = imp
         .items
@@ -199,7 +196,7 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
         quote! {
             class.set_str_attr(
                 #name,
-                #rp_path::obj::objproperty::PropertyBuilder::new(ctx)
+                ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
                     .add_getter(Self::#getter)
                     #add_setter
                     .create(),
@@ -209,10 +206,10 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
 
     quote! {
         #imp
-        impl #rp_path::pyobject::PyClassImpl for #ty {
+        impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
             fn impl_extend_class(
-                ctx: &#rp_path::pyobject::PyContext,
-                class: &#rp_path::obj::objtype::PyClassRef,
+                ctx: &::rustpython_vm::pyobject::PyContext,
+                class: &::rustpython_vm::obj::objtype::PyClassRef,
             ) {
                 #(#methods)*
                 #(#properties)*
@@ -227,8 +224,6 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
         Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
         _ => panic!("#[pyclass] can only be on a struct or enum declaration"),
     };
-
-    let rp_path = rustpython_path_attr(&attr);
 
     let mut class_name = None;
     for attr in attr {
@@ -273,7 +268,7 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
 
     quote! {
         #item
-        impl #rp_path::pyobject::PyClassDef for #ident {
+        impl ::rustpython_vm::pyobject::PyClassDef for #ident {
             const NAME: &'static str = #class_name;
             const DOC: Option<&'static str> = #doc;
         }

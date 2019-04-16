@@ -1,4 +1,3 @@
-use super::rustpython_path_derive;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{Attribute, Data, DeriveInput, Expr, Field, Fields, Ident, Lit, Meta, NestedMeta};
@@ -109,7 +108,7 @@ impl ArgAttribute {
     }
 }
 
-fn generate_field(field: &Field, rp_path: &syn::Path) -> TokenStream2 {
+fn generate_field(field: &Field) -> TokenStream2 {
     let mut pyarg_attrs = field
         .attrs
         .iter()
@@ -132,7 +131,7 @@ fn generate_field(field: &Field, rp_path: &syn::Path) -> TokenStream2 {
 
     let name = &field.ident;
     let middle = quote! {
-        .map(|x| #rp_path::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
+        .map(|x| ::rustpython_vm::pyobject::TryFromObject::try_from_object(vm, x)).transpose()?
     };
     let ending = if let Some(default) = attr.default {
         quote! {
@@ -140,16 +139,16 @@ fn generate_field(field: &Field, rp_path: &syn::Path) -> TokenStream2 {
         }
     } else if attr.optional {
         quote! {
-            .map(#rp_path::function::OptionalArg::Present)
-            .unwrap_or(#rp_path::function::OptionalArg::Missing)
+            .map(::rustpython_vm::function::OptionalArg::Present)
+            .unwrap_or(::rustpython_vm::function::OptionalArg::Missing)
         }
     } else {
         let err = match attr.kind {
             ParameterKind::PositionalOnly | ParameterKind::PositionalOrKeyword => quote! {
-                #rp_path::function::ArgumentError::TooFewArgs
+                ::rustpython_vm::function::ArgumentError::TooFewArgs
             },
             ParameterKind::KeywordOnly => quote! {
-                #rp_path::function::ArgumentError::RequiredKeywordArgument(tringify!(#name))
+                ::rustpython_vm::function::ArgumentError::RequiredKeywordArgument(tringify!(#name))
             },
         };
         quote! {
@@ -177,14 +176,10 @@ fn generate_field(field: &Field, rp_path: &syn::Path) -> TokenStream2 {
 }
 
 pub fn impl_from_args(input: DeriveInput) -> TokenStream2 {
-    let rp_path = rustpython_path_derive(&input);
     let fields = match input.data {
         Data::Struct(ref data) => {
             match data.fields {
-                Fields::Named(ref fields) => fields
-                    .named
-                    .iter()
-                    .map(|field| generate_field(field, &rp_path)),
+                Fields::Named(ref fields) => fields.named.iter().map(generate_field),
                 Fields::Unnamed(_) | Fields::Unit => unimplemented!(), // TODO: better error message
             }
         }
@@ -193,11 +188,11 @@ pub fn impl_from_args(input: DeriveInput) -> TokenStream2 {
 
     let name = &input.ident;
     quote! {
-        impl #rp_path::function::FromArgs for #name {
+        impl ::rustpython_vm::function::FromArgs for #name {
             fn from_args(
-                vm: &#rp_path::VirtualMachine,
-                args: &mut #rp_path::function::PyFuncArgs
-            ) -> Result<Self, #rp_path::function::ArgumentError> {
+                vm: &::rustpython_vm::VirtualMachine,
+                args: &mut ::rustpython_vm::function::PyFuncArgs
+            ) -> Result<Self, ::rustpython_vm::function::ArgumentError> {
                 Ok(#name { #(#fields)* })
             }
         }
