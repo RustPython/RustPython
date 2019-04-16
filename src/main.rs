@@ -65,11 +65,8 @@ fn main() {
 }
 
 fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResult {
-    let code_obj =
-        compile::compile(vm, source, &compile::Mode::Exec, source_path).map_err(|err| {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            vm.new_exception(syntax_error, err.to_string())
-        })?;
+    let code_obj = compile::compile(vm, source, &compile::Mode::Exec, source_path)
+        .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj.borrow());
     let vars = vm.ctx.new_scope(); // Keep track of local variables
     vm.run_code_obj(code_obj, vars)
@@ -120,8 +117,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), Com
         // Don't inject syntax errors for line continuation
         Err(err @ CompileError::Parse(ParseError::EOF(_))) => Err(err),
         Err(err) => {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            let exc = vm.new_exception(syntax_error, format!("{}", err));
+            let exc = vm.new_syntax_error(&err);
             print_exception(vm, &exc);
             Err(err)
         }
