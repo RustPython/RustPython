@@ -9,7 +9,7 @@ use crate::vm::VirtualMachine;
 
 pub type PyGeneratorRef = PyRef<PyGenerator>;
 
-#[pyclass(name = "generator", __inside_vm)]
+#[pyclass(name = "generator")]
 #[derive(Debug)]
 pub struct PyGenerator {
     frame: FrameRef,
@@ -21,7 +21,7 @@ impl PyValue for PyGenerator {
     }
 }
 
-#[pyimpl(__inside_vm)]
+#[pyimpl]
 impl PyGenerator {
     pub fn new(frame: FrameRef, vm: &VirtualMachine) -> PyGeneratorRef {
         PyGenerator { frame }.into_ref(vm)
