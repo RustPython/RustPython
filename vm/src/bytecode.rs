@@ -41,6 +41,7 @@ pub type Label = usize;
 #[derive(Debug, Clone, PartialEq)]
 pub enum NameScope {
     Local,
+    NonLocal,
     Global,
 }
 
