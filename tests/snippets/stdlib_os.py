@@ -55,7 +55,6 @@ assert ENV_KEY not in os.environ
 assert os.getenv(ENV_KEY) == None
 
 if os.name == "posix":
-	os.environ[ENV_KEY] = ENV_VALUE
+	os.putenv(ENV_KEY, ENV_VALUE)
 	os.unsetenv(ENV_KEY)
-	assert ENV_KEY not in os.environ
 	assert os.getenv(ENV_KEY) == None
