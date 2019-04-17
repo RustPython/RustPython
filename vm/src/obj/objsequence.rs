@@ -65,14 +65,15 @@ pub trait PySliceableSequence {
     where
         Self: Sized,
     {
-        // TODO: we could potentially avoid this copy and use slice
-        match slice.payload() {
-            Some(PySlice { start, stop, step }) => {
-                let step = step.clone().unwrap_or_else(BigInt::one);
+        match slice.clone().downcast::<PySlice>() {
+            Ok(slice) => {
+                let start = slice.start_index(vm)?;
+                let stop = slice.stop_index(vm)?;
+                let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
                 if step.is_zero() {
                     Err(vm.new_value_error("slice step cannot be zero".to_string()))
                 } else if step.is_positive() {
-                    let range = self.get_slice_range(start, stop);
+                    let range = self.get_slice_range(&start, &stop);
                     if range.start < range.end {
                         #[allow(clippy::range_plus_one)]
                         match step.to_i32() {
