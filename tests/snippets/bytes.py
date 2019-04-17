@@ -162,7 +162,7 @@ with assertRaises(TypeError):
 with assertRaises(TypeError):
     b"b".center(2, b"ba")
 b"kok".center(5, bytearray(b"x"))
-b"kok".center(-5,)
+b"kok".center(-5)
 
 # count
 assert b"azeazerazeazopia".count(b"aze") == 3
@@ -191,3 +191,19 @@ assert (
 )
 with assertRaises(TypeError):
     b"".join((b"km", "kl"))
+
+
+# endswith startswith
+assert b"abcde".endswith(b"de")
+assert b"abcde".endswith(b"")
+assert not b"abcde".endswith(b"zx")
+assert b"abcde".endswith(b"bc", 0, 3)
+assert not b"abcde".endswith(b"bc", 2, 3)
+assert b"abcde".endswith((b"c", b"de"))
+
+assert b"abcde".startswith(b"ab")
+assert b"abcde".startswith(b"")
+assert not b"abcde".startswith(b"zx")
+assert b"abcde".startswith(b"cd", 2)
+assert not b"abcde".startswith(b"cd", 1, 4)
+assert b"abcde".startswith((b"a", b"bc"))

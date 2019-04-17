@@ -12,7 +12,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use super::objint;
-use super::objsequence::PySliceableSequence;
+use super::objtype;
+use super::objsequence::{PySliceableSequence, is_valid_slice_arg};
 use crate::obj::objint::PyInt;
 use num_integer::Integer;
 use num_traits::ToPrimitive;
@@ -21,6 +22,7 @@ use super::objbytearray::{get_value as get_value_bytearray, PyByteArray};
 use super::objbytes::PyBytes;
 use super::objmemory::PyMemoryView;
 use super::objnone::PyNone;
+use super::objsequence;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyByteInner {
@@ -494,6 +496,61 @@ impl PyByteInner {
         }
 
         Ok(vm.ctx.new_bytes(refs))
+    }
+
+    pub fn startsendswith(
+        &self,
+        arg: PyObjectRef,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        endswith: bool, // true for endswith, false for startswith
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let suff = if objtype::isinstance(&arg, &vm.ctx.tuple_type()) {
+            let mut flatten = vec![];
+            for v in objsequence::get_elements(&arg).to_vec() {
+                match try_as_bytes_like(&v) {
+                    None => {
+                        return Err(vm.new_type_error(format!(
+                            "a bytes-like object is required, not {}",
+                            &v.class().name,
+                        )));
+                    }
+                    Some(value) => flatten.extend(value),
+                }
+            }
+            flatten
+        } else {
+            match try_as_bytes_like(&arg) {
+                Some(value) => value,
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "endswith first arg must be bytes or a tuple of bytes, not {}",
+                        arg
+                    )));
+                }
+            }
+        };
+
+        if suff.is_empty() {
+            return Ok(vm.new_bool(true));
+        }
+        let range = self.elements.get_slice_range(
+            &is_valid_slice_arg(start, vm)?,
+            &is_valid_slice_arg(end, vm)?,
+        );
+
+        if range.end - range.start < suff.len() {
+            return Ok(vm.new_bool(false));
+        }
+
+        let offset = if endswith {
+            (range.end - suff.len())..range.end
+        } else {
+            0..suff.len()
+        };
+
+        Ok(vm.new_bool(suff.as_slice() == &self.elements.do_slice(range)[offset]))
     }
 }
 

@@ -258,6 +258,28 @@ impl PyBytesRef {
     fn join(self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
         self.inner.join(iter, vm)
     }
+
+    #[pymethod(name = "endswith")]
+    fn endswith(
+        self,
+        suffix: PyObjectRef,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.inner.startsendswith(suffix, start, end, true, vm)
+    }
+
+    #[pymethod(name = "startswith")]
+    fn startswith(
+        self,
+        suffix: PyObjectRef,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.inner.startsendswith(suffix, start, end, false, vm)
+    }
 }
 
 #[derive(Debug)]
