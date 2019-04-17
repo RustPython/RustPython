@@ -163,7 +163,7 @@ impl NameProtocol for Scope {
             .iter()
             .skip(1)
             .next()
-            .unwrap()
+            .expect("no outer scope for non-local")
             .set_item(name, value, vm)
             .unwrap();
     }
