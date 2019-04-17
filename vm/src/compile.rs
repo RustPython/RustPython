@@ -179,12 +179,12 @@ impl Compiler {
         let role = self.lookup_name(name);
         match role {
             SymbolRole::Global => bytecode::NameScope::Global,
+            SymbolRole::Nonlocal => bytecode::NameScope::NonLocal,
             _ => bytecode::NameScope::Local,
         }
     }
 
     fn load_name(&mut self, name: &str) {
-        // TODO: if global, do something else!
         let scope = self.scope_for_name(name);
         self.emit(Instruction::LoadName {
             name: name.to_string(),

@@ -126,6 +126,7 @@ pub trait NameProtocol {
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn delete_name(&self, vm: &VirtualMachine, name: &str);
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
 }
@@ -152,6 +153,16 @@ impl NameProtocol for Scope {
             }
         }
         None
+    }
+
+    fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+        self.locals
+            .iter()
+            .skip(1)
+            .next()
+            .expect("no outer scope for non-local")
+            .set_item(name, value, vm)
+            .unwrap();
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
@@ -1029,8 +1040,11 @@ impl Frame {
             bytecode::NameScope::Global => {
                 self.scope.store_global(vm, name, obj);
             }
+            bytecode::NameScope::NonLocal => {
+                self.scope.store_cell(vm, name, obj);
+            }
             bytecode::NameScope::Local => {
-                self.scope.store_name(&vm, name, obj);
+                self.scope.store_name(vm, name, obj);
             }
         }
         Ok(None)
@@ -1049,6 +1063,7 @@ impl Frame {
     ) -> FrameResult {
         let optional_value = match name_scope {
             bytecode::NameScope::Global => self.scope.load_global(vm, name),
+            bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name),
             bytecode::NameScope::Local => self.scope.load_name(&vm, name),
         };
 
