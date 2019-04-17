@@ -280,6 +280,32 @@ impl PyBytesRef {
     ) -> PyResult {
         self.inner.startsendswith(suffix, start, end, false, vm)
     }
+
+    #[pymethod(name = "find")]
+    fn find(
+        self,
+        sub: PyObjectRef,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(vm.new_int(self.inner.find(sub, start, end, vm)?))
+    }
+
+    #[pymethod(name = "index")]
+    fn index(
+        self,
+        sub: PyObjectRef,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let res = self.inner.find(sub, start, end, vm)?;
+        if res == -1 {
+            return Err(vm.new_value_error("substring not found".to_string()));
+        }
+        Ok(vm.new_int(res))
+    }
 }
 
 #[derive(Debug)]
