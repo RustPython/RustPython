@@ -9,7 +9,6 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objdict;
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objproperty::PropertyBuilder;
@@ -163,6 +162,13 @@ impl PyClassRef {
         Ok(())
     }
 
+    // This is used for class initialisation where the vm is not yet available.
+    pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
+        self.attributes
+            .borrow_mut()
+            .insert(attr_name.to_string(), value.into());
+    }
+
     fn subclasses(self, _vm: &VirtualMachine) -> PyList {
         let mut subclasses = self.subclasses.borrow_mut();
         subclasses.retain(|x| x.upgrade().is_some());
@@ -229,7 +235,7 @@ pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         Ok(args.args[1].class().into_object())
     } else if args.args.len() == 4 {
         let (typ, name, bases, dict) = args.bind(vm)?;
-        type_new_class(vm, typ, name, bases, dict).map(|x| x.into_object())
+        type_new_class(vm, typ, name, bases, dict).map(PyRef::into_object)
     } else {
         Err(vm.new_type_error(format!(": type_new: {:?}", args)))
     }
@@ -244,12 +250,7 @@ pub fn type_new_class(
 ) -> PyResult<PyClassRef> {
     let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
     bases.push(vm.ctx.object());
-    new(
-        typ.clone(),
-        &name.value,
-        bases,
-        objdict::py_dict_to_attributes(dict.as_object()),
-    )
+    new(typ.clone(), &name.value, bases, dict.to_attributes())
 }
 
 pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {

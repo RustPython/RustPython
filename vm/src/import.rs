@@ -2,20 +2,19 @@
  * Import mechanics
  */
 
-use std::error::Error;
 use std::path::PathBuf;
 
 use crate::compile;
 use crate::frame::Scope;
 use crate::obj::{objsequence, objstr};
-use crate::pyobject::{DictProtocol, PyResult};
+use crate::pyobject::{ItemProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
 fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &str) -> PyResult {
     // Check for Rust-native modules
     if let Some(module) = vm.stdlib_inits.borrow().get(module) {
-        return Ok(module(&vm.ctx).clone());
+        return Ok(module(vm).clone());
     }
 
     let notfound_error = vm.context().exceptions.module_not_found_error.clone();
@@ -25,21 +24,18 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
     let file_path = find_source(vm, current_path, module)
         .map_err(|e| vm.new_exception(notfound_error.clone(), e))?;
     let source = util::read_file(file_path.as_path())
-        .map_err(|e| vm.new_exception(import_error.clone(), e.description().to_string()))?;
+        .map_err(|e| vm.new_exception(import_error.clone(), e.to_string()))?;
     let code_obj = compile::compile(
         vm,
         &source,
         &compile::Mode::Exec,
         file_path.to_str().unwrap().to_string(),
     )
-    .map_err(|err| {
-        let syntax_error = vm.context().exceptions.syntax_error.clone();
-        vm.new_exception(syntax_error, err.description().to_string())
-    })?;
+    .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj);
 
     let attrs = vm.ctx.new_dict();
-    attrs.set_item(&vm.ctx, "__name__", vm.new_str(module.to_string()));
+    attrs.set_item("__name__", vm.new_str(module.to_string()), vm)?;
     vm.run_code_obj(code_obj, Scope::new(None, attrs.clone()))?;
     Ok(vm.ctx.new_module(module, attrs))
 }
@@ -47,11 +43,11 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
 pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
     // First, see if we already loaded the module:
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
-    if let Some(module) = sys_modules.get_item(module_name) {
+    if let Ok(module) = sys_modules.get_item(module_name.to_string(), vm) {
         return Ok(module);
     }
     let module = import_uncached_module(vm, current_path, module_name)?;
-    sys_modules.set_item(&vm.ctx, module_name, module.clone());
+    sys_modules.set_item(module_name, module.clone(), vm)?;
     Ok(module)
 }
 
@@ -64,12 +60,13 @@ fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result
 
     paths.insert(0, current_path);
 
+    let rel_name = name.replace('.', "/");
     let suffixes = [".py", "/__init__.py"];
     let mut file_paths = vec![];
     for path in paths {
         for suffix in suffixes.iter() {
             let mut file_path = path.clone();
-            file_path.push(format!("{}{}", name, suffix));
+            file_path.push(format!("{}{}", rel_name, suffix));
             file_paths.push(file_path);
         }
     }

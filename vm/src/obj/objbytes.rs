@@ -1,27 +1,42 @@
-use std::cell::Cell;
-use std::hash::{Hash, Hasher};
+use crate::obj::objint::PyInt;
+use crate::obj::objstr::PyString;
+use crate::vm::VirtualMachine;
+use core::cell::Cell;
 use std::ops::Deref;
 
-use num_traits::ToPrimitive;
+use crate::function::OptionalArg;
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{
-    PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
-use crate::vm::VirtualMachine;
+use super::objbyteinner::{is_byte, PyByteInner};
+use super::objiter;
+use super::objslice::PySlice;
+use super::objtype::PyClassRef;
 
-use super::objint;
-use super::objtype::{self, PyClassRef};
-
-#[derive(Debug)]
+/// "bytes(iterable_of_ints) -> bytes\n\
+/// bytes(string, encoding[, errors]) -> bytes\n\
+/// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
+/// bytes(int) -> bytes object of size given by the parameter initialized with null bytes\n\
+/// bytes() -> empty bytes object\n\nConstruct an immutable array of bytes from:\n  \
+/// - an iterable yielding integers in range(256)\n  \
+/// - a text string encoded using the specified encoding\n  \
+/// - any object implementing the buffer API.\n  \
+/// - an integer";
+#[pyclass(name = "bytes")]
+#[derive(Clone, Debug)]
 pub struct PyBytes {
-    value: Vec<u8>,
+    inner: PyByteInner,
 }
-type PyBytesRef = PyRef<PyBytes>;
+pub type PyBytesRef = PyRef<PyBytes>;
 
 impl PyBytes {
-    pub fn new(data: Vec<u8>) -> Self {
-        PyBytes { value: data }
+    pub fn new(elements: Vec<u8>) -> Self {
+        PyBytes {
+            inner: PyByteInner { elements },
+        }
+    }
+
+    pub fn get_value(&self) -> &[u8] {
+        &self.inner.elements
     }
 }
 
@@ -29,7 +44,7 @@ impl Deref for PyBytes {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        &self.value
+        &self.inner.elements
     }
 }
 
@@ -39,165 +54,249 @@ impl PyValue for PyBytes {
     }
 }
 
-// Binary data support
+pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
+    &obj.payload::<PyBytes>().unwrap().inner.elements
+}
 
-// Fill bytes class methods:
 pub fn init(context: &PyContext) {
-    let bytes_type = context.bytes_type.as_object();
-
-    let bytes_doc =
-        "bytes(iterable_of_ints) -> bytes\n\
-         bytes(string, encoding[, errors]) -> bytes\n\
-         bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
-         bytes(int) -> bytes object of size given by the parameter initialized with null bytes\n\
-         bytes() -> empty bytes object\n\nConstruct an immutable array of bytes from:\n  \
-         - an iterable yielding integers in range(256)\n  \
-         - a text string encoded using the specified encoding\n  \
-         - any object implementing the buffer API.\n  \
-         - an integer";
-
+    PyBytesRef::extend_class(context, &context.bytes_type);
+    let bytes_type = &context.bytes_type;
     extend_class!(context, bytes_type, {
-        "__eq__" => context.new_rustfunc(bytes_eq),
-        "__lt__" => context.new_rustfunc(bytes_lt),
-        "__le__" => context.new_rustfunc(bytes_le),
-        "__gt__" => context.new_rustfunc(bytes_gt),
-        "__ge__" => context.new_rustfunc(bytes_ge),
-        "__hash__" => context.new_rustfunc(bytes_hash),
-        "__new__" => context.new_rustfunc(bytes_new),
-        "__repr__" => context.new_rustfunc(bytes_repr),
-        "__len__" => context.new_rustfunc(bytes_len),
-        "__iter__" => context.new_rustfunc(bytes_iter),
-        "__doc__" => context.new_str(bytes_doc.to_string())
+    "fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
+    });
+    let bytesiterator_type = &context.bytesiterator_type;
+    extend_class!(context, bytesiterator_type, {
+    "__next__" => context.new_rustfunc(PyBytesIteratorRef::next),
+    "__iter__" => context.new_rustfunc(PyBytesIteratorRef::iter),
     });
 }
 
-fn bytes_new(
-    cls: PyClassRef,
-    val_option: OptionalArg<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyBytesRef> {
-    // Create bytes data:
-    let value = if let OptionalArg::Present(ival) = val_option {
-        let elements = vm.extract_elements(&ival)?;
-        let mut data_bytes = vec![];
-        for elem in elements.iter() {
-            let v = objint::to_int(vm, elem, 10)?;
-            data_bytes.push(v.to_u8().unwrap());
+#[pyimpl]
+impl PyBytesRef {
+    #[pymethod(name = "__new__")]
+    fn bytes_new(
+        cls: PyClassRef,
+        val_option: OptionalArg<PyObjectRef>,
+        enc_option: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesRef> {
+        PyBytes {
+            inner: PyByteInner::new(val_option, enc_option, vm)?,
         }
-        data_bytes
-    // return Err(vm.new_type_error("Cannot construct bytes".to_string()));
-    } else {
-        vec![]
-    };
+        .into_ref_with_type(vm, cls)
+    }
 
-    PyBytes::new(value).into_ref_with_type(vm, cls)
+    #[pymethod(name = "__repr__")]
+    fn repr(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_str(format!("b'{}'", self.inner.repr()?)))
+    }
+
+    #[pymethod(name = "__len__")]
+    fn len(self, _vm: &VirtualMachine) -> usize {
+        self.inner.len()
+    }
+
+    #[pymethod(name = "__eq__")]
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.eq(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
+    }
+
+    #[pymethod(name = "__ge__")]
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.ge(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
+    }
+    #[pymethod(name = "__le__")]
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.le(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
+    }
+    #[pymethod(name = "__gt__")]
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.gt(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
+    }
+    #[pymethod(name = "__lt__")]
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => self.inner.lt(&bytes.inner, vm),
+        _  => Ok(vm.ctx.not_implemented()))
+    }
+    #[pymethod(name = "__hash__")]
+    fn hash(self, _vm: &VirtualMachine) -> usize {
+        self.inner.hash()
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(self, _vm: &VirtualMachine) -> PyBytesIterator {
+        PyBytesIterator {
+            position: Cell::new(0),
+            bytes: self,
+        }
+    }
+
+    #[pymethod(name = "__add__")]
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(other,
+        bytes @ PyBytes => Ok(vm.ctx.new_bytes(self.inner.add(&bytes.inner, vm))),
+        _  => Ok(vm.ctx.not_implemented()))
+    }
+
+    #[pymethod(name = "__contains__")]
+    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(needle,
+        bytes @ PyBytes => self.inner.contains_bytes(&bytes.inner, vm),
+        int @ PyInt => self.inner.contains_int(&int, vm),
+        obj  => Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj))))
+    }
+
+    #[pymethod(name = "__getitem__")]
+    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(needle,
+        int @ PyInt => self.inner.getitem_int(&int, vm),
+        slice @ PySlice => self.inner.getitem_slice(slice.as_object(), vm),
+        obj  => Err(vm.new_type_error(format!("byte indices must be integers or slices, not {}", obj))))
+    }
+
+    #[pymethod(name = "isalnum")]
+    fn isalnum(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isalnum(vm)
+    }
+
+    #[pymethod(name = "isalpha")]
+    fn isalpha(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isalpha(vm)
+    }
+
+    #[pymethod(name = "isascii")]
+    fn isascii(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isascii(vm)
+    }
+
+    #[pymethod(name = "isdigit")]
+    fn isdigit(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isdigit(vm)
+    }
+
+    #[pymethod(name = "islower")]
+    fn islower(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.islower(vm)
+    }
+
+    #[pymethod(name = "isspace")]
+    fn isspace(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isspace(vm)
+    }
+
+    #[pymethod(name = "isupper")]
+    fn isupper(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.isupper(vm)
+    }
+
+    #[pymethod(name = "istitle")]
+    fn istitle(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.istitle(vm)
+    }
+
+    #[pymethod(name = "lower")]
+    fn lower(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.lower(vm)))
+    }
+
+    #[pymethod(name = "upper")]
+    fn upper(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.upper(vm)))
+    }
+
+    #[pymethod(name = "capitalize")]
+    fn capitalize(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.capitalize(vm)))
+    }
+
+    #[pymethod(name = "hex")]
+    fn hex(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.hex(vm)
+    }
+
+    // #[pymethod(name = "fromhex")]
+    fn fromhex(string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(string,
+        s @ PyString => {
+        match PyByteInner::fromhex(s.to_string(), vm) {
+        Ok(x) => Ok(vm.ctx.new_bytes(x)),
+        Err(y) => Err(y)}},
+        obj => Err(vm.new_type_error(format!("fromhex() argument must be str, not {}", obj )))
+        )
+    }
+
+    #[pymethod(name = "center")]
+    fn center(
+        self,
+        width: PyObjectRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let sym = if let OptionalArg::Present(v) = fillbyte {
+            match is_byte(&v) {
+                Some(x) => {
+                    if x.len() == 1 {
+                        x[0]
+                    } else {
+                        return Err(vm.new_type_error(format!(
+                            "center() argument 2 must be a byte string of length 1, not {}",
+                            &v
+                        )));
+                    }
+                }
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "center() argument 2 must be a byte string of length 1, not {}",
+                        &v
+                    )));
+                }
+            }
+        } else {
+            32 // default is space
+        };
+
+        match_class!(width,
+        i @PyInt => Ok(vm.ctx.new_bytes(self.inner.center(i.as_bigint(), sym, vm))),
+        obj => {Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)))}
+        )
+    }
 }
 
-fn bytes_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
-
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() == get_value(b).to_vec()
-    } else {
-        false
-    };
-    Ok(vm.ctx.new_bool(result))
+#[derive(Debug)]
+pub struct PyBytesIterator {
+    position: Cell<usize>,
+    bytes: PyBytesRef,
 }
 
-fn bytes_ge(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
-
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() >= get_value(b).to_vec()
-    } else {
-        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>'", a, b)));
-    };
-    Ok(vm.ctx.new_bool(result))
+impl PyValue for PyBytesIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.bytesiterator_type()
+    }
 }
 
-fn bytes_gt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
+type PyBytesIteratorRef = PyRef<PyBytesIterator>;
 
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() > get_value(b).to_vec()
-    } else {
-        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '>='", a, b)));
-    };
-    Ok(vm.ctx.new_bool(result))
-}
+impl PyBytesIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult<u8> {
+        if self.position.get() < self.bytes.inner.len() {
+            let ret = self.bytes[self.position.get()];
+            self.position.set(self.position.get() + 1);
+            Ok(ret)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
 
-fn bytes_le(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
-
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() <= get_value(b).to_vec()
-    } else {
-        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<'", a, b)));
-    };
-    Ok(vm.ctx.new_bool(result))
-}
-
-fn bytes_lt(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(a, Some(vm.ctx.bytes_type())), (b, None)]
-    );
-
-    let result = if objtype::isinstance(b, &vm.ctx.bytes_type()) {
-        get_value(a).to_vec() < get_value(b).to_vec()
-    } else {
-        return Err(vm.new_type_error(format!("Cannot compare {} and {} using '<='", a, b)));
-    };
-    Ok(vm.ctx.new_bool(result))
-}
-
-fn bytes_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(a, Some(vm.ctx.bytes_type()))]);
-
-    let byte_vec = get_value(a).to_vec();
-    Ok(vm.ctx.new_int(byte_vec.len()))
-}
-
-fn bytes_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.bytes_type()))]);
-    let data = get_value(zelf);
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    data.hash(&mut hasher);
-    let hash = hasher.finish();
-    Ok(vm.ctx.new_int(hash))
-}
-
-pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
-    &obj.payload::<PyBytes>().unwrap().value
-}
-
-fn bytes_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.bytes_type()))]);
-    let value = get_value(obj);
-    let data = String::from_utf8(value.to_vec()).unwrap();
-    Ok(vm.new_str(format!("b'{}'", data)))
-}
-
-fn bytes_iter(obj: PyBytesRef, _vm: &VirtualMachine) -> PyIteratorValue {
-    PyIteratorValue {
-        position: Cell::new(0),
-        iterated_obj: obj.into_object(),
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
     }
 }

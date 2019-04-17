@@ -2,7 +2,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objsequence;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{create_type, PyContext, PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{create_type, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -13,13 +13,34 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm.new_str("No msg".to_string())
     };
     let traceback = vm.ctx.new_list(Vec::new());
-    vm.ctx.set_attr(&zelf, "msg", msg);
-    vm.ctx.set_attr(&zelf, "__traceback__", traceback);
+    vm.set_attr(&zelf, "msg", msg)?;
+    vm.set_attr(&zelf, "__traceback__", traceback)?;
     Ok(vm.get_none())
 }
 
-// Print exception including traceback:
+// print excption chain
 pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
+    let mut had_cause = false;
+    if let Ok(cause) = vm.get_attribute(exc.clone(), "__cause__") {
+        if !vm.get_none().is(&cause) {
+            had_cause = true;
+            print_exception(vm, &cause);
+            println!("\nThe above exception was the direct cause of the following exception:\n");
+        }
+    }
+    if !had_cause {
+        if let Ok(context) = vm.get_attribute(exc.clone(), "__context__") {
+            if !vm.get_none().is(&context) {
+                print_exception(vm, &context);
+                println!("\nDuring handling of the above exception, another exception occurred:\n");
+            }
+        }
+    }
+    print_exception_inner(vm, exc)
+}
+
+// Print exception including traceback:
+pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
@@ -97,12 +118,25 @@ pub struct ExceptionZoo {
     pub os_error: PyClassRef,
     pub overflow_error: PyClassRef,
     pub permission_error: PyClassRef,
+    pub reference_error: PyClassRef,
     pub runtime_error: PyClassRef,
     pub stop_iteration: PyClassRef,
     pub syntax_error: PyClassRef,
     pub type_error: PyClassRef,
     pub value_error: PyClassRef,
     pub zero_division_error: PyClassRef,
+
+    pub warning: PyClassRef,
+    pub bytes_warning: PyClassRef,
+    pub unicode_warning: PyClassRef,
+    pub deprecation_warning: PyClassRef,
+    pub pending_deprecation_warning: PyClassRef,
+    pub future_warning: PyClassRef,
+    pub import_warning: PyClassRef,
+    pub syntax_warning: PyClassRef,
+    pub resource_warning: PyClassRef,
+    pub runtime_warning: PyClassRef,
+    pub user_warning: PyClassRef,
 }
 
 impl ExceptionZoo {
@@ -119,6 +153,7 @@ impl ExceptionZoo {
         let name_error = create_type("NameError", &type_type, &exception_type);
         let os_error = create_type("OSError", &type_type, &exception_type);
         let runtime_error = create_type("RuntimeError", &type_type, &exception_type);
+        let reference_error = create_type("ReferenceError", &type_type, &exception_type);
         let stop_iteration = create_type("StopIteration", &type_type, &exception_type);
         let syntax_error = create_type("SyntaxError", &type_type, &exception_type);
         let type_error = create_type("TypeError", &type_type, &exception_type);
@@ -129,6 +164,19 @@ impl ExceptionZoo {
         let not_implemented_error = create_type("NotImplementedError", &type_type, &runtime_error);
         let file_not_found_error = create_type("FileNotFoundError", &type_type, &os_error);
         let permission_error = create_type("PermissionError", &type_type, &os_error);
+
+        let warning = create_type("Warning", &type_type, &exception_type);
+        let bytes_warning = create_type("BytesWarning", &type_type, &warning);
+        let unicode_warning = create_type("UnicodeWarning", &type_type, &warning);
+        let deprecation_warning = create_type("DeprecationWarning", &type_type, &warning);
+        let pending_deprecation_warning =
+            create_type("PendingDeprecationWarning", &type_type, &warning);
+        let future_warning = create_type("FutureWarning", &type_type, &warning);
+        let import_warning = create_type("ImportWarning", &type_type, &warning);
+        let syntax_warning = create_type("SyntaxWarning", &type_type, &warning);
+        let resource_warning = create_type("ResourceWarning", &type_type, &warning);
+        let runtime_warning = create_type("RuntimeWarning", &type_type, &warning);
+        let user_warning = create_type("UserWarning", &type_type, &warning);
 
         ExceptionZoo {
             arithmetic_error,
@@ -152,6 +200,18 @@ impl ExceptionZoo {
             type_error,
             value_error,
             zero_division_error,
+            warning,
+            bytes_warning,
+            unicode_warning,
+            deprecation_warning,
+            pending_deprecation_warning,
+            future_warning,
+            import_warning,
+            syntax_warning,
+            resource_warning,
+            runtime_warning,
+            reference_error,
+            user_warning,
         }
     }
 }

@@ -31,11 +31,18 @@ pub struct CodeObject {
 bitflags! {
     pub struct FunctionOpArg: u8 {
         const HAS_DEFAULTS = 0x01;
+        const HAS_KW_ONLY_DEFAULTS = 0x02;
         const HAS_ANNOTATIONS = 0x04;
     }
 }
 
 pub type Label = usize;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum NameScope {
+    Local,
+    Global,
+}
 
 /// A Single bytecode instruction.
 #[derive(Debug, Clone, PartialEq)]
@@ -49,9 +56,11 @@ pub enum Instruction {
     },
     LoadName {
         name: String,
+        scope: NameScope,
     },
     StoreName {
         name: String,
+        scope: NameScope,
     },
     DeleteName {
         name: String,
@@ -126,6 +135,7 @@ pub enum Instruction {
     PopBlock,
     Raise {
         argc: usize,
+        in_exc: bool,
     },
     BuildString {
         size: usize,
@@ -321,8 +331,8 @@ impl Instruction {
         match self {
             Import { name, symbol } => w!(Import, name, format!("{:?}", symbol)),
             ImportStar { name } => w!(ImportStar, name),
-            LoadName { name } => w!(LoadName, name),
-            StoreName { name } => w!(StoreName, name),
+            LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
+            StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
             DeleteName { name } => w!(DeleteName, name),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
@@ -354,7 +364,7 @@ impl Instruction {
             SetupWith { end } => w!(SetupWith, end),
             CleanupWith { end } => w!(CleanupWith, end),
             PopBlock => w!(PopBlock),
-            Raise { argc } => w!(Raise, argc),
+            Raise { argc, in_exc } => w!(Raise, argc, in_exc),
             BuildString { size } => w!(BuildString, size),
             BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
             BuildList { size, unpack } => w!(BuildList, size, unpack),

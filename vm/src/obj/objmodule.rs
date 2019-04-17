@@ -1,5 +1,5 @@
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{DictProtocol, PyContext, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyContext, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[derive(Debug)]
@@ -17,11 +17,7 @@ impl PyValue for PyModule {
 impl PyModuleRef {
     fn dir(self: PyModuleRef, vm: &VirtualMachine) -> PyResult {
         if let Some(dict) = &self.into_object().dict {
-            let keys = dict
-                .get_key_value_pairs()
-                .iter()
-                .map(|(k, _v)| k.clone())
-                .collect();
+            let keys = dict.into_iter().map(|(k, _v)| k.clone()).collect();
             Ok(vm.ctx.new_list(keys))
         } else {
             panic!("Modules should definitely have a dict.");

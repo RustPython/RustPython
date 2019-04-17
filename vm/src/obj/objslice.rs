@@ -1,5 +1,5 @@
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use crate::obj::objint::PyInt;

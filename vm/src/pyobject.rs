@@ -1,5 +1,6 @@
 use std::any::Any;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
@@ -48,8 +49,9 @@ use crate::obj::objslice;
 use crate::obj::objstaticmethod;
 use crate::obj::objstr;
 use crate::obj::objsuper;
-use crate::obj::objtuple::{self, PyTuple};
+use crate::obj::objtuple::{self, PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
+use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
@@ -86,7 +88,6 @@ pub type PyAttributes = HashMap<String, PyObjectRef>;
 
 impl fmt::Display for PyObject<dyn PyObjectPayload> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use self::TypeProtocol;
         if let Some(PyClass { ref name, .. }) = self.payload::<PyClass>() {
             let type_name = self.class().name.clone();
             // We don't have access to a vm, so just assume that if its parent's name
@@ -108,7 +109,9 @@ impl fmt::Display for PyObject<dyn PyObjectPayload> {
 #[derive(Debug)]
 pub struct PyContext {
     pub bytes_type: PyClassRef,
+    pub bytesiterator_type: PyClassRef,
     pub bytearray_type: PyClassRef,
+    pub bytearrayiterator_type: PyClassRef,
     pub bool_type: PyClassRef,
     pub classmethod_type: PyClassRef,
     pub code_type: PyClassRef,
@@ -126,17 +129,26 @@ pub struct PyContext {
     pub true_value: PyIntRef,
     pub false_value: PyIntRef,
     pub list_type: PyClassRef,
+    pub listiterator_type: PyClassRef,
+    pub dictkeyiterator_type: PyClassRef,
+    pub dictvalueiterator_type: PyClassRef,
+    pub dictitemiterator_type: PyClassRef,
+    pub dictkeys_type: PyClassRef,
+    pub dictvalues_type: PyClassRef,
+    pub dictitems_type: PyClassRef,
     pub map_type: PyClassRef,
     pub memoryview_type: PyClassRef,
     pub none: PyNoneRef,
     pub ellipsis: PyEllipsisRef,
     pub not_implemented: PyNotImplementedRef,
     pub tuple_type: PyClassRef,
+    pub tupleiterator_type: PyClassRef,
     pub set_type: PyClassRef,
     pub staticmethod_type: PyClassRef,
     pub super_type: PyClassRef,
     pub str_type: PyClassRef,
     pub range_type: PyClassRef,
+    pub rangeiterator_type: PyClassRef,
     pub slice_type: PyClassRef,
     pub type_type: PyClassRef,
     pub zip_type: PyClassRef,
@@ -147,6 +159,7 @@ pub struct PyContext {
     pub module_type: PyClassRef,
     pub bound_method_type: PyClassRef,
     pub weakref_type: PyClassRef,
+    pub weakproxy_type: PyClassRef,
     pub object: PyClassRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -244,10 +257,18 @@ impl PyContext {
         let readonly_property_type = create_type("readonly_property", &type_type, &object_type);
         let super_type = create_type("super", &type_type, &object_type);
         let weakref_type = create_type("ref", &type_type, &object_type);
+        let weakproxy_type = create_type("weakproxy", &type_type, &object_type);
         let generator_type = create_type("generator", &type_type, &object_type);
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
         let list_type = create_type("list", &type_type, &object_type);
+        let listiterator_type = create_type("list_iterator", &type_type, &object_type);
+        let dictkeys_type = create_type("dict_keys", &type_type, &object_type);
+        let dictvalues_type = create_type("dict_values", &type_type, &object_type);
+        let dictitems_type = create_type("dict_items", &type_type, &object_type);
+        let dictkeyiterator_type = create_type("dict_keyiterator", &type_type, &object_type);
+        let dictvalueiterator_type = create_type("dict_valueiterator", &type_type, &object_type);
+        let dictitemiterator_type = create_type("dict_itemiterator", &type_type, &object_type);
         let set_type = create_type("set", &type_type, &object_type);
         let frozenset_type = create_type("frozenset", &type_type, &object_type);
         let int_type = create_type("int", &type_type, &object_type);
@@ -255,8 +276,11 @@ impl PyContext {
         let frame_type = create_type("frame", &type_type, &object_type);
         let complex_type = create_type("complex", &type_type, &object_type);
         let bytes_type = create_type("bytes", &type_type, &object_type);
+        let bytesiterator_type = create_type("bytes_iterator", &type_type, &object_type);
         let bytearray_type = create_type("bytearray", &type_type, &object_type);
+        let bytearrayiterator_type = create_type("bytearray_iterator", &type_type, &object_type);
         let tuple_type = create_type("tuple", &type_type, &object_type);
+        let tupleiterator_type = create_type("tuple_iterator", &type_type, &object_type);
         let iter_type = create_type("iter", &type_type, &object_type);
         let enumerate_type = create_type("enumerate", &type_type, &object_type);
         let filter_type = create_type("filter", &type_type, &object_type);
@@ -266,6 +290,7 @@ impl PyContext {
         let memoryview_type = create_type("memoryview", &type_type, &object_type);
         let code_type = create_type("code", &type_type, &int_type);
         let range_type = create_type("range", &type_type, &object_type);
+        let rangeiterator_type = create_type("range_iterator", &type_type, &object_type);
         let slice_type = create_type("slice", &type_type, &object_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type);
 
@@ -291,7 +316,9 @@ impl PyContext {
             bool_type,
             memoryview_type,
             bytearray_type,
+            bytearrayiterator_type,
             bytes_type,
+            bytesiterator_type,
             code_type,
             complex_type,
             classmethod_type,
@@ -300,11 +327,19 @@ impl PyContext {
             frame_type,
             staticmethod_type,
             list_type,
+            listiterator_type,
+            dictkeys_type,
+            dictvalues_type,
+            dictitems_type,
+            dictkeyiterator_type,
+            dictvalueiterator_type,
+            dictitemiterator_type,
             set_type,
             frozenset_type,
             true_value,
             false_value,
             tuple_type,
+            tupleiterator_type,
             iter_type,
             ellipsis_type,
             enumerate_type,
@@ -317,6 +352,7 @@ impl PyContext {
             not_implemented,
             str_type,
             range_type,
+            rangeiterator_type,
             slice_type,
             object: object_type,
             function_type,
@@ -328,6 +364,7 @@ impl PyContext {
             module_type,
             bound_method_type,
             weakref_type,
+            weakproxy_type,
             type_type,
             exceptions,
         };
@@ -363,6 +400,7 @@ impl PyContext {
         objcode::init(&context);
         objframe::init(&context);
         objweakref::init(&context);
+        objweakproxy::init(&context);
         objnone::init(&context);
         objmodule::init(&context);
         exceptions::init(&context);
@@ -373,8 +411,16 @@ impl PyContext {
         self.bytearray_type.clone()
     }
 
+    pub fn bytearrayiterator_type(&self) -> PyClassRef {
+        self.bytearrayiterator_type.clone()
+    }
+
     pub fn bytes_type(&self) -> PyClassRef {
         self.bytes_type.clone()
+    }
+
+    pub fn bytesiterator_type(&self) -> PyClassRef {
+        self.bytesiterator_type.clone()
     }
 
     pub fn code_type(&self) -> PyClassRef {
@@ -405,6 +451,10 @@ impl PyContext {
         self.list_type.clone()
     }
 
+    pub fn listiterator_type(&self) -> PyClassRef {
+        self.listiterator_type.clone()
+    }
+
     pub fn module_type(&self) -> PyClassRef {
         self.module_type.clone()
     }
@@ -415,6 +465,10 @@ impl PyContext {
 
     pub fn range_type(&self) -> PyClassRef {
         self.range_type.clone()
+    }
+
+    pub fn rangeiterator_type(&self) -> PyClassRef {
+        self.rangeiterator_type.clone()
     }
 
     pub fn slice_type(&self) -> PyClassRef {
@@ -435,6 +489,10 @@ impl PyContext {
 
     pub fn tuple_type(&self) -> PyClassRef {
         self.tuple_type.clone()
+    }
+
+    pub fn tupleiterator_type(&self) -> PyClassRef {
+        self.tupleiterator_type.clone()
     }
 
     pub fn iter_type(&self) -> PyClassRef {
@@ -499,6 +557,10 @@ impl PyContext {
 
     pub fn weakref_type(&self) -> PyClassRef {
         self.weakref_type.clone()
+    }
+
+    pub fn weakproxy_type(&self) -> PyClassRef {
+        self.weakproxy_type.clone()
     }
 
     pub fn type_type(&self) -> PyClassRef {
@@ -623,10 +685,11 @@ impl PyContext {
         &self,
         code_obj: PyCodeRef,
         scope: Scope,
-        defaults: PyObjectRef,
+        defaults: Option<PyTupleRef>,
+        kw_only_defaults: Option<PyDictRef>,
     ) -> PyObjectRef {
         PyObject::new(
-            PyFunction::new(code_obj, scope, defaults),
+            PyFunction::new(code_obj, scope, defaults, kw_only_defaults),
             self.function_type(),
             Some(self.new_dict()),
         )
@@ -643,38 +706,10 @@ impl PyContext {
     pub fn new_instance(&self, class: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject {
             typ: class,
-            dict: dict,
+            dict,
             payload: objobject::PyInstance,
         }
         .into_ref()
-    }
-
-    // Item set/get:
-    pub fn set_item(&self, obj: &PyObjectRef, key: &str, v: PyObjectRef) {
-        if let Some(dict) = obj.payload::<PyDict>() {
-            let key = self.new_str(key.to_string());
-            objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
-        } else {
-            unimplemented!()
-        };
-    }
-
-    pub fn set_attr<'a, T: Into<&'a PyObjectRef>, V: Into<PyObjectRef>>(
-        &'a self,
-        obj: T,
-        attr_name: &str,
-        value: V,
-    ) {
-        let obj = obj.into();
-        if let Some(PyClass { ref attributes, .. }) = obj.payload::<PyClass>() {
-            attributes
-                .borrow_mut()
-                .insert(attr_name.to_string(), value.into());
-        } else if let Some(ref dict) = obj.dict {
-            dict.set_item(self, attr_name, value.into());
-        } else {
-            unimplemented!("set_attr unimplemented for: {:?}", obj);
-        };
     }
 
     pub fn unwrap_constant(&self, value: &bytecode::Constant) -> PyObjectRef {
@@ -905,52 +940,49 @@ impl<T> TypeProtocol for PyRef<T> {
     }
 }
 
-pub trait DictProtocol {
-    fn contains_key(&self, k: &str) -> bool;
-    fn get_item(&self, k: &str) -> Option<PyObjectRef>;
-    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)>;
-    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef);
-    fn del_item(&self, key: &str);
+pub trait ItemProtocol {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+    fn set_item<T: IntoPyObject>(
+        &self,
+        key: T,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult;
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult;
+    fn get_item_option<T: IntoPyObject>(
+        &self,
+        key: T,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        match self.get_item(key, vm) {
+            Ok(value) => Ok(Some(value)),
+            Err(exc) => {
+                if objtype::isinstance(&exc, &vm.ctx.exceptions.key_error) {
+                    Ok(None)
+                } else {
+                    Err(exc)
+                }
+            }
+        }
+    }
 }
 
-impl DictProtocol for PyObjectRef {
-    fn contains_key(&self, k: &str) -> bool {
-        if let Some(dict) = self.payload::<PyDict>() {
-            objdict::content_contains_key_str(&dict.entries.borrow(), k)
-        } else {
-            unimplemented!()
-        }
+impl ItemProtocol for PyObjectRef {
+    fn get_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(self, "__getitem__", key.into_pyobject(vm)?)
     }
 
-    fn get_item(&self, k: &str) -> Option<PyObjectRef> {
-        if let Some(dict) = self.payload::<PyDict>() {
-            objdict::content_get_key_str(&dict.entries.borrow(), k)
-        } else {
-            panic!("TODO {:?}", k)
-        }
+    fn set_item<T: IntoPyObject>(
+        &self,
+        key: T,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        vm.call_method(self, "__setitem__", vec![key.into_pyobject(vm)?, value])
     }
 
-    fn get_key_value_pairs(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        if self.payload_is::<PyDict>() {
-            objdict::get_key_value_pairs(self)
-        } else {
-            panic!("TODO")
-        }
-    }
-
-    // Item set/get:
-    fn set_item(&self, ctx: &PyContext, key: &str, v: PyObjectRef) {
-        if let Some(dict) = self.payload::<PyDict>() {
-            let key = ctx.new_str(key.to_string());
-            objdict::set_item_in_content(&mut dict.entries.borrow_mut(), &key, &v);
-        } else {
-            panic!("TODO {:?}", self);
-        }
-    }
-
-    fn del_item(&self, key: &str) {
-        let mut elements = objdict::get_mut_elements(self);
-        elements.remove(key).unwrap();
+    fn del_item<T: IntoPyObject>(&self, key: T, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(self, "__delitem__", key.into_pyobject(vm)?)
     }
 }
 
@@ -1039,10 +1071,24 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        Ok(PyIterable {
-            method: vm.get_method(obj, "__iter__")?,
-            _item: std::marker::PhantomData,
-        })
+        if let Ok(method) = vm.get_method(obj.clone(), "__iter__") {
+            Ok(PyIterable {
+                method,
+                _item: std::marker::PhantomData,
+            })
+        } else if vm.get_method(obj.clone(), "__getitem__").is_ok() {
+            Self::try_from_object(
+                vm,
+                objiter::PySequenceIterator {
+                    position: Cell::new(0),
+                    obj: obj.clone(),
+                }
+                .into_ref(vm)
+                .into_object(),
+            )
+        } else {
+            Err(vm.new_type_error(format!("'{}' object is not iterable", obj.class().name)))
+        }
     }
 }
 
@@ -1127,31 +1173,12 @@ where
     }
 }
 
-// TODO: This is a workaround and shouldn't exist.
-//       Each iterable type should have its own distinct iterator type.
-#[derive(Debug)]
-pub struct PyIteratorValue {
-    pub position: Cell<usize>,
-    pub iterated_obj: PyObjectRef,
-}
-
-impl PyValue for PyIteratorValue {
-    fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.iter_type()
-    }
-}
-
 impl<T> PyObject<T>
 where
     T: Sized + PyObjectPayload,
 {
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
-        PyObject {
-            typ,
-            dict: dict,
-            payload,
-        }
-        .into_ref()
+        PyObject { typ, dict, payload }.into_ref()
     }
 
     // Move this object into a reference object, transferring ownership.
@@ -1173,6 +1200,8 @@ impl PyObject<dyn PyObjectPayload> {
 }
 
 pub trait PyValue: fmt::Debug + Sized + 'static {
+    const HAVE_DICT: bool = false;
+
     fn class(vm: &VirtualMachine) -> PyClassRef;
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
@@ -1185,7 +1214,7 @@ pub trait PyValue: fmt::Debug + Sized + 'static {
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyClassRef) -> PyResult<PyRef<Self>> {
         let class = Self::class(vm);
         if objtype::issubclass(&cls, &class) {
-            let dict = if cls.is(&class) {
+            let dict = if !Self::HAVE_DICT && cls.is(&class) {
                 None
             } else {
                 Some(vm.ctx.new_dict())
@@ -1256,6 +1285,36 @@ where
                     obj.class()
                 ))
             })
+    }
+}
+
+pub trait PyClassDef {
+    const NAME: &'static str;
+    const DOC: Option<&'static str> = None;
+}
+
+impl<T> PyClassDef for PyRef<T>
+where
+    T: PyClassDef,
+{
+    const NAME: &'static str = T::NAME;
+    const DOC: Option<&'static str> = T::DOC;
+}
+
+pub trait PyClassImpl: PyClassDef {
+    fn impl_extend_class(ctx: &PyContext, class: &PyClassRef);
+
+    fn extend_class(ctx: &PyContext, class: &PyClassRef) {
+        Self::impl_extend_class(ctx, class);
+        if let Some(doc) = Self::DOC {
+            class.set_str_attr("__doc__", ctx.new_str(doc.into()));
+        }
+    }
+
+    fn make_class(ctx: &PyContext) -> PyClassRef {
+        let py_class = ctx.new_class(Self::NAME, ctx.object());
+        Self::extend_class(ctx, &py_class);
+        py_class
     }
 }
 

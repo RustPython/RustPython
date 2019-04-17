@@ -6,11 +6,14 @@ use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{Either, PyContext, PyIteratorValue, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 use super::objint::{PyInt, PyIntRef};
-use super::objslice::PySliceRef;
+use super::objiter;
+use super::objslice::{PySlice, PySliceRef};
 use super::objtype::PyClassRef;
 
 #[derive(Debug, Clone)]
@@ -98,26 +101,32 @@ pub fn init(context: &PyContext) {
                      When step is given, it specifies the increment (or decrement).";
 
     extend_class!(context, range_type, {
-        "__bool__" => context.new_rustfunc(PyRangeRef::bool),
-        "__contains__" => context.new_rustfunc(PyRangeRef::contains),
+        "__bool__" => context.new_rustfunc(PyRange::bool),
+        "__contains__" => context.new_rustfunc(PyRange::contains),
         "__doc__" => context.new_str(range_doc.to_string()),
-        "__getitem__" => context.new_rustfunc(PyRangeRef::getitem),
-        "__iter__" => context.new_rustfunc(PyRangeRef::iter),
-        "__len__" => context.new_rustfunc(PyRangeRef::len),
+        "__getitem__" => context.new_rustfunc(PyRange::getitem),
+        "__iter__" => context.new_rustfunc(PyRange::iter),
+        "__len__" => context.new_rustfunc(PyRange::len),
         "__new__" => context.new_rustfunc(range_new),
-        "__repr__" => context.new_rustfunc(PyRangeRef::repr),
-        "__reversed__" => context.new_rustfunc(PyRangeRef::reversed),
-        "count" => context.new_rustfunc(PyRangeRef::count),
-        "index" => context.new_rustfunc(PyRangeRef::index),
-        "start" => context.new_property(PyRangeRef::start),
-        "stop" => context.new_property(PyRangeRef::stop),
-        "step" => context.new_property(PyRangeRef::step),
+        "__repr__" => context.new_rustfunc(PyRange::repr),
+        "__reversed__" => context.new_rustfunc(PyRange::reversed),
+        "count" => context.new_rustfunc(PyRange::count),
+        "index" => context.new_rustfunc(PyRange::index),
+        "start" => context.new_property(PyRange::start),
+        "stop" => context.new_property(PyRange::stop),
+        "step" => context.new_property(PyRange::step),
+    });
+
+    let rangeiterator_type = &context.rangeiterator_type;
+    extend_class!(context, rangeiterator_type, {
+        "__next__" => context.new_rustfunc(PyRangeIteratorRef::next),
+        "__iter__" => context.new_rustfunc(PyRangeIteratorRef::iter),
     });
 }
 
 type PyRangeRef = PyRef<PyRange>;
 
-impl PyRangeRef {
+impl PyRange {
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
             start: PyInt::new(BigInt::zero()).into_ref(vm),
@@ -135,8 +144,8 @@ impl PyRangeRef {
         vm: &VirtualMachine,
     ) -> PyResult<PyRangeRef> {
         PyRange {
-            start: start,
-            stop: stop,
+            start,
+            stop,
             step: step
                 .into_option()
                 .unwrap_or_else(|| PyInt::new(BigInt::one()).into_ref(vm)),
@@ -144,26 +153,26 @@ impl PyRangeRef {
         .into_ref_with_type(vm, cls)
     }
 
-    fn start(self, _vm: &VirtualMachine) -> PyIntRef {
+    fn start(&self, _vm: &VirtualMachine) -> PyIntRef {
         self.start.clone()
     }
 
-    fn stop(self, _vm: &VirtualMachine) -> PyIntRef {
+    fn stop(&self, _vm: &VirtualMachine) -> PyIntRef {
         self.stop.clone()
     }
 
-    fn step(self, _vm: &VirtualMachine) -> PyIntRef {
+    fn step(&self, _vm: &VirtualMachine) -> PyIntRef {
         self.step.clone()
     }
 
-    fn iter(self: PyRangeRef, _vm: &VirtualMachine) -> PyIteratorValue {
-        PyIteratorValue {
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRangeIterator {
+        PyRangeIterator {
             position: Cell::new(0),
-            iterated_obj: self.into_object(),
+            range: zelf,
         }
     }
 
-    fn reversed(self: PyRangeRef, vm: &VirtualMachine) -> PyIteratorValue {
+    fn reversed(&self, vm: &VirtualMachine) -> PyRangeIterator {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
@@ -189,13 +198,13 @@ impl PyRangeRef {
             step: PyInt::new(-step).into_ref(vm),
         };
 
-        PyIteratorValue {
+        PyRangeIterator {
             position: Cell::new(0),
-            iterated_obj: reversed.into_ref(vm).into_object(),
+            range: reversed.into_ref(vm),
         }
     }
 
-    fn len(self, _vm: &VirtualMachine) -> PyInt {
+    fn len(&self, _vm: &VirtualMachine) -> PyInt {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
@@ -208,7 +217,7 @@ impl PyRangeRef {
         }
     }
 
-    fn repr(self, _vm: &VirtualMachine) -> String {
+    fn repr(&self, _vm: &VirtualMachine) -> String {
         if self.step.as_bigint().is_one() {
             format!("range({}, {})", self.start, self.stop)
         } else {
@@ -216,11 +225,11 @@ impl PyRangeRef {
         }
     }
 
-    fn bool(self, _vm: &VirtualMachine) -> bool {
+    fn bool(&self, _vm: &VirtualMachine) -> bool {
         !self.is_empty()
     }
 
-    fn contains(self, needle: PyObjectRef, _vm: &VirtualMachine) -> bool {
+    fn contains(&self, needle: PyObjectRef, _vm: &VirtualMachine) -> bool {
         if let Ok(int) = needle.downcast::<PyInt>() {
             match self.offset(int.as_bigint()) {
                 Some(ref offset) => offset.is_multiple_of(self.step.as_bigint()),
@@ -231,7 +240,7 @@ impl PyRangeRef {
         }
     }
 
-    fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
+    fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
         if let Ok(int) = needle.downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(PyInt::new(idx)),
@@ -242,7 +251,7 @@ impl PyRangeRef {
         }
     }
 
-    fn count(self, item: PyObjectRef, _vm: &VirtualMachine) -> PyInt {
+    fn count(&self, item: PyObjectRef, _vm: &VirtualMachine) -> PyInt {
         if let Ok(int) = item.downcast::<PyInt>() {
             if self.index_of(int.as_bigint()).is_some() {
                 PyInt::new(1)
@@ -254,16 +263,16 @@ impl PyRangeRef {
         }
     }
 
-    fn getitem(self, subscript: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+    fn getitem(&self, subscript: RangeIndex, vm: &VirtualMachine) -> PyResult {
         match subscript {
-            Either::A(index) => {
+            RangeIndex::Int(index) => {
                 if let Some(value) = self.get(index.as_bigint()) {
                     Ok(PyInt::new(value).into_ref(vm).into_object())
                 } else {
                     Err(vm.new_index_error("range object index out of range".to_string()))
                 }
             }
-            Either::B(slice) => {
+            RangeIndex::Slice(slice) => {
                 let new_start = if let Some(int) = slice.start_index(vm)? {
                     if let Some(i) = self.get(int) {
                         PyInt::new(i).into_ref(vm)
@@ -305,11 +314,58 @@ impl PyRangeRef {
 fn range_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let range = if args.args.len() <= 2 {
         let (cls, stop) = args.bind(vm)?;
-        PyRangeRef::new(cls, stop, vm)
+        PyRange::new(cls, stop, vm)
     } else {
         let (cls, start, stop, step) = args.bind(vm)?;
-        PyRangeRef::new_from(cls, start, stop, step, vm)
+        PyRange::new_from(cls, start, stop, step, vm)
     }?;
 
     Ok(range.into_object())
+}
+
+#[derive(Debug)]
+pub struct PyRangeIterator {
+    position: Cell<usize>,
+    range: PyRangeRef,
+}
+
+impl PyValue for PyRangeIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.rangeiterator_type()
+    }
+}
+
+type PyRangeIteratorRef = PyRef<PyRangeIterator>;
+
+impl PyRangeIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        if let Some(int) = self.range.get(self.position.get()) {
+            self.position.set(self.position.get() + 1);
+            Ok(int)
+        } else {
+            Err(objiter::new_stop_iteration(vm))
+        }
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+pub enum RangeIndex {
+    Int(PyIntRef),
+    Slice(PySliceRef),
+}
+
+impl TryFromObject for RangeIndex {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        match_class!(obj,
+            i @ PyInt => Ok(RangeIndex::Int(i)),
+            s @ PySlice => Ok(RangeIndex::Slice(s)),
+            obj => Err(vm.new_type_error(format!(
+                "sequence indices be integers or slices, not {}",
+                obj.class(),
+            )))
+        )
+    }
 }

@@ -8,20 +8,22 @@ use crate::builtins;
 use crate::bytecode;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
-use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict::{self, PyDictRef};
+use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
+use crate::obj::objstr::PyString;
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use itertools::Itertools;
 
 /*
  * So a scope is a linked list of scopes.
@@ -124,26 +126,28 @@ pub trait NameProtocol {
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn delete_name(&self, vm: &VirtualMachine, name: &str);
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
 }
 
 impl NameProtocol for Scope {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
 
-        if let Some(value) = self.globals.get_item(name) {
+        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
             return Some(value);
         }
 
         vm.get_attribute(vm.builtins.clone(), name).ok()
     }
 
-    fn load_cell(&self, _vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
@@ -151,11 +155,19 @@ impl NameProtocol for Scope {
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
-        self.get_locals().set_item(&vm.ctx, key, value)
+        self.get_locals().set_item(key, value, vm).unwrap();
     }
 
-    fn delete_name(&self, _vm: &VirtualMachine, key: &str) {
-        self.get_locals().del_item(key)
+    fn delete_name(&self, vm: &VirtualMachine, key: &str) {
+        self.get_locals().del_item(key, vm).unwrap();
+    }
+
+    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+        self.globals.get_item_option(name, vm).unwrap()
+    }
+
+    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+        self.globals.set_item(name, value, vm).unwrap();
     }
 }
 
@@ -278,6 +290,17 @@ impl Frame {
         }
     }
 
+    pub fn throw(
+        &self,
+        vm: &VirtualMachine,
+        exception: PyObjectRef,
+    ) -> Result<ExecutionResult, PyObjectRef> {
+        match self.unwind_exception(vm, exception) {
+            None => self.run(vm),
+            Some(exception) => Err(exception),
+        }
+    }
+
     pub fn fetch_instruction(&self) -> &bytecode::Instruction {
         let ins2 = &self.code.instructions[*self.lasti.borrow()];
         *self.lasti.borrow_mut() += 1;
@@ -310,8 +333,14 @@ impl Frame {
                 ref symbol,
             } => self.import(vm, name, symbol),
             bytecode::Instruction::ImportStar { ref name } => self.import_star(vm, name),
-            bytecode::Instruction::LoadName { ref name } => self.load_name(vm, name),
-            bytecode::Instruction::StoreName { ref name } => self.store_name(vm, name),
+            bytecode::Instruction::LoadName {
+                ref name,
+                ref scope,
+            } => self.load_name(vm, name, scope),
+            bytecode::Instruction::StoreName {
+                ref name,
+                ref scope,
+            } => self.store_name(vm, name, scope),
             bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
@@ -382,21 +411,23 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
-                let map_obj = vm.ctx.new_dict().into_object();
-                for _x in 0..*size {
-                    let obj = self.pop_value();
-                    if *unpack {
+                let map_obj = vm.ctx.new_dict();
+                if *unpack {
+                    for obj in self.pop_multiple(*size) {
                         // Take all key-value pairs from the dict:
-                        let dict_elements = objdict::get_key_value_pairs(&obj);
-                        for (key, value) in dict_elements.iter() {
-                            objdict::set_item(&map_obj, vm, key, value);
+                        let dict: PyDictRef =
+                            obj.downcast().expect("Need a dictionary to build a map.");
+                        for (key, value) in dict {
+                            map_obj.set_item(key, value, vm).unwrap();
                         }
-                    } else {
-                        let key = self.pop_value();
-                        objdict::set_item(&map_obj, vm, &key, &obj);
+                    }
+                } else {
+                    for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
+                        map_obj.set_item(key, value, vm).unwrap();
                     }
                 }
-                self.push_value(map_obj);
+
+                self.push_value(map_obj.into_object());
                 Ok(None)
             }
             bytecode::Instruction::BuildSlice { size } => {
@@ -554,7 +585,10 @@ impl Frame {
                 }
             }
             bytecode::Instruction::MakeFunction { flags } => {
-                let _qualified_name = self.pop_value();
+                let qualified_name = self
+                    .pop_value()
+                    .downcast::<PyString>()
+                    .expect("qualified name to be a string");
                 let code_obj = self
                     .pop_value()
                     .downcast()
@@ -566,18 +600,44 @@ impl Frame {
                     vm.ctx.new_dict().into_object()
                 };
 
+                let kw_only_defaults =
+                    if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
+                        Some(
+                            self.pop_value().downcast::<PyDict>().expect(
+                                "Stack value for keyword only defaults expected to be a dict",
+                            ),
+                        )
+                    } else {
+                        None
+                    };
+
                 let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
-                    self.pop_value()
+                    Some(
+                        self.pop_value()
+                            .downcast::<PyTuple>()
+                            .expect("Stack value for defaults expected to be a tuple"),
+                    )
                 } else {
-                    vm.get_none()
+                    None
                 };
 
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.scope.clone();
-                let obj = vm.ctx.new_function(code_obj, scope, defaults);
+                let obj = vm
+                    .ctx
+                    .new_function(code_obj, scope, defaults, kw_only_defaults);
 
-                vm.ctx.set_attr(&obj, "__annotations__", annotations);
+                let name = qualified_name.value.split('.').next_back().unwrap();
+                vm.set_attr(&obj, "__name__", vm.new_str(name.to_string()))?;
+                vm.set_attr(&obj, "__qualname__", qualified_name)?;
+                let module = self
+                    .scope
+                    .globals
+                    .get_item_option("__name__", vm)?
+                    .unwrap_or_else(|| vm.get_none());
+                vm.set_attr(&obj, "__module__", module)?;
+                vm.set_attr(&obj, "__annotations__", annotations)?;
 
                 self.push_value(obj);
                 Ok(None)
@@ -604,11 +664,11 @@ impl Frame {
                     }
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
-                            let kw_dict = self.pop_value();
-                            let dict_elements = objdict::get_elements(&kw_dict).clone();
-                            dict_elements
+                            let kw_dict: PyDictRef =
+                                self.pop_value().downcast().expect("Kwargs must be a dict.");
+                            kw_dict
                                 .into_iter()
-                                .map(|elem| (elem.0, (elem.1).1))
+                                .map(|elem| (objstr::get_value(&elem.0), elem.1))
                                 .collect()
                         } else {
                             vec![]
@@ -647,32 +707,39 @@ impl Frame {
                 Ok(None)
             }
 
-            bytecode::Instruction::Raise { argc } => {
+            bytecode::Instruction::Raise { argc, in_exc } => {
+                let cause = match argc {
+                    2 => self.get_exception(vm, true)?,
+                    _ => vm.get_none(),
+                };
                 let exception = match argc {
-                    1 => self.pop_value(),
-                    0 | 2 | 3 => panic!("Not implemented!"),
+                    0 => match in_exc {
+                        true => self.get_exception(vm, false)?,
+                        false => {
+                            return Err(vm.new_exception(
+                                vm.ctx.exceptions.runtime_error.clone(),
+                                "No active exception to reraise".to_string(),
+                            ));
+                        }
+                    },
+                    1 | 2 => self.get_exception(vm, false)?,
+                    3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
-                    info!("Exception raised: {:?}", exception);
-                    Err(exception)
-                } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
-                    if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
-                        let exception = vm.new_empty_exception(exception)?;
-                        info!("Exception raised: {:?}", exception);
-                        Err(exception)
-                    } else {
-                        let msg = format!(
-                            "Can only raise BaseException derived types, not {}",
-                            exception
-                        );
-                        let type_error_type = vm.ctx.exceptions.type_error.clone();
-                        let type_error = vm.new_exception(type_error_type, msg);
-                        Err(type_error)
-                    }
-                } else {
-                    Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
-                }
+                let context = match argc {
+                    0 => vm.get_none(), // We have already got the exception,
+                    _ => match in_exc {
+                        true => self.get_exception(vm, false)?,
+                        false => vm.get_none(),
+                    },
+                };
+                info!(
+                    "Exception raised: {:?} with cause: {:?} and context: {:?}",
+                    exception, cause, context
+                );
+                vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
+                vm.set_attr(&exception, vm.new_str("__context__".to_string()), context)?;
+                Err(exception)
             }
 
             bytecode::Instruction::Break => {
@@ -710,9 +777,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                let rustfunc =
-                    PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_)).into_ref(vm);
-                self.push_value(rustfunc.into_object());
+                self.push_value(vm.ctx.new_rustfunc(builtins::builtin_build_class_));
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
@@ -831,8 +896,8 @@ impl Frame {
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {
-            for (k, v) in dict.get_key_value_pairs().iter() {
-                self.scope.store_name(&vm, &objstr::get_value(k), v.clone());
+            for (k, v) in dict {
+                self.scope.store_name(&vm, &objstr::get_value(&k), v);
             }
         }
         Ok(None)
@@ -953,9 +1018,21 @@ impl Frame {
         vm.call_method(context_manager, "__exit__", args)
     }
 
-    fn store_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
+    fn store_name(
+        &self,
+        vm: &VirtualMachine,
+        name: &str,
+        name_scope: &bytecode::NameScope,
+    ) -> FrameResult {
         let obj = self.pop_value();
-        self.scope.store_name(&vm, name, obj);
+        match name_scope {
+            bytecode::NameScope::Global => {
+                self.scope.store_global(vm, name, obj);
+            }
+            bytecode::NameScope::Local => {
+                self.scope.store_name(&vm, name, obj);
+            }
+        }
         Ok(None)
     }
 
@@ -964,37 +1041,43 @@ impl Frame {
         Ok(None)
     }
 
-    fn load_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
-        match self.scope.load_name(&vm, name) {
-            Some(value) => {
-                self.push_value(value);
-                Ok(None)
-            }
+    fn load_name(
+        &self,
+        vm: &VirtualMachine,
+        name: &str,
+        name_scope: &bytecode::NameScope,
+    ) -> FrameResult {
+        let optional_value = match name_scope {
+            bytecode::NameScope::Global => self.scope.load_global(vm, name),
+            bytecode::NameScope::Local => self.scope.load_name(&vm, name),
+        };
+
+        let value = match optional_value {
+            Some(value) => value,
             None => {
                 let name_error_type = vm.ctx.exceptions.name_error.clone();
                 let msg = format!("name '{}' is not defined", name);
                 let name_error = vm.new_exception(name_error_type, msg);
-                Err(name_error)
+                return Err(name_error);
             }
-        }
-    }
+        };
 
-    fn subscript(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__getitem__", vec![b])
+        self.push_value(value);
+        Ok(None)
     }
 
     fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        vm.call_method(&obj, "__setitem__", vec![idx, value])?;
+        obj.set_item(idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        vm.call_method(&obj, "__delitem__", vec![idx])?;
+        obj.del_item(idx, vm)?;
         Ok(None)
     }
 
@@ -1029,7 +1112,7 @@ impl Frame {
             bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
             // TODO: Subscript should probably have its own op
             bytecode::BinaryOperator::Subscript if inplace => unreachable!(),
-            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
             bytecode::BinaryOperator::Modulo if inplace => vm._imod(a_ref, b_ref),
             bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
             bytecode::BinaryOperator::Lshift if inplace => vm._ilshift(a_ref, b_ref),
@@ -1067,36 +1150,14 @@ impl Frame {
         a.get_id()
     }
 
-    // https://docs.python.org/3/reference/expressions.html#membership-test-operations
-    fn _membership(
-        &self,
-        vm: &VirtualMachine,
-        needle: PyObjectRef,
-        haystack: &PyObjectRef,
-    ) -> PyResult {
-        vm.call_method(&haystack, "__contains__", vec![needle])
-        // TODO: implement __iter__ and __getitem__ cases when __contains__ is
-        // not implemented.
-    }
-
     fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
-        match self._membership(vm, needle, &haystack) {
-            Ok(found) => Ok(found),
-            Err(_) => Err(vm.new_type_error(format!(
-                "{} has no __contains__ method",
-                haystack.class().name
-            ))),
-        }
+        let found = vm._membership(haystack.clone(), needle)?;
+        Ok(vm.ctx.new_bool(objbool::boolval(vm, found)?))
     }
 
     fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
-        match self._membership(vm, needle, &haystack) {
-            Ok(found) => Ok(vm.ctx.new_bool(!objbool::get_value(&found))),
-            Err(_) => Err(vm.new_type_error(format!(
-                "{} has no __contains__ method",
-                haystack.class().name
-            ))),
-        }
+        let found = vm._membership(haystack.clone(), needle)?;
+        Ok(vm.ctx.new_bool(!objbool::boolval(vm, found)?))
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
@@ -1201,6 +1262,28 @@ impl Frame {
         let stack = self.stack.borrow_mut();
         stack[stack.len() - depth - 1].clone()
     }
+
+    fn get_exception(&self, vm: &VirtualMachine, none_allowed: bool) -> PyResult {
+        let exception = self.pop_value();
+        if none_allowed && vm.get_none().is(&exception)
+            || objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type)
+        {
+            Ok(exception)
+        } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
+            if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
+                let exception = vm.new_empty_exception(exception)?;
+                Ok(exception)
+            } else {
+                let msg = format!(
+                    "Can only raise BaseException derived types, not {}",
+                    exception
+                );
+                Err(vm.new_type_error(msg))
+            }
+        } else {
+            Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
+        }
+    }
 }
 
 impl fmt::Debug for Frame {
@@ -1224,8 +1307,8 @@ impl fmt::Debug for Frame {
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
         let dict = self.scope.get_locals();
-        let local_str = objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
-            .iter()
+        let local_str = dict
+            .into_iter()
             .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
             .collect::<String>();
         write!(

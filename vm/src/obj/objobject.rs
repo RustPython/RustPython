@@ -1,4 +1,4 @@
-use super::objdict::{self, PyDictRef};
+use super::objdict::PyDictRef;
 use super::objlist::PyList;
 use super::objstr::PyStringRef;
 use super::objtype;
@@ -6,7 +6,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
+    IdProtocol, ItemProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -55,8 +55,8 @@ fn object_ge(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> Py
     vm.ctx.not_implemented()
 }
 
-fn object_hash(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    Err(vm.new_type_error("unhashable type".to_string()))
+fn object_hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> u64 {
+    zelf.get_id() as u64
 }
 
 fn object_setattr(
@@ -77,7 +77,7 @@ fn object_setattr(
     }
 
     if let Some(ref dict) = obj.clone().dict {
-        dict.set_item(&vm.ctx, &attr_name.value, value);
+        dict.set_item(attr_name, value, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -98,7 +98,7 @@ fn object_delattr(obj: PyObjectRef, attr_name: PyStringRef, vm: &VirtualMachine)
     }
 
     if let Some(ref dict) = obj.dict {
-        dict.del_item(&attr_name.value);
+        dict.del_item(attr_name, vm)?;
         Ok(())
     } else {
         Err(vm.new_attribute_error(format!(
@@ -117,13 +117,22 @@ fn object_repr(zelf: PyObjectRef, _vm: &VirtualMachine) -> String {
     format!("<{} object at 0x{:x}>", zelf.class().name, zelf.get_id())
 }
 
-pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyList {
-    let attributes = get_attributes(&obj);
-    let attributes: Vec<PyObjectRef> = attributes
-        .keys()
-        .map(|k| vm.ctx.new_str(k.to_string()))
-        .collect();
-    PyList::from(attributes)
+pub fn object_dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
+    let attributes: PyAttributes = objtype::get_attributes(obj.class());
+
+    let dict = PyDictRef::from_attributes(attributes, vm)?;
+
+    // Get instance attributes:
+    if let Some(object_dict) = &obj.dict {
+        vm.invoke(
+            vm.get_attribute(dict.clone().into_object(), "update")?,
+            object_dict.clone().into_object(),
+        )?;
+    }
+
+    let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k.clone()).collect();
+
+    Ok(PyList::from(attributes))
 }
 
 fn object_format(
@@ -158,7 +167,11 @@ pub fn init(context: &PyContext) {
         "__ge__" => context.new_rustfunc(object_ge),
         "__setattr__" => context.new_rustfunc(object_setattr),
         "__delattr__" => context.new_rustfunc(object_delattr),
-        "__dict__" => context.new_property(object_dict),
+        "__dict__" =>
+        PropertyBuilder::new(context)
+                .add_getter(object_dict)
+                .add_setter(object_dict_setter)
+                .create(),
         "__dir__" => context.new_rustfunc(object_dir),
         "__hash__" => context.new_rustfunc(object_hash),
         "__str__" => context.new_rustfunc(object_str),
@@ -194,6 +207,16 @@ fn object_dict(object: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> 
     }
 }
 
+fn object_dict_setter(
+    _instance: PyObjectRef,
+    _value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult {
+    Err(vm.new_not_implemented_error(
+        "Setting __dict__ attribute on am object isn't yet implemented".to_string(),
+    ))
+}
+
 fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMachine) -> PyResult {
     let name = &name_str.value;
     trace!("object.__getattribute__({:?}, {:?})", obj, name);
@@ -208,7 +231,7 @@ fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMach
         }
     }
 
-    if let Some(obj_attr) = object_getattr(&obj, &name) {
+    if let Some(obj_attr) = object_getattr(&obj, &name, &vm)? {
         Ok(obj_attr)
     } else if let Some(attr) = objtype::class_get_attr(&cls, &name) {
         vm.call_get_descriptor(attr, obj)
@@ -219,24 +242,14 @@ fn object_getattribute(obj: PyObjectRef, name_str: PyStringRef, vm: &VirtualMach
     }
 }
 
-fn object_getattr(obj: &PyObjectRef, attr_name: &str) -> Option<PyObjectRef> {
+fn object_getattr(
+    obj: &PyObjectRef,
+    attr_name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyObjectRef>> {
     if let Some(ref dict) = obj.dict {
-        dict.get_item(attr_name)
+        dict.get_item_option(attr_name, vm)
     } else {
-        None
+        Ok(None)
     }
-}
-
-pub fn get_attributes(obj: &PyObjectRef) -> PyAttributes {
-    // Get class attributes:
-    let mut attributes = objtype::get_attributes(obj.class());
-
-    // Get instance attributes:
-    if let Some(dict) = &obj.dict {
-        for (key, value) in objdict::get_key_value_pairs(dict.as_object()) {
-            attributes.insert(key.to_string(), value.clone());
-        }
-    }
-
-    attributes
 }

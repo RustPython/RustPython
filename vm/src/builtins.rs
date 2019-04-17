@@ -18,9 +18,9 @@ use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::{self, PyClassRef};
 
 use crate::frame::Scope;
-use crate::function::{Args, OptionalArg, PyFuncArgs};
+use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+    IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -102,10 +102,8 @@ fn builtin_compile(
         }
     };
 
-    compile::compile(vm, &source, &mode, filename.value.to_string()).map_err(|err| {
-        let syntax_error = vm.context().exceptions.syntax_error.clone();
-        vm.new_exception(syntax_error, err.to_string())
-    })
+    compile::compile(vm, &source, &mode, filename.value.to_string())
+        .map_err(|err| vm.new_syntax_error(&err))
 }
 
 fn builtin_delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -151,10 +149,8 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, "<string>".to_string()).map_err(|err| {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            vm.new_exception(syntax_error, err.to_string())
-        })?
+        compile::compile(vm, &source, &mode, "<string>".to_string())
+            .map_err(|err| vm.new_syntax_error(&err))?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
     };
@@ -181,10 +177,8 @@ fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, "<string>".to_string()).map_err(|err| {
-            let syntax_error = vm.context().exceptions.syntax_error.clone();
-            vm.new_exception(syntax_error, err.to_string())
-        })?
+        compile::compile(vm, &source, &mode, "<string>".to_string())
+            .map_err(|err| vm.new_syntax_error(&err))?
     } else if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
         code_obj
     } else {
@@ -667,8 +661,15 @@ fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_vars
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    let py_mod = py_module!(ctx, "__builtins__", {
+pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
+    let ctx = &vm.ctx;
+
+    #[cfg(target_arch = "wasm32")]
+    let open = vm.ctx.none();
+    #[cfg(not(target_arch = "wasm32"))]
+    let open = vm.ctx.new_rustfunc(io_open);
+
+    extend_module!(vm, module, {
         //set __name__ fixes: https://github.com/RustPython/RustPython/issues/146
         "__name__" => ctx.new_str(String::from("__main__")),
 
@@ -714,6 +715,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "min" => ctx.new_rustfunc(builtin_min),
         "object" => ctx.object(),
         "oct" => ctx.new_rustfunc(builtin_oct),
+        "open" => open,
         "ord" => ctx.new_rustfunc(builtin_ord),
         "next" => ctx.new_rustfunc(builtin_next),
         "pow" => ctx.new_rustfunc(builtin_pow),
@@ -748,6 +750,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "NameError" => ctx.exceptions.name_error.clone(),
         "OverflowError" => ctx.exceptions.overflow_error.clone(),
         "RuntimeError" => ctx.exceptions.runtime_error.clone(),
+        "ReferenceError" => ctx.exceptions.reference_error.clone(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
         "TypeError" => ctx.exceptions.type_error.clone(),
         "ValueError" => ctx.exceptions.value_error.clone(),
@@ -758,19 +761,33 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
+
+        // Warnings
+        "Warning" => ctx.exceptions.warning.clone(),
+        "BytesWarning" => ctx.exceptions.bytes_warning.clone(),
+        "UnicodeWarning" => ctx.exceptions.unicode_warning.clone(),
+        "DeprecationWarning" => ctx.exceptions.deprecation_warning.clone(),
+        "PendingDeprecationWarning" => ctx.exceptions.pending_deprecation_warning.clone(),
+        "FutureWarning" => ctx.exceptions.future_warning.clone(),
+        "ImportWarning" => ctx.exceptions.import_warning.clone(),
+        "SyntaxWarning" => ctx.exceptions.syntax_warning.clone(),
+        "ResourceWarning" => ctx.exceptions.resource_warning.clone(),
+        "RuntimeWarning" => ctx.exceptions.runtime_warning.clone(),
+        "UserWarning" => ctx.exceptions.user_warning.clone(),
     });
-
-    #[cfg(not(target_arch = "wasm32"))]
-    ctx.set_attr(&py_mod, "open", ctx.new_rustfunc(io_open));
-
-    py_mod
 }
 
-pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResult {
-    let function = args.shift();
-    let name_arg = args.shift();
-    let bases = args.args.clone();
-    let mut metaclass = if let Some(metaclass) = args.get_optional_kwarg("metaclass") {
+pub fn builtin_build_class_(
+    function: PyObjectRef,
+    qualified_name: PyStringRef,
+    bases: Args<PyClassRef>,
+    mut kwargs: KwArgs,
+    vm: &VirtualMachine,
+) -> PyResult {
+    let name = qualified_name.value.split('.').next_back().unwrap();
+    let name_obj = vm.new_str(name.to_string());
+
+    let mut metaclass = if let Some(metaclass) = kwargs.pop_kwarg("metaclass") {
         PyClassRef::try_from_object(vm, metaclass)?
     } else {
         vm.get_type()
@@ -784,22 +801,26 @@ pub fn builtin_build_class_(vm: &VirtualMachine, mut args: PyFuncArgs) -> PyResu
         }
     }
 
-    let bases = vm.context().new_tuple(bases);
+    let bases = bases.into_tuple(vm);
 
     // Prepare uses full __getattribute__ resolution chain.
     let prepare = vm.get_attribute(metaclass.clone().into_object(), "__prepare__")?;
-    let namespace = vm.invoke(prepare, vec![name_arg.clone(), bases.clone()])?;
+    let namespace = vm.invoke(prepare, vec![name_obj.clone(), bases.clone()])?;
 
     let namespace: PyDictRef = TryFromObject::try_from_object(vm, namespace)?;
 
     let cells = vm.ctx.new_dict();
 
     vm.invoke_with_locals(function, cells.clone(), namespace.clone())?;
+
+    namespace.set_item("__name__", name_obj.clone(), vm)?;
+    namespace.set_item("__qualname__", qualified_name.into_object(), vm)?;
+
     let class = vm.call_method(
         metaclass.as_object(),
         "__call__",
-        vec![name_arg, bases, namespace.into_object()],
+        vec![name_obj, bases, namespace.into_object()],
     )?;
-    cells.set_item(&vm.ctx, "__class__", class.clone());
+    cells.set_item("__class__", class.clone(), vm)?;
     Ok(class)
 }

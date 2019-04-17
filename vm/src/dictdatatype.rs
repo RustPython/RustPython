@@ -9,19 +9,37 @@ use num_traits::ToPrimitive;
 /// And: http://code.activestate.com/recipes/578375/
 use std::collections::HashMap;
 
-pub struct Dict {
+#[derive(Clone)]
+pub struct Dict<T = PyObjectRef> {
     size: usize,
     indices: HashMap<usize, usize>,
-    entries: Vec<Option<DictEntry>>,
+    entries: Vec<Option<DictEntry<T>>>,
 }
 
-struct DictEntry {
+impl<T> Default for Dict<T> {
+    fn default() -> Self {
+        Dict {
+            size: 0,
+            indices: HashMap::new(),
+            entries: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct DictEntry<T> {
     hash: usize,
     key: PyObjectRef,
-    value: PyObjectRef,
+    value: T,
 }
 
-impl Dict {
+#[derive(Debug)]
+pub struct DictSize {
+    size: usize,
+    entries_size: usize,
+}
+
+impl<T: Clone> Dict<T> {
     pub fn new() -> Self {
         Dict {
             size: 0,
@@ -31,12 +49,7 @@ impl Dict {
     }
 
     /// Store a key
-    pub fn insert(
-        &mut self,
-        vm: &VirtualMachine,
-        key: &PyObjectRef,
-        value: PyObjectRef,
-    ) -> PyResult<()> {
+    pub fn insert(&mut self, vm: &VirtualMachine, key: &PyObjectRef, value: T) -> PyResult<()> {
         match self.lookup(vm, key)? {
             LookupResult::Existing(index) => {
                 // Update existing key
@@ -75,17 +88,22 @@ impl Dict {
     }
 
     /// Retrieve a key
-    pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult {
+    pub fn get(&self, vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<Option<T>> {
         if let LookupResult::Existing(index) = self.lookup(vm, key)? {
             if let Some(entry) = &self.entries[index] {
-                Ok(entry.value.clone())
+                Ok(Some(entry.value.clone()))
             } else {
                 panic!("Lookup returned invalid index into entries!");
             }
         } else {
-            let key_repr = vm.to_pystr(key)?;
-            Err(vm.new_value_error(format!("Key not found: {}", key_repr)))
+            Ok(None)
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.indices.clear();
+        self.size = 0
     }
 
     /// Delete a key
@@ -96,7 +114,7 @@ impl Dict {
             Ok(())
         } else {
             let key_repr = vm.to_pystr(key)?;
-            Err(vm.new_value_error(format!("Key not found: {}", key_repr)))
+            Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
         }
     }
 
@@ -108,13 +126,26 @@ impl Dict {
         self.len() == 0
     }
 
-    pub fn get_items(&self) -> Vec<(PyObjectRef, PyObjectRef)> {
-        self.entries
-            .iter()
-            .filter(|e| e.is_some())
-            .map(|e| e.as_ref().unwrap())
-            .map(|e| (e.key.clone(), e.value.clone()))
-            .collect()
+    pub fn size(&self) -> DictSize {
+        DictSize {
+            size: self.size,
+            entries_size: self.entries.len(),
+        }
+    }
+
+    pub fn next_entry(&self, position: &mut usize) -> Option<(&PyObjectRef, &T)> {
+        while *position < self.entries.len() {
+            if let Some(DictEntry { key, value, .. }) = &self.entries[*position] {
+                *position += 1;
+                return Some((key, value));
+            }
+            *position += 1;
+        }
+        None
+    }
+
+    pub fn has_changed_size(&self, position: &DictSize) -> bool {
+        position.size != self.size || self.entries.len() != position.entries_size
     }
 
     /// Lookup the index for the given key.
@@ -175,12 +206,8 @@ fn calc_hash(vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<usize> {
 }
 
 /// Invoke __eq__ on two keys
-fn do_eq(
-    vm: &VirtualMachine,
-    key1: &PyObjectRef,
-    key2: &PyObjectRef,
-) -> Result<bool, PyObjectRef> {
-    let result = vm._eq(key1, key2.clone())?;
+fn do_eq(vm: &VirtualMachine, key1: &PyObjectRef, key2: &PyObjectRef) -> Result<bool, PyObjectRef> {
+    let result = vm._eq(key1.clone(), key2.clone())?;
     Ok(objbool::get_value(&result))
 }
 

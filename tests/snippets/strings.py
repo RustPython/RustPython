@@ -55,6 +55,29 @@ assert b.rstrip() == '  hallo'
 c = 'hallo'
 assert c.capitalize() == 'Hallo'
 assert c.center(11, '-') == '---hallo---'
+assert ["koki".center(i, "|") for i in range(3, 10)] == [
+    "koki",
+    "koki",
+    "|koki",
+    "|koki|",
+    "||koki|",
+    "||koki||",
+    "|||koki||",
+]
+
+
+assert ["kok".center(i, "|") for i in range(2, 10)] == [
+    "kok",
+    "kok",
+    "kok|",
+    "|kok|",
+    "|kok||",
+    "||kok||",
+    "||kok|||",
+    "|||kok|||",
+]
+
+
 # assert c.isascii()
 assert c.index('a') == 1
 assert c.rindex('l') == 3

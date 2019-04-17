@@ -7,7 +7,7 @@ use crate::obj::objdict::PyDict;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyContext, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject};
+use crate::pyobject::{PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject};
 use crate::VirtualMachine;
 
 fn types_new_class(
@@ -25,10 +25,13 @@ fn types_new_class(
     objtype::type_new_class(vm, vm.ctx.type_type(), name, bases, dict)
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
-    py_module!(ctx, "types", {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
+    py_module!(vm, "types", {
         "new_class" => ctx.new_rustfunc(types_new_class),
         "FunctionType" => ctx.function_type(),
+        "MethodType" => ctx.bound_method_type(),
         "LambdaType" => ctx.function_type(),
         "CodeType" => ctx.code_type(),
         "FrameType" => ctx.frame_type()
