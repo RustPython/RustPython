@@ -3,6 +3,7 @@ from import_target import func, other_func
 from import_target import func as aliased_func, other_func as aliased_other_func
 from import_star import *
 
+import import_mutual1
 assert import_target.X == import_target.func()
 assert import_target.X == func()
 
