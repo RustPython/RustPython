@@ -590,6 +590,30 @@ impl PyByteInner {
         }
         Ok(-1isize)
     }
+
+    pub fn maketrans(from: PyObjectRef, to: PyObjectRef, vm :&VirtualMachine) -> PyResult{
+        let mut res =  vec![];
+
+        let from = match try_as_bytes_like(&from) {
+            Some(value) => value,
+            None => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", from)));},
+        };
+
+        let to = match try_as_bytes_like(&to) {
+            Some(value) => value,
+            None => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", to)));},
+        };
+
+        for i in 0..=255 {
+            res.push(if let Some(position) = from.iter().position(|&x| x ==i) {
+                to[position]
+            }  else {
+                i
+            });
+        }
+
+        Ok(vm.ctx.new_bytes(res))
+    }
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
