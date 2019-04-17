@@ -7,7 +7,7 @@ use std::ops::Deref;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
-use super::objbyteinner::{is_byte, is_bytes_like, IsByte, PyByteInner};
+use super::objbyteinner::PyByteInner;
 use super::objiter;
 use super::objslice::PySlice;
 use super::objtype::PyClassRef;
@@ -240,33 +240,7 @@ impl PyBytesRef {
         fillbyte: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let sym = if let OptionalArg::Present(v) = fillbyte {
-            match is_byte(&v) {
-                Some(x) => {
-                    if x.len() == 1 {
-                        x[0]
-                    } else {
-                        return Err(vm.new_type_error(format!(
-                            "center() argument 2 must be a byte string of length 1, not {}",
-                            &v
-                        )));
-                    }
-                }
-                None => {
-                    return Err(vm.new_type_error(format!(
-                        "center() argument 2 must be a byte string of length 1, not {}",
-                        &v
-                    )));
-                }
-            }
-        } else {
-            32 // default is space
-        };
-
-        match_class!(width,
-        i @PyInt => Ok(vm.ctx.new_bytes(self.inner.center(i.as_bigint(), sym, vm))),
-        obj => {Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)))}
-        )
+        Ok(vm.ctx.new_bytes(self.inner.center(width, fillbyte, vm)?))
     }
 
     #[pymethod(name = "count")]
@@ -276,14 +250,8 @@ impl PyBytesRef {
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult {
-        match is_bytes_like(&sub) {
-            Some(value) => Ok(vm.new_int(self.inner.count(value, start, end, vm)?)),
-            None => match_class!(sub,
-                i @ PyInt => {
-                    Ok(vm.new_int(self.inner.count(vec![i.as_bigint().is_byte(vm)?], start, end, vm)?))},
-                obj => {Err(vm.new_type_error(format!("argument should be integer or bytes-like object, not {}", obj)))}),
-        }
+    ) -> PyResult<usize> {
+        self.inner.count(sub, start, end, vm)
     }
 
     #[pymethod(name = "join")]

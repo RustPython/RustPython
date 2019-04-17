@@ -158,6 +158,7 @@ with assertRaises(TypeError):
 with assertRaises(TypeError):
     b"b".center(2, b"ba")
 b"kok".center(5, bytearray(b"x"))
+b"kok".center(-5,)
 
 # count
 assert b"azeazerazeazopia".count(b"aze") == 3
@@ -177,6 +178,7 @@ assert b"azeazerazeazopia".count(b"aze", -13, -10) == 1
 assert b"azeazerazeazopia".count(b"aze", 1, 10000) == 2
 with assertRaises(ValueError):
     b"ilj".count(3550)
+assert b"azeazerazeazopia".count(97) == 5
 
 # join
 assert (
