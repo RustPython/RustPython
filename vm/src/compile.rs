@@ -1014,7 +1014,7 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Expression::Tuple { elements } => {
+            ast::Expression::List { elements } | ast::Expression::Tuple { elements } => {
                 let mut seen_star = false;
 
                 // Scan for star args:
