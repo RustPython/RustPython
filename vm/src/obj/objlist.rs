@@ -210,12 +210,12 @@ impl PyListRef {
     }
 
     fn setslice(self, slice: PySliceRef, sec: PyIterable, vm: &VirtualMachine) -> PyResult {
-        let step = slice.step.clone().unwrap_or_else(BigInt::one);
+        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
 
         if step.is_zero() {
             Err(vm.new_value_error("slice step cannot be zero".to_string()))
         } else if step.is_positive() {
-            let range = self.get_slice_range(&slice.start, &slice.stop);
+            let range = self.get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
             if range.start < range.end {
                 match step.to_i32() {
                     Some(1) => self._set_slice(range, sec, vm),
@@ -237,14 +237,14 @@ impl PyListRef {
         } else {
             // calculate the range for the reverse slice, first the bounds needs to be made
             // exclusive around stop, the lower number
-            let start = &slice.start.as_ref().map(|x| {
+            let start = &slice.start_index(vm)?.as_ref().map(|x| {
                 if *x == (-1).to_bigint().unwrap() {
                     self.get_len() + BigInt::one() //.to_bigint().unwrap()
                 } else {
                     x + 1
                 }
             });
-            let stop = &slice.stop.as_ref().map(|x| {
+            let stop = &slice.stop_index(vm)?.as_ref().map(|x| {
                 if *x == (-1).to_bigint().unwrap() {
                     self.get_len().to_bigint().unwrap()
                 } else {
@@ -552,9 +552,9 @@ impl PyListRef {
     }
 
     fn delslice(self, slice: PySliceRef, vm: &VirtualMachine) -> PyResult {
-        let start = &slice.start;
-        let stop = &slice.stop;
-        let step = slice.step.clone().unwrap_or_else(BigInt::one);
+        let start = slice.start_index(vm)?;
+        let stop = slice.stop_index(vm)?;
+        let step = slice.step_index(vm)?.unwrap_or_else(BigInt::one);
 
         if step.is_zero() {
             Err(vm.new_value_error("slice step cannot be zero".to_string()))
