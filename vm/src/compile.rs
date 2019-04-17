@@ -6,7 +6,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
-use crate::error::CompileError;
+use crate::error::{CompileError, CompileErrorType};
 use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::pyobject::PyValue;
@@ -40,17 +40,17 @@ pub fn compile(
 
     match mode {
         Mode::Exec => {
-            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
+            let ast = parser::parse_program(source)?;
             let symbol_table = make_symbol_table(&ast);
             compiler.compile_program(&ast, symbol_table)
         }
         Mode::Eval => {
-            let statement = parser::parse_statement(source).map_err(CompileError::Parse)?;
+            let statement = parser::parse_statement(source)?;
             let symbol_table = statements_to_symbol_table(&statement);
             compiler.compile_statement_eval(&statement, symbol_table)
         }
         Mode::Single => {
-            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
+            let ast = parser::parse_program(source)?;
             let symbol_table = make_symbol_table(&ast);
             compiler.compile_program_single(&ast, symbol_table)
         }
@@ -158,7 +158,10 @@ impl Compiler {
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
             } else {
-                return Err(CompileError::ExpectExpr);
+                return Err(CompileError {
+                    error: CompileErrorType::ExpectExpr,
+                    location: statement.location.clone(),
+                });
             }
         }
         self.emit(Instruction::ReturnValue);
@@ -397,19 +400,28 @@ impl Compiler {
             }
             ast::Statement::Break => {
                 if !self.in_loop {
-                    return Err(CompileError::InvalidBreak);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidBreak,
+                        location: statement.location.clone(),
+                    });
                 }
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
                 if !self.in_loop {
-                    return Err(CompileError::InvalidContinue);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidContinue,
+                        location: statement.location.clone(),
+                    });
                 }
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
                 if !self.in_function_def {
-                    return Err(CompileError::InvalidReturn);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidReturn,
+                        location: statement.location.clone(),
+                    });
                 }
                 match value {
                     Some(v) => {
@@ -462,7 +474,10 @@ impl Compiler {
                             self.emit(Instruction::DeleteSubscript);
                         }
                         _ => {
-                            return Err(CompileError::Delete(target.name()));
+                            return Err(CompileError {
+                                error: CompileErrorType::Delete(target.name()),
+                                location: self.current_source_location.clone(),
+                            });
                         }
                     }
                 }
@@ -1021,7 +1036,10 @@ impl Compiler {
                 for (i, element) in elements.iter().enumerate() {
                     if let ast::Expression::Starred { .. } = element {
                         if seen_star {
-                            return Err(CompileError::StarArgs);
+                            return Err(CompileError {
+                                error: CompileErrorType::StarArgs,
+                                location: self.current_source_location.clone(),
+                            });
                         } else {
                             seen_star = true;
                             self.emit(Instruction::UnpackEx {
@@ -1047,7 +1065,10 @@ impl Compiler {
                 }
             }
             _ => {
-                return Err(CompileError::Assign(target.name()));
+                return Err(CompileError {
+                    error: CompileErrorType::Assign(target.name()),
+                    location: self.current_source_location.clone(),
+                });
             }
         }
 
@@ -1237,7 +1258,10 @@ impl Compiler {
             }
             ast::Expression::Yield { value } => {
                 if !self.in_function_def {
-                    return Err(CompileError::InvalidYield);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidYield,
+                        location: self.current_source_location.clone(),
+                    });
                 }
                 self.mark_generator();
                 match value {

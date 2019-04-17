@@ -14,6 +14,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
+use crate::error::CompileError;
 use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
@@ -234,9 +235,12 @@ impl VirtualMachine {
         self.new_exception(overflow_error, msg)
     }
 
-    pub fn new_syntax_error<T: ToString>(&self, msg: &T) -> PyObjectRef {
-        let syntax_error = self.ctx.exceptions.syntax_error.clone();
-        self.new_exception(syntax_error, msg.to_string())
+    pub fn new_syntax_error(&self, error: &CompileError) -> PyObjectRef {
+        let syntax_error_type = self.ctx.exceptions.syntax_error.clone();
+        let syntax_error = self.new_exception(syntax_error_type, error.to_string());
+        let lineno = self.new_int(error.location.get_row());
+        self.set_attr(&syntax_error, "lineno", lineno).unwrap();
+        syntax_error
     }
 
     pub fn get_none(&self) -> PyObjectRef {

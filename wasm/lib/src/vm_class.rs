@@ -266,7 +266,9 @@ impl WASMVirtualMachine {
                 let code = compile::compile(vm, &source, &mode, "<wasm>".to_string());
                 let code = code.map_err(|err| {
                     let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
-                    if let rustpython_vm::error::CompileError::Parse(ref parse_error) = err {
+                    if let rustpython_vm::error::CompileErrorType::Parse(ref parse_error) =
+                        err.error
+                    {
                         use rustpython_parser::error::ParseError;
                         if let ParseError::EOF(Some(ref loc))
                         | ParseError::ExtraToken((ref loc, ..))
