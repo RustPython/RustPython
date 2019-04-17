@@ -362,12 +362,45 @@ impl PyByteInner {
             .collect::<Vec<u8>>())
     }
 
-    pub fn center(&self, width: &BigInt, fillbyte: u8, _vm: &VirtualMachine) -> Vec<u8> {
-        let width = width.to_usize().unwrap();
+    pub fn center(&self, width_a: PyObjectRef, fillbyte: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let fillbyte = if let OptionalArg::Present(v) = fillbyte {
+            match try_as_byte(&v) {
+                Some(x) => {
+                    if x.len() == 1 {
+                        x[0]
+                    } else {
+                        return Err(vm.new_type_error(format!(
+                            "center() argument 2 must be a byte string of length 1, not {}",
+                            &v
+                        )));
+                    }
+                }
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "center() argument 2 must be a byte string of length 1, not {}",
+                        &v
+                    )));
+                }
+            }
+        } else {
+            32 // default is space
+        };
+
+        let width_b  = match_class!(width_a,
+        i @PyInt => i,
+        obj => {return Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)));}
+        );
+
+
+        // <0 = no change
+        let width = if let Some(x) = width_b.as_bigint().to_usize() {
+            x
+        } else {return Ok(self.elements.clone());};
+        
 
         // adjust right et left side
         if width <= self.len() {
-            return self.elements.clone();
+            return Ok(self.elements.clone());
         }
         let diff: usize = width - self.len();
         let mut ln: usize = diff / 2;
@@ -386,16 +419,23 @@ impl PyByteInner {
         res.extend_from_slice(&self.elements[..]);
         res.extend_from_slice(&vec![fillbyte; rn][..]);
 
-        res
+        Ok(res)
     }
 
     pub fn count(
         &self,
-        sub: Vec<u8>,
+        sub: PyObjectRef,
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> Result<usize, PyObjectRef> {
+    ) -> PyResult<usize> {
+        let sub = match try_as_bytes_like(&sub) {
+            Some(value) => value,
+            None => match_class!(sub,
+                i @ PyInt => 
+                    vec![i.as_bigint().byte_or(vm)?],
+                obj => {return Err(vm.new_type_error(format!("argument should be integer or bytes-like object, not {}", obj)));}),
+        };
         let start = if let OptionalArg::Present(st) = start {
             match_class!(st,
             i @ PyInt => {Some(i.as_bigint().clone())},
@@ -441,7 +481,7 @@ impl PyByteInner {
         let mut refs = vec![];
         for (index, v) in iter.iter(vm)?.enumerate() {
             let v = v?;
-            match is_bytes_like(&v) {
+            match try_as_bytes_like(&v) {
                 None => {
                     return Err(vm.new_type_error(format!(
                         "sequence item {}: expected a bytes-like object, {} found",
@@ -457,7 +497,7 @@ impl PyByteInner {
     }
 }
 
-pub fn is_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
+pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
     match_class!(obj.clone(),
 
     i @ PyBytes => Some(i.get_value().to_vec()),
@@ -465,7 +505,7 @@ pub fn is_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
     _ => None)
 }
 
-pub fn is_bytes_like(obj: &PyObjectRef) -> Option<Vec<u8>> {
+pub fn try_as_bytes_like(obj: &PyObjectRef) -> Option<Vec<u8>> {
     match_class!(obj.clone(),
 
     i @ PyBytes => Some(i.get_value().to_vec()),
@@ -474,8 +514,8 @@ pub fn is_bytes_like(obj: &PyObjectRef) -> Option<Vec<u8>> {
     _ => None)
 }
 
-pub trait IsByte: ToPrimitive {
-    fn is_byte(&self, vm: &VirtualMachine) -> Result<u8, PyObjectRef> {
+pub trait ByteOr: ToPrimitive {
+    fn byte_or(&self, vm: &VirtualMachine) -> Result<u8, PyObjectRef> {
         match self.to_u8() {
             Some(value) => Ok(value),
             None => Err(vm.new_value_error("byte must be in range(0, 256)".to_string())),
@@ -483,4 +523,4 @@ pub trait IsByte: ToPrimitive {
     }
 }
 
-impl IsByte for BigInt {}
+impl ByteOr for BigInt {}

@@ -1,4 +1,4 @@
-use crate::obj::objbyteinner::is_byte;
+use crate::obj::objbyteinner::try_as_byte;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -12,7 +12,7 @@ pub struct PyMemoryView {
 
 impl PyMemoryView {
     pub fn get_obj_value(&self) -> Option<Vec<u8>> {
-        is_byte(&self.obj)
+        try_as_byte(&self.obj)
     }
 }
 
