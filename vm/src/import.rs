@@ -11,9 +11,13 @@ use crate::pyobject::{ItemProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
-fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &str) -> PyResult {
+fn import_uncached_module(
+    vm: &VirtualMachine,
+    current_path: PathBuf,
+    module_name: &str,
+) -> PyResult {
     // Check for Rust-native modules
-    if let Some(module) = vm.stdlib_inits.borrow().get(module) {
+    if let Some(module) = vm.stdlib_inits.borrow().get(module_name) {
         return Ok(module(vm).clone());
     }
 
@@ -21,7 +25,7 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
     let import_error = vm.context().exceptions.import_error.clone();
 
     // Time to search for module in any place:
-    let file_path = find_source(vm, current_path, module)
+    let file_path = find_source(vm, current_path, module_name)
         .map_err(|e| vm.new_exception(notfound_error.clone(), e))?;
     let source = util::read_file(file_path.as_path())
         .map_err(|e| vm.new_exception(import_error.clone(), e.to_string()))?;
@@ -35,19 +39,25 @@ fn import_uncached_module(vm: &VirtualMachine, current_path: PathBuf, module: &s
     // trace!("Code object: {:?}", code_obj);
 
     let attrs = vm.ctx.new_dict();
-    attrs.set_item("__name__", vm.new_str(module.to_string()), vm)?;
-    vm.run_code_obj(code_obj, Scope::new(None, attrs.clone()))?;
-    Ok(vm.ctx.new_module(module, attrs))
+    attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
+    let module = vm.ctx.new_module(module_name, attrs.clone());
+
+    // Store module in cache to prevent infinite loop with mutual importing libs:
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
+    sys_modules.set_item(module_name, module.clone(), vm)?;
+
+    // Execute main code in module:
+    vm.run_code_obj(code_obj, Scope::new(None, attrs))?;
+    Ok(module)
 }
 
 pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
     // First, see if we already loaded the module:
-    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
     if let Ok(module) = sys_modules.get_item(module_name.to_string(), vm) {
         return Ok(module);
     }
     let module = import_uncached_module(vm, current_path, module_name)?;
-    sys_modules.set_item(module_name, module.clone(), vm)?;
     Ok(module)
 }
 
