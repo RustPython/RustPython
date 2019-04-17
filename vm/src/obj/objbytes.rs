@@ -308,6 +308,16 @@ impl PyBytesRef {
         }
         Ok(vm.new_int(res))
     }
+
+    #[pymethod(name = "translate")]
+    fn translate(
+        self,
+        table: PyObjectRef,
+        delete: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.inner.translate(table, delete, vm)
+    }
 }
 
 #[derive(Debug)]

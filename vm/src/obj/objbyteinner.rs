@@ -614,6 +614,36 @@ impl PyByteInner {
 
         Ok(vm.ctx.new_bytes(res))
     }
+    pub fn translate(&self, table: PyObjectRef, delete: OptionalArg<PyObjectRef>, vm :&VirtualMachine) -> PyResult{
+        let table = match try_as_bytes_like(&table) {
+            Some(value) => value,
+            None => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", table)));},
+        };
+
+        if table.len() != 256 {
+            return Err(vm.new_value_error("translation table must be 256 characters long".to_string()));
+        }
+
+
+
+        let delete = if let OptionalArg::Present(value) = delete {
+             match try_as_bytes_like(&value) {
+                Some(value) => value,
+                None => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", value)));}
+            }
+        } else {vec![]};
+
+
+        let mut res = vec![];
+
+        for i in self.elements.iter() {
+            if !delete.contains(&i) {
+                res.push(table[*i as usize]);
+            }
+        }
+
+        Ok(vm.ctx.new_bytes(res))
+    }
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
