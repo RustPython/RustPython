@@ -1,3 +1,4 @@
+use crate::obj::objint::PyIntRef;
 use crate::obj::objslice::PySlice;
 use crate::pyobject::{PyIterable, PyObjectRef};
 use num_bigint::BigInt;
@@ -376,7 +377,7 @@ impl PyByteInner {
 
     fn get_center_args(
         &self,
-        width_a: PyObjectRef,
+        width: PyIntRef,
         fillbyte: OptionalArg<PyObjectRef>,
         fn_name: String,
         vm: &VirtualMachine,
@@ -404,13 +405,8 @@ impl PyByteInner {
             b' ' // default is space
         };
 
-        let width_b = match_class!(width_a,
-        i @PyInt => i,
-        obj => {return Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)));}
-        );
-
         // <0 = no change
-        let width = if let Some(x) = width_b.as_bigint().to_usize() {
+        let width = if let Some(x) = width.as_bigint().to_usize() {
             if x <= self.len() {
                 0
             } else {
@@ -427,12 +423,12 @@ impl PyByteInner {
 
     pub fn center(
         &self,
-        width_a: PyObjectRef,
+        width: PyIntRef,
         fillbyte: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let fn_name = "center".to_string();
-        let (fillbyte, diff) = self.get_center_args(width_a, fillbyte, fn_name, vm)?;
+        let (fillbyte, diff) = self.get_center_args(width, fillbyte, fn_name, vm)?;
 
         let mut ln: usize = diff / 2;
         let mut rn: usize = ln;
@@ -449,6 +445,39 @@ impl PyByteInner {
         let mut res = vec![fillbyte; ln];
         res.extend_from_slice(&self.elements[..]);
         res.extend_from_slice(&vec![fillbyte; rn][..]);
+
+        Ok(res)
+    }
+
+    pub fn ljust(
+        &self,
+        width: PyIntRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let fn_name = "ljust".to_string();
+        let (fillbyte, diff) = self.get_center_args(width, fillbyte, fn_name, vm)?;
+
+        // merge all
+        let mut res = vec![];
+        res.extend_from_slice(&self.elements[..]);
+        res.extend_from_slice(&vec![fillbyte; diff][..]);
+
+        Ok(res)
+    }
+
+    pub fn rjust(
+        &self,
+        width: PyIntRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let fn_name = "ljust".to_string();
+        let (fillbyte, diff) = self.get_center_args(width, fillbyte, fn_name, vm)?;
+
+        // merge all
+        let mut res = vec![fillbyte; diff];
+        res.extend_from_slice(&self.elements[..]);
 
         Ok(res)
     }

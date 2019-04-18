@@ -1,3 +1,4 @@
+use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
 use crate::vm::VirtualMachine;
 use core::cell::Cell;
@@ -223,11 +224,31 @@ impl PyBytesRef {
     #[pymethod(name = "center")]
     fn center(
         self,
-        width: PyObjectRef,
+        width: PyIntRef,
         fillbyte: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         Ok(vm.ctx.new_bytes(self.inner.center(width, fillbyte, vm)?))
+    }
+
+    #[pymethod(name = "ljust")]
+    fn ljust(
+        self,
+        width: PyIntRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.ljust(width, fillbyte, vm)?))
+    }
+
+    #[pymethod(name = "rjust")]
+    fn rjust(
+        self,
+        width: PyIntRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.rjust(width, fillbyte, vm)?))
     }
 
     #[pymethod(name = "count")]
