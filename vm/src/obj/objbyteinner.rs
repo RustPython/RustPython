@@ -29,15 +29,19 @@ pub struct PyByteInner {
     pub elements: Vec<u8>,
 }
 
-impl PyByteInner {
-    pub fn new(
-        val_option: OptionalArg<PyObjectRef>,
-        enc_option: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyByteInner> {
+#[derive(FromArgs)]
+pub struct BytesNewOptions {
+    #[pyarg(positional_only, optional = true)]
+    val_option: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    encoding: OptionalArg<PyObjectRef>,
+}
+
+impl BytesNewOptions {
+    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyByteInner> {
         // First handle bytes(string, encoding[, errors])
-        if let OptionalArg::Present(enc) = enc_option {
-            if let OptionalArg::Present(eval) = val_option {
+        if let OptionalArg::Present(enc) = self.encoding {
+            if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
                     if let Ok(encoding) = enc.clone().downcast::<PyString>() {
                         if &encoding.value.to_lowercase() == "utf8"
@@ -66,7 +70,7 @@ impl PyByteInner {
             }
         // Only one argument
         } else {
-            let value = if let OptionalArg::Present(ival) = val_option {
+            let value = if let OptionalArg::Present(ival) = self.val_option {
                 match_class!(ival.clone(),
                     i @ PyInt => {
                             let size = objint::get_value(&i.into_object()).to_usize().unwrap();
@@ -98,7 +102,9 @@ impl PyByteInner {
             }
         }
     }
+}
 
+impl PyByteInner {
     pub fn repr(&self) -> PyResult<String> {
         let mut res = String::with_capacity(self.elements.len());
         for i in self.elements.iter() {
