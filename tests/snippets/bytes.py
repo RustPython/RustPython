@@ -121,7 +121,7 @@ assert not bytes(b"tuPpEr").isupper()
 assert bytes(b"Is Title Case").istitle()
 assert not bytes(b"is Not title casE").istitle()
 
-# upper lower, capitalize
+# upper lower, capitalize, swapcase
 l = bytes(b"lower")
 b = bytes(b"UPPER")
 assert l.lower().islower()
@@ -129,6 +129,8 @@ assert b.upper().isupper()
 assert l.capitalize() == b"Lower"
 assert b.capitalize() == b"Upper"
 assert bytes().capitalize() == bytes()
+assert b"AaBbCc123'@/".swapcase().swapcase() == b"AaBbCc123'@/"
+assert b"AaBbCc123'@/".swapcase() == b"aAbBcC123'@/"
 
 # hex from hex
 assert bytes([0, 1, 9, 23, 90, 234]).hex() == "000109175aea"

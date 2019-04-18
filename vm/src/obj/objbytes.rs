@@ -214,6 +214,11 @@ impl PyBytesRef {
         Ok(vm.ctx.new_bytes(self.inner.capitalize(vm)))
     }
 
+    #[pymethod(name = "swapcase")]
+    fn swapcase(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.swapcase(vm)))
+    }
+
     #[pymethod(name = "hex")]
     fn hex(self, vm: &VirtualMachine) -> PyResult {
         self.inner.hex(vm)

@@ -474,6 +474,18 @@ impl PyByteInner {
         new
     }
 
+    pub fn swapcase(&self, _vm: &VirtualMachine) -> Vec<u8> {
+        let mut new: Vec<u8> = Vec::new();
+        for w in &self.elements {
+            match w {
+                65..=90 => new.push(w.to_ascii_lowercase()),
+                97..=122 => new.push(w.to_ascii_uppercase()),
+                x => new.push(*x),
+            }
+        }
+        new
+    }
+
     pub fn hex(&self, vm: &VirtualMachine) -> PyResult {
         let bla = self
             .elements
