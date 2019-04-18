@@ -246,3 +246,5 @@ assert (
 assert b'hjhtuyjyujuyj'.translate(bytes.maketrans(b"hj", b"ab"), b"h") == b'btuybyubuyb'
 assert b'hjhtuyjyujuyj'.translate(bytes.maketrans(b"hj", b"ab"), b"a") == b'abatuybyubuyb'
 assert b'hjhtuyjyujuyj'.translate(bytes.maketrans(b"hj", b"ab")) == b'abatuybyubuyb'
+assert b'hjhtuyfjtyhuhjuyj'.translate(None, b"ht") == b'juyfjyujuyj'
+

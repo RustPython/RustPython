@@ -617,7 +617,13 @@ impl PyByteInner {
     pub fn translate(&self, table: PyObjectRef, delete: OptionalArg<PyObjectRef>, vm :&VirtualMachine) -> PyResult{
         let table = match try_as_bytes_like(&table) {
             Some(value) => value,
-            None => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", table)));},
+            None => {
+                match_class!(table,
+
+                    _n @ PyNone => (0..=255).collect::<Vec<u8>>(),
+                    obj => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj)));},
+                    )
+            }
         };
 
         if table.len() != 256 {
