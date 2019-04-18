@@ -67,7 +67,10 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
                         "<error>".to_string()
                     };
 
-                    println!("  File {}, line {}, in {}", filename, lineno, obj_name);
+                    println!(
+                        r##"  File "{}", line {}, in {}"##,
+                        filename, lineno, obj_name
+                    );
                 } else {
                     println!("  File ??");
                 }
