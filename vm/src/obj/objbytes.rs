@@ -7,7 +7,7 @@ use std::ops::Deref;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
-use super::objbyteinner::{BytesNewOptions, PyByteInner};
+use super::objbyteinner::{ByteInnerNewOptions, PyByteInner};
 use super::objiter;
 use super::objslice::PySlice;
 use super::objtype::PyClassRef;
@@ -77,7 +77,7 @@ impl PyBytesRef {
     #[pymethod(name = "__new__")]
     fn bytes_new(
         cls: PyClassRef,
-        options: BytesNewOptions,
+        options: ByteInnerNewOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
         PyBytes {

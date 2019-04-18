@@ -7,7 +7,7 @@ use crate::vm::VirtualMachine;
 
 use crate::pyobject::{PyResult, TypeProtocol};
 
-use crate::obj::objstr::PyString;
+use crate::obj::objstr::{PyString, PyStringRef};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -30,37 +30,30 @@ pub struct PyByteInner {
 }
 
 #[derive(FromArgs)]
-pub struct BytesNewOptions {
+pub struct ByteInnerNewOptions {
     #[pyarg(positional_only, optional = true)]
     val_option: OptionalArg<PyObjectRef>,
     #[pyarg(positional_or_keyword, optional = true)]
-    encoding: OptionalArg<PyObjectRef>,
+    encoding: OptionalArg<PyStringRef>,
 }
 
-impl BytesNewOptions {
+impl ByteInnerNewOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyByteInner> {
         // First handle bytes(string, encoding[, errors])
         if let OptionalArg::Present(enc) = self.encoding {
             if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
-                    if let Ok(encoding) = enc.clone().downcast::<PyString>() {
-                        if &encoding.value.to_lowercase() == "utf8"
-                            || &encoding.value.to_lowercase() == "utf-8"
-                        // TODO: different encoding
-                        {
-                            return Ok(PyByteInner {
-                                elements: input.value.as_bytes().to_vec(),
-                            });
-                        } else {
-                            return Err(
-                                vm.new_value_error(format!("unknown encoding: {}", encoding.value)), //should be lookup error
-                            );
-                        }
+                    let encoding = enc.as_str();
+                    if encoding.to_lowercase() == "utf8" || encoding.to_lowercase() == "utf-8"
+                    // TODO: different encoding
+                    {
+                        return Ok(PyByteInner {
+                            elements: input.value.as_bytes().to_vec(),
+                        });
                     } else {
-                        return Err(vm.new_type_error(format!(
-                            "bytes() argument 2 must be str, not {}",
-                            enc.class().name
-                        )));
+                        return Err(
+                            vm.new_value_error(format!("unknown encoding: {}", encoding)), //should be lookup error
+                        );
                     }
                 } else {
                     return Err(vm.new_type_error("encoding without a string argument".to_string()));
