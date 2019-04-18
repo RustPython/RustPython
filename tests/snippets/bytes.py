@@ -310,6 +310,14 @@ assert b"abcd".find(b"b", 3, 4) == -1
 assert b"abcd".find(1) == -1
 assert b"abcd".find(99) == 2
 
+assert b"abcdabcda".find(b"a") == 0
+assert b"abcdabcda".rfind(b"a") == 8
+assert b"abcdabcda".rfind(b"a", 2, 6) == 4
+assert b"abcdabcda".rfind(b"a", None, 6) == 4
+assert b"abcdabcda".rfind(b"a", 2, None) == 8
+assert b"abcdabcda".index(b"a") == 0
+assert b"abcdabcda".rindex(b"a") == 8
+
 
 # make trans
 # fmt: off

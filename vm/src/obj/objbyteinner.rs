@@ -682,7 +682,12 @@ impl PyByteInner {
         Ok(vm.new_bool(suff.as_slice() == &self.elements.do_slice(range)[offset]))
     }
 
-    pub fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+    pub fn find(
+        &self,
+        options: ByteInnerFindOptions,
+        reverse: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<isize> {
         let (sub, range) = options.get_value(&self.elements, vm)?;
         // not allowed for this method
         if range.end < range.start {
@@ -690,13 +695,23 @@ impl PyByteInner {
         }
 
         let start = range.start;
+        let end = range.end;
 
-        let slice = &self.elements[range];
-        for (n, _) in slice.iter().enumerate() {
-            if n + sub.len() <= slice.len() && &slice[n..n + sub.len()] == sub.as_slice() {
-                return Ok((start + n) as isize);
+        if reverse {
+            let slice = self.elements.do_slice_reverse(range);
+            for (n, _) in slice.iter().enumerate() {
+                if n + sub.len() <= slice.len() && &slice[n..n + sub.len()] == sub.as_slice() {
+                    return Ok((end - n - 1) as isize);
+                }
             }
-        }
+        } else {
+            let slice = self.elements.do_slice(range);
+            for (n, _) in slice.iter().enumerate() {
+                if n + sub.len() <= slice.len() && &slice[n..n + sub.len()] == sub.as_slice() {
+                    return Ok((start + n) as isize);
+                }
+            }
+        };
         Ok(-1isize)
     }
 

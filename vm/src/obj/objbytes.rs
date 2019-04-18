@@ -277,12 +277,26 @@ impl PyBytesRef {
 
     #[pymethod(name = "find")]
     fn find(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
-        self.inner.find(options, vm)
+        self.inner.find(options, false, vm)
     }
 
     #[pymethod(name = "index")]
     fn index(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult {
-        let res = self.inner.find(options, vm)?;
+        let res = self.inner.find(options, false, vm)?;
+        if res == -1 {
+            return Err(vm.new_value_error("substring not found".to_string()));
+        }
+        Ok(vm.new_int(res))
+    }
+
+    #[pymethod(name = "rfind")]
+    fn rfind(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        self.inner.find(options, true, vm)
+    }
+
+    #[pymethod(name = "rindex")]
+    fn rindex(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult {
+        let res = self.inner.find(options, true, vm)?;
         if res == -1 {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
