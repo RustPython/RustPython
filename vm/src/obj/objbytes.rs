@@ -149,10 +149,7 @@ impl PyBytesRef {
 
     #[pymethod(name = "__contains__")]
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(needle,
-        bytes @ PyBytes => self.inner.contains_bytes(&bytes.inner, vm),
-        int @ PyInt => self.inner.contains_int(&int, vm),
-        obj  => Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj))))
+        self.inner.contains(needle, vm)
     }
 
     #[pymethod(name = "__getitem__")]

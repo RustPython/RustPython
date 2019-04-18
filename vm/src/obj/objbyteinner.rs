@@ -177,11 +177,20 @@ impl PyByteInner {
         elements
     }
 
-    pub fn contains_bytes(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
+    pub fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match try_as_bytes_like(&needle) {
+            Some(value) => self.contains_bytes(&value, vm),
+            None => match_class!(needle,
+                i @ PyInt => self.contains_int(&i, vm),
+                obj => {Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj)))}),
+        }
+    }
+
+    fn contains_bytes(&self, other: &[u8], vm: &VirtualMachine) -> PyResult {
         for (n, i) in self.elements.iter().enumerate() {
             if n + other.len() <= self.len()
-                && *i == other.elements[0]
-                && &self.elements[n..n + other.len()] == other.elements.as_slice()
+                && *i == other[0]
+                && &self.elements[n..n + other.len()] == other
             {
                 return Ok(vm.new_bool(true));
             }
@@ -189,15 +198,11 @@ impl PyByteInner {
         Ok(vm.new_bool(false))
     }
 
-    pub fn contains_int(&self, int: &PyInt, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        if let Some(int) = int.as_bigint().to_u8() {
-            if self.elements.contains(&int) {
-                Ok(vm.new_bool(true))
-            } else {
-                Ok(vm.new_bool(false))
-            }
+    fn contains_int(&self, int: &PyInt, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if self.elements.contains(&int.as_bigint().byte_or(vm)?) {
+            Ok(vm.new_bool(true))
         } else {
-            Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+            Ok(vm.new_bool(false))
         }
     }
 
