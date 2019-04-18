@@ -363,7 +363,12 @@ impl PyByteInner {
             .collect::<Vec<u8>>())
     }
 
-    pub fn center(&self, width_a: PyObjectRef, fillbyte: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    pub fn center(
+        &self,
+        width_a: PyObjectRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         let fillbyte = if let OptionalArg::Present(v) = fillbyte {
             match try_as_byte(&v) {
                 Some(x) => {
@@ -387,17 +392,17 @@ impl PyByteInner {
             32 // default is space
         };
 
-        let width_b  = match_class!(width_a,
-        i @PyInt => i,
-        obj => {return Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)));}
+        let width_b = match_class!(width_a,
+            i @PyInt => i,
+            obj => {return Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)));}
         );
-
 
         // <0 = no change
         let width = if let Some(x) = width_b.as_bigint().to_usize() {
             x
-        } else {return Ok(self.elements.clone());};
-        
+        } else {
+            return Ok(self.elements.clone());
+        };
 
         // adjust right et left side
         if width <= self.len() {
@@ -433,8 +438,7 @@ impl PyByteInner {
         let sub = match try_as_bytes_like(&sub) {
             Some(value) => value,
             None => match_class!(sub,
-                i @ PyInt => 
-                    vec![i.as_bigint().byte_or(vm)?],
+                i @ PyInt => vec![i.as_bigint().byte_or(vm)?],
                 obj => {return Err(vm.new_type_error(format!("argument should be integer or bytes-like object, not {}", obj)));}),
         };
         let start = if let OptionalArg::Present(st) = start {
