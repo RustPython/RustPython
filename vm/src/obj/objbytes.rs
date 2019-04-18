@@ -1,4 +1,3 @@
-use crate::obj::objint::PyInt;
 use crate::obj::objstr::PyString;
 use crate::vm::VirtualMachine;
 use core::cell::Cell;
@@ -9,7 +8,7 @@ use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, Py
 
 use super::objbyteinner::{ByteInnerNewOptions, PyByteInner};
 use super::objiter;
-use super::objslice::PySlice;
+
 use super::objtype::PyClassRef;
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -154,10 +153,7 @@ impl PyBytesRef {
 
     #[pymethod(name = "__getitem__")]
     fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(needle,
-        int @ PyInt => self.inner.getitem_int(&int, vm),
-        slice @ PySlice => self.inner.getitem_slice(slice.as_object(), vm),
-        obj  => Err(vm.new_type_error(format!("byte indices must be integers or slices, not {}", obj))))
+        self.inner.getitem(needle, vm)
     }
 
     #[pymethod(name = "isalnum")]

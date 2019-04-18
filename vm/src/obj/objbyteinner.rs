@@ -1,3 +1,4 @@
+use crate::obj::objslice::PySlice;
 use crate::pyobject::{PyIterable, PyObjectRef};
 use num_bigint::BigInt;
 
@@ -206,18 +207,23 @@ impl PyByteInner {
         }
     }
 
-    pub fn getitem_int(&self, int: &PyInt, vm: &VirtualMachine) -> PyResult {
-        if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
+    pub fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match_class!(needle,
+        int @ PyInt => //self.inner.getitem_int(&int, vm),
+        {
+            if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
             Ok(vm.new_int(self.elements[idx]))
         } else {
             Err(vm.new_index_error("index out of range".to_string()))
         }
-    }
-
-    pub fn getitem_slice(&self, slice: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    },
+        slice @ PySlice => //self.inner.getitem_slice(slice.as_object(), vm),
+        {
         Ok(vm
             .ctx
-            .new_bytes(self.elements.get_slice_items(vm, slice).unwrap()))
+            .new_bytes(self.elements.get_slice_items(vm, slice.as_object())?))
+    },
+        obj  => Err(vm.new_type_error(format!("byte indices must be integers or slices, not {}", obj))))
     }
 
     pub fn isalnum(&self, vm: &VirtualMachine) -> PyResult {
