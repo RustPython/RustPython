@@ -12,8 +12,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use super::objint;
+use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
 use super::objtype;
-use super::objsequence::{PySliceableSequence, is_valid_slice_arg};
 use crate::obj::objint::PyInt;
 use num_integer::Integer;
 use num_traits::ToPrimitive;
@@ -364,7 +364,13 @@ impl PyByteInner {
             .collect::<Vec<u8>>())
     }
 
-    pub fn center(&self, width_a: PyObjectRef, fillbyte: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn get_center_args(
+        &self,
+        width_a: PyObjectRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        fn_name: String,
+        vm: &VirtualMachine,
+    ) -> PyResult<(u8, usize)> {
         let fillbyte = if let OptionalArg::Present(v) = fillbyte {
             match try_as_byte(&v) {
                 Some(x) => {
@@ -372,39 +378,52 @@ impl PyByteInner {
                         x[0]
                     } else {
                         return Err(vm.new_type_error(format!(
-                            "center() argument 2 must be a byte string of length 1, not {}",
-                            &v
+                            "{}() argument 2 must be a byte string of length 1, not {}",
+                            &fn_name, &v
                         )));
                     }
                 }
                 None => {
                     return Err(vm.new_type_error(format!(
-                        "center() argument 2 must be a byte string of length 1, not {}",
-                        &v
+                        "{}() argument 2 must be a byte string of length 1, not {}",
+                        &fn_name, &v
                     )));
                 }
             }
         } else {
-            32 // default is space
+            b' ' // default is space
         };
 
-        let width_b  = match_class!(width_a,
+        let width_b = match_class!(width_a,
         i @PyInt => i,
         obj => {return Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)));}
         );
 
-
         // <0 = no change
         let width = if let Some(x) = width_b.as_bigint().to_usize() {
-            x
-        } else {return Ok(self.elements.clone());};
-        
+            if x <= self.len() {
+                0
+            } else {
+                x
+            }
+        } else {
+            0
+        };
 
-        // adjust right et left side
-        if width <= self.len() {
-            return Ok(self.elements.clone());
-        }
-        let diff: usize = width - self.len();
+        let diff: usize = if width != 0 { width - self.len() } else { 0 };
+
+        Ok((fillbyte, diff))
+    }
+
+    pub fn center(
+        &self,
+        width_a: PyObjectRef,
+        fillbyte: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let fn_name = "center".to_string();
+        let (fillbyte, diff) = self.get_center_args(width_a, fillbyte, fn_name, vm)?;
+
         let mut ln: usize = diff / 2;
         let mut rn: usize = ln;
 
@@ -434,8 +453,7 @@ impl PyByteInner {
         let sub = match try_as_bytes_like(&sub) {
             Some(value) => value,
             None => match_class!(sub,
-                i @ PyInt => 
-                    vec![i.as_bigint().byte_or(vm)?],
+                i @ PyInt => vec![i.as_bigint().byte_or(vm)?],
                 obj => {return Err(vm.new_type_error(format!("argument should be integer or bytes-like object, not {}", obj)));}),
         };
         let start = if let OptionalArg::Present(st) = start {
@@ -563,8 +581,7 @@ impl PyByteInner {
         let sub = match try_as_bytes_like(&sub) {
             Some(value) => value,
             None => match_class!(sub,
-                i @ PyInt => 
-                    vec![i.as_bigint().byte_or(vm)?],
+                i @ PyInt => vec![i.as_bigint().byte_or(vm)?],
                 obj => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj)));}),
         };
 
@@ -582,63 +599,78 @@ impl PyByteInner {
 
         let slice = &self.elements[range];
         for (n, _) in slice.iter().enumerate() {
-            if n + sub.len() <= slice.len()
-                && &slice[n..n + sub.len()] == sub.as_slice()
-            {
-                return Ok((start+n) as isize);
+            if n + sub.len() <= slice.len() && &slice[n..n + sub.len()] == sub.as_slice() {
+                return Ok((start + n) as isize);
             }
         }
         Ok(-1isize)
     }
 
-    pub fn maketrans(from: PyObjectRef, to: PyObjectRef, vm :&VirtualMachine) -> PyResult{
-        let mut res =  vec![];
+    pub fn maketrans(from: PyObjectRef, to: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let mut res = vec![];
 
         let from = match try_as_bytes_like(&from) {
             Some(value) => value,
-            None => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", from)));},
+            None => {
+                return Err(
+                    vm.new_type_error(format!("a bytes-like object is required, not {}", from))
+                );
+            }
         };
 
         let to = match try_as_bytes_like(&to) {
             Some(value) => value,
-            None => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", to)));},
+            None => {
+                return Err(
+                    vm.new_type_error(format!("a bytes-like object is required, not {}", to))
+                );
+            }
         };
 
         for i in 0..=255 {
-            res.push(if let Some(position) = from.iter().position(|&x| x ==i) {
+            res.push(if let Some(position) = from.iter().position(|&x| x == i) {
                 to[position]
-            }  else {
+            } else {
                 i
             });
         }
 
         Ok(vm.ctx.new_bytes(res))
     }
-    pub fn translate(&self, table: PyObjectRef, delete: OptionalArg<PyObjectRef>, vm :&VirtualMachine) -> PyResult{
+    pub fn translate(
+        &self,
+        table: PyObjectRef,
+        delete: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         let table = match try_as_bytes_like(&table) {
             Some(value) => value,
-            None => {
-                match_class!(table,
+            None => match_class!(table,
 
-                    _n @ PyNone => (0..=255).collect::<Vec<u8>>(),
-                    obj => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj)));},
-                    )
-            }
+            _n @ PyNone => (0..=255).collect::<Vec<u8>>(),
+            obj => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj)));},
+            ),
         };
 
         if table.len() != 256 {
-            return Err(vm.new_value_error("translation table must be 256 characters long".to_string()));
+            return Err(
+                vm.new_value_error("translation table must be 256 characters long".to_string())
+            );
         }
 
-
-
         let delete = if let OptionalArg::Present(value) = delete {
-             match try_as_bytes_like(&value) {
+            match try_as_bytes_like(&value) {
                 Some(value) => value,
-                None => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", value)));}
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "a bytes-like object is required, not {}",
+                        value
+                    )));
+                }
             }
-        } else {vec![]};
-
+        } else {
+            vec![]
+        };
 
         let mut res = vec![];
 
