@@ -1,4 +1,4 @@
-use crate::obj::objstr::PyString;
+use crate::obj::objstr::PyStringRef;
 use crate::vm::VirtualMachine;
 use core::cell::Cell;
 use std::ops::Deref;
@@ -216,15 +216,8 @@ impl PyBytesRef {
         self.inner.hex(vm)
     }
 
-    // #[pymethod(name = "fromhex")]
-    fn fromhex(string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(string,
-        s @ PyString => {
-        match PyByteInner::fromhex(s.to_string(), vm) {
-        Ok(x) => Ok(vm.ctx.new_bytes(x)),
-        Err(y) => Err(y)}},
-        obj => Err(vm.new_type_error(format!("fromhex() argument must be str, not {}", obj )))
-        )
+    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(PyByteInner::fromhex(string.as_str(), vm)?))
     }
 
     #[pymethod(name = "center")]

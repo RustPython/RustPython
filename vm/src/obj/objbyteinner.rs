@@ -342,7 +342,7 @@ impl PyByteInner {
         Ok(vm.ctx.new_str(bla))
     }
 
-    pub fn fromhex(string: String, vm: &VirtualMachine) -> Result<Vec<u8>, PyObjectRef> {
+    pub fn fromhex(string: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         // first check for invalid character
         for (i, c) in string.char_indices() {
             if !c.is_digit(16) && !c.is_whitespace() {

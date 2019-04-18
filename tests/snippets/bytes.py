@@ -142,7 +142,8 @@ try:
     bytes.fromhex("6Z2")
 except ValueError as e:
     str(e) == "non-hexadecimal number found in fromhex() arg at position 1"
-
+with assertRaises(TypeError):
+    bytes.fromhex(b'hhjjk')
 # center
 assert [b"koki".center(i, b"|") for i in range(3, 10)] == [
     b"koki",
