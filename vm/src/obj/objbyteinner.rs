@@ -628,25 +628,8 @@ impl PyByteInner {
         Ok(vm.new_bool(suff.as_slice() == &self.elements.do_slice(range)[offset]))
     }
 
-    pub fn find(
-        &self,
-        sub: PyObjectRef,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> Result<isize, PyObjectRef> {
-        let sub = match try_as_bytes_like(&sub) {
-            Some(value) => value,
-            None => match_class!(sub,
-                i @ PyInt => vec![i.as_bigint().byte_or(vm)?],
-                obj => {return Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj)));}),
-        };
-
-        let range = self.elements.get_slice_range(
-            &is_valid_slice_arg(start, vm)?,
-            &is_valid_slice_arg(end, vm)?,
-        );
-
+    pub fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        let (sub, range) = options.get_value(&self.elements, vm)?;
         // not allowed for this method
         if range.end < range.start {
             return Ok(-1isize);
