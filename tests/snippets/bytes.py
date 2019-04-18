@@ -170,6 +170,8 @@ with assertRaises(TypeError):
     b"b".center(2, "a")
 with assertRaises(TypeError):
     b"b".center(2, b"ba")
+with assertRaises(TypeError):
+    b"b".center(b"ba")
 assert b"kok".center(5, bytearray(b"x")) == b"xkokx"
 b"kok".center(-5)
 
@@ -200,6 +202,8 @@ with assertRaises(TypeError):
     b"b".ljust(2, "a")
 with assertRaises(TypeError):
     b"b".ljust(2, b"ba")
+with assertRaises(TypeError):
+    b"b".ljust(b"ba")
 assert b"kok".ljust(5, bytearray(b"x")) == b"kokxx"
 assert b"kok".ljust(-5) == b"kok"
 
@@ -213,16 +217,15 @@ assert [b"koki".rjust(i, b"|") for i in range(3, 10)] == [
     b"||||koki",
     b"|||||koki",
 ]
-assert [b"kok".rjust(i, b"|") for i in range(2, 10)] == [
-    b"kok",
-    b"kok",
-    b"|kok",
-    b"||kok",
-    b"|||kok",
-    b"||||kok",
-    b"|||||kok",
-    b"||||||kok",
-]
+assert [b"kok".rjust(i, b"|") for i in range(2, 10)] == [b'kok',
+ b'kok',
+ b'|kok',
+ b'||kok',
+ b'|||kok',
+ b'||||kok',
+ b'|||||kok',
+ b'||||||kok']
+
 
 
 b"kok".rjust(4) == b" kok"  # " test no arg"
@@ -230,6 +233,8 @@ with assertRaises(TypeError):
     b"b".rjust(2, "a")
 with assertRaises(TypeError):
     b"b".rjust(2, b"ba")
+with assertRaises(TypeError):
+    b"b".rjust(b"ba")
 assert b"kok".rjust(5, bytearray(b"x")) == b"xxkok"
 assert b"kok".rjust(-5) == b"kok"
 

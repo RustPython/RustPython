@@ -1,4 +1,3 @@
-use crate::obj::objint::PyIntRef;
 use crate::obj::objstr::PyStringRef;
 use crate::vm::VirtualMachine;
 use core::cell::Cell;
@@ -7,7 +6,9 @@ use std::ops::Deref;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
-use super::objbyteinner::{ByteInnerFindOptions, ByteInnerNewOptions, PyByteInner};
+use super::objbyteinner::{
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, PyByteInner,
+};
 use super::objiter;
 
 use super::objtype::PyClassRef;
@@ -222,33 +223,18 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "center")]
-    fn center(
-        self,
-        width: PyIntRef,
-        fillbyte: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.center(width, fillbyte, vm)?))
+    fn center(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.center(options, vm)?))
     }
 
     #[pymethod(name = "ljust")]
-    fn ljust(
-        self,
-        width: PyIntRef,
-        fillbyte: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.ljust(width, fillbyte, vm)?))
+    fn ljust(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.ljust(options, vm)?))
     }
 
     #[pymethod(name = "rjust")]
-    fn rjust(
-        self,
-        width: PyIntRef,
-        fillbyte: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.rjust(width, fillbyte, vm)?))
+    fn rjust(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.rjust(options, vm)?))
     }
 
     #[pymethod(name = "count")]

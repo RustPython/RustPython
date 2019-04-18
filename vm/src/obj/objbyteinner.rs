@@ -116,7 +116,7 @@ impl ByteInnerFindOptions {
         elements: &[u8],
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, Range<usize>)> {
-        let sub = match try_as_bytes_like(&self.sub.clone()) {
+        let sub = match try_as_bytes_like(&self.sub) {
             Some(value) => value,
             None => match_class!(self.sub,
                 i @ PyInt => vec![i.as_bigint().byte_or(vm)?],
@@ -144,6 +144,56 @@ impl ByteInnerFindOptions {
         let range = elements.to_vec().get_slice_range(&start, &end);
 
         Ok((sub, range))
+    }
+}
+
+#[derive(FromArgs)]
+pub struct ByteInnerPaddingOptions {
+    #[pyarg(positional_only, optional = false)]
+    width: PyIntRef,
+    #[pyarg(positional_only, optional = true)]
+    fillbyte: OptionalArg<PyObjectRef>,
+}
+
+impl ByteInnerPaddingOptions {
+    fn get_value(&self, fn_name: &str, len: usize, vm: &VirtualMachine) -> PyResult<(u8, usize)> {
+        let fillbyte = if let OptionalArg::Present(v) = &self.fillbyte {
+            match try_as_byte(&v) {
+                Some(x) => {
+                    if x.len() == 1 {
+                        x[0]
+                    } else {
+                        return Err(vm.new_type_error(format!(
+                            "{}() argument 2 must be a byte string of length 1, not {}",
+                            fn_name, &v
+                        )));
+                    }
+                }
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "{}() argument 2 must be a byte string of length 1, not {}",
+                        fn_name, &v
+                    )));
+                }
+            }
+        } else {
+            b' ' // default is space
+        };
+
+        // <0 = no change
+        let width = if let Some(x) = self.width.as_bigint().to_usize() {
+            if x <= len {
+                0
+            } else {
+                x
+            }
+        } else {
+            0
+        };
+
+        let diff: usize = if width != 0 { width - len } else { 0 };
+
+        Ok((fillbyte, diff))
     }
 }
 
@@ -423,60 +473,13 @@ impl PyByteInner {
             .collect::<Vec<u8>>())
     }
 
-    fn get_center_args(
-        &self,
-        width: PyIntRef,
-        fillbyte: OptionalArg<PyObjectRef>,
-        fn_name: String,
-        vm: &VirtualMachine,
-    ) -> PyResult<(u8, usize)> {
-        let fillbyte = if let OptionalArg::Present(v) = fillbyte {
-            match try_as_byte(&v) {
-                Some(x) => {
-                    if x.len() == 1 {
-                        x[0]
-                    } else {
-                        return Err(vm.new_type_error(format!(
-                            "{}() argument 2 must be a byte string of length 1, not {}",
-                            &fn_name, &v
-                        )));
-                    }
-                }
-                None => {
-                    return Err(vm.new_type_error(format!(
-                        "{}() argument 2 must be a byte string of length 1, not {}",
-                        &fn_name, &v
-                    )));
-                }
-            }
-        } else {
-            b' ' // default is space
-        };
-
-        // <0 = no change
-        let width = if let Some(x) = width.as_bigint().to_usize() {
-            if x <= self.len() {
-                0
-            } else {
-                x
-            }
-        } else {
-            0
-        };
-
-        let diff: usize = if width != 0 { width - self.len() } else { 0 };
-
-        Ok((fillbyte, diff))
-    }
-
     pub fn center(
         &self,
-        width: PyIntRef,
-        fillbyte: OptionalArg<PyObjectRef>,
+        options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let fn_name = "center".to_string();
-        let (fillbyte, diff) = self.get_center_args(width, fillbyte, fn_name, vm)?;
+        // let fn_name = "center".to_string();
+        let (fillbyte, diff) = options.get_value("center", self.len(), vm)?;
 
         let mut ln: usize = diff / 2;
         let mut rn: usize = ln;
@@ -499,12 +502,11 @@ impl PyByteInner {
 
     pub fn ljust(
         &self,
-        width: PyIntRef,
-        fillbyte: OptionalArg<PyObjectRef>,
+        options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let fn_name = "ljust".to_string();
-        let (fillbyte, diff) = self.get_center_args(width, fillbyte, fn_name, vm)?;
+        // let fn_name = "ljust".to_string();
+        let (fillbyte, diff) = options.get_value("ljust", self.len(), vm)?;
 
         // merge all
         let mut res = vec![];
@@ -516,12 +518,11 @@ impl PyByteInner {
 
     pub fn rjust(
         &self,
-        width: PyIntRef,
-        fillbyte: OptionalArg<PyObjectRef>,
+        options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let fn_name = "ljust".to_string();
-        let (fillbyte, diff) = self.get_center_args(width, fillbyte, fn_name, vm)?;
+        // let fn_name = "rjust".to_string();
+        let (fillbyte, diff) = options.get_value("rjust", self.len(), vm)?;
 
         // merge all
         let mut res = vec![fillbyte; diff];
