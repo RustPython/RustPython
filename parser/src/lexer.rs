@@ -542,7 +542,7 @@ where
         let tok = if is_bytes {
             if string_content.is_ascii() {
                 Tok::Bytes {
-                    value: self.lex_byte(string_content)?,
+                    value: lex_byte(string_content)?,
                 }
             } else {
                 return Err(LexicalError::StringError);
@@ -1105,84 +1105,6 @@ where
         let tok_end = self.get_pos();
         Ok((tok_start, ty, tok_end))
     }
-
-    fn lex_byte(&self, s: String) -> Result<Vec<u8>, LexicalError> {
-        let mut res = vec![];
-        let mut escape = false; //flag if previous was \
-        let mut hex_on = false; // hex mode on or off
-        let mut hex_value = String::new();
-
-        for c in s.chars() {
-            match c {
-                '\\' => {
-                    if escape {
-                        res.push(92);
-                        escape = false;
-                    } else {
-                        escape = true;
-                    }
-                }
-
-                'x' => {
-                    if escape {
-                        hex_on = true;
-                    } else {
-                        res.push(120);
-                    }
-                    escape = false;
-                }
-                't' => {
-                    if escape {
-                        res.push(9);
-                    } else {
-                        res.push(116);
-                    }
-                    escape = false;
-                }
-                'n' => {
-                    if escape {
-                        res.push(10);
-                    } else {
-                        res.push(110)
-                    }
-                    escape = false;
-                }
-                'r' => {
-                    if escape {
-                        res.push(13);
-                    } else {
-                        res.push(114)
-                    }
-                    escape = false;
-                }
-                x => {
-                    if hex_on {
-                        if x.is_ascii_hexdigit() {
-                            if hex_value.is_empty() {
-                                hex_value.push(x);
-                                continue;
-                            } else {
-                                hex_value.push(x);
-                                res.push(u8::from_str_radix(&hex_value, 16).unwrap());
-                                hex_on = false;
-                                hex_value.clear();
-                            }
-                        } else {
-                            return Err(LexicalError::StringError);
-                        }
-                    } else {
-                        if escape {
-                            res.push(92);
-                        }
-                        res.push(x as u8);
-                    }
-                    escape = false;
-                }
-            }
-        }
-
-        Ok(res)
-    }
 }
 
 /* Implement iterator pattern for the get_tok function.
@@ -1209,6 +1131,54 @@ where
         );
         token
     }
+}
+
+fn lex_byte(s: String) -> Result<Vec<u8>, LexicalError> {
+    let mut res = vec![];
+    let mut escape = false; //flag if previous was \
+    let mut hex_on = false; // hex mode on or off
+    let mut hex_value = String::new();
+
+    for c in s.chars() {
+        if hex_on {
+            if c.is_ascii_hexdigit() {
+                if hex_value.is_empty() {
+                    hex_value.push(c);
+                    continue;
+                } else {
+                    hex_value.push(c);
+                    res.push(u8::from_str_radix(&hex_value, 16).unwrap());
+                    hex_on = false;
+                    hex_value.clear();
+                }
+            } else {
+                return Err(LexicalError::StringError);
+            }
+        } else {
+            match (c, escape) {
+                ('\\', true) => res.push(b'\\'),
+                ('\\', false) => {
+                    escape = true;
+                    continue;
+                }
+                ('x', true) => hex_on = true,
+                ('x', false) => res.push(b'x'),
+                ('t', true) => res.push(b'\t'),
+                ('t', false) => res.push(b't'),
+                ('n', true) => res.push(b'\n'),
+                ('n', false) => res.push(b'n'),
+                ('r', true) => res.push(b'\r'),
+                ('r', false) => res.push(b'r'),
+                (x, true) => {
+                    res.push(b'\\');
+                    res.push(x as u8);
+                }
+                (x, false) => res.push(x as u8),
+            }
+            escape = false;
+        }
+    }
+    Ok(res)
 }
 
 #[cfg(test)]
