@@ -324,3 +324,4 @@ assert (
 )
 assert b"hjhtuyjyujuyj".translate(bytes.maketrans(b"hj", b"ab")) == b"abatuybyubuyb"
 assert b"hjhtuyfjtyhuhjuyj".translate(None, b"ht") == b"juyfjyujuyj"
+assert b"hjhtuyfjtyhuhjuyj".translate(None, delete = b"ht") == b"juyfjyujuyj"

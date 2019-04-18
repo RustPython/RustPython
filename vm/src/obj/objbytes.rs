@@ -7,7 +7,8 @@ use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
 use super::objbyteinner::{
-    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, PyByteInner,
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerTranslateOptions,
+    PyByteInner,
 };
 use super::objiter;
 
@@ -284,13 +285,8 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "translate")]
-    fn translate(
-        self,
-        table: PyObjectRef,
-        delete: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        self.inner.translate(table, delete, vm)
+    fn translate(self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
+        self.inner.translate(options, vm)
     }
 }
 
