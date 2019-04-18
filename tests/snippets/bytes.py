@@ -219,15 +219,16 @@ assert [b"koki".rjust(i, b"|") for i in range(3, 10)] == [
     b"||||koki",
     b"|||||koki",
 ]
-assert [b"kok".rjust(i, b"|") for i in range(2, 10)] == [b'kok',
- b'kok',
- b'|kok',
- b'||kok',
- b'|||kok',
- b'||||kok',
- b'|||||kok',
- b'||||||kok']
-
+assert [b"kok".rjust(i, b"|") for i in range(2, 10)] == [
+    b"kok",
+    b"kok",
+    b"|kok",
+    b"||kok",
+    b"|||kok",
+    b"||||kok",
+    b"|||||kok",
+    b"||||||kok",
+]
 
 
 b"kok".rjust(4) == b" kok"  # " test no arg"
@@ -334,4 +335,13 @@ assert (
 )
 assert b"hjhtuyjyujuyj".translate(bytes.maketrans(b"hj", b"ab")) == b"abatuybyubuyb"
 assert b"hjhtuyfjtyhuhjuyj".translate(None, b"ht") == b"juyfjyujuyj"
-assert b"hjhtuyfjtyhuhjuyj".translate(None, delete = b"ht") == b"juyfjyujuyj"
+assert b"hjhtuyfjtyhuhjuyj".translate(None, delete=b"ht") == b"juyfjyujuyj"
+
+
+# strip lstrip rstrip
+assert b"   spacious   ".strip() == b"spacious"
+assert b"www.example.com".strip(b"cmowz.") == b"example"
+assert b"   spacious   ".lstrip() == b"spacious   "
+assert b"www.example.com".lstrip(b"cmowz.") == b"example.com"
+assert b"   spacious   ".rstrip() == b"   spacious"
+assert b"mississippi".rstrip(b"ipz") == b"mississ"

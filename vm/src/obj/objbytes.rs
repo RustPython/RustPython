@@ -7,8 +7,8 @@ use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
 use super::objbyteinner::{
-    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerTranslateOptions,
-    PyByteInner,
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
+    ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objiter;
 
@@ -306,6 +306,27 @@ impl PyBytesRef {
     #[pymethod(name = "translate")]
     fn translate(self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
         self.inner.translate(options, vm)
+    }
+
+    #[pymethod(name = "strip")]
+    fn strip(self, chars: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytes(self.inner.strip(chars, ByteInnerPosition::All, vm)?))
+    }
+
+    #[pymethod(name = "lstrip")]
+    fn lstrip(self, chars: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytes(self.inner.strip(chars, ByteInnerPosition::Left, vm)?))
+    }
+
+    #[pymethod(name = "rstrip")]
+    fn rstrip(self, chars: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytes(self.inner.strip(chars, ByteInnerPosition::Right, vm)?))
     }
 }
 

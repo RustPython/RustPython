@@ -760,6 +760,49 @@ impl PyByteInner {
 
         Ok(vm.ctx.new_bytes(res))
     }
+
+    pub fn strip(
+        &self,
+        chars: OptionalArg<PyObjectRef>,
+        position: ByteInnerPosition,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let chars = if let OptionalArg::Present(content) = chars {
+            match try_as_bytes_like(&content) {
+                Some(value) => value,
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "a bytes-like object is required, not {}",
+                        content
+                    )));
+                }
+            }
+        } else {
+            vec![b' ']
+        };
+
+        let mut start = 0;
+        let mut end = self.len();
+
+        if let ByteInnerPosition::Left | ByteInnerPosition::All = position {
+            for (n, i) in self.elements.iter().enumerate() {
+                if !chars.contains(i) {
+                    start = n;
+                    break;
+                }
+            }
+        }
+
+        if let ByteInnerPosition::Right | ByteInnerPosition::All = position {
+            for (n, i) in self.elements.iter().rev().enumerate() {
+                if !chars.contains(i) {
+                    end = self.len() - n;
+                    break;
+                }
+            }
+        }
+        Ok(self.elements[start..end].to_vec())
+    }
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
@@ -789,3 +832,9 @@ pub trait ByteOr: ToPrimitive {
 }
 
 impl ByteOr for BigInt {}
+
+pub enum ByteInnerPosition {
+    Left,
+    Right,
+    All,
+}
