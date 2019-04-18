@@ -7,7 +7,7 @@ use std::ops::Deref;
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
-use super::objbyteinner::{ByteInnerNewOptions, PyByteInner};
+use super::objbyteinner::{ByteInnerFindOptions, ByteInnerNewOptions, PyByteInner};
 use super::objiter;
 
 use super::objtype::PyClassRef;
@@ -252,14 +252,8 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "count")]
-    fn count(
-        self,
-        sub: PyObjectRef,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        self.inner.count(sub, start, end, vm)
+    fn count(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+        self.inner.count(options, vm)
     }
 
     #[pymethod(name = "join")]

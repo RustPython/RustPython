@@ -1,6 +1,7 @@
 use crate::obj::objint::PyIntRef;
 use crate::obj::objslice::PySlice;
 use crate::pyobject::{PyIterable, PyObjectRef};
+use core::ops::Range;
 use num_bigint::BigInt;
 
 use crate::function::OptionalArg;
@@ -96,6 +97,53 @@ impl ByteInnerNewOptions {
                 Err(err) => Err(err),
             }
         }
+    }
+}
+
+#[derive(FromArgs)]
+pub struct ByteInnerFindOptions {
+    #[pyarg(positional_only, optional = false)]
+    sub: PyObjectRef,
+    #[pyarg(positional_only, optional = true)]
+    start: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_only, optional = true)]
+    end: OptionalArg<PyObjectRef>,
+}
+
+impl ByteInnerFindOptions {
+    pub fn get_value(
+        self,
+        elements: &[u8],
+        vm: &VirtualMachine,
+    ) -> PyResult<(Vec<u8>, Range<usize>)> {
+        let sub = match try_as_bytes_like(&self.sub.clone()) {
+            Some(value) => value,
+            None => match_class!(self.sub,
+                i @ PyInt => vec![i.as_bigint().byte_or(vm)?],
+                obj => {return Err(vm.new_type_error(format!("argument should be integer or bytes-like object, not {}", obj)));}),
+        };
+        let start = if let OptionalArg::Present(st) = self.start {
+            match_class!(st,
+            i @ PyInt => {Some(i.as_bigint().clone())},
+            _obj @ PyNone => None,
+            _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
+            )
+        } else {
+            None
+        };
+        let end = if let OptionalArg::Present(e) = self.end {
+            match_class!(e,
+            i @ PyInt => {Some(i.as_bigint().clone())},
+            _obj @ PyNone => None,
+            _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
+            )
+        } else {
+            None
+        };
+
+        let range = elements.to_vec().get_slice_range(&start, &end);
+
+        Ok((sub, range))
     }
 }
 
@@ -482,39 +530,8 @@ impl PyByteInner {
         Ok(res)
     }
 
-    pub fn count(
-        &self,
-        sub: PyObjectRef,
-        start: OptionalArg<PyObjectRef>,
-        end: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        let sub = match try_as_bytes_like(&sub) {
-            Some(value) => value,
-            None => match_class!(sub,
-                i @ PyInt => vec![i.as_bigint().byte_or(vm)?],
-                obj => {return Err(vm.new_type_error(format!("argument should be integer or bytes-like object, not {}", obj)));}),
-        };
-        let start = if let OptionalArg::Present(st) = start {
-            match_class!(st,
-            i @ PyInt => {Some(i.as_bigint().clone())},
-            _obj @ PyNone => None,
-            _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
-            )
-        } else {
-            None
-        };
-        let end = if let OptionalArg::Present(e) = end {
-            match_class!(e,
-            i @ PyInt => {Some(i.as_bigint().clone())},
-            _obj @ PyNone => None,
-            _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
-            )
-        } else {
-            None
-        };
-
-        let range = self.elements.get_slice_range(&start, &end);
+    pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+        let (sub, range) = options.get_value(&self.elements, vm)?;
 
         if sub.is_empty() {
             return Ok(self.len() + 1);
