@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::mem;
 use std::ops::RangeInclusive;
 
 use crate::obj::objtype::{isinstance, PyClassRef};
@@ -45,6 +46,12 @@ impl From<(&Args, &KwArgs)> for PyFuncArgs {
             args: args.clone(),
             kwargs: kwargs.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
         }
+    }
+}
+
+impl FromArgs for PyFuncArgs {
+    fn from_args(_vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+        Ok(mem::replace(args, Default::default()))
     }
 }
 

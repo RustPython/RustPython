@@ -273,7 +273,7 @@ impl PyRange {
                 }
             }
             RangeIndex::Slice(slice) => {
-                let new_start = if let Some(int) = slice.start.as_ref() {
+                let new_start = if let Some(int) = slice.start_index(vm)? {
                     if let Some(i) = self.get(int) {
                         PyInt::new(i).into_ref(vm)
                     } else {
@@ -283,7 +283,7 @@ impl PyRange {
                     self.start.clone()
                 };
 
-                let new_end = if let Some(int) = slice.stop.as_ref() {
+                let new_end = if let Some(int) = slice.stop_index(vm)? {
                     if let Some(i) = self.get(int) {
                         PyInt::new(i).into_ref(vm)
                     } else {
@@ -293,7 +293,7 @@ impl PyRange {
                     self.stop.clone()
                 };
 
-                let new_step = if let Some(int) = slice.step.as_ref() {
+                let new_step = if let Some(int) = slice.step_index(vm)? {
                     PyInt::new(int * self.step.as_bigint()).into_ref(vm)
                 } else {
                     self.step.clone()
