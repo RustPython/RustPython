@@ -130,6 +130,10 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             let view = Uint8Array::view(&bytes);
             view.slice(0, bytes.len() as u32).into()
         }
+    } else if let Some(jsval) = py_obj.payload::<PyJsValue>() {
+        jsval.value().clone()
+    } else if let Some(jsfunc) = py_obj.payload::<PyJsFunction>() {
+        jsfunc.to_function().into()
     } else {
         match vm.serialize(&py_obj) {
             Ok(json) => js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED),

@@ -74,6 +74,13 @@ impl PyJsFunction {
     pub fn new(func: Function, this: Option<JsValue>) -> PyJsFunction {
         PyJsFunction { func, this }
     }
+    pub fn to_function(&self) -> Function {
+        if let Some(this) = &self.this {
+            self.func.bind(&this)
+        } else {
+            self.func.clone()
+        }
+    }
 
     #[pymethod(name = "__call__")]
     fn call(&self, args: Args, vm: &VirtualMachine) -> PyResult {
