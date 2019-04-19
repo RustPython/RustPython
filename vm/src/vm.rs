@@ -674,13 +674,7 @@ impl VirtualMachine {
             PyFunction => true,
             PyMethod => true,
             PyBuiltinFunction => true,
-            obj => {
-                if let Some(dict) = &obj.dict {
-                    dict.contains_key("__call__", self)
-                } else {
-                    objtype::class_has_attr(&obj.class(), "__call__")
-                }
-            },
+            obj => objtype::class_has_attr(&obj.class(), "__call__"),
         )
     }
 
