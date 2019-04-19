@@ -678,7 +678,7 @@ impl VirtualMachine {
                 if let Some(dict) = &obj.dict {
                     dict.contains_key("__call__", self)
                 } else {
-                    false
+                    objtype::class_has_attr(&obj.class(), "__call__")
                 }
             },
         )
