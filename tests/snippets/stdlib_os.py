@@ -45,7 +45,7 @@ class TestWithTempDir():
 			base_folder = os.environ["TEMP"]
 		else:
 			base_folder = "/tmp"
-		name = base_folder + os.sep + "test_os_" + str(int(time.time()))
+		name = base_folder + os.sep + "rustpython_test_os_" + str(int(time.time()))
 		os.mkdir(name)
 		self.name = name
 		return name
