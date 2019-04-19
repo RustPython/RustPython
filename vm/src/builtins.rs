@@ -67,8 +67,8 @@ fn builtin_bin(x: PyIntRef, _vm: &VirtualMachine) -> String {
 
 // builtin_breakpoint
 
-fn builtin_callable(obj: PyObjectRef, _vm: &VirtualMachine) -> bool {
-    objtype::class_has_attr(&obj.class(), "__call__")
+fn builtin_callable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
+    vm.is_callable(&obj)
 }
 
 fn builtin_chr(i: u32, _vm: &VirtualMachine) -> String {

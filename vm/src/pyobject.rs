@@ -878,6 +878,39 @@ where
     }
 }
 
+#[derive(Clone)]
+pub struct PyCallable {
+    obj: PyObjectRef,
+}
+
+impl PyCallable {
+    #[inline]
+    pub fn invoke(&self, args: impl Into<PyFuncArgs>, vm: &VirtualMachine) -> PyResult {
+        vm.invoke(self.obj.clone(), args)
+    }
+
+    #[inline]
+    pub fn into_object(self) -> PyObjectRef {
+        self.obj
+    }
+}
+
+impl TryFromObject for PyCallable {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if vm.is_callable(&obj) {
+            Ok(PyCallable { obj })
+        } else {
+            Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name)))
+        }
+    }
+}
+
+impl IntoPyObject for PyCallable {
+    fn into_pyobject(self, _vm: &VirtualMachine) -> PyResult {
+        Ok(self.into_object())
+    }
+}
+
 pub trait IdProtocol {
     fn get_id(&self) -> usize;
     fn is<T>(&self, other: &T) -> bool
