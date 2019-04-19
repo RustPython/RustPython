@@ -86,6 +86,33 @@ impl Connection {
             _ => Err(io::Error::new(io::ErrorKind::Other, "oh no!")),
         }
     }
+
+    #[cfg(unix)]
+    fn fileno(&self) -> i64 {
+        use std::os::unix::io::AsRawFd;
+        let raw_fd = match self {
+            Connection::TcpListener(con) => con.as_raw_fd(),
+            Connection::UdpSocket(con) => con.as_raw_fd(),
+            Connection::TcpStream(con) => con.as_raw_fd(),
+        };
+        raw_fd as i64
+    }
+
+    #[cfg(windows)]
+    fn fileno(&self) -> i64 {
+        use std::os::windows::io::AsRawSocket;
+        let raw_fd = match self {
+            Connection::TcpListener(con) => con.as_raw_socket(),
+            Connection::UdpSocket(con) => con.as_raw_socket(),
+            Connection::TcpStream(con) => con.as_raw_socket(),
+        };
+        raw_fd as i64
+    }
+
+    #[cfg(all(not(unix), not(windows)))]
+    fn fileno(&self) -> i64 {
+        unimplemented!();
+    }
 }
 
 impl Read for Connection {
@@ -108,32 +135,6 @@ impl Write for Connection {
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
-    }
-}
-
-#[cfg(unix)]
-use std::os::unix::io::{AsRawFd, RawFd};
-#[cfg(unix)]
-impl AsRawFd for Connection {
-    fn as_raw_fd(&self) -> RawFd {
-        match self {
-            Connection::TcpListener(con) => con.as_raw_fd(),
-            Connection::UdpSocket(con) => con.as_raw_fd(),
-            Connection::TcpStream(con) => con.as_raw_fd(),
-        }
-    }
-}
-
-#[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, RawSocket};
-#[cfg(windows)]
-impl AsRawSocket for Connection {
-    fn as_raw_socket(&self) -> RawSocket {
-        match self {
-            Connection::TcpListener(con) => con.as_raw_socket(),
-            Connection::UdpSocket(con) => con.as_raw_socket(),
-            Connection::TcpStream(con) => con.as_raw_socket(),
-        }
     }
 }
 
@@ -413,37 +414,16 @@ fn socket_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-#[cfg(unix)]
 fn socket_fileno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    use std::os::unix::io::AsRawFd;
     arg_check!(vm, args, required = [(zelf, None)]);
 
     let socket = get_socket(zelf);
 
     let fileno = match socket.con.borrow_mut().as_mut() {
-        Some(v) => v.as_raw_fd(),
+        Some(v) => v.fileno(),
         None => return Err(vm.new_type_error("".to_string())),
     };
-    Ok(vm.ctx.new_int(i64::from(fileno)))
-}
-
-#[cfg(windows)]
-fn socket_fileno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    use std::os::windows::io::AsRawSocket;
-    arg_check!(vm, args, required = [(zelf, None)]);
-
-    let socket = get_socket(zelf);
-
-    let fileno = match socket.con.borrow_mut().as_mut() {
-        Some(v) => v.as_raw_socket(),
-        None => return Err(vm.new_type_error("".to_string())),
-    };
-    Ok(vm.ctx.new_int(i64::from(fileno)))
-}
-
-#[cfg(all(not(unix), not(windows)))]
-fn socket_fileno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    unimplemented!();
+    Ok(vm.ctx.new_int(fileno))
 }
 
 fn socket_getsockname(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
