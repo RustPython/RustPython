@@ -666,6 +666,21 @@ impl VirtualMachine {
         crate::stdlib::json::de_pyobject(self, s)
     }
 
+    pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
+        match_class!(obj,
+            PyFunction => true,
+            PyMethod => true,
+            PyBuiltinFunction => true,
+            obj => {
+                if let Some(dict) = &obj.dict {
+                    dict.contains_key("__call__", self)
+                } else {
+                    false
+                }
+            },
+        )
+    }
+
     pub fn _sub(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {
         self.call_or_reflection(a, b, "__sub__", "__rsub__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, "-"))
