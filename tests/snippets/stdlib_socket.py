@@ -24,15 +24,14 @@ assert recv_a == MESSAGE_A
 assert recv_b == MESSAGE_B
 
 # fileno
-if os.name == "posix":
-	connector_fd = connector.fileno()
-	connection_fd = connection.fileno()
-	os.write(connector_fd, MESSAGE_A)
-	connection.send(MESSAGE_B)
-	recv_a = connection.recv(len(MESSAGE_A))
-	recv_b = os.read(connector_fd, (len(MESSAGE_B)))
-	assert recv_a == MESSAGE_A
-	assert recv_b == MESSAGE_B
+connector_fd = connector.fileno()
+connection_fd = connection.fileno()
+os.write(connector_fd, MESSAGE_A)
+connection.send(MESSAGE_B)
+recv_a = connection.recv(len(MESSAGE_A))
+recv_b = os.read(connector_fd, (len(MESSAGE_B)))
+assert recv_a == MESSAGE_A
+assert recv_b == MESSAGE_B
 
 connection.close()
 connector.close()

@@ -124,6 +124,19 @@ impl AsRawFd for Connection {
     }
 }
 
+#[cfg(windows)]
+use std::os::windows::io::{AsRawSocket, RawSocket};
+#[cfg(windows)]
+impl AsRawSocket for Connection {
+    fn as_raw_socket(&self) -> RawSocket {
+        match self {
+            Connection::TcpListener(con) => con.as_raw_socket(),
+            Connection::UdpSocket(con) => con.as_raw_socket(),
+            Connection::TcpStream(con) => con.as_raw_socket(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Socket {
     address_family: AddressFamily,
@@ -414,7 +427,21 @@ fn socket_fileno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(i64::from(fileno)))
 }
 
-#[cfg(all(not(unix)))]
+#[cfg(windows)]
+fn socket_fileno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    use std::os::windows::io::AsRawSocket;
+    arg_check!(vm, args, required = [(zelf, None)]);
+
+    let socket = get_socket(zelf);
+
+    let fileno = match socket.con.borrow_mut().as_mut() {
+        Some(v) => v.as_raw_socket(),
+        None => return Err(vm.new_type_error("".to_string())),
+    };
+    Ok(vm.ctx.new_int(i64::from(fileno)))
+}
+
+#[cfg(all(not(unix), not(windows)))]
 fn socket_fileno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     unimplemented!();
 }
