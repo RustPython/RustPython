@@ -51,10 +51,8 @@ class TestWithTempDir():
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		for f in os.listdir(self.name):
-			print("Remove file", self.name + os.sep + f)
 			# Currently don't support dir delete.
 			os.remove(self.name + os.sep + f)
-		print("Remove dir", self.name)
 		os.rmdir(self.name)
 
 
@@ -65,7 +63,8 @@ CONTENT3 = b"BOYA"
 
 with TestWithTempDir() as tmpdir:
 	fname = tmpdir + os.sep + FILE_NAME
-	open(fname, "wb")
+	with open(fname, "wb"):
+		pass
 	fd = os.open(fname, 1)
 	assert os.write(fd, CONTENT2) == len(CONTENT2)
 	assert os.write(fd, CONTENT3) == len(CONTENT3)
