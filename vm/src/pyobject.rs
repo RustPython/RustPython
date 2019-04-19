@@ -1,7 +1,8 @@
 use std::any::Any;
+use std::any::TypeId;
 use std::cell::Cell;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::hash_map::{Entry, HashMap};
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
@@ -162,6 +163,7 @@ pub struct PyContext {
     pub weakproxy_type: PyClassRef,
     pub object: PyClassRef,
     pub exceptions: exceptions::ExceptionZoo,
+    rust_classes: RefCell<HashMap<TypeId, PyClassRef>>,
 }
 
 pub fn create_type(name: &str, type_type: &PyClassRef, base: &PyClassRef) -> PyClassRef {
@@ -367,6 +369,7 @@ impl PyContext {
             weakproxy_type,
             type_type,
             exceptions,
+            rust_classes: RefCell::default(),
         };
         objtype::init(&context);
         objlist::init(&context);
@@ -405,6 +408,36 @@ impl PyContext {
         objmodule::init(&context);
         exceptions::init(&context);
         context
+    }
+
+    pub fn _add_class(&self, typeid: TypeId, class: PyClassRef) {
+        let classes = &mut self.rust_classes.borrow_mut();
+        match classes.entry(typeid) {
+            Entry::Occupied(o) => panic!(
+                "Attempted to add rust type twice to the same PyContext, previously held class \
+                 was {:?}",
+                o.get()
+            ),
+            Entry::Vacant(v) => {
+                v.insert(class);
+            }
+        }
+    }
+
+    #[inline]
+    pub fn add_class<T: PyClassImpl + 'static>(&self) -> PyClassRef {
+        let class = T::make_class(self);
+        self._add_class(TypeId::of::<T>(), class.clone());
+        class
+    }
+
+    pub fn _get_class(&self, typeid: &TypeId) -> Option<PyClassRef> {
+        self.rust_classes.borrow_mut().get(typeid).cloned()
+    }
+
+    #[inline]
+    pub fn get_class<T: 'static>(&self) -> Option<PyClassRef> {
+        self._get_class(&TypeId::of::<T>())
     }
 
     pub fn bytearray_type(&self) -> PyClassRef {
@@ -1202,7 +1235,13 @@ impl PyObject<dyn PyObjectPayload> {
 pub trait PyValue: fmt::Debug + Sized + 'static {
     const HAVE_DICT: bool = false;
 
-    fn class(vm: &VirtualMachine) -> PyClassRef;
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.ctx.get_class::<Self>().expect(
+            "Default .class implementation cannot find your class in PyContext.rust_classes. \
+             Is there some special way to access your class, or did you forget to call \
+             `ctx.add_class::<T>()`?",
+        )
+    }
 
     fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
         PyRef {

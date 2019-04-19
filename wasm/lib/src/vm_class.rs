@@ -13,6 +13,7 @@ use rustpython_vm::VirtualMachine;
 
 use crate::browser_module::setup_browser_module;
 use crate::convert;
+use crate::objjsvalue;
 use crate::wasm_builtins;
 
 pub(crate) struct StoredVirtualMachine {
@@ -31,6 +32,7 @@ impl StoredVirtualMachine {
             setup_browser_module(&vm);
         }
         vm.wasm_id = Some(id);
+        objjsvalue::init(&vm.ctx);
         StoredVirtualMachine {
             vm,
             scope: RefCell::new(scope),

@@ -4,10 +4,11 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::obj::{objbytes, objint, objsequence, objtype};
-use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
+use rustpython_vm::pyobject::{PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module;
+use crate::objjsvalue::PyJsValue;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
@@ -184,14 +185,15 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             u8_array.copy_to(&mut vec);
             vm.ctx.new_bytes(vec)
         } else {
-            let dict = vm.ctx.new_dict();
-            for pair in object_entries(&Object::from(js_val)) {
-                let (key, val) = pair.expect("iteration over object to not fail");
-                let py_val = js_to_py(vm, val);
-                dict.set_item(&String::from(js_sys::JsString::from(key)), py_val, vm)
-                    .unwrap();
-            }
-            dict.into_object()
+            PyJsValue::new(js_val).into_ref(vm).into_object()
+            // let dict = vm.ctx.new_dict();
+            // for pair in object_entries(&Object::from(js_val)) {
+            //     let (key, val) = pair.expect("iteration over object to not fail");
+            //     let py_val = js_to_py(vm, val);
+            //     dict.set_item(&String::from(js_sys::JsString::from(key)), py_val, vm)
+            //         .unwrap();
+            // }
+            // dict.into_object()
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
@@ -230,4 +232,12 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         };
         vm.deserialize(&json).unwrap_or_else(|_| vm.get_none())
     }
+}
+
+pub fn iter_to_array(iter: impl Iterator<Item = JsValue>) -> Array {
+    let arr = Array::new();
+    for elem in iter {
+        arr.push(&elem);
+    }
+    arr
 }
