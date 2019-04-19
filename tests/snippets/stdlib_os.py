@@ -7,33 +7,6 @@ assert fd > 0
 
 os.close(fd)
 assert_raises(OSError, lambda: os.read(fd, 10))
-
-FNAME = "test_file_that_no_one_will_have_on_disk"
-CONTENT = b"testing"
-CONTENT2 = b"rustpython"
-CONTENT3 = b"BOYA"
-
-class TestWithFile():
-	def __enter__(self):
-		open(FNAME, "wb")
-		return FNAME
-
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		os.remove(FNAME)
-
-
-with TestWithFile() as fname:
-	fd = os.open(fname, 1)
-	assert os.write(fd, CONTENT2) == len(CONTENT2)
-	assert os.write(fd, CONTENT3) == len(CONTENT3)
-	os.close(fd)
-
-	fd = os.open(fname, 0)
-	assert os.read(fd, len(CONTENT2)) == CONTENT2
-	assert os.read(fd, len(CONTENT3)) == CONTENT3
-	os.close(fd)
-
-
 assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', 0))
 
 
@@ -59,7 +32,44 @@ if os.name == "posix":
 	os.unsetenv(ENV_KEY)
 	assert os.getenv(ENV_KEY) == None
 
+
 if os.name == "nt":
 	assert os.sep == "\\"
 else:
 	assert os.sep == "/"
+
+class TestWithTempDir():
+	def __enter__(self):
+		if os.name == "nt":
+			base_folder = os.environ["%TEMP%"]
+		else:
+			base_folder = "/tmp"
+		name = base_folder + os.sep + "test_os"
+		os.mkdir(name)
+		self.name = name
+		return name
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		for f in os.listdir(self.name):
+			# Currently don't support dir delete.
+			os.remove(self.name + os.sep + f)
+		os.rmdir(self.name)
+
+
+FILE_NAME = "test1"
+CONTENT = b"testing"
+CONTENT2 = b"rustpython"
+CONTENT3 = b"BOYA"
+
+with TestWithTempDir() as tmpdir:
+	fname = tmpdir + os.sep + FILE_NAME
+	open(fname, "wb")
+	fd = os.open(fname, 1)
+	assert os.write(fd, CONTENT2) == len(CONTENT2)
+	assert os.write(fd, CONTENT3) == len(CONTENT3)
+	os.close(fd)
+
+	fd = os.open(fname, 0)
+	assert os.read(fd, len(CONTENT2)) == CONTENT2
+	assert os.read(fd, len(CONTENT3)) == CONTENT3
+	os.close(fd)
