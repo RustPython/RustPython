@@ -13,7 +13,7 @@ use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, Py
 
 use super::objbyteinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
-    ByteInnerTranslateOptions, PyByteInner,
+    ByteInnerSplitOptions, ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objiter;
 
@@ -331,6 +331,28 @@ impl PyBytesRef {
         Ok(vm
             .ctx
             .new_bytes(self.inner.strip(chars, ByteInnerPosition::Right, vm)?))
+    }
+
+    #[pymethod(name = "split")]
+    fn split(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .split(options, vm)?
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "rsplit")]
+    fn rsplit(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .rsplit(options, vm)?
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
     }
 }
 

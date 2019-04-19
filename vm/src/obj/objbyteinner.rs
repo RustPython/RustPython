@@ -253,6 +253,41 @@ impl ByteInnerTranslateOptions {
     }
 }
 
+#[derive(FromArgs)]
+pub struct ByteInnerSplitOptions {
+    #[pyarg(positional_or_keyword, optional = true)]
+    sep: OptionalArg<PyObjectRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    maxsplit: OptionalArg<PyIntRef>,
+}
+
+impl ByteInnerSplitOptions {
+    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Vec<u8>, i32)> {
+        let sep = if let OptionalArg::Present(value) = self.sep {
+            match try_as_bytes_like(&value) {
+                Some(value) => value,
+                None => match_class!(value,
+                     _n @ PyNone=> vec![],
+                     obj =>  {return Err(vm.new_type_error(format!(
+                    "a bytes-like object is required, not {}",
+                    obj
+                )));}
+                    ),
+            }
+        } else {
+            vec![]
+        };
+
+        let maxsplit = if let OptionalArg::Present(value) = self.maxsplit {
+            value.as_bigint().to_i32().unwrap()
+        } else {
+            -1
+        };
+
+        Ok((sep.clone(), maxsplit))
+    }
+}
+
 impl PyByteInner {
     pub fn repr(&self) -> PyResult<String> {
         let mut res = String::with_capacity(self.elements.len());
@@ -757,6 +792,30 @@ impl PyByteInner {
         }
         Ok(self.elements[start..end].to_vec())
     }
+
+    pub fn split(
+        &self,
+        options: ByteInnerSplitOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<&[u8]>> {
+        let (sep, maxsplit) = options.get_value(vm)?;
+
+        let splitted = split_slice(&self.elements, &sep, maxsplit);
+
+        Ok(splitted)
+    }
+
+    pub fn rsplit(
+        &self,
+        options: ByteInnerSplitOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<&[u8]>> {
+        let (sep, maxsplit) = options.get_value(vm)?;
+
+        let splitted = split_slice_reverse(&self.elements, &sep, maxsplit);
+
+        Ok(splitted)
+    }
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
@@ -782,4 +841,484 @@ pub enum ByteInnerPosition {
     Left,
     Right,
     All,
+}
+
+fn split_slice<'a>(slice: &'a [u8], sep: &[u8], maxsplit: i32) -> Vec<&'a [u8]> {
+    let mut splitted: Vec<&[u8]> = vec![];
+    let mut prev_index = 0;
+    let mut index = 0;
+    let mut count = 0;
+    let mut in_string = false;
+
+    // No sep given, will split for any \t \n \r and space  = [9, 10, 13, 32]
+    if sep.is_empty() {
+        // split wihtout sep always trim left spaces for any maxsplit
+        // so we have to ignore left spaces.
+        loop {
+            if [9, 10, 13, 32].contains(&slice[index]) {
+                index += 1
+            } else {
+                prev_index = index;
+                break;
+            }
+        }
+
+        // most simple case
+        if maxsplit == 0 {
+            splitted.push(&slice[index..slice.len()]);
+            return splitted;
+        }
+
+        // main loop. in_string means previous char is ascii char(true) or space(false)
+        // loop from left to right
+        loop {
+            if [9, 10, 13, 32].contains(&slice[index]) {
+                if in_string {
+                    splitted.push(&slice[prev_index..index]);
+                    in_string = false;
+                    count += 1;
+                    if count == maxsplit {
+                        // while index < slice.len()
+                        splitted.push(&slice[index + 1..slice.len()]);
+                        break;
+                    }
+                }
+            } else if !in_string {
+                prev_index = index;
+                in_string = true;
+            }
+
+            index += 1;
+
+            // handle last item in slice
+            if index == slice.len() {
+                if in_string {
+                    if [9, 10, 13, 32].contains(&slice[index - 1]) {
+                        splitted.push(&slice[prev_index..index - 1]);
+                    } else {
+                        splitted.push(&slice[prev_index..index]);
+                    }
+                }
+                break;
+            }
+        }
+    } else {
+        // sep is given, we match exact slice
+        while index != slice.len() {
+            if index + sep.len() >= slice.len() {
+                if &slice[index..slice.len()] == sep {
+                    splitted.push(&slice[prev_index..index]);
+                    splitted.push(&[]);
+                    break;
+                }
+                splitted.push(&slice[prev_index..slice.len()]);
+                break;
+            }
+
+            if &slice[index..index + sep.len()] == sep {
+                splitted.push(&slice[prev_index..index]);
+                index += sep.len();
+                prev_index = index;
+                count += 1;
+                if count == maxsplit {
+                    // maxsplit reached, append, the remaing
+                    splitted.push(&slice[prev_index..slice.len()]);
+                    break;
+                }
+                continue;
+            }
+
+            index += 1;
+        }
+    }
+    splitted
+}
+
+fn split_slice_reverse<'a>(slice: &'a [u8], sep: &[u8], maxsplit: i32) -> Vec<&'a [u8]> {
+    let mut splitted: Vec<&[u8]> = vec![];
+    let mut prev_index = slice.len();
+    let mut index = slice.len();
+    let mut count = 0;
+
+    // No sep given, will split for any \t \n \r and space  = [9, 10, 13, 32]
+    if sep.is_empty() {
+        //adjust index
+        index -= 1;
+
+        // rsplit without sep always trim right spaces for any maxsplit
+        // so we have to ignore right spaces.
+        loop {
+            if [9, 10, 13, 32].contains(&slice[index]) {
+                index -= 1
+            } else {
+                break;
+            }
+        }
+        prev_index = index + 1;
+
+        // most simple case
+        if maxsplit == 0 {
+            splitted.push(&slice[0..=index]);
+            return splitted;
+        }
+
+        // main loop. in_string means previous char is ascii char(true) or space(false)
+        // loop from right to left and reverse result the end
+        let mut in_string = true;
+        loop {
+            if [9, 10, 13, 32].contains(&slice[index]) {
+                if in_string {
+                    splitted.push(&slice[index + 1..prev_index]);
+                    count += 1;
+                    if count == maxsplit {
+                        // maxsplit reached, append, the remaing
+                        splitted.push(&slice[0..index]);
+                        break;
+                    }
+                    in_string = false;
+                    index -= 1;
+                    continue;
+                }
+            } else if !in_string {
+                in_string = true;
+                if index == 0 {
+                    splitted.push(&slice[0..1]);
+                    break;
+                }
+                prev_index = index + 1;
+            }
+            if index == 0 {
+                break;
+            }
+            index -= 1;
+        }
+    } else {
+        // sep is give, we match exact slice going backwards
+        while index != 0 {
+            if index <= sep.len() {
+                if &slice[0..index] == sep {
+                    splitted.push(&slice[index..prev_index]);
+                    splitted.push(&[]);
+                    break;
+                }
+                splitted.push(&slice[0..prev_index]);
+                break;
+            }
+            if &slice[(index - sep.len())..index] == sep {
+                splitted.push(&slice[index..prev_index]);
+                index -= sep.len();
+                prev_index = index;
+                count += 1;
+                if count == maxsplit {
+                    // maxsplit reached, append, the remaing
+                    splitted.push(&slice[0..prev_index]);
+                    break;
+                }
+                continue;
+            }
+
+            index -= 1;
+        }
+    }
+    splitted.reverse();
+    splitted
+}
+
+#[cfg(test)]
+
+// needed for dev. Same as python tests in bytes.py. should it be kept ?
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_end() {
+        assert_eq!(
+            split_slice(&[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3], &[4, 5], -1),
+            vec![[1, 2, 3], [1, 2, 3], [1, 2, 3]]
+        );
+        assert_eq!(
+            split_slice_reverse(&[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3], &[4, 5], -1),
+            vec![[1, 2, 3], [1, 2, 3], [1, 2, 3]]
+        )
+    }
+
+    #[test]
+    fn needle_end() {
+        let v: Vec<&[u8]> = vec![&[1, 2, 3], &[1, 2, 3], &[1, 2, 3], &[]];
+        assert_eq!(
+            split_slice(&[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5], &[4, 5], -1),
+            v
+        );
+        assert_eq!(
+            split_slice_reverse(&[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5], &[4, 5], -1),
+            v
+        )
+    }
+
+    #[test]
+    fn needle_end_minus_one() {
+        let v = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[1, 2, 3], &[1, 2, 3], &[1, 2, 3], &[3]];
+
+        assert_eq!(split_slice(&v, &n, -1), res);
+        assert_eq!(split_slice_reverse(&v, &n, -1), res)
+    }
+
+    #[test]
+    fn needle_start() {
+        let v = [4, 5, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[], &[2, 3], &[1, 2, 3], &[1, 2, 3]];
+
+        assert_eq!(split_slice(&v, &n, -1), res);
+        assert_eq!(split_slice_reverse(&v, &n, -1), res)
+    }
+
+    #[test]
+    fn needle_start_plus_one() {
+        let v = [1, 4, 5, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[1], &[2, 3], &[1, 2, 3], &[1, 2, 3]];
+
+        assert_eq!(split_slice(&v, &n, -1), res);
+        assert_eq!(split_slice_reverse(&v, &n, -1), res)
+    }
+    #[test]
+    fn needles_next_to() {
+        let v = [1, 2, 3, 4, 5, 4, 5, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[1, 2, 3], &[], &[], &[1, 2, 3], &[1, 2, 3]];
+
+        assert_eq!(split_slice(&v, &n, -1), res);
+        assert_eq!(split_slice_reverse(&v, &n, -1), res)
+    }
+    #[test]
+    fn no_end_max() {
+        let v = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[1, 2, 3], &[1, 2, 3, 4, 5, 1, 2, 3]];
+        let res_rev: Vec<&[u8]> = vec![&[1, 2, 3, 4, 5, 1, 2, 3], &[1, 2, 3]];
+        let max = 1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn needle_end_max() {
+        let v = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[1, 2, 3], &[1, 2, 3, 4, 5, 1, 2, 3, 4, 5]];
+        let res_rev: Vec<&[u8]> = vec![&[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3], &[]];
+        let max = 1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+    #[test]
+    fn needle_end_minus_one_max() {
+        let v = [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[1, 2, 3], &[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 3]];
+        let res_rev: Vec<&[u8]> = vec![&[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3], &[3]];
+        let max = 1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn needle_start_max() {
+        let v = [4, 5, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[], &[2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3]];
+        let res_rev: Vec<&[u8]> = vec![&[4, 5, 2, 3, 4, 5, 1, 2, 3], &[1, 2, 3]];
+        let max = 1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+    #[test]
+    fn needle_start_minus_one_max() {
+        let v = [1, 4, 5, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[1], &[2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3]];
+        let res_rev: Vec<&[u8]> = vec![&[1, 4, 5, 2, 3, 4, 5, 1, 2, 3], &[1, 2, 3]];
+        let max = 1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn needle_next_to() {
+        let v = [1, 2, 3, 4, 5, 4, 5, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3];
+        let n = [4, 5];
+        let res: Vec<&[u8]> = vec![&[1, 2, 3], &[], &[4, 5, 1, 2, 3, 4, 5, 1, 2, 3]];
+        let res_rev: Vec<&[u8]> = vec![&[1, 2, 3, 4, 5, 4, 5], &[1, 2, 3], &[1, 2, 3]];
+        let max = 2;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn no_needle() {
+        let v = [107, 13, 117, 104, 10, 102, 122, 32, 101, 9, 102];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[107], &[117, 104], &[102, 122], &[101], &[102]];
+        let res_rev: Vec<&[u8]> = vec![&[107], &[117, 104], &[102, 122], &[101], &[102]];
+        let max = -1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn no_needle_end_nostring() {
+        let v = [107, 13, 117, 104, 10, 102, 122, 32, 101, 9, 102, 9];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[107], &[117, 104], &[102, 122], &[101], &[102]];
+        let res_rev: Vec<&[u8]> = vec![&[107], &[117, 104], &[102, 122], &[101], &[102]];
+        let max = -1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn no_needle_sides_no_max() {
+        let v = [13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102, 9, 9];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[117, 104], &[102, 122], &[101, 102]];
+        let res_rev: Vec<&[u8]> = vec![&[117, 104], &[102, 122], &[101, 102]];
+        let max = -1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn no_needle_sides_max_zero() {
+        let v = [13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102, 9, 9];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[117, 104, 10, 102, 122, 32, 101, 102, 9, 9]];
+        let res_rev: Vec<&[u8]> = vec![&[13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102]];
+        let max = 0;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn no_needle_sides_max_one() {
+        let v = [13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102, 9, 9];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[117, 104], &[102, 122, 32, 101, 102, 9, 9]];
+        let res_rev: Vec<&[u8]> = vec![&[13, 13, 13, 117, 104, 10, 102, 122], &[101, 102]];
+        let max = 1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn no_needle_sides_max_two() {
+        let v = [13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102, 9, 9];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[117, 104], &[102, 122], &[101, 102, 9, 9]];
+        let res_rev: Vec<&[u8]> = vec![&[13, 13, 13, 117, 104], &[102, 122], &[101, 102]];
+        let max = 2;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+    #[test]
+    fn no_needle_no_max_big_spaces() {
+        let v = [
+            13, 13, 13, 117, 104, 10, 10, 10, 102, 122, 32, 32, 101, 102, 9, 9,
+        ];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[117, 104], &[102, 122], &[101, 102]];
+        let res_rev: Vec<&[u8]> = vec![&[117, 104], &[102, 122], &[101, 102]];
+        let max = -1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn cpython_needle() {
+        let v = [49, 44, 50, 44, 51];
+        let n = [44];
+        let res: Vec<&[u8]> = vec![&[49], &[50], &[51]];
+        let res_rev: Vec<&[u8]> = vec![&[49], &[50], &[51]];
+        let max = -1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn cpython_needle_max_one() {
+        let v = [49, 44, 50, 44, 51];
+        let n = [44];
+        let res: Vec<&[u8]> = vec![&[49], &[50, 44, 51]];
+        let res_rev: Vec<&[u8]> = vec![&[49, 44, 50], &[51]];
+        let max = 1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn cpython_nearneedle() {
+        let v = [49, 44, 50, 44, 44, 51, 44];
+        let n = [44];
+        let res: Vec<&[u8]> = vec![&[49], &[50], &[], &[51], &[]];
+        let res_rev: Vec<&[u8]> = vec![&[49], &[50], &[], &[51], &[]];
+        let max = -1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn cpython_space_no_sep() {
+        let v = [49, 32, 50, 32, 51];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[49], &[50], &[51]];
+        let res_rev: Vec<&[u8]> = vec![&[49], &[50], &[51]];
+        let max = -1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn cpython_space_no_sep_max_one() {
+        let v = [49, 32, 50, 32, 51];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[49], &[50, 32, 51]];
+        let res_rev: Vec<&[u8]> = vec![&[49, 32, 50], &[51]];
+        let max = 1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
+    #[test]
+    fn cpython_bigspace() {
+        let v = [32, 32, 32, 49, 32, 32, 32, 50, 32, 32, 32, 51, 32, 32, 32];
+        let n = [];
+        let res: Vec<&[u8]> = vec![&[49], &[50], &[51]];
+        let res_rev: Vec<&[u8]> = vec![&[49], &[50], &[51]];
+        let max = -1;
+
+        assert_eq!(split_slice(&v, &n, max), res);
+        assert_eq!(split_slice_reverse(&v, &n, max), res_rev)
+    }
+
 }
