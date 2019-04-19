@@ -41,7 +41,7 @@ else:
 class TestWithTempDir():
 	def __enter__(self):
 		if os.name == "nt":
-			base_folder = os.environ["%TEMP%"]
+			base_folder = os.environ["TEMP"]
 		else:
 			base_folder = "/tmp"
 		name = base_folder + os.sep + "test_os"
