@@ -21,6 +21,10 @@ fn get_prop(value: JsValue, name: &str, vm: &VirtualMachine) -> Option<PyObjectR
     }
 }
 
+fn set_prop(value: &JsValue, name: &str, val: PyObjectRef, vm: &VirtualMachine) {
+    Reflect::set(value, &name.into(), &convert::py_to_js(vm, val)).expect("Reflect failed");
+}
+
 #[pyclass(name = "JsValue")]
 #[derive(Debug)]
 pub struct PyJsValue {
@@ -52,6 +56,11 @@ impl PyJsValue {
         get_prop(self.value().clone(), attr_name.as_str(), vm).ok_or_else(|| {
             vm.new_attribute_error(format!("JS value has no property {:?}", attr_name.as_str()))
         })
+    }
+
+    #[pymethod(name = "__setattr__")]
+    fn setattr(&self, attr_name: PyStringRef, val: PyObjectRef, vm: &VirtualMachine) {
+        set_prop(self.value(), attr_name.as_str(), val, vm);
     }
 
     #[pymethod(name = "__repr__")]
@@ -130,6 +139,11 @@ impl PyJsProps {
     fn getitem(&self, item_name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         get_prop(self.value.clone(), item_name.as_str(), vm)
             .ok_or_else(|| vm.new_key_error(format!("{:?}", item_name.as_str())))
+    }
+
+    #[pymethod(name = "__setitem__")]
+    fn setitem(&self, item_name: PyStringRef, val: PyObjectRef, vm: &VirtualMachine) {
+        set_prop(&self.value, item_name.as_str(), val, vm);
     }
 }
 
