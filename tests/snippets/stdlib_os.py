@@ -58,3 +58,8 @@ if os.name == "posix":
 	os.putenv(ENV_KEY, ENV_VALUE)
 	os.unsetenv(ENV_KEY)
 	assert os.getenv(ENV_KEY) == None
+
+if os.name == "nt":
+	assert os.sep == "\\"
+else:
+	assert os.sep == "/"
