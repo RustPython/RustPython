@@ -41,6 +41,7 @@ pub type Label = usize;
 #[derive(Debug, Clone, PartialEq)]
 pub enum NameScope {
     Local,
+    NonLocal,
     Global,
 }
 
@@ -135,6 +136,7 @@ pub enum Instruction {
     PopBlock,
     Raise {
         argc: usize,
+        in_exc: bool,
     },
     BuildString {
         size: usize,
@@ -363,7 +365,7 @@ impl Instruction {
             SetupWith { end } => w!(SetupWith, end),
             CleanupWith { end } => w!(CleanupWith, end),
             PopBlock => w!(PopBlock),
-            Raise { argc } => w!(Raise, argc),
+            Raise { argc, in_exc } => w!(Raise, argc, in_exc),
             BuildString { size } => w!(BuildString, size),
             BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
             BuildList { size, unpack } => w!(BuildList, size, unpack),

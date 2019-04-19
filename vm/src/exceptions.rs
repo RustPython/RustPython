@@ -20,10 +20,20 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // print excption chain
 pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
+    let mut had_cause = false;
     if let Ok(cause) = vm.get_attribute(exc.clone(), "__cause__") {
         if !vm.get_none().is(&cause) {
+            had_cause = true;
             print_exception(vm, &cause);
             println!("\nThe above exception was the direct cause of the following exception:\n");
+        }
+    }
+    if !had_cause {
+        if let Ok(context) = vm.get_attribute(exc.clone(), "__context__") {
+            if !vm.get_none().is(&context) {
+                print_exception(vm, &context);
+                println!("\nDuring handling of the above exception, another exception occurred:\n");
+            }
         }
     }
     print_exception_inner(vm, exc)
@@ -57,7 +67,10 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
                         "<error>".to_string()
                     };
 
-                    println!("  File {}, line {}, in {}", filename, lineno, obj_name);
+                    println!(
+                        r##"  File "{}", line {}, in {}"##,
+                        filename, lineno, obj_name
+                    );
                 } else {
                     println!("  File ??");
                 }
@@ -108,6 +121,7 @@ pub struct ExceptionZoo {
     pub os_error: PyClassRef,
     pub overflow_error: PyClassRef,
     pub permission_error: PyClassRef,
+    pub reference_error: PyClassRef,
     pub runtime_error: PyClassRef,
     pub stop_iteration: PyClassRef,
     pub syntax_error: PyClassRef,
@@ -142,6 +156,7 @@ impl ExceptionZoo {
         let name_error = create_type("NameError", &type_type, &exception_type);
         let os_error = create_type("OSError", &type_type, &exception_type);
         let runtime_error = create_type("RuntimeError", &type_type, &exception_type);
+        let reference_error = create_type("ReferenceError", &type_type, &exception_type);
         let stop_iteration = create_type("StopIteration", &type_type, &exception_type);
         let syntax_error = create_type("SyntaxError", &type_type, &exception_type);
         let type_error = create_type("TypeError", &type_type, &exception_type);
@@ -198,6 +213,7 @@ impl ExceptionZoo {
             syntax_warning,
             resource_warning,
             runtime_warning,
+            reference_error,
             user_warning,
         }
     }

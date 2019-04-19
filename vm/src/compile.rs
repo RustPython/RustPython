@@ -6,7 +6,7 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
-use crate::error::CompileError;
+use crate::error::{CompileError, CompileErrorType};
 use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::pyobject::PyValue;
@@ -24,6 +24,7 @@ struct Compiler {
     current_qualified_path: Option<String>,
     in_loop: bool,
     in_function_def: bool,
+    in_exc_handler: bool,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -39,17 +40,17 @@ pub fn compile(
 
     match mode {
         Mode::Exec => {
-            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
+            let ast = parser::parse_program(source)?;
             let symbol_table = make_symbol_table(&ast);
             compiler.compile_program(&ast, symbol_table)
         }
         Mode::Eval => {
-            let statement = parser::parse_statement(source).map_err(CompileError::Parse)?;
+            let statement = parser::parse_statement(source)?;
             let symbol_table = statements_to_symbol_table(&statement);
             compiler.compile_statement_eval(&statement, symbol_table)
         }
         Mode::Single => {
-            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
+            let ast = parser::parse_program(source)?;
             let symbol_table = make_symbol_table(&ast);
             compiler.compile_program_single(&ast, symbol_table)
         }
@@ -85,6 +86,7 @@ impl Compiler {
             current_qualified_path: None,
             in_loop: false,
             in_function_def: false,
+            in_exc_handler: false,
         }
     }
 
@@ -156,7 +158,10 @@ impl Compiler {
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
             } else {
-                return Err(CompileError::ExpectExpr);
+                return Err(CompileError {
+                    error: CompileErrorType::ExpectExpr,
+                    location: statement.location.clone(),
+                });
             }
         }
         self.emit(Instruction::ReturnValue);
@@ -177,12 +182,12 @@ impl Compiler {
         let role = self.lookup_name(name);
         match role {
             SymbolRole::Global => bytecode::NameScope::Global,
+            SymbolRole::Nonlocal => bytecode::NameScope::NonLocal,
             _ => bytecode::NameScope::Local,
         }
     }
 
     fn load_name(&mut self, name: &str) {
-        // TODO: if global, do something else!
         let scope = self.scope_for_name(name);
         self.emit(Instruction::LoadName {
             name: name.to_string(),
@@ -325,15 +330,24 @@ impl Compiler {
                     match cause {
                         Some(cause) => {
                             self.compile_expression(cause)?;
-                            self.emit(Instruction::Raise { argc: 2 });
+                            self.emit(Instruction::Raise {
+                                argc: 2,
+                                in_exc: self.in_exc_handler,
+                            });
                         }
                         None => {
-                            self.emit(Instruction::Raise { argc: 1 });
+                            self.emit(Instruction::Raise {
+                                argc: 1,
+                                in_exc: self.in_exc_handler,
+                            });
                         }
                     }
                 }
                 None => {
-                    self.emit(Instruction::Raise { argc: 0 });
+                    self.emit(Instruction::Raise {
+                        argc: 0,
+                        in_exc: self.in_exc_handler,
+                    });
                 }
             },
             ast::Statement::Try {
@@ -378,24 +392,36 @@ impl Compiler {
                         });
                     }
                 }
-                self.emit(Instruction::Raise { argc: 1 });
+                self.emit(Instruction::Raise {
+                    argc: 1,
+                    in_exc: self.in_exc_handler,
+                });
                 self.set_label(end_label);
             }
             ast::Statement::Break => {
                 if !self.in_loop {
-                    return Err(CompileError::InvalidBreak);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidBreak,
+                        location: statement.location.clone(),
+                    });
                 }
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
                 if !self.in_loop {
-                    return Err(CompileError::InvalidContinue);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidContinue,
+                        location: statement.location.clone(),
+                    });
                 }
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
                 if !self.in_function_def {
-                    return Err(CompileError::InvalidReturn);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidReturn,
+                        location: statement.location.clone(),
+                    });
                 }
                 match value {
                     Some(v) => {
@@ -448,7 +474,10 @@ impl Compiler {
                             self.emit(Instruction::DeleteSubscript);
                         }
                         _ => {
-                            return Err(CompileError::Delete(target.name()));
+                            return Err(CompileError {
+                                error: CompileErrorType::Delete(target.name()),
+                                location: self.current_source_location.clone(),
+                            });
                         }
                     }
                 }
@@ -558,6 +587,8 @@ impl Compiler {
         self.emit(Instruction::Jump { target: else_label });
 
         // except handlers:
+        let was_in_exc_handler = self.in_exc_handler;
+        self.in_exc_handler = true;
         self.set_label(handler_label);
         // Exception is on top of stack now
         handler_label = self.new_label();
@@ -586,19 +617,16 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = &handler.name {
+                    // Duplicate exception for context:
+                    self.emit(Instruction::Duplicate);
                     self.store_name(alias);
-                } else {
-                    // Drop exception from top of stack:
-                    self.emit(Instruction::Pop);
                 }
-            } else {
-                // Catch all!
-                // Drop exception from top of stack:
-                self.emit(Instruction::Pop);
             }
 
             // Handler code:
             self.compile_statements(&handler.body)?;
+            // Drop exception from top of stack:
+            self.emit(Instruction::Pop);
             self.emit(Instruction::Jump {
                 target: finally_label,
             });
@@ -619,7 +647,12 @@ impl Compiler {
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
         }
-        self.emit(Instruction::Raise { argc: 1 });
+        self.emit(Instruction::Raise {
+            argc: 0,
+            in_exc: true,
+        });
+
+        self.in_exc_handler = was_in_exc_handler;
 
         // We successfully ran the try block:
         // else:
@@ -633,7 +666,6 @@ impl Compiler {
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
         }
-
         // unimplemented!();
         Ok(())
     }
@@ -997,14 +1029,17 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Expression::Tuple { elements } => {
+            ast::Expression::List { elements } | ast::Expression::Tuple { elements } => {
                 let mut seen_star = false;
 
                 // Scan for star args:
                 for (i, element) in elements.iter().enumerate() {
                     if let ast::Expression::Starred { .. } = element {
                         if seen_star {
-                            return Err(CompileError::StarArgs);
+                            return Err(CompileError {
+                                error: CompileErrorType::StarArgs,
+                                location: self.current_source_location.clone(),
+                            });
                         } else {
                             seen_star = true;
                             self.emit(Instruction::UnpackEx {
@@ -1030,7 +1065,10 @@ impl Compiler {
                 }
             }
             _ => {
-                return Err(CompileError::Assign(target.name()));
+                return Err(CompileError {
+                    error: CompileErrorType::Assign(target.name()),
+                    location: self.current_source_location.clone(),
+                });
             }
         }
 
@@ -1220,7 +1258,10 @@ impl Compiler {
             }
             ast::Expression::Yield { value } => {
                 if !self.in_function_def {
-                    return Err(CompileError::InvalidYield);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidYield,
+                        location: self.current_source_location.clone(),
+                    });
                 }
                 self.mark_generator();
                 match value {

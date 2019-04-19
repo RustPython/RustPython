@@ -21,7 +21,7 @@ use super::objtype::PyClassRef;
 /// - a text string encoded using the specified encoding\n  \
 /// - any object implementing the buffer API.\n  \
 /// - an integer";
-#[pyclass(name = "bytes", __inside_vm)]
+#[pyclass(name = "bytes")]
 #[derive(Clone, Debug)]
 pub struct PyBytes {
     inner: PyByteInner,
@@ -71,7 +71,7 @@ pub fn init(context: &PyContext) {
     });
 }
 
-#[pyimpl(__inside_vm)]
+#[pyimpl]
 impl PyBytesRef {
     #[pymethod(name = "__new__")]
     fn bytes_new(

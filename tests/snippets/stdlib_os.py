@@ -51,6 +51,10 @@ os.environ[ENV_KEY] = ENV_VALUE
 assert ENV_KEY in os.environ
 assert os.getenv(ENV_KEY) == ENV_VALUE
 del os.environ[ENV_KEY]
-os.unsetenv(ENV_KEY)
 assert ENV_KEY not in os.environ
 assert os.getenv(ENV_KEY) == None
+
+if os.name == "posix":
+	os.putenv(ENV_KEY, ENV_VALUE)
+	os.unsetenv(ENV_KEY)
+	assert os.getenv(ENV_KEY) == None

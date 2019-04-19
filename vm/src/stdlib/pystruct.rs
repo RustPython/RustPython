@@ -15,7 +15,7 @@ use num_traits::ToPrimitive;
 
 use crate::function::PyFuncArgs;
 use crate::obj::{objbool, objbytes, objfloat, objint, objstr, objtype};
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::VirtualMachine;
 
 #[derive(Debug)]

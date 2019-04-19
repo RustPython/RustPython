@@ -530,7 +530,6 @@ fn builtin_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 #[derive(Debug, FromArgs)]
-#[__inside_vm]
 pub struct PrintOptions {
     #[pyarg(keyword_only, default = "None")]
     sep: Option<PyStringRef>,
@@ -751,6 +750,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "NameError" => ctx.exceptions.name_error.clone(),
         "OverflowError" => ctx.exceptions.overflow_error.clone(),
         "RuntimeError" => ctx.exceptions.runtime_error.clone(),
+        "ReferenceError" => ctx.exceptions.reference_error.clone(),
+        "SyntaxError" =>  ctx.exceptions.syntax_error.clone(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.clone(),
         "TypeError" => ctx.exceptions.type_error.clone(),
         "ValueError" => ctx.exceptions.value_error.clone(),

@@ -12,6 +12,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
     py_module!(vm, "_weakref", {
-        "ref" => ctx.weakref_type()
+        "ref" => ctx.weakref_type(),
+        "proxy" => ctx.weakproxy_type(),
     })
 }

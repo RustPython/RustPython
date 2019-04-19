@@ -1,4 +1,4 @@
-use super::rustpython_path_attr;
+use super::Diagnostic;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use std::collections::HashMap;
@@ -16,19 +16,21 @@ enum ClassItem {
     },
 }
 
-fn meta_to_vec(meta: Meta) -> Option<Vec<NestedMeta>> {
+fn meta_to_vec(meta: Meta) -> Result<Vec<NestedMeta>, Meta> {
     match meta {
-        Meta::Word(_) => Some(Vec::new()),
-        Meta::List(list) => Some(list.nested.into_iter().collect()),
-        Meta::NameValue(_) => None,
+        Meta::Word(_) => Ok(Vec::new()),
+        Meta::List(list) => Ok(list.nested.into_iter().collect()),
+        Meta::NameValue(_) => Err(meta),
     }
 }
 
 impl ClassItem {
-    fn extract_from_syn(attrs: &mut Vec<Attribute>, sig: &MethodSig) -> Option<ClassItem> {
+    fn extract_from_syn(
+        attrs: &mut Vec<Attribute>,
+        sig: &MethodSig,
+    ) -> Result<Option<ClassItem>, Diagnostic> {
         let mut item = None;
         let mut attr_idx = None;
-        // TODO: better error handling throughout this
         for (i, meta) in attrs
             .iter()
             .filter_map(|attr| attr.parse_meta().ok())
@@ -37,12 +39,18 @@ impl ClassItem {
             let name = meta.name();
             if name == "pymethod" {
                 if item.is_some() {
-                    panic!("You can only have one #[py*] attribute on an impl item")
+                    bail_span!(
+                        sig.ident,
+                        "You can only have one #[py*] attribute on an impl item"
+                    )
                 }
-                let nesteds = meta_to_vec(meta).expect(
-                    "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
-                     #[pyproperty(name = \"...\")]",
-                );
+                let nesteds = meta_to_vec(meta).map_err(|meta| {
+                    err_span!(
+                        meta,
+                        "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
+                         #[pyproperty(name = \"...\")]",
+                    )
+                })?;
                 let mut py_name = None;
                 for meta in nesteds {
                     let meta = match meta {
@@ -55,7 +63,10 @@ impl ClassItem {
                                 if let Lit::Str(s) = &name_value.lit {
                                     py_name = Some(s.value());
                                 } else {
-                                    panic!("#[pymethod(name = ...)] must be a string");
+                                    bail_span!(
+                                        &sig.ident,
+                                        "#[pymethod(name = ...)] must be a string"
+                                    );
                                 }
                             }
                         }
@@ -69,12 +80,18 @@ impl ClassItem {
                 attr_idx = Some(i);
             } else if name == "pyproperty" {
                 if item.is_some() {
-                    panic!("You can only have one #[py*] attribute on an impl item")
+                    bail_span!(
+                        sig.ident,
+                        "You can only have one #[py*] attribute on an impl item"
+                    )
                 }
-                let nesteds = meta_to_vec(meta).expect(
-                    "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
-                     #[pyproperty(name = \"...\")]",
-                );
+                let nesteds = meta_to_vec(meta).map_err(|meta| {
+                    err_span!(
+                        meta,
+                        "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
+                         #[pyproperty(name = \"...\")]"
+                    )
+                })?;
                 let mut setter = false;
                 let mut py_name = None;
                 for meta in nesteds {
@@ -88,7 +105,10 @@ impl ClassItem {
                                 if let Lit::Str(s) = &name_value.lit {
                                     py_name = Some(s.value());
                                 } else {
-                                    panic!("#[pyproperty(name = ...)] must be a string");
+                                    bail_span!(
+                                        &sig.ident,
+                                        "#[pyproperty(name = ...)] must be a string"
+                                    );
                                 }
                             }
                         }
@@ -100,29 +120,34 @@ impl ClassItem {
                         _ => {}
                     }
                 }
-                let py_name = py_name.unwrap_or_else(|| {
-                    let item_ident = sig.ident.to_string();
-                    if setter {
-                        if item_ident.starts_with("set_") {
-                            let name = &item_ident["set_".len()..];
-                            if name.is_empty() {
-                                panic!(
-                                    "A #[pyproperty(setter)] fn with a set_* name have something \
-                                     after \"set_\""
-                                )
+                let py_name = match py_name {
+                    Some(py_name) => py_name,
+                    None => {
+                        let item_ident = sig.ident.to_string();
+                        if setter {
+                            if item_ident.starts_with("set_") {
+                                let name = &item_ident["set_".len()..];
+                                if name.is_empty() {
+                                    bail_span!(
+                                        &sig.ident,
+                                        "A #[pyproperty(setter)] fn with a set_* name must \
+                                         have something after \"set_\""
+                                    )
+                                } else {
+                                    name.to_string()
+                                }
                             } else {
-                                name.to_string()
+                                bail_span!(
+                                    &sig.ident,
+                                    "A #[pyproperty(setter)] fn must either have a `name` \
+                                     parameter or a fn name along the lines of \"set_*\""
+                                )
                             }
                         } else {
-                            panic!(
-                            "A #[pyproperty(setter)] fn must either have a `name` parameter or a \
-                             fn name along the lines of \"set_*\""
-                        )
+                            item_ident
                         }
-                    } else {
-                        item_ident
                     }
-                });
+                };
                 item = Some(ClassItem::Property {
                     py_name,
                     item_ident: sig.ident.clone(),
@@ -134,18 +159,18 @@ impl ClassItem {
         if let Some(attr_idx) = attr_idx {
             attrs.remove(attr_idx);
         }
-        item
+        Ok(item)
     }
 }
 
-pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
+pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
     let mut imp = if let Item::Impl(imp) = item {
         imp
     } else {
-        return quote!(#item);
+        return Ok(quote!(#item));
     };
 
-    let rp_path = rustpython_path_attr(&attr);
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
     let items = imp
         .items
@@ -153,6 +178,8 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
         .filter_map(|item| {
             if let ImplItem::Method(meth) = item {
                 ClassItem::extract_from_syn(&mut meth.attrs, &meth.sig)
+                    .map_err(|err| diagnostics.push(err))
+                    .unwrap_or_default()
             } else {
                 None
             }
@@ -163,14 +190,18 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
     for item in items.iter() {
         match item {
             ClassItem::Property {
-                item_ident,
-                py_name,
+                ref item_ident,
+                ref py_name,
                 setter,
             } => {
                 let entry = properties.entry(py_name).or_default();
                 let func = if *setter { &mut entry.1 } else { &mut entry.0 };
                 if func.is_some() {
-                    panic!("Multiple property accessors with name {:?}", py_name)
+                    bail_span!(
+                        item_ident,
+                        "Multiple property accessors with name {:?}",
+                        py_name
+                    )
                 }
                 *func = Some(item_ident);
             }
@@ -190,45 +221,60 @@ pub fn impl_pyimpl(attr: AttributeArgs, item: Item) -> TokenStream2 {
             None
         }
     });
-    let properties = properties.iter().map(|(name, prop)| {
-        let getter = match prop.0 {
-            Some(getter) => getter,
-            None => panic!("Property {:?} is missing a getter", name),
-        };
-        let add_setter = prop.1.map(|setter| quote!(.add_setter(Self::#setter)));
-        quote! {
-            class.set_str_attr(
-                #name,
-                #rp_path::obj::objproperty::PropertyBuilder::new(ctx)
-                    .add_getter(Self::#getter)
-                    #add_setter
-                    .create(),
-            );
-        }
-    });
+    let properties = properties
+        .iter()
+        .map(|(name, prop)| {
+            let getter = match prop.0 {
+                Some(getter) => getter,
+                None => {
+                    push_err_span!(
+                        diagnostics,
+                        prop.1.unwrap(),
+                        "Property {:?} is missing a getter",
+                        name
+                    );
+                    return TokenStream2::new();
+                }
+            };
+            let add_setter = prop.1.map(|setter| quote!(.add_setter(Self::#setter)));
+            quote! {
+                class.set_str_attr(
+                    #name,
+                    ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
+                        .add_getter(Self::#getter)
+                        #add_setter
+                        .create(),
+                );
+            }
+        })
+        .collect::<Vec<_>>();
 
-    quote! {
+    Diagnostic::from_vec(diagnostics)?;
+
+    let ret = quote! {
         #imp
-        impl #rp_path::pyobject::PyClassImpl for #ty {
+        impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
             fn impl_extend_class(
-                ctx: &#rp_path::pyobject::PyContext,
-                class: &#rp_path::obj::objtype::PyClassRef,
+                ctx: &::rustpython_vm::pyobject::PyContext,
+                class: &::rustpython_vm::obj::objtype::PyClassRef,
             ) {
                 #(#methods)*
                 #(#properties)*
             }
         }
-    }
+    };
+    Ok(ret)
 }
 
-pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
+pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
     let (item, ident, attrs) = match item {
         Item::Struct(struc) => (quote!(#struc), struc.ident, struc.attrs),
         Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
-        _ => panic!("#[pyclass] can only be on a struct or enum declaration"),
+        other => bail_span!(
+            other,
+            "#[pyclass] can only be on a struct or enum declaration"
+        ),
     };
-
-    let rp_path = rustpython_path_attr(&attr);
 
     let mut class_name = None;
     for attr in attr {
@@ -238,7 +284,7 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
                     if let Lit::Str(s) = name_value.lit {
                         class_name = Some(s.value());
                     } else {
-                        panic!("#[pyclass(name = ...)] must be a string");
+                        bail_span!(name_value.lit, "#[pyclass(name = ...)] must be a string");
                     }
                 }
             }
@@ -257,8 +303,6 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
                         Some(ref mut doc) => doc.push(val),
                         None => doc = Some(vec![val]),
                     }
-                } else {
-                    panic!("expected #[doc = ...] to be a string")
                 }
             }
         }
@@ -271,11 +315,12 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> TokenStream2 {
         None => quote!(None),
     };
 
-    quote! {
+    let ret = quote! {
         #item
-        impl #rp_path::pyobject::PyClassDef for #ident {
+        impl ::rustpython_vm::pyobject::PyClassDef for #ident {
             const NAME: &'static str = #class_name;
             const DOC: Option<&'static str> = #doc;
         }
-    }
+    };
+    Ok(ret)
 }

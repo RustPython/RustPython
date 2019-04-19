@@ -19,8 +19,7 @@ pub type DictContentType = dictdatatype::Dict;
 
 #[derive(Default)]
 pub struct PyDict {
-    // TODO: should be private
-    pub entries: RefCell<DictContentType>,
+    entries: RefCell<DictContentType>,
 }
 pub type PyDictRef = PyRef<PyDict>;
 
@@ -260,6 +259,10 @@ impl PyDictRef {
         let key = key.into_pyobject(vm).unwrap();
         self.entries.borrow().contains(vm, &key).unwrap()
     }
+
+    pub fn size(&self) -> dictdatatype::DictSize {
+        self.entries.borrow().size()
+    }
 }
 
 impl ItemProtocol for PyDictRef {
@@ -315,11 +318,8 @@ impl Iterator for DictIter {
     type Item = (PyObjectRef, PyObjectRef);
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.dict.entries.borrow().next_entry(self.position) {
-            Some((new_position, key, value)) => {
-                self.position = new_position;
-                Some((key.clone(), value.clone()))
-            }
+        match self.dict.entries.borrow().next_entry(&mut self.position) {
+            Some((key, value)) => Some((key.clone(), value.clone())),
             None => None,
         }
     }
@@ -327,13 +327,13 @@ impl Iterator for DictIter {
 
 macro_rules! dict_iterator {
     ( $name: ident, $iter_name: ident, $class: ident, $iter_class: ident, $class_name: literal, $iter_class_name: literal, $result_fn: expr) => {
-        #[pyclass(name = $class_name, __inside_vm)]
+        #[pyclass(name = $class_name)]
         #[derive(Debug)]
         struct $name {
             pub dict: PyDictRef,
         }
 
-        #[pyimpl(__inside_vm)]
+        #[pyimpl]
         impl $name {
             fn new(dict: PyDictRef) -> Self {
                 $name { dict: dict }
@@ -356,27 +356,37 @@ macro_rules! dict_iterator {
             }
         }
 
-        #[pyclass(name = $iter_class_name, __inside_vm)]
+        #[pyclass(name = $iter_class_name)]
         #[derive(Debug)]
         struct $iter_name {
             pub dict: PyDictRef,
+            pub size: dictdatatype::DictSize,
             pub position: Cell<usize>,
         }
 
-        #[pyimpl(__inside_vm)]
+        #[pyimpl]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
                     position: Cell::new(0),
+                    size: dict.size(),
                     dict,
                 }
             }
 
             #[pymethod(name = "__next__")]
             fn next(&self, vm: &VirtualMachine) -> PyResult {
-                match self.dict.entries.borrow().next_entry(self.position.get()) {
-                    Some((new_position, key, value)) => {
-                        self.position.set(new_position);
+                let mut position = self.position.get();
+                let dict = self.dict.entries.borrow();
+                if dict.has_changed_size(&self.size) {
+                    return Err(vm.new_exception(
+                        vm.ctx.exceptions.runtime_error.clone(),
+                        "dictionary changed size during iteration".to_string(),
+                    ));
+                }
+                match dict.next_entry(&mut position) {
+                    Some((key, value)) => {
+                        self.position.set(position);
                         Ok($result_fn(vm, key, value))
                     }
                     None => Err(objiter::new_stop_iteration(vm)),

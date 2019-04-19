@@ -1,9 +1,7 @@
 use num_traits::Zero;
 
 use crate::function::PyFuncArgs;
-use crate::pyobject::{
-    IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject, TypeProtocol,
-};
+use crate::pyobject::{IntoPyObject, PyContext, PyObjectRef, PyResult, TryFromObject};
 use crate::vm::VirtualMachine;
 
 use super::objint::PyInt;

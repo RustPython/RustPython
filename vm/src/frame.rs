@@ -2,8 +2,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use num_bigint::BigInt;
-
 use rustpython_parser::ast;
 
 use crate::builtins;
@@ -12,7 +10,6 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::{PyDict, PyDictRef};
-use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
@@ -129,6 +126,7 @@ pub trait NameProtocol {
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn delete_name(&self, vm: &VirtualMachine, name: &str);
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
 }
@@ -155,6 +153,16 @@ impl NameProtocol for Scope {
             }
         }
         None
+    }
+
+    fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+        self.locals
+            .iter()
+            .skip(1)
+            .next()
+            .expect("no outer scope for non-local")
+            .set_item(name, value, vm)
+            .unwrap();
     }
 
     fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
@@ -435,26 +443,21 @@ impl Frame {
             }
             bytecode::Instruction::BuildSlice { size } => {
                 assert!(*size == 2 || *size == 3);
-                let elements = self.pop_multiple(*size);
 
-                let mut out: Vec<Option<BigInt>> = elements
-                    .into_iter()
-                    .map(|x| {
-                        if x.is(&vm.ctx.none()) {
-                            None
-                        } else if let Some(i) = x.payload::<PyInt>() {
-                            Some(i.as_bigint().clone())
-                        } else {
-                            panic!("Expect Int or None as BUILD_SLICE arguments")
-                        }
-                    })
-                    .collect();
+                let step = if *size == 3 {
+                    Some(self.pop_value())
+                } else {
+                    None
+                };
+                let stop = self.pop_value();
+                let start = self.pop_value();
 
-                let start = out[0].take();
-                let stop = out[1].take();
-                let step = if out.len() == 3 { out[2].take() } else { None };
-
-                let obj = PySlice { start, stop, step }.into_ref(vm);
+                let obj = PySlice {
+                    start: Some(start),
+                    stop,
+                    step,
+                }
+                .into_ref(vm);
                 self.push_value(obj.into_object());
                 Ok(None)
             }
@@ -715,18 +718,38 @@ impl Frame {
                 Ok(None)
             }
 
-            bytecode::Instruction::Raise { argc } => {
+            bytecode::Instruction::Raise { argc, in_exc } => {
                 let cause = match argc {
                     2 => self.get_exception(vm, true)?,
                     _ => vm.get_none(),
                 };
                 let exception = match argc {
+                    0 => match in_exc {
+                        true => self.get_exception(vm, false)?,
+                        false => {
+                            return Err(vm.new_exception(
+                                vm.ctx.exceptions.runtime_error.clone(),
+                                "No active exception to reraise".to_string(),
+                            ));
+                        }
+                    },
                     1 | 2 => self.get_exception(vm, false)?,
-                    0 | 3 => panic!("Not implemented!"),
+                    3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                info!("Exception raised: {:?} with cause: {:?}", exception, cause);
+                let context = match argc {
+                    0 => vm.get_none(), // We have already got the exception,
+                    _ => match in_exc {
+                        true => self.get_exception(vm, false)?,
+                        false => vm.get_none(),
+                    },
+                };
+                info!(
+                    "Exception raised: {:?} with cause: {:?} and context: {:?}",
+                    exception, cause, context
+                );
                 vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
+                vm.set_attr(&exception, vm.new_str("__context__".to_string()), context)?;
                 Err(exception)
             }
 
@@ -1017,8 +1040,11 @@ impl Frame {
             bytecode::NameScope::Global => {
                 self.scope.store_global(vm, name, obj);
             }
+            bytecode::NameScope::NonLocal => {
+                self.scope.store_cell(vm, name, obj);
+            }
             bytecode::NameScope::Local => {
-                self.scope.store_name(&vm, name, obj);
+                self.scope.store_name(vm, name, obj);
             }
         }
         Ok(None)
@@ -1037,6 +1063,7 @@ impl Frame {
     ) -> FrameResult {
         let optional_value = match name_scope {
             bytecode::NameScope::Global => self.scope.load_global(vm, name),
+            bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name),
             bytecode::NameScope::Local => self.scope.load_name(&vm, name),
         };
 

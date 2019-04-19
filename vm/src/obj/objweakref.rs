@@ -1,9 +1,9 @@
+use crate::function::OptionalArg;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::PyValue;
 use crate::pyobject::{PyContext, PyObject, PyObjectPayload, PyObjectRef, PyRef, PyResult};
 use crate::vm::VirtualMachine;
 
-use crate::function::OptionalArg;
 use std::rc::{Rc, Weak};
 
 #[derive(Debug)]

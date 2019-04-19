@@ -8,7 +8,7 @@ use rustpython_parser::lexer;
 
 use crate::function::PyFuncArgs;
 use crate::obj::objstr;
-use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
+use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 fn tokenize_tokenize(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

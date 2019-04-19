@@ -1,18 +1,16 @@
-use num_bigint::BigInt;
-
-use crate::function::PyFuncArgs;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
-use super::objint;
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objint::PyInt;
+use crate::obj::objtype::{class_has_attr, PyClassRef};
+use num_bigint::BigInt;
 
 #[derive(Debug)]
 pub struct PySlice {
-    // TODO: should be private
-    pub start: Option<BigInt>,
-    pub stop: Option<BigInt>,
-    pub step: Option<BigInt>,
+    pub start: Option<PyObjectRef>,
+    pub stop: PyObjectRef,
+    pub step: Option<PyObjectRef>,
 }
 
 impl PyValue for PySlice {
@@ -23,52 +21,35 @@ impl PyValue for PySlice {
 
 pub type PySliceRef = PyRef<PySlice>;
 
-fn slice_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    no_kwargs!(vm, args);
-    let (cls, start, stop, step): (
-        &PyObjectRef,
-        Option<&PyObjectRef>,
-        Option<&PyObjectRef>,
-        Option<&PyObjectRef>,
-    ) = match args.args.len() {
-        0 | 1 => Err(vm.new_type_error("slice() must have at least one arguments.".to_owned())),
-        2 => {
-            arg_check!(
-                vm,
-                args,
-                required = [
-                    (cls, Some(vm.ctx.type_type())),
-                    (stop, Some(vm.ctx.int_type()))
-                ]
-            );
-            Ok((cls, None, Some(stop), None))
+fn slice_new(cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult<PySliceRef> {
+    let slice: PySlice = match args.args.len() {
+        0 => {
+            return Err(vm.new_type_error("slice() must have at least one arguments.".to_owned()));
+        }
+        1 => {
+            let stop = args.bind(vm)?;
+            PySlice {
+                start: None,
+                stop,
+                step: None,
+            }
         }
         _ => {
-            arg_check!(
-                vm,
-                args,
-                required = [
-                    (cls, Some(vm.ctx.type_type())),
-                    (start, Some(vm.ctx.int_type())),
-                    (stop, Some(vm.ctx.int_type()))
-                ],
-                optional = [(step, Some(vm.ctx.int_type()))]
-            );
-            Ok((cls, Some(start), Some(stop), step))
+            let (start, stop, step): (PyObjectRef, PyObjectRef, OptionalArg<PyObjectRef>) =
+                args.bind(vm)?;
+            PySlice {
+                start: Some(start),
+                stop,
+                step: step.into_option(),
+            }
         }
-    }?;
-    PySlice {
-        start: start.map(|x| objint::get_value(x).clone()),
-        stop: stop.map(|x| objint::get_value(x).clone()),
-        step: step.map(|x| objint::get_value(x).clone()),
-    }
-    .into_ref_with_type(vm, cls.clone().downcast().unwrap())
-    .map(PyRef::into_object)
+    };
+    slice.into_ref_with_type(vm, cls)
 }
 
-fn get_property_value(vm: &VirtualMachine, value: &Option<BigInt>) -> PyObjectRef {
+fn get_property_value(vm: &VirtualMachine, value: &Option<PyObjectRef>) -> PyObjectRef {
     if let Some(value) = value {
-        vm.ctx.new_int(value.clone())
+        value.clone()
     } else {
         vm.get_none()
     }
@@ -79,12 +60,56 @@ impl PySliceRef {
         get_property_value(vm, &self.start)
     }
 
-    fn stop(self, vm: &VirtualMachine) -> PyObjectRef {
-        get_property_value(vm, &self.stop)
+    fn stop(self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.stop.clone()
     }
 
     fn step(self, vm: &VirtualMachine) -> PyObjectRef {
         get_property_value(vm, &self.step)
+    }
+
+    pub fn start_index(&self, vm: &VirtualMachine) -> PyResult<Option<BigInt>> {
+        if let Some(obj) = &self.start {
+            to_index_value(vm, obj)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn stop_index(&self, vm: &VirtualMachine) -> PyResult<Option<BigInt>> {
+        to_index_value(vm, &self.stop)
+    }
+
+    pub fn step_index(&self, vm: &VirtualMachine) -> PyResult<Option<BigInt>> {
+        if let Some(obj) = &self.step {
+            to_index_value(vm, obj)
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+fn to_index_value(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<Option<BigInt>> {
+    if obj.is(&vm.ctx.none) {
+        return Ok(None);
+    }
+
+    if let Some(val) = obj.payload::<PyInt>() {
+        Ok(Some(val.as_bigint().clone()))
+    } else {
+        let cls = obj.class();
+        if class_has_attr(&cls, "__index__") {
+            let index_result = vm.call_method(obj, "__index__", vec![])?;
+            if let Some(val) = index_result.payload::<PyInt>() {
+                Ok(Some(val.as_bigint().clone()))
+            } else {
+                Err(vm.new_type_error("__index__ method returned non integer".to_string()))
+            }
+        } else {
+            Err(vm.new_type_error(
+                "slice indices must be integers or None or have an __index__ method".to_string(),
+            ))
+        }
     }
 }
 

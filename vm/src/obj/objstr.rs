@@ -31,7 +31,7 @@ use super::objtype::{self, PyClassRef};
 /// or repr(object).
 /// encoding defaults to sys.getdefaultencoding().
 /// errors defaults to 'strict'."
-#[pyclass(name = "str", __inside_vm)]
+#[pyclass(name = "str")]
 #[derive(Clone, Debug)]
 pub struct PyString {
     // TODO: shouldn't be public
@@ -75,7 +75,7 @@ impl TryIntoRef<PyString> for &str {
     }
 }
 
-#[pyimpl(__inside_vm)]
+#[pyimpl]
 impl PyString {
     // TODO: should with following format
     // class str(object='')

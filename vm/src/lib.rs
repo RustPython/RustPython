@@ -32,6 +32,8 @@ extern crate rustpython_parser;
 #[macro_use]
 extern crate rustpython_derive;
 
+extern crate self as rustpython_vm;
+
 pub use rustpython_derive::*;
 
 //extern crate eval; use eval::eval::*;

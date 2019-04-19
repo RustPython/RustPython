@@ -51,6 +51,7 @@ use crate::obj::objstr;
 use crate::obj::objsuper;
 use crate::obj::objtuple::{self, PyTuple, PyTupleRef};
 use crate::obj::objtype::{self, PyClass, PyClassRef};
+use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
@@ -158,6 +159,7 @@ pub struct PyContext {
     pub module_type: PyClassRef,
     pub bound_method_type: PyClassRef,
     pub weakref_type: PyClassRef,
+    pub weakproxy_type: PyClassRef,
     pub object: PyClassRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -255,6 +257,7 @@ impl PyContext {
         let readonly_property_type = create_type("readonly_property", &type_type, &object_type);
         let super_type = create_type("super", &type_type, &object_type);
         let weakref_type = create_type("ref", &type_type, &object_type);
+        let weakproxy_type = create_type("weakproxy", &type_type, &object_type);
         let generator_type = create_type("generator", &type_type, &object_type);
         let bound_method_type = create_type("method", &type_type, &object_type);
         let str_type = create_type("str", &type_type, &object_type);
@@ -361,6 +364,7 @@ impl PyContext {
             module_type,
             bound_method_type,
             weakref_type,
+            weakproxy_type,
             type_type,
             exceptions,
         };
@@ -396,6 +400,7 @@ impl PyContext {
         objcode::init(&context);
         objframe::init(&context);
         objweakref::init(&context);
+        objweakproxy::init(&context);
         objnone::init(&context);
         objmodule::init(&context);
         exceptions::init(&context);
@@ -552,6 +557,10 @@ impl PyContext {
 
     pub fn weakref_type(&self) -> PyClassRef {
         self.weakref_type.clone()
+    }
+
+    pub fn weakproxy_type(&self) -> PyClassRef {
+        self.weakproxy_type.clone()
     }
 
     pub fn type_type(&self) -> PyClassRef {
