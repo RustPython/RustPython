@@ -7,6 +7,11 @@ edition = "2018"
 [workspace]
 members = [".", "derive", "vm", "wasm/lib", "parser"]
 
+[[bench]]
+name = "bench"
+path = "./benchmarks/bench.rs"
+
+
 [dependencies]
 log="0.4.1"
 env_logger="0.5.10"
@@ -15,3 +20,6 @@ rustpython_parser = {path = "parser"}
 rustpython_vm = {path = "vm"}
 rustyline = "2.1.0"
 xdg = "2.2.0"
+
+[dev-dependencies.cpython]
+version = "0.2"
