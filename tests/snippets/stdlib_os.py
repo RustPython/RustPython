@@ -1,4 +1,5 @@
-import os 
+import os
+import time
 
 from testutils import assert_raises
 
@@ -44,16 +45,14 @@ class TestWithTempDir():
 			base_folder = os.environ["TEMP"]
 		else:
 			base_folder = "/tmp"
-		name = base_folder + os.sep + "test_os"
+		name = base_folder + os.sep + "test_os_" + str(int(time.time()))
 		os.mkdir(name)
 		self.name = name
 		return name
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
-		for f in os.listdir(self.name):
-			# Currently don't support dir delete.
-			os.remove(self.name + os.sep + f)
-		os.rmdir(self.name)
+		# TODO: Delete temp dir
+		pass
 
 
 FILE_NAME = "test1"
