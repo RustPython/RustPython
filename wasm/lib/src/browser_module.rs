@@ -7,10 +7,11 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
 use rustpython_vm::obj::{
-    objdict::PyDictRef, objfunction::PyFunctionRef, objint::PyIntRef, objstr::PyStringRef,
-    objtype::PyClassRef,
+    objdict::PyDictRef, objint::PyIntRef, objstr::PyStringRef, objtype::PyClassRef,
 };
-use rustpython_vm::pyobject::{PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue};
+use rustpython_vm::pyobject::{
+    PyCallable, PyClassImpl, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+};
 use rustpython_vm::VirtualMachine;
 
 use crate::{convert, vm_class::weak_vm, wasm_builtins::window};
@@ -113,7 +114,7 @@ fn browser_fetch(url: PyStringRef, args: FetchArgs, vm: &VirtualMachine) -> PyRe
     Ok(PyPromise::from_future(future).into_ref(vm).into_object())
 }
 
-fn browser_request_animation_frame(func: PyFunctionRef, vm: &VirtualMachine) -> PyResult {
+fn browser_request_animation_frame(func: PyCallable, vm: &VirtualMachine) -> PyResult {
     use std::{cell::RefCell, rc::Rc};
 
     // this basic setup for request_animation_frame taken from:
@@ -192,8 +193,8 @@ impl PyPromise {
     #[pymethod]
     fn then(
         &self,
-        on_fulfill: PyFunctionRef,
-        on_reject: OptionalArg<PyFunctionRef>,
+        on_fulfill: PyCallable,
+        on_reject: OptionalArg<PyCallable>,
         vm: &VirtualMachine,
     ) -> PyPromiseRef {
         let weak_vm = weak_vm(vm);
@@ -224,7 +225,7 @@ impl PyPromise {
     }
 
     #[pymethod]
-    fn catch(&self, on_reject: PyFunctionRef, vm: &VirtualMachine) -> PyPromiseRef {
+    fn catch(&self, on_reject: PyCallable, vm: &VirtualMachine) -> PyPromiseRef {
         let weak_vm = weak_vm(vm);
 
         let ret_future = JsFuture::from(self.value.clone()).then(move |res| {
