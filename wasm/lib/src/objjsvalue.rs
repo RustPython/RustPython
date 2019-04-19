@@ -8,12 +8,13 @@ use rustpython_vm::VirtualMachine;
 
 use crate::convert;
 
-fn get_prop(value: &JsValue, name: &str, vm: &VirtualMachine) -> Option<PyObjectRef> {
+fn get_prop(value: JsValue, name: &str, vm: &VirtualMachine) -> Option<PyObjectRef> {
     let name: &JsString = &name.into();
-    if Reflect::has(value, name).expect("Reflect.has failed") {
-        Some(convert::js_to_py(
+    if Reflect::has(&value, name).expect("Reflect.has failed") {
+        Some(convert::js_to_py_with_this(
             vm,
-            Reflect::get(value, name).expect("Reflect.get failed"),
+            Reflect::get(&value, name).expect("Reflect.get failed"),
+            Some(value),
         ))
     } else {
         None
@@ -48,7 +49,7 @@ impl PyJsValue {
 
     #[pymethod(name = "__getattr__")]
     fn getattr(&self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        get_prop(self.value(), attr_name.as_str(), vm).ok_or_else(|| {
+        get_prop(self.value().clone(), attr_name.as_str(), vm).ok_or_else(|| {
             vm.new_attribute_error(format!("JS value has no property {:?}", attr_name.as_str()))
         })
     }
@@ -113,14 +114,14 @@ impl PyJsProps {
         default: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        get_prop(&self.value, item_name.as_str(), vm)
+        get_prop(self.value.clone(), item_name.as_str(), vm)
             .or(default.into_option())
             .unwrap_or_else(|| vm.get_none())
     }
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, item_name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        get_prop(&self.value, item_name.as_str(), vm)
+        get_prop(self.value.clone(), item_name.as_str(), vm)
             .ok_or_else(|| vm.new_key_error(format!("{:?}", item_name.as_str())))
     }
 }
