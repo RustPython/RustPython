@@ -111,6 +111,19 @@ impl Write for Connection {
     }
 }
 
+#[cfg(unix)]
+use std::os::unix::io::{AsRawFd, RawFd};
+#[cfg(unix)]
+impl AsRawFd for Connection {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            Connection::TcpListener(con) => con.as_raw_fd(),
+            Connection::UdpSocket(con) => con.as_raw_fd(),
+            Connection::TcpStream(con) => con.as_raw_fd(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Socket {
     address_family: AddressFamily,
@@ -387,6 +400,25 @@ fn socket_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+#[cfg(unix)]
+fn socket_fileno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    use std::os::unix::io::AsRawFd;
+    arg_check!(vm, args, required = [(zelf, None)]);
+
+    let socket = get_socket(zelf);
+
+    let fileno = match socket.con.borrow_mut().as_mut() {
+        Some(v) => v.as_raw_fd(),
+        None => return Err(vm.new_type_error("".to_string())),
+    };
+    Ok(vm.ctx.new_int(i64::from(fileno)))
+}
+
+#[cfg(all(not(unix)))]
+fn socket_fileno(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    unimplemented!();
+}
+
 fn socket_getsockname(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(zelf, None)]);
     let socket = get_socket(zelf);
@@ -424,6 +456,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "getsockname" => ctx.new_rustfunc(socket_getsockname),
          "sendto" => ctx.new_rustfunc(socket_sendto),
          "recvfrom" => ctx.new_rustfunc(socket_recvfrom),
+         "fileno" => ctx.new_rustfunc(socket_fileno),
     });
 
     py_module!(vm, "socket", {
