@@ -51,8 +51,10 @@ class TestWithTempDir():
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		for f in os.listdir(self.name):
+			print("Remove file", self.name + os.sep + f)
 			# Currently don't support dir delete.
 			os.remove(self.name + os.sep + f)
+		print("Remove dir", self.name)
 		os.rmdir(self.name)
 
 
