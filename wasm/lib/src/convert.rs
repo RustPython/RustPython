@@ -8,7 +8,7 @@ use rustpython_vm::pyobject::{PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module;
-use crate::objjsvalue::PyJsValue;
+use crate::objjsvalue::{PyJsFunction, PyJsValue};
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
@@ -155,6 +155,14 @@ pub fn pyresult_to_jsresult(vm: &VirtualMachine, result: PyResult) -> Result<JsV
 }
 
 pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
+    js_to_py_with_this(vm, js_val, None)
+}
+
+pub fn js_to_py_with_this(
+    vm: &VirtualMachine,
+    js_val: JsValue,
+    this: Option<JsValue>,
+) -> PyObjectRef {
     if js_val.is_object() {
         if let Some(promise) = js_val.dyn_ref::<Promise>() {
             // the browser module might not be injected
@@ -197,22 +205,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
-        vm.ctx
-            .new_rustfunc(move |vm: &VirtualMachine, args: PyFuncArgs| -> PyResult {
-                let func = func.clone();
-                let this = Object::new();
-                for (k, v) in args.kwargs {
-                    Reflect::set(&this, &k.into(), &py_to_js(vm, v))
-                        .expect("property to be settable");
-                }
-                let js_args = Array::new();
-                for v in args.args {
-                    js_args.push(&py_to_js(vm, v));
-                }
-                func.apply(&this, &js_args)
-                    .map(|val| js_to_py(vm, val))
-                    .map_err(|err| js_to_py(vm, err))
-            })
+        PyJsFunction::new(func, this).into_ref(vm).into_object()
     } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {
         let exc_type = match String::from(err.name()).as_str() {
             "TypeError" => &vm.ctx.exceptions.type_error,

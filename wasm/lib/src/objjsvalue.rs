@@ -87,6 +87,13 @@ impl PyJsFunction {
             .map(|val| convert::js_to_py(vm, val))
             .map_err(|err| convert::js_to_py(vm, err))
     }
+
+    #[pymethod(name = "__repr__")]
+    fn repr(&self, _vm: &VirtualMachine) -> String {
+        // for better formatting
+        let value: &JsValue = &self.func;
+        format!("{:?}", value)
+    }
 }
 
 #[pyclass(name = "JsProps")]
