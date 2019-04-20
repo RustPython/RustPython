@@ -523,3 +523,15 @@ while n_sp < len(SPLIT_FIXTURES):
         break
 
     n_sp += 1
+
+
+# expandtabs
+a = b"\x01\x03\r\x05\t8CYZ\t\x06CYZ\t\x17cba`\n\x12\x13\x14"
+assert (
+    a.expandtabs() == b"\x01\x03\r\x05       8CYZ    \x06CYZ    \x17cba`\n\x12\x13\x14"
+)
+assert a.expandtabs(5) == b"\x01\x03\r\x05    8CYZ \x06CYZ \x17cba`\n\x12\x13\x14"
+assert b"01\t012\t0123\t01234".expandtabs() == b"01      012     0123    01234"
+assert b"01\t012\t0123\t01234".expandtabs(4) == b"01  012 0123    01234"
+assert b"123\t123".expandtabs(-5) == b"123123"
+assert b"123\t123".expandtabs(0) == b"123123"

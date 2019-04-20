@@ -288,6 +288,26 @@ impl ByteInnerSplitOptions {
     }
 }
 
+#[derive(FromArgs)]
+pub struct ByteInnerExpandtabsOptions {
+    #[pyarg(positional_or_keyword, optional = true)]
+    tabsize: OptionalArg<PyObjectRef>,
+}
+
+impl ByteInnerExpandtabsOptions {
+    pub fn get_value(self) -> usize {
+        if let OptionalArg::Present(value) = self.tabsize {
+            if let Some(v) = objint::get_value(&value).to_usize() {
+                v
+            } else {
+                0
+            }
+        } else {
+            8
+        }
+    }
+}
+
 impl PyByteInner {
     pub fn repr(&self) -> PyResult<String> {
         let mut res = String::with_capacity(self.elements.len());
@@ -815,6 +835,38 @@ impl PyByteInner {
         let splitted = split_slice_reverse(&self.elements, &sep, maxsplit);
 
         Ok(splitted)
+    }
+
+    pub fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> Vec<u8> {
+        let tabsize = options.get_value();
+        let mut counter: usize = 0;
+        let mut res = vec![];
+
+        if tabsize == 0 {
+            return self
+                .elements
+                .iter()
+                .cloned()
+                .filter(|x| *x != b'\t')
+                .collect::<Vec<u8>>();
+        }
+
+        for i in &self.elements {
+            if *i == b'\t' {
+                let len = tabsize - counter % tabsize;
+                res.extend_from_slice(&vec![b' '; len]);
+                counter += len;
+            } else {
+                res.push(*i);
+                if *i == b'\r' || *i == b'\n' {
+                    counter = 0;
+                } else {
+                    counter += 1;
+                }
+            }
+        }
+
+        res
     }
 }
 

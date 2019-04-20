@@ -12,8 +12,8 @@ use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
 use super::objbyteinner::{
-    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
-    ByteInnerSplitOptions, ByteInnerTranslateOptions, PyByteInner,
+    ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+    ByteInnerPosition, ByteInnerSplitOptions, ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objiter;
 
@@ -353,6 +353,11 @@ impl PyBytesRef {
             .map(|x| vm.ctx.new_bytes(x.to_vec()))
             .collect::<Vec<PyObjectRef>>();
         Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "expandtabs")]
+    fn expandtabs(self, options: ByteInnerExpandtabsOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.expandtabs(options)))
     }
 }
 
