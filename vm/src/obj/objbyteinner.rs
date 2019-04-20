@@ -837,6 +837,13 @@ impl PyByteInner {
     ) -> PyResult<Vec<&[u8]>> {
         let (sep, maxsplit) = options.get_value(vm)?;
 
+        if self.elements.is_empty() {
+            if !sep.is_empty() {
+                return Ok(vec![&[]]);
+            }
+            return Ok(vec![]);
+        }
+
         if reverse {
             Ok(split_slice_reverse(&self.elements, &sep, maxsplit))
         } else {
