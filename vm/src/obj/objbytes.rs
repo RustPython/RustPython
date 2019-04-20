@@ -18,6 +18,7 @@ use super::objbyteinner::{
 use super::objiter;
 
 use super::objtype::PyClassRef;
+
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
 /// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
@@ -337,7 +338,7 @@ impl PyBytesRef {
     fn split(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
-            .split(options, vm)?
+            .split(options, false, vm)?
             .iter()
             .map(|x| vm.ctx.new_bytes(x.to_vec()))
             .collect::<Vec<PyObjectRef>>();
@@ -348,11 +349,30 @@ impl PyBytesRef {
     fn rsplit(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
-            .rsplit(options, vm)?
+            .split(options, true, vm)?
             .iter()
             .map(|x| vm.ctx.new_bytes(x.to_vec()))
             .collect::<Vec<PyObjectRef>>();
         Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "partition")]
+    fn partition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // TODO:  when implementing bytearray,remember sep ALWAYS converted to  bytearray
+        // even it's bytes or memoryview
+        let (left, right) = self.inner.partition(&sep, false, vm)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
+    }
+    #[pymethod(name = "rpartition")]
+    fn rpartition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // TODO:  when implementing bytearray,remember sep ALWAYS converted to  bytearray
+        // even it's bytes or memoryview
+        let (left, right) = self.inner.partition(&sep, true, vm)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
     }
 
     #[pymethod(name = "expandtabs")]

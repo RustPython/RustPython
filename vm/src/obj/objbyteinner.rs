@@ -816,25 +816,38 @@ impl PyByteInner {
     pub fn split(
         &self,
         options: ByteInnerSplitOptions,
+        reverse: bool,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<&[u8]>> {
         let (sep, maxsplit) = options.get_value(vm)?;
 
-        let splitted = split_slice(&self.elements, &sep, maxsplit);
-
-        Ok(splitted)
+        if reverse {
+            Ok(split_slice_reverse(&self.elements, &sep, maxsplit))
+        } else {
+            Ok(split_slice(&self.elements, &sep, maxsplit))
+        }
     }
 
-    pub fn rsplit(
+    pub fn partition(
         &self,
-        options: ByteInnerSplitOptions,
+        sep: &PyObjectRef,
+        reverse: bool,
         vm: &VirtualMachine,
-    ) -> PyResult<Vec<&[u8]>> {
-        let (sep, maxsplit) = options.get_value(vm)?;
-
-        let splitted = split_slice_reverse(&self.elements, &sep, maxsplit);
-
-        Ok(splitted)
+    ) -> PyResult<(Vec<u8>, Vec<u8>)> {
+        let sep = match try_as_bytes_like(&sep) {
+            Some(value) => value,
+            None => {
+                return Err(
+                    vm.new_type_error(format!("a bytes-like object is required, not {}", sep))
+                );
+            }
+        };
+        let splitted = if reverse {
+            split_slice_reverse(&self.elements, &sep, 1)
+        } else {
+            split_slice(&self.elements, &sep, 1)
+        };
+        Ok((splitted[0].to_vec(), splitted[1].to_vec()))
     }
 
     pub fn expandtabs(&self, options: ByteInnerExpandtabsOptions) -> Vec<u8> {
