@@ -541,7 +541,7 @@ assert b"123\t123".expandtabs(0) == b"123123"
 assert b"123456789".partition(b"45") == (b"123", b"45", b"6789")
 assert b"14523456789".partition(b"45") == (b"1", b"45", b"23456789")
 a = b"14523456789".partition(bytearray(b"45"))
-assert isinstance(a[1], bytearray) 
+assert isinstance(a[1], bytearray)
 a = b"14523456789".partition(memoryview(b"45"))
 assert isinstance(a[1], memoryview)
 
@@ -549,6 +549,17 @@ assert isinstance(a[1], memoryview)
 assert b"123456789".rpartition(b"45") == (b"123", b"45", b"6789")
 assert b"14523456789".rpartition(b"45") == (b"14523", b"45", b"6789")
 a = b"14523456789".rpartition(bytearray(b"45"))
-assert isinstance(a[1], bytearray) 
+assert isinstance(a[1], bytearray)
 a = b"14523456789".rpartition(memoryview(b"45"))
 assert isinstance(a[1], memoryview)
+
+# splitlines
+assert b"ab c\n\nde fg\rkl\r\n".splitlines() == [b"ab c", b"", b"de fg", b"kl"]
+assert b"ab c\n\nde fg\rkl\r\n".splitlines(keepends=True) == [
+    b"ab c\n",
+    b"\n",
+    b"de fg\r",
+    b"kl\r\n",
+]
+assert b"".splitlines() == []
+assert b"One line\n".splitlines() == [b"One line"]

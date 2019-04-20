@@ -13,7 +13,8 @@ use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, Py
 
 use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-    ByteInnerPosition, ByteInnerSplitOptions, ByteInnerTranslateOptions, PyByteInner,
+    ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
+    ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objiter;
 
@@ -378,6 +379,17 @@ impl PyBytesRef {
     #[pymethod(name = "expandtabs")]
     fn expandtabs(self, options: ByteInnerExpandtabsOptions, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytes(self.inner.expandtabs(options)))
+    }
+
+    #[pymethod(name = "splitlines")]
+    fn splitlines(self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .splitlines(options, vm)?
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
     }
 }
 

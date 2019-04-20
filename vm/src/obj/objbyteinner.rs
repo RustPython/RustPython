@@ -308,6 +308,22 @@ impl ByteInnerExpandtabsOptions {
     }
 }
 
+#[derive(FromArgs)]
+pub struct ByteInnerSplitlinesOptions {
+    #[pyarg(positional_or_keyword, optional = true)]
+    keepends: OptionalArg<PyObjectRef>,
+}
+
+impl ByteInnerSplitlinesOptions {
+    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<bool> {
+        if let OptionalArg::Present(value) = self.keepends {
+            Ok(bool::try_from_object(vm, value)?)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
 impl PyByteInner {
     pub fn repr(&self) -> PyResult<String> {
         let mut res = String::with_capacity(self.elements.len());
@@ -880,6 +896,54 @@ impl PyByteInner {
         }
 
         res
+    }
+
+    pub fn splitlines(
+        &self,
+        options: ByteInnerSplitlinesOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<&[u8]>> {
+        let keepends = options.get_value(vm)?;
+
+        let mut res = vec![];
+
+        if self.elements.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut prev_index = 0;
+        let mut index = 0;
+        let keep = if keepends { 1 } else { 0 };
+        let slice = &self.elements;
+
+        while index < slice.len() {
+            match slice[index] {
+                b'\n' => {
+                    res.push(&slice[prev_index..index + keep]);
+                    index += 1;
+                    prev_index = index;
+                }
+                b'\r' => {
+                    if index + 2 <= slice.len() && slice[index + 1] == b'\n' {
+                        res.push(&slice[prev_index..index + keep + keep]);
+                        index += 2;
+                    } else {
+                        res.push(&slice[prev_index..index + keep]);
+                        index += 1;
+                    }
+                    prev_index = index;
+                }
+                _x => {
+                    if index == slice.len() - 1 {
+                        res.push(&slice[prev_index..=index]);
+                        break;
+                    }
+                    index += 1
+                }
+            }
+        }
+
+        Ok(res)
     }
 }
 
