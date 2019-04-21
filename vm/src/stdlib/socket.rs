@@ -173,21 +173,21 @@ impl SocketRef {
         Socket::new(family, kind).into_ref_with_type(vm, cls)
     }
 
-    fn connect(self, address: PyTupleRef, vm: &VirtualMachine) -> PyResult {
+    fn connect(self, address: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
         let address_string = get_address_string(vm, address)?;
 
         match self.socket_kind {
             SocketKind::Stream => match TcpStream::connect(address_string) {
                 Ok(stream) => {
                     self.con.borrow_mut().replace(Connection::TcpStream(stream));
-                    Ok(vm.get_none())
+                    Ok(())
                 }
                 Err(s) => Err(vm.new_os_error(s.to_string())),
             },
             SocketKind::Dgram => {
                 if let Some(Connection::UdpSocket(con)) = self.con.borrow().as_ref() {
                     match con.connect(address_string) {
-                        Ok(_) => Ok(vm.get_none()),
+                        Ok(_) => Ok(()),
                         Err(s) => Err(vm.new_os_error(s.to_string())),
                     }
                 } else {
@@ -197,7 +197,7 @@ impl SocketRef {
         }
     }
 
-    fn bind(self, address: PyTupleRef, vm: &VirtualMachine) -> PyResult {
+    fn bind(self, address: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
         let address_string = get_address_string(vm, address)?;
 
         match self.socket_kind {
@@ -206,14 +206,14 @@ impl SocketRef {
                     self.con
                         .borrow_mut()
                         .replace(Connection::TcpListener(stream));
-                    Ok(vm.get_none())
+                    Ok(())
                 }
                 Err(s) => Err(vm.new_os_error(s.to_string())),
             },
             SocketKind::Dgram => match UdpSocket::bind(address_string) {
                 Ok(dgram) => {
                     self.con.borrow_mut().replace(Connection::UdpSocket(dgram));
-                    Ok(vm.get_none())
+                    Ok(())
                 }
                 Err(s) => Err(vm.new_os_error(s.to_string())),
             },
@@ -274,7 +274,7 @@ impl SocketRef {
         Ok(vm.ctx.new_tuple(vec![vm.ctx.new_bytes(buffer), addr_tuple]))
     }
 
-    fn send(self, bytes: PyBytesRef, vm: &VirtualMachine) -> PyResult {
+    fn send(self, bytes: PyBytesRef, vm: &VirtualMachine) -> PyResult<()> {
         match self.con.borrow_mut().as_mut() {
             Some(v) => match v.write(&bytes) {
                 Ok(_) => (),
@@ -282,17 +282,17 @@ impl SocketRef {
             },
             None => return Err(vm.new_type_error("".to_string())),
         };
-        Ok(vm.get_none())
+        Ok(())
     }
 
-    fn sendto(self, bytes: PyBytesRef, address: PyTupleRef, vm: &VirtualMachine) -> PyResult {
+    fn sendto(self, bytes: PyBytesRef, address: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
         let address_string = get_address_string(vm, address)?;
 
         match self.socket_kind {
             SocketKind::Dgram => {
                 if let Some(v) = self.con.borrow().as_ref() {
                     return match v.send_to(&bytes, address_string) {
-                        Ok(_) => Ok(vm.get_none()),
+                        Ok(_) => Ok(()),
                         Err(s) => Err(vm.new_os_error(s.to_string())),
                     };
                 }
@@ -301,7 +301,7 @@ impl SocketRef {
                     Ok(dgram) => match dgram.send_to(&bytes, address_string) {
                         Ok(_) => {
                             self.con.borrow_mut().replace(Connection::UdpSocket(dgram));
-                            Ok(vm.get_none())
+                            Ok(())
                         }
                         Err(s) => Err(vm.new_os_error(s.to_string())),
                     },
@@ -312,9 +312,8 @@ impl SocketRef {
         }
     }
 
-    fn close(self, vm: &VirtualMachine) -> PyResult {
+    fn close(self, _vm: &VirtualMachine) -> () {
         self.con.borrow_mut().take();
-        Ok(vm.get_none())
     }
 
     fn fileno(self, vm: &VirtualMachine) -> PyResult {
