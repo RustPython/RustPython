@@ -214,6 +214,14 @@ impl DirEntryRef {
     fn path(self, _vm: &VirtualMachine) -> String {
         self.entry.path().to_str().unwrap().to_string()
     }
+
+    fn is_dir(self, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(self
+            .entry
+            .file_type()
+            .map_err(|s| vm.new_os_error(s.to_string()))?
+            .is_dir())
+    }
 }
 
 #[derive(Debug)]
@@ -275,6 +283,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let dir_entry = py_class!(ctx, "DirEntry", ctx.object(), {
          "name" => ctx.new_property(DirEntryRef::name),
          "path" => ctx.new_property(DirEntryRef::path),
+         "is_dir" => ctx.new_rustfunc(DirEntryRef::is_dir),
     });
 
     py_module!(vm, "_os", {
