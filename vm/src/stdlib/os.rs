@@ -222,6 +222,14 @@ impl DirEntryRef {
             .map_err(|s| vm.new_os_error(s.to_string()))?
             .is_dir())
     }
+
+    fn is_file(self, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(self
+            .entry
+            .file_type()
+            .map_err(|s| vm.new_os_error(s.to_string()))?
+            .is_file())
+    }
 }
 
 #[derive(Debug)]
@@ -284,6 +292,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "name" => ctx.new_property(DirEntryRef::name),
          "path" => ctx.new_property(DirEntryRef::path),
          "is_dir" => ctx.new_rustfunc(DirEntryRef::is_dir),
+         "is_file" => ctx.new_rustfunc(DirEntryRef::is_file),
     });
 
     py_module!(vm, "_os", {

@@ -85,12 +85,16 @@ with TestWithTempDir() as tmpdir:
 	names = set()
 	paths = set()
 	dirs = set()
+	files = set()
 	for dir_entry in os.scandir(tmpdir):
 		names.add(dir_entry.name)
 		paths.add(dir_entry.path)
 		if dir_entry.is_dir():
 			dirs.add(dir_entry.name)
+		if dir_entry.is_file():
+			files.add(dir_entry.name)
 
 	assert names == set([FILE_NAME, FILE_NAME2, FOLDER])
 	assert paths == set([fname, fname2, folder])
 	assert dirs == set([FOLDER])
+	assert files == set([FILE_NAME, FILE_NAME2])
