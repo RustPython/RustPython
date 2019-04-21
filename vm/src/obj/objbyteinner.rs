@@ -952,6 +952,26 @@ impl PyByteInner {
 
         Ok(res)
     }
+
+    pub fn zfill(&self, width: PyIntRef) -> Vec<u8> {
+        if let Some(value) = width.as_bigint().to_usize() {
+            if value < self.elements.len() {
+                return self.elements.to_vec();
+            }
+            let mut res = vec![];
+            if self.elements.starts_with(&[b'-']) {
+                res.push(b'-');
+                res.extend_from_slice(&vec![b'0'; value - self.elements.len()]);
+                res.extend_from_slice(&self.elements[1..]);
+            } else {
+                res.extend_from_slice(&vec![b'0'; value - self.elements.len()]);
+                res.extend_from_slice(&self.elements[0..]);
+            }
+            res
+        } else {
+            self.elements.to_vec()
+        }
+    }
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {

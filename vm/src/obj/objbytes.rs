@@ -391,6 +391,11 @@ impl PyBytesRef {
             .collect::<Vec<PyObjectRef>>();
         Ok(vm.ctx.new_list(as_bytes))
     }
+
+    #[pymethod(name = "zfill")]
+    fn zfill(self, width: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.zfill(width)))
+    }
 }
 
 #[derive(Debug)]

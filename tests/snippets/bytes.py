@@ -355,10 +355,10 @@ assert b"1 2 3".split() == [b"1", b"2", b"3"]
 assert b"1 2 3".split(maxsplit=1) == [b"1", b"2 3"]
 assert b"   1   2   3   ".split() == [b"1", b"2", b"3"]
 assert b"k\ruh\nfz e f".split() == [b"k", b"uh", b"fz", b"e", b"f"]
-assert b"Two lines\n".split(b'\n') == [b'Two lines', b'']
+assert b"Two lines\n".split(b"\n") == [b"Two lines", b""]
 assert b"".split() == []
-assert b"".split(b"\n") == [b'']
-assert b"\n".split(b"\n") == [b'', b'']
+assert b"".split(b"\n") == [b""]
+assert b"\n".split(b"\n") == [b"", b""]
 
 SPLIT_FIXTURES = [
     [
@@ -567,3 +567,10 @@ assert b"ab c\n\nde fg\rkl\r\n".splitlines(keepends=True) == [
 ]
 assert b"".splitlines() == []
 assert b"One line\n".splitlines() == [b"One line"]
+
+# zfill
+
+assert b"42".zfill(5) == b"00042"
+assert b"-42".zfill(5) == b"-0042"
+assert b"42".zfill(1) == b"42"
+assert b"42".zfill(-1) == b"42"
