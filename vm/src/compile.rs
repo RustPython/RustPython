@@ -456,34 +456,44 @@ impl Compiler {
             }
             ast::Statement::Delete { targets } => {
                 for target in targets {
-                    match target {
-                        ast::Expression::Identifier { name } => {
-                            self.emit(Instruction::DeleteName {
-                                name: name.to_string(),
-                            });
-                        }
-                        ast::Expression::Attribute { value, name } => {
-                            self.compile_expression(value)?;
-                            self.emit(Instruction::DeleteAttr {
-                                name: name.to_string(),
-                            });
-                        }
-                        ast::Expression::Subscript { a, b } => {
-                            self.compile_expression(a)?;
-                            self.compile_expression(b)?;
-                            self.emit(Instruction::DeleteSubscript);
-                        }
-                        _ => {
-                            return Err(CompileError {
-                                error: CompileErrorType::Delete(target.name()),
-                                location: self.current_source_location.clone(),
-                            });
-                        }
-                    }
+                    self.compile_delete(target)?;
                 }
             }
             ast::Statement::Pass => {
                 self.emit(Instruction::Pass);
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_delete(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
+        match expression {
+            ast::Expression::Identifier { name } => {
+                self.emit(Instruction::DeleteName {
+                    name: name.to_string(),
+                });
+            }
+            ast::Expression::Attribute { value, name } => {
+                self.compile_expression(value)?;
+                self.emit(Instruction::DeleteAttr {
+                    name: name.to_string(),
+                });
+            }
+            ast::Expression::Subscript { a, b } => {
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
+                self.emit(Instruction::DeleteSubscript);
+            }
+            ast::Expression::Tuple { elements } => {
+                for element in elements {
+                    self.compile_delete(element)?;
+                }
+            }
+            _ => {
+                return Err(CompileError {
+                    error: CompileErrorType::Delete(expression.name()),
+                    location: self.current_source_location.clone(),
+                });
             }
         }
         Ok(())
