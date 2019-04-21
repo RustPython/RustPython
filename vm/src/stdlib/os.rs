@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Read, Write};
@@ -10,9 +11,11 @@ use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint;
 use crate::obj::objint::PyIntRef;
+use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
+use crate::obj::objtype::PyClassRef;
+use crate::pyobject::{ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -190,6 +193,65 @@ fn _os_environ(vm: &VirtualMachine) -> PyDictRef {
     environ
 }
 
+#[derive(Debug)]
+struct DirEntry {
+    entry: fs::DirEntry,
+}
+
+type DirEntryRef = PyRef<DirEntry>;
+
+impl PyValue for DirEntry {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("os", "DirEntry")
+    }
+}
+
+impl DirEntryRef {
+    fn name(self, _vm: &VirtualMachine) -> String {
+        self.entry.file_name().into_string().unwrap()
+    }
+}
+
+#[derive(Debug)]
+pub struct ScandirIterator {
+    entries: RefCell<fs::ReadDir>,
+}
+
+impl PyValue for ScandirIterator {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("os", "ScandirIter")
+    }
+}
+
+type ScandirIteratorRef = PyRef<ScandirIterator>;
+
+impl ScandirIteratorRef {
+    fn next(self, vm: &VirtualMachine) -> PyResult {
+        match self.entries.borrow_mut().next() {
+            Some(entry) => match entry {
+                Ok(entry) => Ok(DirEntry { entry }.into_ref(vm).into_object()),
+                Err(s) => Err(vm.new_os_error(s.to_string())),
+            },
+            None => Err(objiter::new_stop_iteration(vm)),
+        }
+    }
+
+    fn iter(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    match fs::read_dir(&path.value) {
+        Ok(iter) => Ok(ScandirIterator {
+            entries: RefCell::new(iter),
+        }
+        .into_ref(vm)
+        .into_object()),
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -200,6 +262,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     };
 
     let environ = _os_environ(vm);
+
+    let scandir_iter = py_class!(ctx, "ScandirIter", ctx.object(), {
+         "__iter__" => ctx.new_rustfunc(ScandirIteratorRef::iter),
+         "__next__" => ctx.new_rustfunc(ScandirIteratorRef::next),
+    });
+
+    let dir_entry = py_class!(ctx, "DirEntry", ctx.object(), {
+         "name" => ctx.new_rustfunc(DirEntryRef::name),
+    });
 
     py_module!(vm, "_os", {
         "open" => ctx.new_rustfunc(os_open),
@@ -217,6 +288,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "unsetenv" => ctx.new_rustfunc(os_unsetenv),
         "environ" => environ,
         "name" => ctx.new_str(os_name),
+        "scandir" => ctx.new_rustfunc(os_scandir),
+        "ScandirIter" => scandir_iter,
+        "DirEntry" => dir_entry,
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),
