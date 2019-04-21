@@ -79,6 +79,10 @@ assert set([1,2,3]) ^ set([4,5]) == set([1,2,3,4,5])
 assert set([1,2,3]) ^ set([1,2,3,4,5]) == set([4,5])
 assert_raises(TypeError, lambda: set([1,2,3]) ^ [1,2,3,4,5])
 
+assert set([1,2,3]).isdisjoint(set([5,6])) == True
+assert set([1,2,3]).isdisjoint(set([2,5,6])) == False
+assert set([1,2,3]).isdisjoint([5,6]) == True
+
 assert_raises(TypeError, lambda: set([[]]))
 assert_raises(TypeError, lambda: set().add([]))
 
@@ -226,6 +230,10 @@ assert frozenset([1,2,3]).symmetric_difference([1,2]) == frozenset([3])
 assert frozenset([1,2,3]) ^ frozenset([4,5]) == frozenset([1,2,3,4,5])
 assert frozenset([1,2,3]) ^ frozenset([1,2,3,4,5]) == frozenset([4,5])
 assert_raises(TypeError, lambda: frozenset([1,2,3]) ^ [1,2,3,4,5])
+
+assert frozenset([1,2,3]).isdisjoint(frozenset([5,6])) == True
+assert frozenset([1,2,3]).isdisjoint(frozenset([2,5,6])) == False
+assert frozenset([1,2,3]).isdisjoint([5,6]) == True
 
 assert_raises(TypeError, lambda: frozenset([[]]))
 
