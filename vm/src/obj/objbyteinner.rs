@@ -972,6 +972,64 @@ impl PyByteInner {
             self.elements.to_vec()
         }
     }
+
+    pub fn replace(
+        &self,
+        old: PyObjectRef,
+        new: PyObjectRef,
+        count: OptionalArg<PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let old = match try_as_bytes_like(&old) {
+            Some(value) => value,
+            None => {
+                return Err(
+                    vm.new_type_error(format!("a bytes-like object is required, not {}", old))
+                );
+            }
+        };
+
+        let new = match try_as_bytes_like(&new) {
+            Some(value) => value,
+            None => {
+                return Err(
+                    vm.new_type_error(format!("a bytes-like object is required, not {}", new))
+                );
+            }
+        };
+
+        let count = if let OptionalArg::Present(int) = count {
+            if let Some(value) = int.as_bigint().to_u32() {
+                value
+            } else {
+                self.elements.len() as u32
+            }
+        } else {
+            self.elements.len() as u32
+        };
+
+        let mut res = vec![];
+        let mut index = 0;
+        let mut done = 0;
+
+        let slice = &self.elements;
+        while index <= slice.len() - old.len() {
+            if done == count {
+                res.extend_from_slice(&slice[index..]);
+                break;
+            }
+            if &slice[index..index + old.len()] == old.as_slice() {
+                res.extend_from_slice(&new);
+                index += old.len();
+                done += 1;
+            } else {
+                res.push(slice[index]);
+                index += 1
+            }
+        }
+
+        Ok(res)
+    }
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {

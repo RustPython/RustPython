@@ -396,6 +396,17 @@ impl PyBytesRef {
     fn zfill(self, width: PyIntRef, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytes(self.inner.zfill(width)))
     }
+
+    #[pymethod(name = "replace")]
+    fn replace(
+        self,
+        old: PyObjectRef,
+        new: PyObjectRef,
+        count: OptionalArg<PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.replace(old, new, count, vm)?))
+    }
 }
 
 #[derive(Debug)]

@@ -574,3 +574,11 @@ assert b"42".zfill(5) == b"00042"
 assert b"-42".zfill(5) == b"-0042"
 assert b"42".zfill(1) == b"42"
 assert b"42".zfill(-1) == b"42"
+
+# replace
+assert b"123456789123".replace(b"23", b"XX") == b'1XX4567891XX'
+assert b"123456789123".replace(b"23", b"XX", 1) == b'1XX456789123'
+assert b"123456789123".replace(b"23", b"XX", 0) == b"123456789123"
+assert b"123456789123".replace(b"23", b"XX", -1) == b'1XX4567891XX'
+assert b"123456789123".replace(b"23", b"") == b"14567891"
+
