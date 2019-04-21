@@ -5,23 +5,27 @@ Then the compiler can use the symbol table to generate proper
 load and store instructions for names.
 */
 
+use crate::error::{CompileError, CompileErrorType};
 use rustpython_parser::ast;
+use rustpython_parser::lexer::Location;
 use std::collections::HashMap;
 
-pub fn make_symbol_table(program: &ast::Program) -> SymbolScope {
+pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTableError> {
     let mut builder = SymbolTableBuilder::new();
     builder.enter_scope();
-    builder.scan_program(program).unwrap();
+    builder.scan_program(program)?;
     assert!(builder.scopes.len() == 1);
-    builder.scopes.pop().unwrap()
+    Ok(builder.scopes.pop().unwrap())
 }
 
-pub fn statements_to_symbol_table(statements: &[ast::LocatedStatement]) -> SymbolScope {
+pub fn statements_to_symbol_table(
+    statements: &[ast::LocatedStatement],
+) -> Result<SymbolScope, SymbolTableError> {
     let mut builder = SymbolTableBuilder::new();
     builder.enter_scope();
-    builder.scan_statements(statements).unwrap();
+    builder.scan_statements(statements)?;
     assert!(builder.scopes.len() == 1);
-    builder.scopes.pop().unwrap()
+    Ok(builder.scopes.pop().unwrap())
 }
 
 #[derive(Debug)]
@@ -43,7 +47,22 @@ pub struct SymbolScope {
     pub sub_scopes: Vec<SymbolScope>,
 }
 
-type SymbolTableResult = Result<(), String>;
+#[derive(Debug)]
+pub struct SymbolTableError {
+    error: String,
+    location: Location,
+}
+
+impl From<SymbolTableError> for CompileError {
+    fn from(error: SymbolTableError) -> Self {
+        CompileError {
+            error: CompileErrorType::SyntaxError(error.error),
+            location: error.location,
+        }
+    }
+}
+
+type SymbolTableResult = Result<(), SymbolTableError>;
 
 impl SymbolScope {
     pub fn new() -> Self {
@@ -85,7 +104,7 @@ impl SymbolTableBuilder {
         self.scopes.push(scope);
     }
 
-    pub fn leave_scope(&mut self) {
+    fn leave_scope(&mut self) {
         // Pop scope and add to subscopes of parent scope.
         let scope = self.scopes.pop().unwrap();
         self.scopes.last_mut().unwrap().sub_scopes.push(scope);
@@ -445,17 +464,37 @@ impl SymbolTableBuilder {
     }
 
     fn register_name(&mut self, name: &str, role: SymbolRole) -> SymbolTableResult {
+        let scope_depth = self.scopes.len();
         let current_scope = self.scopes.last_mut().unwrap();
+        let location = Default::default();
         if let Some(_old_role) = current_scope.symbols.get(name) {
             // Role already set..
             // debug!("TODO: {:?}", old_role);
             match role {
-                SymbolRole::Global => return Err("global must appear first".to_string()),
+                SymbolRole::Global => {
+                    return Err(SymbolTableError {
+                        error: format!("name '{}' is used prior to global declaration", name),
+                        location,
+                    })
+                }
                 _ => {
                     // Ok?
                 }
             }
         } else {
+            match role {
+                SymbolRole::Nonlocal => {
+                    if scope_depth < 2 {
+                        return Err(SymbolTableError {
+                            error: format!("name '{}' is used prior to global declaration", name),
+                            location,
+                        });
+                    }
+                }
+                _ => {
+                    // Ok!
+                }
+            }
             current_scope.symbols.insert(name.to_string(), role);
         }
         Ok(())

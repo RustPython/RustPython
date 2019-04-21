@@ -11,6 +11,7 @@ assert a == 2
 b()
 assert a == 4
 
+
 def x():
     def y():
         nonlocal b
@@ -21,3 +22,37 @@ def x():
 
 res = x()
 assert res == 3, str(res)
+
+# Invalid syntax:
+src = """
+b = 2
+global b
+"""
+
+try:
+    exec(src)
+except Exception as ex:
+    # print(ex)
+    pass
+else:
+    raise RuntimeError('Must raise')
+
+# Invalid syntax:
+
+src = """
+nonlocal c
+"""
+
+try:
+    exec(src)
+except Exception as ex:
+    # print(ex)
+    pass
+else:
+    raise RuntimeError('Must raise')
+
+
+# class X:
+#     nonlocal c
+#     c = 2
+
