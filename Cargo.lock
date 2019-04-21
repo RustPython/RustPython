@@ -853,7 +853,7 @@ dependencies = [
 
 [[package]]
 name = "rustpython_wasm"
-version = "0.1.0-pre-alpha.1"
+version = "0.1.0-pre-alpha.2"
 dependencies = [
  "cfg-if 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
