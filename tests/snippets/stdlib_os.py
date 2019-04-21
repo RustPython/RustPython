@@ -56,6 +56,7 @@ class TestWithTempDir():
 
 
 FILE_NAME = "test1"
+FILE_NAME2 = "test2"
 CONTENT = b"testing"
 CONTENT2 = b"rustpython"
 CONTENT3 = b"BOYA"
@@ -73,3 +74,16 @@ with TestWithTempDir() as tmpdir:
 	assert os.read(fd, len(CONTENT2)) == CONTENT2
 	assert os.read(fd, len(CONTENT3)) == CONTENT3
 	os.close(fd)
+
+
+	fname2 = tmpdir + os.sep + FILE_NAME2
+	with open(fname2, "wb"):
+		pass
+	files = set()
+	paths = set()
+	for dir_entry in os.scandir(tmpdir):
+		files.add(dir_entry.name)
+		paths.add(dir_entry.path)
+
+	assert files == set([FILE_NAME, FILE_NAME2])
+	assert paths == set([fname, fname2])

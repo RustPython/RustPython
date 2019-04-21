@@ -210,6 +210,10 @@ impl DirEntryRef {
     fn name(self, _vm: &VirtualMachine) -> String {
         self.entry.file_name().into_string().unwrap()
     }
+
+    fn path(self, _vm: &VirtualMachine) -> String {
+        self.entry.path().to_str().unwrap().to_string()
+    }
 }
 
 #[derive(Debug)]
@@ -269,7 +273,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     let dir_entry = py_class!(ctx, "DirEntry", ctx.object(), {
-         "name" => ctx.new_rustfunc(DirEntryRef::name),
+         "name" => ctx.new_property(DirEntryRef::name),
+         "path" => ctx.new_property(DirEntryRef::path),
     });
 
     py_module!(vm, "_os", {
