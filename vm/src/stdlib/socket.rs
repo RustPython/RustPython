@@ -4,11 +4,9 @@ use std::io::Read;
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 
-use crate::function::PyFuncArgs;
 use crate::obj::objbytes::PyBytesRef;
-use crate::obj::objint;
 use crate::obj::objint::PyIntRef;
-use crate::obj::objstr;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
 use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
 use crate::vm::VirtualMachine;
@@ -173,8 +171,8 @@ impl SocketRef {
         Socket::new(family, kind).into_ref_with_type(vm, cls)
     }
 
-    fn connect(self, address: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
-        let address_string = get_address_string(vm, address)?;
+    fn connect(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
+        let address_string = address.get_address_string();
 
         match self.socket_kind {
             SocketKind::Stream => match TcpStream::connect(address_string) {
@@ -197,8 +195,8 @@ impl SocketRef {
         }
     }
 
-    fn bind(self, address: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
-        let address_string = get_address_string(vm, address)?;
+    fn bind(self, address: Address, vm: &VirtualMachine) -> PyResult<()> {
+        let address_string = address.get_address_string();
 
         match self.socket_kind {
             SocketKind::Stream => match TcpListener::bind(address_string) {
@@ -285,8 +283,8 @@ impl SocketRef {
         Ok(())
     }
 
-    fn sendto(self, bytes: PyBytesRef, address: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
-        let address_string = get_address_string(vm, address)?;
+    fn sendto(self, bytes: PyBytesRef, address: Address, vm: &VirtualMachine) -> PyResult<()> {
+        let address_string = address.get_address_string();
 
         match self.socket_kind {
             SocketKind::Dgram => {
@@ -337,25 +335,34 @@ impl SocketRef {
     }
 }
 
-fn get_address_string(vm: &VirtualMachine, address: PyTupleRef) -> Result<String, PyObjectRef> {
-    let args = PyFuncArgs {
-        args: address.elements.borrow().to_vec(),
-        kwargs: vec![],
-    };
-    arg_check!(
-        vm,
-        args,
-        required = [
-            (host, Some(vm.ctx.str_type())),
-            (port, Some(vm.ctx.int_type()))
-        ]
-    );
+struct Address {
+    host: String,
+    port: usize,
+}
 
-    Ok(format!(
-        "{}:{}",
-        objstr::get_value(host),
-        objint::get_value(port).to_string()
-    ))
+impl Address {
+    fn get_address_string(self) -> String {
+        format!("{}:{}", self.host, self.port.to_string())
+    }
+}
+
+impl TryFromObject for Address {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let tuple = PyTupleRef::try_from_object(vm, obj)?;
+        if tuple.elements.borrow().len() != 2 {
+            Err(vm.new_type_error("Address tuple should have only 2 values".to_string()))
+        } else {
+            Ok(Address {
+                host: PyStringRef::try_from_object(vm, tuple.elements.borrow()[0].clone())?
+                    .value
+                    .to_string(),
+                port: PyIntRef::try_from_object(vm, tuple.elements.borrow()[1].clone())?
+                    .as_bigint()
+                    .to_usize()
+                    .unwrap(),
+            })
+        }
+    }
 }
 
 fn get_addr_tuple(vm: &VirtualMachine, addr: SocketAddr) -> PyResult {
