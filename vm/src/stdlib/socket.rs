@@ -9,6 +9,7 @@ use crate::function::PyFuncArgs;
 use crate::obj::objbytes;
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objint;
+use crate::obj::objint::PyIntRef;
 use crate::obj::objstr;
 use crate::obj::objtuple::PyTupleRef;
 use crate::pyobject::{PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
@@ -251,6 +252,43 @@ impl SocketRef {
             _ => Err(vm.new_not_implemented_error("".to_string())),
         }
     }
+
+    fn listen(self, _num: PyIntRef, _vm: &VirtualMachine) -> () {}
+
+    fn accept(self, vm: &VirtualMachine) -> PyResult {
+        let ret = match self.con.borrow_mut().as_mut() {
+            Some(v) => v.accept(),
+            None => return Err(vm.new_type_error("".to_string())),
+        };
+
+        let (tcp_stream, addr) = match ret {
+            Ok((socket, addr)) => (socket, addr),
+            Err(s) => return Err(vm.new_os_error(s.to_string())),
+        };
+
+        let socket = Socket {
+            address_family: self.address_family,
+            socket_kind: self.socket_kind,
+            con: RefCell::new(Some(Connection::TcpStream(tcp_stream))),
+        }
+        .into_ref(vm);
+
+        let addr_tuple = get_addr_tuple(vm, addr)?;
+
+        Ok(vm.ctx.new_tuple(vec![socket.into_object(), addr_tuple]))
+    }
+
+    fn recv(self, bufsize: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        let mut buffer = vec![0u8; bufsize.as_bigint().to_usize().unwrap()];
+        match self.con.borrow_mut().as_mut() {
+            Some(v) => match v.read_exact(&mut buffer) {
+                Ok(_) => (),
+                Err(s) => return Err(vm.new_os_error(s.to_string())),
+            },
+            None => return Err(vm.new_type_error("".to_string())),
+        };
+        Ok(vm.ctx.new_bytes(buffer))
+    }
 }
 
 fn get_address_string(vm: &VirtualMachine, address: PyTupleRef) -> Result<String, PyObjectRef> {
@@ -272,61 +310,6 @@ fn get_address_string(vm: &VirtualMachine, address: PyTupleRef) -> Result<String
         objstr::get_value(host),
         objint::get_value(port).to_string()
     ))
-}
-
-fn socket_listen(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(_zelf, None), (_num, Some(vm.ctx.int_type()))]
-    );
-    Ok(vm.get_none())
-}
-
-fn socket_accept(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, None)]);
-
-    let socket = get_socket(zelf);
-
-    let ret = match socket.con.borrow_mut().as_mut() {
-        Some(v) => v.accept(),
-        None => return Err(vm.new_type_error("".to_string())),
-    };
-
-    let (tcp_stream, addr) = match ret {
-        Ok((socket, addr)) => (socket, addr),
-        Err(s) => return Err(vm.new_os_error(s.to_string())),
-    };
-
-    let socket = Socket {
-        address_family: socket.address_family,
-        socket_kind: socket.socket_kind,
-        con: RefCell::new(Some(Connection::TcpStream(tcp_stream))),
-    }
-    .into_ref(vm);
-
-    let addr_tuple = get_addr_tuple(vm, addr)?;
-
-    Ok(vm.ctx.new_tuple(vec![socket.into_object(), addr_tuple]))
-}
-
-fn socket_recv(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, None), (bufsize, Some(vm.ctx.int_type()))]
-    );
-    let socket = get_socket(zelf);
-
-    let mut buffer = vec![0u8; objint::get_value(bufsize).to_usize().unwrap()];
-    match socket.con.borrow_mut().as_mut() {
-        Some(v) => match v.read_exact(&mut buffer) {
-            Ok(_) => (),
-            Err(s) => return Err(vm.new_os_error(s.to_string())),
-        },
-        None => return Err(vm.new_type_error("".to_string())),
-    };
-    Ok(vm.ctx.new_bytes(buffer))
 }
 
 fn socket_recvfrom(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -420,11 +403,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let socket = py_class!(ctx, "socket", ctx.object(), {
          "__new__" => ctx.new_rustfunc(SocketRef::new),
          "connect" => ctx.new_rustfunc(SocketRef::connect),
-         "recv" => ctx.new_rustfunc(socket_recv),
+         "recv" => ctx.new_rustfunc(SocketRef::recv),
          "send" => ctx.new_rustfunc(socket_send),
          "bind" => ctx.new_rustfunc(SocketRef::bind),
-         "accept" => ctx.new_rustfunc(socket_accept),
-         "listen" => ctx.new_rustfunc(socket_listen),
+         "accept" => ctx.new_rustfunc(SocketRef::accept),
+         "listen" => ctx.new_rustfunc(SocketRef::listen),
          "close" => ctx.new_rustfunc(socket_close),
          "getsockname" => ctx.new_rustfunc(socket_getsockname),
          "sendto" => ctx.new_rustfunc(SocketRef::sendto),
