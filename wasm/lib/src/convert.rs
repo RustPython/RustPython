@@ -8,7 +8,7 @@ use rustpython_vm::pyobject::{PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module;
-use crate::objjsvalue::{PyJsFunction, PyJsValue};
+use crate::objjsobject::{PyJsFunction, PyJsObject};
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
@@ -130,8 +130,8 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             let view = Uint8Array::view(&bytes);
             view.slice(0, bytes.len() as u32).into()
         }
-    } else if let Some(jsval) = py_obj.payload::<PyJsValue>() {
-        jsval.value().clone()
+    } else if let Some(jsval) = py_obj.payload::<PyJsObject>() {
+        jsval.object().clone().into()
     } else if let Some(jsfunc) = py_obj.payload::<PyJsFunction>() {
         jsfunc.to_function().into()
     } else {
@@ -197,7 +197,9 @@ pub fn js_to_py_with_this(
             u8_array.copy_to(&mut vec);
             vm.ctx.new_bytes(vec)
         } else {
-            PyJsValue::new(js_val).into_ref(vm).into_object()
+            PyJsObject::new(js_val.unchecked_into())
+                .into_ref(vm)
+                .into_object()
             // let dict = vm.ctx.new_dict();
             // for pair in object_entries(&Object::from(js_val)) {
             //     let (key, val) = pair.expect("iteration over object to not fail");

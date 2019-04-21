@@ -1,4 +1,4 @@
-use js_sys::{Function, JsString, Reflect};
+use js_sys::{Function, JsString, Object, Reflect};
 use wasm_bindgen::JsValue;
 
 use rustpython_vm::function::{Args, OptionalArg};
@@ -8,68 +8,68 @@ use rustpython_vm::VirtualMachine;
 
 use crate::convert;
 
-fn get_prop(value: JsValue, name: &str, vm: &VirtualMachine) -> Option<PyObjectRef> {
+fn get_prop(object: Object, name: &str, vm: &VirtualMachine) -> Option<PyObjectRef> {
     let name: &JsString = &name.into();
-    if Reflect::has(&value, name).expect("Reflect.has failed") {
+    if Reflect::has(&object, name).expect("Reflect.has failed") {
         Some(convert::js_to_py_with_this(
             vm,
-            Reflect::get(&value, name).expect("Reflect.get failed"),
-            Some(value),
+            Reflect::get(&object, name).expect("Reflect.get failed"),
+            Some(object.into()),
         ))
     } else {
         None
     }
 }
 
-fn set_prop(value: &JsValue, name: &str, val: PyObjectRef, vm: &VirtualMachine) {
+fn set_prop(value: &Object, name: &str, val: PyObjectRef, vm: &VirtualMachine) {
     Reflect::set(value, &name.into(), &convert::py_to_js(vm, val)).expect("Reflect failed");
 }
 
-#[pyclass(name = "JsValue")]
+#[pyclass(name = "JSObject")]
 #[derive(Debug)]
-pub struct PyJsValue {
-    value: JsValue,
+pub struct PyJsObject {
+    object: Object,
 }
-pub type PyJsValueRef = PyRef<PyJsValue>;
+pub type PyJsObjectRef = PyRef<PyJsObject>;
 
-impl PyValue for PyJsValue {}
+impl PyValue for PyJsObject {}
 
 #[pyimpl]
-impl PyJsValue {
-    pub fn new(value: JsValue) -> PyJsValue {
-        PyJsValue { value }
+impl PyJsObject {
+    pub fn new(object: Object) -> PyJsObject {
+        PyJsObject { object }
     }
 
-    pub fn value(&self) -> &JsValue {
-        &self.value
+    pub fn object(&self) -> &Object {
+        &self.object
     }
 
     #[pyproperty(name = "_props")]
     fn props(&self, _vm: &VirtualMachine) -> PyJsProps {
         PyJsProps {
-            value: self.value().clone(),
+            object: self.object().clone(),
         }
     }
 
     #[pymethod(name = "__getattr__")]
     fn getattr(&self, attr_name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        get_prop(self.value().clone(), attr_name.as_str(), vm).ok_or_else(|| {
+        get_prop(self.object().clone(), attr_name.as_str(), vm).ok_or_else(|| {
             vm.new_attribute_error(format!("JS value has no property {:?}", attr_name.as_str()))
         })
     }
 
     #[pymethod(name = "__setattr__")]
     fn setattr(&self, attr_name: PyStringRef, val: PyObjectRef, vm: &VirtualMachine) {
-        set_prop(self.value(), attr_name.as_str(), val, vm);
+        set_prop(self.object(), attr_name.as_str(), val, vm);
     }
 
     #[pymethod(name = "__repr__")]
     fn repr(&self, _vm: &VirtualMachine) -> String {
-        format!("{:?}", self.value())
+        format!("{:?}", self.object())
     }
 }
 
-#[pyclass(name = "JsFunction")]
+#[pyclass(name = "JSFunction")]
 #[derive(Debug)]
 pub struct PyJsFunction {
     func: Function,
@@ -113,10 +113,10 @@ impl PyJsFunction {
     }
 }
 
-#[pyclass(name = "JsProps")]
+#[pyclass(name = "JSProps")]
 #[derive(Debug)]
 struct PyJsProps {
-    value: JsValue,
+    object: Object,
 }
 
 impl PyValue for PyJsProps {}
@@ -130,25 +130,25 @@ impl PyJsProps {
         default: OptionalArg,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
-        get_prop(self.value.clone(), item_name.as_str(), vm)
+        get_prop(self.object.clone(), item_name.as_str(), vm)
             .or(default.into_option())
             .unwrap_or_else(|| vm.get_none())
     }
 
     #[pymethod(name = "__getitem__")]
     fn getitem(&self, item_name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-        get_prop(self.value.clone(), item_name.as_str(), vm)
+        get_prop(self.object.clone(), item_name.as_str(), vm)
             .ok_or_else(|| vm.new_key_error(format!("{:?}", item_name.as_str())))
     }
 
     #[pymethod(name = "__setitem__")]
     fn setitem(&self, item_name: PyStringRef, val: PyObjectRef, vm: &VirtualMachine) {
-        set_prop(&self.value, item_name.as_str(), val, vm);
+        set_prop(&self.object, item_name.as_str(), val, vm);
     }
 }
 
 pub fn init(ctx: &PyContext) {
-    ctx.add_class::<PyJsValue>();
+    ctx.add_class::<PyJsObject>();
     ctx.add_class::<PyJsFunction>();
     ctx.add_class::<PyJsProps>();
 }

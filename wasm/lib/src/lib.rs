@@ -1,6 +1,6 @@
 pub mod browser_module;
 pub mod convert;
-pub mod objjsvalue;
+pub mod objjsobject;
 pub mod vm_class;
 pub mod wasm_builtins;
 
