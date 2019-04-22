@@ -101,3 +101,6 @@ with TestWithTempDir() as tmpdir:
 
 	# Stat
 	stat_res = os.stat(fname)
+	print(stat_res.st_mode)
+	print(stat_res.st_ino)
+	print(stat_res.st_dev)

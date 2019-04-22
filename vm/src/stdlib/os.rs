@@ -275,6 +275,8 @@ fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
 #[derive(Debug)]
 struct StatResult {
     st_mode: u32,
+    st_ino: u64,
+    st_dev: u64,
 }
 
 impl PyValue for StatResult {
@@ -289,6 +291,14 @@ impl StatResultRef {
     fn st_mode(self, _vm: &VirtualMachine) -> u32 {
         self.st_mode
     }
+
+    fn st_ino(self, _vm: &VirtualMachine) -> u64 {
+        self.st_ino
+    }
+
+    fn st_dev(self, _vm: &VirtualMachine) -> u64 {
+        self.st_dev
+    }
 }
 
 #[cfg(unix)]
@@ -297,6 +307,8 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     match fs::metadata(&path.value) {
         Ok(meta) => Ok(StatResult {
             st_mode: meta.st_mode(),
+            st_ino: meta.st_ino(),
+            st_dev: meta.st_dev(),
         }
         .into_ref(vm)
         .into_object()),
@@ -310,6 +322,8 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     match fs::metadata(&path.value) {
         Ok(meta) => Ok(StatResult {
             st_mode: meta.file_attributes(),
+            st_ino: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+            st_dev: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
         }
         .into_ref(vm)
         .into_object()),
@@ -346,7 +360,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     let stat_result = py_class!(ctx, "stat_result", ctx.object(), {
-         "st_mode" => ctx.new_property(StatResultRef::st_mode)
+         "st_mode" => ctx.new_property(StatResultRef::st_mode),
+         "st_ino" => ctx.new_property(StatResultRef::st_ino),
+         "st_dev" => ctx.new_property(StatResultRef::st_dev),
     });
 
     py_module!(vm, "_os", {
