@@ -104,3 +104,6 @@ with TestWithTempDir() as tmpdir:
 	print(stat_res.st_mode)
 	print(stat_res.st_ino)
 	print(stat_res.st_dev)
+	print(stat_res.st_nlink)
+	print(stat_res.st_uid)
+	print(stat_res.st_gid)
