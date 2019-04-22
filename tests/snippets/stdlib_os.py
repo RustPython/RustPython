@@ -107,3 +107,5 @@ with TestWithTempDir() as tmpdir:
 	print(stat_res.st_nlink)
 	print(stat_res.st_uid)
 	print(stat_res.st_gid)
+	print(stat_res.st_size)
+	assert stat_res.st_size == len(CONTENT2) + len(CONTENT3)

@@ -280,6 +280,7 @@ struct StatResult {
     st_nlink: u64,
     st_uid: u32,
     st_gid: u32,
+    st_size: u64,
 }
 
 impl PyValue for StatResult {
@@ -314,6 +315,10 @@ impl StatResultRef {
     fn st_gid(self, _vm: &VirtualMachine) -> u32 {
         self.st_gid
     }
+
+    fn st_size(self, _vm: &VirtualMachine) -> u64 {
+        self.st_size
+    }
 }
 
 #[cfg(unix)]
@@ -327,6 +332,7 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
             st_nlink: meta.st_nlink(),
             st_uid: meta.st_uid(),
             st_gid: meta.st_gid(),
+            st_size: meta.st_size(),
         }
         .into_ref(vm)
         .into_object()),
@@ -345,6 +351,7 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
             st_nlink: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
             st_uid: 0,   // 0 on windows
             st_gid: 0,   // 0 on windows
+            st_size: meta.file_size(),
         }
         .into_ref(vm)
         .into_object()),
@@ -387,6 +394,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "st_nlink" => ctx.new_property(StatResultRef::st_nlink),
          "st_uid" => ctx.new_property(StatResultRef::st_uid),
          "st_gid" => ctx.new_property(StatResultRef::st_gid),
+         "st_size" => ctx.new_property(StatResultRef::st_size),
     });
 
     py_module!(vm, "_os", {
