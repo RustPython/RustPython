@@ -166,3 +166,11 @@ assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}
 
 y.update(y)
 assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}  # hasn't changed
+
+x = {1: 'a', '1': None}
+assert x.pop(1) == 'a'
+assert x.pop('1') is None
+assert x == {}
+
+with assertRaises(KeyError):
+    x.pop("not here")
