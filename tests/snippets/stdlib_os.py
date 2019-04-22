@@ -1,4 +1,5 @@
-import os 
+import os
+import time
 
 from testutils import assert_raises
 
@@ -7,33 +8,6 @@ assert fd > 0
 
 os.close(fd)
 assert_raises(OSError, lambda: os.read(fd, 10))
-
-FNAME = "test_file_that_no_one_will_have_on_disk"
-CONTENT = b"testing"
-CONTENT2 = b"rustpython"
-CONTENT3 = b"BOYA"
-
-class TestWithFile():
-	def __enter__(self):
-		open(FNAME, "wb")
-		return FNAME
-
-	def __exit__(self, exc_type, exc_val, exc_tb):
-		os.remove(FNAME)
-
-
-with TestWithFile() as fname:
-	fd = os.open(fname, 1)
-	assert os.write(fd, CONTENT2) == len(CONTENT2)
-	assert os.write(fd, CONTENT3) == len(CONTENT3)
-	os.close(fd)
-
-	fd = os.open(fname, 0)
-	assert os.read(fd, len(CONTENT2)) == CONTENT2
-	assert os.read(fd, len(CONTENT3)) == CONTENT3
-	os.close(fd)
-
-
 assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', 0))
 
 
@@ -58,3 +32,69 @@ if os.name == "posix":
 	os.putenv(ENV_KEY, ENV_VALUE)
 	os.unsetenv(ENV_KEY)
 	assert os.getenv(ENV_KEY) == None
+
+
+if os.name == "nt":
+	assert os.sep == "\\"
+else:
+	assert os.sep == "/"
+
+class TestWithTempDir():
+	def __enter__(self):
+		if os.name == "nt":
+			base_folder = os.environ["TEMP"]
+		else:
+			base_folder = "/tmp"
+		name = base_folder + os.sep + "rustpython_test_os_" + str(int(time.time()))
+		os.mkdir(name)
+		self.name = name
+		return name
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		# TODO: Delete temp dir
+		pass
+
+
+FILE_NAME = "test1"
+FILE_NAME2 = "test2"
+FOLDER = "dir1"
+CONTENT = b"testing"
+CONTENT2 = b"rustpython"
+CONTENT3 = b"BOYA"
+
+with TestWithTempDir() as tmpdir:
+	fname = tmpdir + os.sep + FILE_NAME
+	with open(fname, "wb"):
+		pass
+	fd = os.open(fname, 1)
+	assert os.write(fd, CONTENT2) == len(CONTENT2)
+	assert os.write(fd, CONTENT3) == len(CONTENT3)
+	os.close(fd)
+
+	fd = os.open(fname, 0)
+	assert os.read(fd, len(CONTENT2)) == CONTENT2
+	assert os.read(fd, len(CONTENT3)) == CONTENT3
+	os.close(fd)
+
+	fname2 = tmpdir + os.sep + FILE_NAME2
+	with open(fname2, "wb"):
+		pass
+	folder = tmpdir + os.sep + FOLDER
+	os.mkdir(folder)
+
+	names = set()
+	paths = set()
+	dirs = set()
+	files = set()
+	for dir_entry in os.scandir(tmpdir):
+		names.add(dir_entry.name)
+		paths.add(dir_entry.path)
+		if dir_entry.is_dir():
+			dirs.add(dir_entry.name)
+		if dir_entry.is_file():
+			files.add(dir_entry.name)
+
+	assert names == set([FILE_NAME, FILE_NAME2, FOLDER])
+	assert paths == set([fname, fname2, folder])
+	assert dirs == set([FOLDER])
+	assert files == set([FILE_NAME, FILE_NAME2])

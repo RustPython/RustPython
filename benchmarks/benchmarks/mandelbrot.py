@@ -21,11 +21,13 @@ while y < h:
 			i = i+1
 
 		if Tr+Ti <= 4:
-			print('*', end='')
+			# print('*', end='')
+			pass
 		else:
-			print('·', end='')
+			# print('·', end='')
+			pass
 
 		x = x+1
 
-	print()
+	# print()
 	y = y+1

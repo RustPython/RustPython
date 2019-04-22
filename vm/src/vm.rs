@@ -341,11 +341,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn invoke<T>(&self, func_ref: PyObjectRef, args: T) -> PyResult
-    where
-        T: Into<PyFuncArgs>,
-    {
-        let args = args.into();
+    fn _invoke(&self, func_ref: PyObjectRef, args: PyFuncArgs) -> PyResult {
         trace!("Invoke: {:?} {:?}", func_ref, args);
         if let Some(PyFunction {
             ref code,
@@ -354,22 +350,29 @@ impl VirtualMachine {
             ref kw_only_defaults,
         }) = func_ref.payload()
         {
-            return self.invoke_python_function(code, scope, defaults, kw_only_defaults, args);
-        }
-        if let Some(PyMethod {
+            self.invoke_python_function(code, scope, defaults, kw_only_defaults, args)
+        } else if let Some(PyMethod {
             ref function,
             ref object,
         }) = func_ref.payload()
         {
-            return self.invoke(function.clone(), args.insert(object.clone()));
+            self.invoke(function.clone(), args.insert(object.clone()))
+        } else if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
+            value(self, args)
+        } else {
+            // TODO: is it safe to just invoke __call__ otherwise?
+            trace!("invoke __call__ for: {:?}", &func_ref.payload);
+            self.call_method(&func_ref, "__call__", args)
         }
-        if let Some(PyBuiltinFunction { ref value }) = func_ref.payload() {
-            return value(self, args);
-        }
+    }
 
-        // TODO: is it safe to just invoke __call__ otherwise?
-        trace!("invoke __call__ for: {:?}", &func_ref.payload);
-        self.call_method(&func_ref, "__call__", args)
+    // TODO: make func_ref an &PyObjectRef
+    #[inline]
+    pub fn invoke<T>(&self, func_ref: PyObjectRef, args: T) -> PyResult
+    where
+        T: Into<PyFuncArgs>,
+    {
+        self._invoke(func_ref, args.into())
     }
 
     fn invoke_python_function(
@@ -664,6 +667,15 @@ impl VirtualMachine {
 
     pub fn deserialize(&self, s: &str) -> PyResult {
         crate::stdlib::json::de_pyobject(self, s)
+    }
+
+    pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
+        match_class!(obj,
+            PyFunction => true,
+            PyMethod => true,
+            PyBuiltinFunction => true,
+            obj => objtype::class_has_attr(&obj.class(), "__call__"),
+        )
     }
 
     pub fn _sub(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

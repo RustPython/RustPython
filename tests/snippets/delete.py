@@ -1,3 +1,4 @@
+from testutils import assert_raises
 
 a = 1
 del a
@@ -10,3 +11,8 @@ del foo.bar
 
 assert not hasattr(foo, 'bar')
 
+x = 1
+y = 2
+del (x, y)
+assert_raises(NameError, lambda: x)
+assert_raises(NameError, lambda: y)

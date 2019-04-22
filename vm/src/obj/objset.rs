@@ -222,6 +222,16 @@ impl PySetInner {
         Ok(new_inner)
     }
 
+    fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        for item in other.iter(vm)? {
+            let obj = item?;
+            if self.contains(obj.clone(), vm)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
     fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
         let items = self.elements.values().cloned().collect();
         let set_list = vm.ctx.new_list(items);
@@ -424,6 +434,10 @@ impl PySetRef {
             PySet::class(vm),
             None,
         ))
+    }
+
+    fn isdisjoint(self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.borrow().isdisjoint(other, vm)
     }
 
     fn or(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
@@ -633,6 +647,10 @@ impl PyFrozenSetRef {
         ))
     }
 
+    fn isdisjoint(self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.isdisjoint(other, vm)
+    }
+
     fn or(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
         self.union(other.iterable, vm)
     }
@@ -788,7 +806,8 @@ pub fn init(context: &PyContext) {
         "__isub__" => context.new_rustfunc(PySetRef::isub),
         "symmetric_difference_update" => context.new_rustfunc(PySetRef::symmetric_difference_update),
         "__ixor__" => context.new_rustfunc(PySetRef::ixor),
-        "__iter__" => context.new_rustfunc(PySetRef::iter)
+        "__iter__" => context.new_rustfunc(PySetRef::iter),
+        "isdisjoint" => context.new_rustfunc(PySetRef::isdisjoint),
     });
 
     let frozenset_type = &context.frozenset_type;
@@ -819,6 +838,7 @@ pub fn init(context: &PyContext) {
         "__doc__" => context.new_str(frozenset_doc.to_string()),
         "__repr__" => context.new_rustfunc(PyFrozenSetRef::repr),
         "copy" => context.new_rustfunc(PyFrozenSetRef::copy),
-        "__iter__" => context.new_rustfunc(PyFrozenSetRef::iter)
+        "__iter__" => context.new_rustfunc(PyFrozenSetRef::iter),
+        "isdisjoint" => context.new_rustfunc(PyFrozenSetRef::isdisjoint),
     });
 }

@@ -1,5 +1,10 @@
 from _os import *
 
+if name == 'nt':
+    sep = '\\'
+else:
+    sep = '/'
+
 # Change environ to automatically call putenv(), unsetenv if they exist.
 from _collections_abc import MutableMapping
 

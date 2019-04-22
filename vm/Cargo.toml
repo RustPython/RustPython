@@ -27,3 +27,8 @@ unicode-segmentation = "1.2.1"
 lazy_static = "^1.0.1"
 lexical = "2.0.0"
 itertools = "^0.8.0"
+
+# TODO: release and publish to crates.io
+[dependencies.unicode-casing]
+git = "https://github.com/OddCoincidence/unicode-casing"
+rev = "90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb"
