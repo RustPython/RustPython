@@ -98,3 +98,6 @@ with TestWithTempDir() as tmpdir:
 	assert paths == set([fname, fname2, folder])
 	assert dirs == set([FOLDER])
 	assert files == set([FILE_NAME, FILE_NAME2])
+
+	# Stat
+	stat_res = os.stat(fname)

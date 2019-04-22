@@ -233,7 +233,7 @@ impl DirEntryRef {
 }
 
 #[derive(Debug)]
-pub struct ScandirIterator {
+struct ScandirIterator {
     entries: RefCell<fs::ReadDir>,
 }
 
@@ -272,6 +272,56 @@ fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[derive(Debug)]
+struct StatResult {
+    st_mode: u32,
+}
+
+impl PyValue for StatResult {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("os", "stat_result")
+    }
+}
+
+type StatResultRef = PyRef<StatResult>;
+
+impl StatResultRef {
+    fn st_mode(self, _vm: &VirtualMachine) -> u32 {
+        self.st_mode
+    }
+}
+
+#[cfg(unix)]
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    use std::os::linux::fs::MetadataExt;
+    match fs::metadata(&path.value) {
+        Ok(meta) => Ok(StatResult {
+            st_mode: meta.st_mode(),
+        }
+        .into_ref(vm)
+        .into_object()),
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
+}
+
+#[cfg(windows)]
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    use std::os::windows::fs::MetadataExt;
+    match fs::metadata(&path.value) {
+        Ok(meta) => Ok(StatResult {
+            st_mode: meta.file_attributes(),
+        }
+        .into_ref(vm)
+        .into_object()),
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    unimplemented!();
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -295,6 +345,10 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "is_file" => ctx.new_rustfunc(DirEntryRef::is_file),
     });
 
+    let stat_result = py_class!(ctx, "stat_result", ctx.object(), {
+         "st_mode" => ctx.new_property(StatResultRef::st_mode)
+    });
+
     py_module!(vm, "_os", {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
@@ -314,6 +368,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "scandir" => ctx.new_rustfunc(os_scandir),
         "ScandirIter" => scandir_iter,
         "DirEntry" => dir_entry,
+        "stat_result" => stat_result,
+        "stat" => ctx.new_rustfunc(os_stat),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),
