@@ -85,7 +85,7 @@ Another approach is to checkout the source code: builtin functions and object me
 and easiest way to contribute.
 
 You can also simply run
-`cargo run tests/snippets/whats_left_to_implement.py` to assist in finding any
+`./whats_left.sh` to assist in finding any
 unimplemented method.
 
 # Testing
