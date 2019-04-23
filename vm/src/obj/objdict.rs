@@ -228,6 +228,10 @@ impl PyDictRef {
         PyDictRef::merge(&self.entries, dict_obj, kwargs, vm)
     }
 
+    fn pop(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.entries.borrow_mut().pop(vm, &key)
+    }
+
     /// Take a python dictionary and convert it to attributes.
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::new();
@@ -458,6 +462,7 @@ pub fn init(context: &PyContext) {
         "get" => context.new_rustfunc(PyDictRef::get),
         "copy" => context.new_rustfunc(PyDictRef::copy),
         "update" => context.new_rustfunc(PyDictRef::update),
+        "pop" => context.new_rustfunc(PyDictRef::pop),
     });
 
     PyDictKeys::extend_class(context, &context.dictkeys_type);
