@@ -131,6 +131,19 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
     }
 }
 
+#[test]
+fn test_run_script() {
+    let vm = VirtualMachine::new();
+
+    // test file run
+    let r = run_script(&vm, "tests/snippets/dir_main/__main__.py");
+    assert!(r.is_ok());
+
+    // test module run
+    let r = run_script(&vm, "tests/snippets/dir_main");
+    assert!(r.is_ok());
+}
+
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
     match compile::compile(vm, source, &compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
