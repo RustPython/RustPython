@@ -233,7 +233,7 @@ impl DirEntryRef {
 }
 
 #[derive(Debug)]
-pub struct ScandirIterator {
+struct ScandirIterator {
     entries: RefCell<fs::ReadDir>,
 }
 
@@ -272,6 +272,98 @@ fn os_scandir(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[derive(Debug)]
+struct StatResult {
+    st_mode: u32,
+    st_ino: u64,
+    st_dev: u64,
+    st_nlink: u64,
+    st_uid: u32,
+    st_gid: u32,
+    st_size: u64,
+}
+
+impl PyValue for StatResult {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("os", "stat_result")
+    }
+}
+
+type StatResultRef = PyRef<StatResult>;
+
+impl StatResultRef {
+    fn st_mode(self, _vm: &VirtualMachine) -> u32 {
+        self.st_mode
+    }
+
+    fn st_ino(self, _vm: &VirtualMachine) -> u64 {
+        self.st_ino
+    }
+
+    fn st_dev(self, _vm: &VirtualMachine) -> u64 {
+        self.st_dev
+    }
+
+    fn st_nlink(self, _vm: &VirtualMachine) -> u64 {
+        self.st_nlink
+    }
+
+    fn st_uid(self, _vm: &VirtualMachine) -> u32 {
+        self.st_uid
+    }
+
+    fn st_gid(self, _vm: &VirtualMachine) -> u32 {
+        self.st_gid
+    }
+
+    fn st_size(self, _vm: &VirtualMachine) -> u64 {
+        self.st_size
+    }
+}
+
+#[cfg(unix)]
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    use std::os::linux::fs::MetadataExt;
+    match fs::metadata(&path.value) {
+        Ok(meta) => Ok(StatResult {
+            st_mode: meta.st_mode(),
+            st_ino: meta.st_ino(),
+            st_dev: meta.st_dev(),
+            st_nlink: meta.st_nlink(),
+            st_uid: meta.st_uid(),
+            st_gid: meta.st_gid(),
+            st_size: meta.st_size(),
+        }
+        .into_ref(vm)
+        .into_object()),
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
+}
+
+#[cfg(windows)]
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    use std::os::windows::fs::MetadataExt;
+    match fs::metadata(&path.value) {
+        Ok(meta) => Ok(StatResult {
+            st_mode: meta.file_attributes(),
+            st_ino: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+            st_dev: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+            st_nlink: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+            st_uid: 0,   // 0 on windows
+            st_gid: 0,   // 0 on windows
+            st_size: meta.file_size(),
+        }
+        .into_ref(vm)
+        .into_object()),
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    unimplemented!();
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -295,6 +387,16 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "is_file" => ctx.new_rustfunc(DirEntryRef::is_file),
     });
 
+    let stat_result = py_class!(ctx, "stat_result", ctx.object(), {
+         "st_mode" => ctx.new_property(StatResultRef::st_mode),
+         "st_ino" => ctx.new_property(StatResultRef::st_ino),
+         "st_dev" => ctx.new_property(StatResultRef::st_dev),
+         "st_nlink" => ctx.new_property(StatResultRef::st_nlink),
+         "st_uid" => ctx.new_property(StatResultRef::st_uid),
+         "st_gid" => ctx.new_property(StatResultRef::st_gid),
+         "st_size" => ctx.new_property(StatResultRef::st_size),
+    });
+
     py_module!(vm, "_os", {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
@@ -314,6 +416,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "scandir" => ctx.new_rustfunc(os_scandir),
         "ScandirIter" => scandir_iter,
         "DirEntry" => dir_entry,
+        "stat_result" => stat_result,
+        "stat" => ctx.new_rustfunc(os_stat),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),

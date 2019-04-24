@@ -98,3 +98,14 @@ with TestWithTempDir() as tmpdir:
 	assert paths == set([fname, fname2, folder])
 	assert dirs == set([FOLDER])
 	assert files == set([FILE_NAME, FILE_NAME2])
+
+	# Stat
+	stat_res = os.stat(fname)
+	print(stat_res.st_mode)
+	print(stat_res.st_ino)
+	print(stat_res.st_dev)
+	print(stat_res.st_nlink)
+	print(stat_res.st_uid)
+	print(stat_res.st_gid)
+	print(stat_res.st_size)
+	assert stat_res.st_size == len(CONTENT2) + len(CONTENT3)
