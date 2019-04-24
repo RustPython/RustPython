@@ -132,7 +132,9 @@ assert 'abc\t12345\txyz'.expandtabs() == 'abc     12345   xyz'
 assert '-'.join(['1', '2', '3']) == '1-2-3'
 assert 'HALLO'.isupper()
 assert "hello, my name is".partition("my ") == ('hello, ', 'my ', 'name is')
+assert "hello".partition("is") == ('hello', '', '')
 assert "hello, my name is".rpartition("is") == ('hello, my name ', 'is', '')
+assert "hello".rpartition("is") == ('', '', 'hello')
 assert not ''.isdecimal()
 assert '123'.isdecimal()
 assert not '\u00B2'.isdecimal()
