@@ -174,3 +174,9 @@ assert x == {}
 
 with assertRaises(KeyError):
     x.pop("not here")
+
+x = {1: 'a'}
+assert (1, 'a') == x.popitem()
+with assertRaises(KeyError):
+    x.popitem()
+assert x == {}

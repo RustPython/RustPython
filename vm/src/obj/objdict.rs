@@ -232,6 +232,19 @@ impl PyDictRef {
         self.entries.borrow_mut().pop(vm, &key)
     }
 
+    fn popitem(self, vm: &VirtualMachine) -> PyResult {
+        let mut entries = self.entries.borrow_mut();
+        let (key, value) = match entries.next_entry(&mut 0) {
+            Some((key, value)) => (key.clone(), value.clone()),
+            None => {
+                return Err(vm.new_key_error("popitem(): dictionary is empty".to_string()));
+            }
+        };
+
+        entries.delete(vm, &key)?;
+        Ok(vm.ctx.new_tuple(vec![key, value]))
+    }
+
     /// Take a python dictionary and convert it to attributes.
     pub fn to_attributes(self) -> PyAttributes {
         let mut attrs = PyAttributes::new();
@@ -463,6 +476,7 @@ pub fn init(context: &PyContext) {
         "copy" => context.new_rustfunc(PyDictRef::copy),
         "update" => context.new_rustfunc(PyDictRef::update),
         "pop" => context.new_rustfunc(PyDictRef::pop),
+        "popitem" => context.new_rustfunc(PyDictRef::popitem),
     });
 
     PyDictKeys::extend_class(context, &context.dictkeys_type);
