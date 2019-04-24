@@ -20,12 +20,13 @@ use crate::obj::objtype::{self, PyClassRef};
 use crate::frame::Scope;
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+    Either, IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
 use crate::obj::objcode::PyCodeRef;
+use crate::obj::objtuple::PyTupleRef;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
@@ -312,19 +313,42 @@ fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 
-fn builtin_isinstance(obj: PyObjectRef, typ: PyClassRef, vm: &VirtualMachine) -> PyResult<bool> {
-    vm.isinstance(&obj, &typ)
+fn builtin_isinstance(
+    obj: PyObjectRef,
+    typ: Either<PyClassRef, PyTupleRef>,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    match typ {
+        Either::A(ref cls) => vm.isinstance(&obj, cls),
+        Either::B(ref tuple) => {
+            for cls_obj in tuple.elements.borrow().iter() {
+                let cls = PyClassRef::try_from_object(vm, cls_obj.clone())?;
+                if vm.isinstance(&obj, &cls)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+    }
 }
 
-fn builtin_issubclass(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(subclass, Some(vm.get_type())), (cls, Some(vm.get_type()))]
-    );
-
-    let issubclass = vm.issubclass(subclass, cls)?;
-    Ok(vm.context().new_bool(issubclass))
+fn builtin_issubclass(
+    subclass: PyClassRef,
+    typ: Either<PyClassRef, PyTupleRef>,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    match typ {
+        Either::A(ref cls) => vm.issubclass(&subclass, cls),
+        Either::B(ref tuple) => {
+            for cls_obj in tuple.elements.borrow().iter() {
+                let cls = PyClassRef::try_from_object(vm, cls_obj.clone())?;
+                if vm.issubclass(&subclass, &cls)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+    }
 }
 
 fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
