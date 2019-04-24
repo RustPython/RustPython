@@ -14,7 +14,7 @@ use rustpython_vm::{
     print_exception, pyobject::PyResult, util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn main() {
     env_logger::init();
@@ -96,14 +96,52 @@ fn run_module(vm: &VirtualMachine, module: &str) -> PyResult {
 fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
     debug!("Running file {}", script_file);
     // Parse an ast from it:
-    let file_path = Path::new(script_file);
-    match util::read_file(file_path) {
+    let file_path = PathBuf::from(script_file);
+    let file_path = if file_path.is_file() {
+        file_path
+    } else if file_path.is_dir() {
+        let main_file_path = file_path.join("__main__.py");
+        if main_file_path.is_file() {
+            main_file_path
+        } else {
+            error!(
+                "can't find '__main__' module in '{}'",
+                file_path.to_str().unwrap()
+            );
+            std::process::exit(1);
+        }
+    } else {
+        error!(
+            "can't open file '{}': No such file or directory",
+            file_path.to_str().unwrap()
+        );
+        std::process::exit(1);
+    };
+
+    match util::read_file(&file_path) {
         Ok(source) => _run_string(vm, &source, file_path.to_str().unwrap().to_string()),
         Err(err) => {
-            error!("Failed reading file: {:?}", err.kind());
+            error!(
+                "Failed reading file '{}': {:?}",
+                file_path.to_str().unwrap(),
+                err.kind()
+            );
             std::process::exit(1);
         }
     }
+}
+
+#[test]
+fn test_run_script() {
+    let vm = VirtualMachine::new();
+
+    // test file run
+    let r = run_script(&vm, "tests/snippets/dir_main/__main__.py");
+    assert!(r.is_ok());
+
+    // test module run
+    let r = run_script(&vm, "tests/snippets/dir_main");
+    assert!(r.is_ok());
 }
 
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
