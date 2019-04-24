@@ -1,3 +1,4 @@
+from testutils import assertRaises
 
 # Test global and nonlocal funkyness
 
@@ -29,27 +30,28 @@ b = 2
 global b
 """
 
-try:
+with assertRaises(SyntaxError):
     exec(src)
-except Exception as ex:
-    # print(ex)
-    pass
-else:
-    raise RuntimeError('Must raise')
 
 # Invalid syntax:
-
 src = """
 nonlocal c
 """
 
-try:
+with assertRaises(SyntaxError):
     exec(src)
-except Exception as ex:
-    # print(ex)
-    pass
-else:
-    raise RuntimeError('Must raise')
+
+
+# Invalid syntax:
+src = """
+def f():
+    def x():
+        nonlocal c
+c = 2
+"""
+
+with assertRaises(SyntaxError):
+    exec(src)
 
 
 # class X:

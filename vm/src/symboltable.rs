@@ -3,6 +3,8 @@
 This ensures that global and nonlocal keywords are picked up.
 Then the compiler can use the symbol table to generate proper
 load and store instructions for names.
+
+Inspirational file: https://github.com/python/cpython/blob/master/Python/symtable.c
 */
 
 use crate::error::{CompileError, CompileErrorType};
@@ -15,7 +17,9 @@ pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTa
     builder.enter_scope();
     builder.scan_program(program)?;
     assert!(builder.scopes.len() == 1);
-    Ok(builder.scopes.pop().unwrap())
+    let symbol_table = builder.scopes.pop().unwrap();
+    analyze_symbol_table(&symbol_table, None)?;
+    Ok(symbol_table)
 }
 
 pub fn statements_to_symbol_table(
@@ -25,7 +29,9 @@ pub fn statements_to_symbol_table(
     builder.enter_scope();
     builder.scan_statements(statements)?;
     assert!(builder.scopes.len() == 1);
-    Ok(builder.scopes.pop().unwrap())
+    let symbol_table = builder.scopes.pop().unwrap();
+    analyze_symbol_table(&symbol_table, None)?;
+    Ok(symbol_table)
 }
 
 #[derive(Debug)]
@@ -86,6 +92,58 @@ impl std::fmt::Debug for SymbolScope {
             self.sub_scopes.len()
         )
     }
+}
+
+/* Perform some sort of analysis on nonlocals, globals etc..
+  See also: https://github.com/python/cpython/blob/master/Python/symtable.c#L410
+*/
+fn analyze_symbol_table(
+    symbol_scope: &SymbolScope,
+    parent_symbol_scope: Option<&SymbolScope>,
+) -> SymbolTableResult {
+    // println!("Analyzing {:?}, parent={:?} symbols={:?}", symbol_scope,  parent_symbol_scope, symbol_scope.symbols);
+    // Analyze sub scopes:
+    for sub_scope in &symbol_scope.sub_scopes {
+        analyze_symbol_table(&sub_scope, Some(symbol_scope))?;
+    }
+
+    // Analyze symbols:
+    for (symbol_name, symbol_role) in &symbol_scope.symbols {
+        analyze_symbol(symbol_name, symbol_role, parent_symbol_scope)?;
+    }
+
+    Ok(())
+}
+
+fn analyze_symbol(
+    symbol_name: &str,
+    symbol_role: &SymbolRole,
+    parent_symbol_scope: Option<&SymbolScope>,
+) -> SymbolTableResult {
+    match symbol_role {
+        SymbolRole::Nonlocal => {
+            // check if name is defined in parent scope!
+            if let Some(parent_symbol_scope) = parent_symbol_scope {
+                if !parent_symbol_scope.symbols.contains_key(symbol_name) {
+                    return Err(SymbolTableError {
+                        error: format!("no binding for nonlocal '{}' found", symbol_name),
+                        location: Default::default(),
+                    });
+                }
+            } else {
+                return Err(SymbolTableError {
+                    error: format!(
+                        "nonlocal {} defined at place without an enclosing scope",
+                        symbol_name
+                    ),
+                    location: Default::default(),
+                });
+            }
+        }
+        // TODO: add more checks for globals
+        _ => {}
+    }
+    Ok(())
 }
 
 pub struct SymbolTableBuilder {
@@ -477,6 +535,12 @@ impl SymbolTableBuilder {
                         location,
                     })
                 }
+                SymbolRole::Nonlocal => {
+                    return Err(SymbolTableError {
+                        error: format!("name '{}' is used prior to nonlocal declaration", name),
+                        location,
+                    })
+                }
                 _ => {
                     // Ok?
                 }
@@ -486,7 +550,7 @@ impl SymbolTableBuilder {
                 SymbolRole::Nonlocal => {
                     if scope_depth < 2 {
                         return Err(SymbolTableError {
-                            error: format!("name '{}' is used prior to global declaration", name),
+                            error: format!("cannot define nonlocal '{}' at top level.", name),
                             location,
                         });
                     }
