@@ -180,3 +180,11 @@ assert (1, 'a') == x.popitem()
 with assertRaises(KeyError):
     x.popitem()
 assert x == {}
+
+x = {'a': 4}
+assert 4 == x.setdefault('a', 0)
+assert x['a'] == 4
+assert 0 == x.setdefault('b', 0)
+assert x['b'] == 0
+assert None == x.setdefault('c')
+assert x['c'] is None
