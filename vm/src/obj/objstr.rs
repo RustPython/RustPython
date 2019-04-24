@@ -635,9 +635,9 @@ impl PyString {
             new_tup.swap(0, 1); // so it's in the right order
             new_tup.insert(1, vm.ctx.new_str(sub.clone()));
         } else {
+            new_tup.push(vm.ctx.new_str("".to_string()));
+            new_tup.push(vm.ctx.new_str("".to_string()));
             new_tup.push(vm.ctx.new_str(value.clone()));
-            new_tup.push(vm.ctx.new_str("".to_string()));
-            new_tup.push(vm.ctx.new_str("".to_string()));
         }
         vm.ctx.new_tuple(new_tup)
     }
