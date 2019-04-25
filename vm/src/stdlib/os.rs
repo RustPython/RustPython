@@ -321,9 +321,28 @@ impl StatResultRef {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     use std::os::linux::fs::MetadataExt;
+    match fs::metadata(&path.value) {
+        Ok(meta) => Ok(StatResult {
+            st_mode: meta.st_mode(),
+            st_ino: meta.st_ino(),
+            st_dev: meta.st_dev(),
+            st_nlink: meta.st_nlink(),
+            st_uid: meta.st_uid(),
+            st_gid: meta.st_gid(),
+            st_size: meta.st_size(),
+        }
+        .into_ref(vm)
+        .into_object()),
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    use std::os::macos::fs::MetadataExt;
     match fs::metadata(&path.value) {
         Ok(meta) => Ok(StatResult {
             st_mode: meta.st_mode(),
@@ -359,7 +378,7 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[cfg(all(not(unix), not(windows)))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "macos"), not(windows)))]
 fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     unimplemented!();
 }
