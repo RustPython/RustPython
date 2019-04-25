@@ -213,6 +213,26 @@ impl PyDictRef {
         }
     }
 
+    fn setdefault(
+        self,
+        key: PyObjectRef,
+        default: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let mut entries = self.entries.borrow_mut();
+        match entries.get(vm, &key)? {
+            Some(value) => Ok(value),
+            None => {
+                let set_value = match default {
+                    OptionalArg::Present(value) => value,
+                    OptionalArg::Missing => vm.ctx.none(),
+                };
+                entries.insert(vm, &key, set_value.clone())?;
+                Ok(set_value)
+            }
+        }
+    }
+
     fn copy(self, _vm: &VirtualMachine) -> PyDict {
         PyDict {
             entries: self.entries.clone(),
@@ -230,6 +250,19 @@ impl PyDictRef {
 
     fn pop(self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.entries.borrow_mut().pop(vm, &key)
+    }
+
+    fn popitem(self, vm: &VirtualMachine) -> PyResult {
+        let mut entries = self.entries.borrow_mut();
+        let (key, value) = match entries.next_entry(&mut 0) {
+            Some((key, value)) => (key.clone(), value.clone()),
+            None => {
+                return Err(vm.new_key_error("popitem(): dictionary is empty".to_string()));
+            }
+        };
+
+        entries.delete(vm, &key)?;
+        Ok(vm.ctx.new_tuple(vec![key, value]))
     }
 
     /// Take a python dictionary and convert it to attributes.
@@ -460,9 +493,11 @@ pub fn init(context: &PyContext) {
         "items" => context.new_rustfunc(PyDictRef::items),
         "keys" => context.new_rustfunc(PyDictRef::keys),
         "get" => context.new_rustfunc(PyDictRef::get),
+        "setdefault" => context.new_rustfunc(PyDictRef::setdefault),
         "copy" => context.new_rustfunc(PyDictRef::copy),
         "update" => context.new_rustfunc(PyDictRef::update),
         "pop" => context.new_rustfunc(PyDictRef::pop),
+        "popitem" => context.new_rustfunc(PyDictRef::popitem),
     });
 
     PyDictKeys::extend_class(context, &context.dictkeys_type);
