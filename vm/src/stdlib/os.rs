@@ -359,6 +359,25 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+#[cfg(target_os = "android")]
+fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    use std::os::android::fs::MetadataExt;
+    match fs::metadata(&path.value) {
+        Ok(meta) => Ok(StatResult {
+            st_mode: meta.st_mode(),
+            st_ino: meta.st_ino(),
+            st_dev: meta.st_dev(),
+            st_nlink: meta.st_nlink(),
+            st_uid: meta.st_uid(),
+            st_gid: meta.st_gid(),
+            st_size: meta.st_size(),
+        }
+        .into_ref(vm)
+        .into_object()),
+        Err(s) => Err(vm.new_os_error(s.to_string())),
+    }
+}
+
 #[cfg(windows)]
 fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     use std::os::windows::fs::MetadataExt;
@@ -378,7 +397,12 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
-#[cfg(all(not(target_os = "linux"), not(target_os = "macos"), not(windows)))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "android",
+    windows
+)))]
 fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     unimplemented!();
 }
