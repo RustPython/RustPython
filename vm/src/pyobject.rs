@@ -21,7 +21,7 @@ use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objbytearray;
 use crate::obj::objbytes;
-use crate::obj::objclassmethod;
+use crate::obj::objclassmethod::{self, PyClassMethod};
 use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objcomplex::{self, PyComplex};
@@ -664,6 +664,19 @@ impl PyContext {
         PyObject::new(
             PyBuiltinFunction::new(f.into_func()),
             self.builtin_function_or_method_type(),
+            None,
+        )
+    }
+
+    pub fn new_classmethod<F, T, R>(&self, f: F) -> PyObjectRef
+    where
+        F: IntoPyNativeFunc<T, R>,
+    {
+        PyObject::new(
+            PyClassMethod {
+                callable: self.new_rustfunc(f),
+            },
+            self.classmethod_type(),
             None,
         )
     }

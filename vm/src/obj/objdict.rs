@@ -3,8 +3,8 @@ use std::fmt;
 
 use crate::function::{KwArgs, OptionalArg};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyObjectRef, PyRef, PyResult,
-    PyValue,
+    IdProtocol, IntoPyObject, ItemProtocol, PyAttributes, PyContext, PyIterable, PyObjectRef,
+    PyRef, PyResult, PyValue,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -91,6 +91,22 @@ impl PyDictRef {
             dict_borrowed.insert(vm, &vm.new_str(key), value)?;
         }
         Ok(())
+    }
+
+    fn fromkeys(
+        class: PyClassRef,
+        iterable: PyIterable,
+        value: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyDictRef> {
+        let mut dict = DictContentType::default();
+        let value = value.unwrap_or_else(|| vm.ctx.none());
+        for elem in iterable.iter(vm)? {
+            let elem = elem?;
+            dict.insert(vm, &elem, value.clone())?;
+        }
+        let entries = RefCell::new(dict);
+        PyDict { entries }.into_ref_with_type(vm, class)
     }
 
     fn bool(self, _vm: &VirtualMachine) -> bool {
@@ -206,10 +222,7 @@ impl PyDictRef {
     ) -> PyResult {
         match self.entries.borrow().get(vm, &key)? {
             Some(value) => Ok(value),
-            None => match default {
-                OptionalArg::Present(value) => Ok(value),
-                OptionalArg::Missing => Ok(vm.ctx.none()),
-            },
+            None => Ok(default.unwrap_or_else(|| vm.ctx.none())),
         }
     }
 
@@ -223,10 +236,7 @@ impl PyDictRef {
         match entries.get(vm, &key)? {
             Some(value) => Ok(value),
             None => {
-                let set_value = match default {
-                    OptionalArg::Present(value) => value,
-                    OptionalArg::Missing => vm.ctx.none(),
-                };
+                let set_value = default.unwrap_or_else(|| vm.ctx.none());
                 entries.insert(vm, &key, set_value.clone())?;
                 Ok(set_value)
             }
@@ -492,6 +502,7 @@ pub fn init(context: &PyContext) {
         "values" => context.new_rustfunc(PyDictRef::values),
         "items" => context.new_rustfunc(PyDictRef::items),
         "keys" => context.new_rustfunc(PyDictRef::keys),
+        "fromkeys" => context.new_classmethod(PyDictRef::fromkeys),
         "get" => context.new_rustfunc(PyDictRef::get),
         "setdefault" => context.new_rustfunc(PyDictRef::setdefault),
         "copy" => context.new_rustfunc(PyDictRef::copy),
