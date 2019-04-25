@@ -188,3 +188,6 @@ assert 0 == x.setdefault('b', 0)
 assert x['b'] == 0
 assert None == x.setdefault('c')
 assert x['c'] is None
+
+assert {1: None, "b": None} == dict.fromkeys([1, "b"])
+assert {1: 0, "b": 0} == dict.fromkeys([1, "b"], 0)
