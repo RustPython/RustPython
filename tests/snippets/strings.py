@@ -52,6 +52,11 @@ assert b.strip() == 'hallo'
 assert b.lstrip() == 'hallo  '
 assert b.rstrip() == '  hallo'
 
+s = '^*RustPython*^'
+assert s.strip('^*') == 'RustPython'
+assert s.lstrip('^*') == 'RustPython*^'
+assert s.rstrip('^*') == '^*RustPython'
+
 c = 'hallo'
 assert c.capitalize() == 'Hallo'
 assert c.center(11, '-') == '---hallo---'
