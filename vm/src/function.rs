@@ -361,6 +361,23 @@ impl<T> OptionalArg<T> {
             Missing => None,
         }
     }
+
+    pub fn unwrap_or(self, default: T) -> T {
+        match self {
+            Present(value) => value,
+            Missing => default,
+        }
+    }
+
+    pub fn unwrap_or_else<F>(self, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        match self {
+            Present(value) => value,
+            Missing => f(),
+        }
+    }
 }
 
 impl<T> FromArgs for OptionalArg<T>
