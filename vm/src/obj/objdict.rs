@@ -222,10 +222,7 @@ impl PyDictRef {
     ) -> PyResult {
         match self.entries.borrow().get(vm, &key)? {
             Some(value) => Ok(value),
-            None => match default {
-                OptionalArg::Present(value) => Ok(value),
-                OptionalArg::Missing => Ok(vm.ctx.none()),
-            },
+            None => Ok(default.unwrap_or_else(|| vm.ctx.none())),
         }
     }
 
@@ -239,10 +236,7 @@ impl PyDictRef {
         match entries.get(vm, &key)? {
             Some(value) => Ok(value),
             None => {
-                let set_value = match default {
-                    OptionalArg::Present(value) => value,
-                    OptionalArg::Missing => vm.ctx.none(),
-                };
+                let set_value = default.unwrap_or_else(|| vm.ctx.none());
                 entries.insert(vm, &key, set_value.clone())?;
                 Ok(set_value)
             }
