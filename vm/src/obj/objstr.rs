@@ -296,18 +296,34 @@ impl PyString {
     }
 
     #[pymethod]
-    fn strip(&self, _vm: &VirtualMachine) -> String {
-        self.value.trim().to_string()
+    fn strip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
+        let chars = match chars {
+            OptionalArg::Present(ref chars) => &chars.value,
+            OptionalArg::Missing => return self.value.trim().to_string(),
+        };
+        self.value.trim_matches(|c| chars.contains(c)).to_string()
     }
 
     #[pymethod]
-    fn lstrip(&self, _vm: &VirtualMachine) -> String {
-        self.value.trim_start().to_string()
+    fn lstrip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
+        let chars = match chars {
+            OptionalArg::Present(ref chars) => &chars.value,
+            OptionalArg::Missing => return self.value.trim_start().to_string(),
+        };
+        self.value
+            .trim_start_matches(|c| chars.contains(c))
+            .to_string()
     }
 
     #[pymethod]
-    fn rstrip(&self, _vm: &VirtualMachine) -> String {
-        self.value.trim_end().to_string()
+    fn rstrip(&self, chars: OptionalArg<PyStringRef>, _vm: &VirtualMachine) -> String {
+        let chars = match chars {
+            OptionalArg::Present(ref chars) => &chars.value,
+            OptionalArg::Missing => return self.value.trim_end().to_string(),
+        };
+        self.value
+            .trim_end_matches(|c| chars.contains(c))
+            .to_string()
     }
 
     #[pymethod]
