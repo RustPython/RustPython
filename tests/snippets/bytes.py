@@ -162,3 +162,11 @@ with assertRaises(TypeError):
 with assertRaises(TypeError):
     b"b".center(2, b"ba")
 b"kok".center(5, bytearray(b"x"))
+
+assert bytes.maketrans(b'', b'') == bytes(range(0, 256))
+trans1, trans2 = b'dcba0123', b'8900xyzz'
+manual_map = list(range(0, 256))
+for c1, c2 in zip(trans1, trans2):
+    manual_map[c1] = c2
+
+assert bytes(manual_map) == bytes.maketrans(trans1, trans2)

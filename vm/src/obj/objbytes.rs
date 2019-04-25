@@ -10,7 +10,7 @@ use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyVa
 use super::objbyteinner::{is_byte, PyByteInner};
 use super::objiter;
 use super::objslice::PySlice;
-use super::objtype::PyClassRef;
+use super::objtype::{self, PyClassRef};
 
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
@@ -63,6 +63,7 @@ pub fn init(context: &PyContext) {
     let bytes_type = &context.bytes_type;
     extend_class!(context, bytes_type, {
     "fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
+    "maketrans" => context.new_rustfunc(PyBytesRef::maketrans),
     });
     let bytesiterator_type = &context.bytesiterator_type;
     extend_class!(context, bytesiterator_type, {
@@ -232,6 +233,23 @@ impl PyBytesRef {
         Err(y) => Err(y)}},
         obj => Err(vm.new_type_error(format!("fromhex() argument must be str, not {}", obj )))
         )
+    }
+
+    fn maketrans(frm: PyObjectRef, to: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if !objtype::isinstance(&frm, &vm.ctx.bytes_type())
+            || !objtype::isinstance(&to, &vm.ctx.bytes_type())
+        {
+            return Err(vm.new_type_error(format!("TypeError: a bytes-like object is required")));
+        }
+        let frm = get_value(&frm);
+        let to = get_value(&to);
+
+        let mut table: Vec<u8> = (0..=255).collect();
+        for (i, c) in frm.iter().enumerate() {
+            table[*c as usize] = to[i];
+        }
+
+        Ok(vm.ctx.new_bytes(table))
     }
 
     #[pymethod(name = "center")]
