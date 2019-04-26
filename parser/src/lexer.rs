@@ -359,8 +359,13 @@ where
         }
 
         let end_pos = self.get_pos();
-        let value = BigInt::from_str_radix(&value_text, radix).unwrap();
-        Ok((start_pos, Tok::Int { value }, end_pos))
+        match BigInt::from_str_radix(&value_text, radix) {
+            Ok(value) => Ok((start_pos, Tok::Int { value }, end_pos)),
+            Err(_) => {
+                let c = self.next_char();
+                Err(LexicalError::UnrecognizedToken { tok: c.unwrap() })
+            }
+        }
     }
 
     fn lex_normal_number(&mut self) -> Spanned<Tok> {
