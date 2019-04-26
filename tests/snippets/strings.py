@@ -57,6 +57,17 @@ assert s.strip('^*') == 'RustPython'
 assert s.lstrip('^*') == 'RustPython*^'
 assert s.rstrip('^*') == '^*RustPython'
 
+s = 'RustPython'
+assert s.ljust(8) == 'RustPython'
+assert s.rjust(8) == 'RustPython'
+assert s.ljust(12) == 'RustPython  '
+assert s.rjust(12) == '  RustPython'
+assert s.ljust(12, '_') == 'RustPython__'
+assert s.rjust(12, '_') == '__RustPython'
+# The fill character must be exactly one character long
+assert_raises(TypeError, lambda: s.ljust(12, '__'))
+assert_raises(TypeError, lambda: s.rjust(12, '__'))
+
 c = 'hallo'
 assert c.capitalize() == 'Hallo'
 assert c.center(11, '-') == '---hallo---'

@@ -740,7 +740,11 @@ impl PyString {
     ) -> PyResult<String> {
         let value = &self.value;
         let rep_char = Self::get_fill_char(&rep, vm)?;
-        Ok(format!("{}{}", value, rep_char.repeat(len)))
+        if len <= value.len() {
+            Ok(value.to_string())
+        } else {
+            Ok(format!("{}{}", value, rep_char.repeat(len - value.len())))
+        }
     }
 
     #[pymethod]
@@ -752,7 +756,11 @@ impl PyString {
     ) -> PyResult<String> {
         let value = &self.value;
         let rep_char = Self::get_fill_char(&rep, vm)?;
-        Ok(format!("{}{}", rep_char.repeat(len), value))
+        if len <= value.len() {
+            Ok(value.to_string())
+        } else {
+            Ok(format!("{}{}", rep_char.repeat(len - value.len()), value))
+        }
     }
 
     #[pymethod]
