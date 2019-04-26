@@ -70,7 +70,11 @@ impl PyRange {
         let step = self.step.as_bigint();
 
         let index = if index < &BigInt::zero() {
-            stop + index
+            let index = stop + index;
+            if index < BigInt::zero() {
+                return None;
+            }
+            index
         } else {
             index.clone()
         };

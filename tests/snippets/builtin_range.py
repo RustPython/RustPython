@@ -55,4 +55,8 @@ assert list(reversed(range(1,10,5))) == [6, 1]
 i = 2**64
 assert range(i).stop is i
 
+# negative index
 assert range(10)[-1] == 9
+assert_raises(IndexError, lambda: range(10)[-11], 'out of bound')
+assert str(range(10)[-2:4]) == str(range(8, 4))
+assert str(range(10)[-6:-2]) == str(range(4, 8))
