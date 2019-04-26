@@ -54,3 +54,5 @@ assert list(reversed(range(1,10,5))) == [6, 1]
 # range retains the original int refs
 i = 2**64
 assert range(i).stop is i
+
+assert range(10)[-1] == 9
