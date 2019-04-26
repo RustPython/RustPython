@@ -199,13 +199,12 @@ pub fn de_pyobject(vm: &VirtualMachine, s: &str) -> PyResult {
     // TODO: Support deserializing string sub-classes
     de.deserialize(&mut serde_json::Deserializer::from_str(s))
         .map_err(|err| {
-            let json_decode_error = vm
+            let module = vm
                 .get_attribute(vm.sys_module.clone(), "modules")
                 .unwrap()
                 .get_item("json", vm)
-                .unwrap()
-                .get_item("JSONDecodeError", vm)
                 .unwrap();
+            let json_decode_error = vm.get_attribute(module, "JSONDecodeError").unwrap();
             let json_decode_error = json_decode_error.downcast().unwrap();
             let exc = vm.new_exception(json_decode_error, format!("{}", err));
             vm.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()))
