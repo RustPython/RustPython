@@ -27,6 +27,11 @@ assert range(4, 10, 2).count(4) == 1
 assert range(4, 10, 2).count(7) == 0
 assert range(10).count("foo") == 0
 
+# __eq__
+assert range(1, 2, 3) == range(1, 2, 3)
+assert range(1, 2, 1) == range(1, 2)
+assert range(2) == range(0, 2)
+
 # __bool__
 assert bool(range(1))
 assert bool(range(1, 2))

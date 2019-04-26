@@ -14,7 +14,7 @@ use crate::vm::VirtualMachine;
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
-use super::objtype::PyClassRef;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Debug, Clone)]
 pub struct PyRange {
@@ -104,6 +104,7 @@ pub fn init(context: &PyContext) {
         "__bool__" => context.new_rustfunc(PyRange::bool),
         "__contains__" => context.new_rustfunc(PyRange::contains),
         "__doc__" => context.new_str(range_doc.to_string()),
+        "__eq__" => context.new_rustfunc(PyRange::eq),
         "__getitem__" => context.new_rustfunc(PyRange::getitem),
         "__iter__" => context.new_rustfunc(PyRange::iter),
         "__len__" => context.new_rustfunc(PyRange::len),
@@ -235,6 +236,17 @@ impl PyRange {
                 Some(ref offset) => offset.is_multiple_of(self.step.as_bigint()),
                 None => false,
             }
+        } else {
+            false
+        }
+    }
+
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
+        if objtype::isinstance(&rhs, &vm.ctx.range_type()) {
+            let rhs = get_value(&rhs);
+            self.start.as_bigint() == rhs.start.as_bigint()
+                && self.stop.as_bigint() == rhs.stop.as_bigint()
+                && self.step.as_bigint() == rhs.step.as_bigint()
         } else {
             false
         }
