@@ -218,6 +218,7 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
         crate_version!()
     );
     let vars = vm.ctx.new_scope();
+    vars.init_builtins(vm)?;
 
     // Read a single line:
     let mut input = String::new();

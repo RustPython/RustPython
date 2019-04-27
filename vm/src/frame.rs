@@ -119,6 +119,11 @@ impl Scope {
     pub fn child_scope(&self, ctx: &PyContext) -> Scope {
         self.child_scope_with_locals(ctx.new_dict())
     }
+
+    pub fn init_builtins(&self, vm: &VirtualMachine) -> PyResult<()> {
+        let globals = self.globals.clone();
+        globals.set_item("__builtins__", vm.builtins.clone(), vm).and(Ok(()))
+    }
 }
 
 pub trait NameProtocol {

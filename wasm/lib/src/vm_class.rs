@@ -27,6 +27,7 @@ impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut vm = VirtualMachine::new();
         let scope = vm.ctx.new_scope();
+        scope.init_builtins(&vm).unwrap();
         if inject_browser_module {
             setup_browser_module(&vm);
         }
