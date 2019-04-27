@@ -2,13 +2,14 @@ use num_complex::Complex64;
 use num_traits::ToPrimitive;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objfloat::{self, PyFloat};
 use super::objint;
 use super::objtype::{self, PyClassRef};
 
+#[pyclass(name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
     value: Complex64,
@@ -28,24 +29,14 @@ impl From<Complex64> for PyComplex {
 }
 
 pub fn init(context: &PyContext) {
-    let complex_type = &context.complex_type;
-
+    PyComplex::extend_class(context, &context.complex_type);
     let complex_doc =
         "Create a complex number from a real part and an optional imaginary part.\n\n\
          This is equivalent to (real + imag*1j) where imag defaults to 0.";
 
-    extend_class!(context, complex_type, {
+    extend_class!(context, &context.complex_type, {
         "__doc__" => context.new_str(complex_doc.to_string()),
-        "__abs__" => context.new_rustfunc(PyComplexRef::abs),
-        "__add__" => context.new_rustfunc(PyComplexRef::add),
-        "__eq__" => context.new_rustfunc(PyComplexRef::eq),
-        "__neg__" => context.new_rustfunc(PyComplexRef::neg),
         "__new__" => context.new_rustfunc(PyComplexRef::new),
-        "__radd__" => context.new_rustfunc(PyComplexRef::radd),
-        "__repr__" => context.new_rustfunc(PyComplexRef::repr),
-        "conjugate" => context.new_rustfunc(PyComplexRef::conjugate),
-        "imag" => context.new_property(PyComplexRef::imag),
-        "real" => context.new_property(PyComplexRef::real)
     });
 }
 
@@ -73,21 +64,28 @@ impl PyComplexRef {
         let value = Complex64::new(real, imag);
         PyComplex { value }.into_ref_with_type(vm, cls)
     }
+}
 
-    fn real(self, _vm: &VirtualMachine) -> PyFloat {
+#[pyimpl]
+impl PyComplex {
+    #[pyproperty(name = "real")]
+    fn real(&self, _vm: &VirtualMachine) -> PyFloat {
         self.value.re.into()
     }
 
-    fn imag(self, _vm: &VirtualMachine) -> PyFloat {
+    #[pyproperty(name = "imag")]
+    fn imag(&self, _vm: &VirtualMachine) -> PyFloat {
         self.value.im.into()
     }
 
-    fn abs(self, _vm: &VirtualMachine) -> PyFloat {
+    #[pymethod(name = "__abs__")]
+    fn abs(&self, _vm: &VirtualMachine) -> PyFloat {
         let Complex64 { im, re } = self.value;
         re.hypot(im).into()
     }
 
-    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod(name = "__add__")]
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.complex_type()) {
             vm.ctx.new_complex(self.value + get_value(&other))
         } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
@@ -100,7 +98,8 @@ impl PyComplexRef {
         }
     }
 
-    fn radd(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod(name = "__radd__")]
+    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_complex(Complex64::new(
                 self.value.re + objint::get_value(&other).to_f64().unwrap(),
@@ -111,11 +110,13 @@ impl PyComplexRef {
         }
     }
 
-    fn conjugate(self, _vm: &VirtualMachine) -> PyComplex {
+    #[pymethod(name = "conjugate")]
+    fn conjugate(&self, _vm: &VirtualMachine) -> PyComplex {
         self.value.conj().into()
     }
 
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    #[pymethod(name = "__eq__")]
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let result = if objtype::isinstance(&other, &vm.ctx.complex_type()) {
             self.value == get_value(&other)
         } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
@@ -132,11 +133,13 @@ impl PyComplexRef {
         vm.ctx.new_bool(result)
     }
 
-    fn neg(self, _vm: &VirtualMachine) -> PyComplex {
+    #[pymethod(name = "__neg__")]
+    fn neg(&self, _vm: &VirtualMachine) -> PyComplex {
         PyComplex::from(-self.value)
     }
 
-    fn repr(self, _vm: &VirtualMachine) -> String {
+    #[pymethod(name = "__repr__")]
+    fn repr(&self, _vm: &VirtualMachine) -> String {
         let Complex64 { re, im } = self.value;
         if re == 0.0 {
             format!("{}j", im)
