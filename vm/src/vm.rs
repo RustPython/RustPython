@@ -50,6 +50,7 @@ pub struct VirtualMachine {
     pub ctx: PyContext,
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
+    pub exceptions: RefCell<Vec<PyObjectRef>>,
 }
 
 impl VirtualMachine {
@@ -69,6 +70,7 @@ impl VirtualMachine {
             ctx,
             frames: RefCell::new(vec![]),
             wasm_id: None,
+            exceptions: RefCell::new(vec![]),
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -920,6 +922,14 @@ impl VirtualMachine {
         } else {
             self._membership_iter_search(haystack, needle)
         }
+    }
+
+    pub fn push_exception(&self, exc: PyObjectRef) -> () {
+        self.exceptions.borrow_mut().push(exc)
+    }
+
+    pub fn pop_exception(&self) -> Option<PyObjectRef> {
+        self.exceptions.borrow_mut().pop()
     }
 }
 

@@ -627,16 +627,20 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = &handler.name {
-                    // Duplicate exception for context:
-                    self.emit(Instruction::Duplicate);
                     self.store_name(alias);
+                } else {
+                    // Drop exception from top of stack:
+                    self.emit(Instruction::Pop);
                 }
+            } else {
+                // Catch all!
+                // Drop exception from top of stack:
+                self.emit(Instruction::Pop);
             }
 
             // Handler code:
             self.compile_statements(&handler.body)?;
-            // Drop exception from top of stack:
-            self.emit(Instruction::Pop);
+            self.emit(Instruction::PopException);
             self.emit(Instruction::Jump {
                 target: finally_label,
             });
