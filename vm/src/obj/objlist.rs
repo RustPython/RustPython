@@ -395,6 +395,12 @@ impl PyListRef {
         vm.ctx.new_list(new_elements)
     }
 
+    fn imul(self, counter: isize, _vm: &VirtualMachine) -> Self {
+        let new_elements = seq_mul(&self.elements.borrow(), counter);
+        self.elements.replace(new_elements);
+        self
+    }
+
     fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
         for element in self.elements.borrow().iter() {
@@ -823,6 +829,7 @@ pub fn init(context: &PyContext) {
         "__iter__" => context.new_rustfunc(PyListRef::iter),
         "__setitem__" => context.new_rustfunc(PyListRef::setitem),
         "__mul__" => context.new_rustfunc(PyListRef::mul),
+        "__imul__" => context.new_rustfunc(PyListRef::imul),
         "__len__" => context.new_rustfunc(PyListRef::len),
         "__new__" => context.new_rustfunc(list_new),
         "__repr__" => context.new_rustfunc(PyListRef::repr),
