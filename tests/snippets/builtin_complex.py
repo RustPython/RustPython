@@ -1,3 +1,5 @@
+from testutils import assertRaises
+
 # __abs__
 
 assert abs(complex(3, 4)) == 5
@@ -50,3 +52,11 @@ assert 1 + 1j == complex(1, 1)
 assert 1j + 1 == complex(1, 1)
 assert (1j + 1) + 3 == complex(4, 1)
 assert 3 + (1j + 1) == complex(4, 1)
+
+# overflow
+with assertRaises(OverflowError):
+    complex(10 ** 1000, 0)
+with assertRaises(OverflowError):
+    complex(0, 10 ** 1000)
+with assertRaises(OverflowError):
+    complex(0, 0) + 10 ** 1000

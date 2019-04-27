@@ -66,6 +66,17 @@ impl PyComplexRef {
     }
 }
 
+fn to_complex(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
+    if objtype::isinstance(&value, &vm.ctx.int_type()) {
+        match objint::get_value(&value).to_f64() {
+            Some(v) => Ok(Some(Complex64::new(v, 0.0))),
+            None => Err(vm.new_overflow_error("int too large to convert to float".to_string())),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 #[pyimpl]
 impl PyComplex {
     #[pyproperty(name = "real")]
@@ -85,28 +96,20 @@ impl PyComplex {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.complex_type()) {
-            vm.ctx.new_complex(self.value + get_value(&other))
-        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_complex(Complex64::new(
-                self.value.re + objint::get_value(&other).to_f64().unwrap(),
-                self.value.im,
-            ))
+            Ok(vm.ctx.new_complex(self.value + get_value(&other)))
         } else {
-            vm.ctx.not_implemented()
+            self.radd(other, vm)
         }
     }
 
     #[pymethod(name = "__radd__")]
-    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_complex(Complex64::new(
-                self.value.re + objint::get_value(&other).to_f64().unwrap(),
-                self.value.im,
-            ))
-        } else {
-            vm.ctx.not_implemented()
+    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match to_complex(other, vm) {
+            Ok(Some(other)) => Ok(vm.ctx.new_complex(self.value + other)),
+            Ok(None) => Ok(vm.ctx.not_implemented()),
+            Err(err) => Err(err),
         }
     }
 
