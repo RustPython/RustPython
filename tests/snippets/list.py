@@ -14,6 +14,10 @@ assert y == [2, 1, 2, 3, 1, 2, 3]
 assert x * 0 == [], "list __mul__ by 0 failed"
 assert x * -1 == [], "list __mul__ by -1 failed"
 assert x * 2 == [1, 2, 3, 1, 2, 3], "list __mul__ by 2 failed"
+y = x
+x *= 2
+assert y is x
+assert x == [1, 2, 3] * 2
 
 # index()
 assert ['a', 'b', 'c'].index('b') == 1
