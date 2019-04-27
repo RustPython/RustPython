@@ -33,11 +33,20 @@ if os.name == "posix":
 	os.unsetenv(ENV_KEY)
 	assert os.getenv(ENV_KEY) == None
 
+assert os.curdir == "."
+assert os.pardir == ".."
+assert os.extsep == "."
 
 if os.name == "nt":
 	assert os.sep == "\\"
+	assert os.linesep == "\r\n"
+	assert os.altsep == "/"
+	assert os.pathsep == ";"
 else:
 	assert os.sep == "/"
+	assert os.linesep == "\n"
+	assert os.altsep == None
+	assert os.pathsep == ":"
 
 class TestWithTempDir():
 	def __enter__(self):
