@@ -718,7 +718,7 @@ impl Frame {
                 Ok(None)
             }
 
-            bytecode::Instruction::Raise { argc, in_exc } => {
+            bytecode::Instruction::Raise { argc } => {
                 let cause = match argc {
                     2 => self.get_exception(vm, true)?,
                     _ => vm.get_none(),
