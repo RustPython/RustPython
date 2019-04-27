@@ -1,9 +1,19 @@
 from _os import *
 
+curdir = '.'
+pardir = '..'
+extsep = '.'
+
 if name == 'nt':
     sep = '\\'
+    linesep = '\r\n'
+    altsep = '/'
+    pathsep = ';'
 else:
     sep = '/'
+    linesep = '\n'
+    altsep = None
+    pathsep = ':'
 
 # Change environ to automatically call putenv(), unsetenv if they exist.
 from _collections_abc import MutableMapping
