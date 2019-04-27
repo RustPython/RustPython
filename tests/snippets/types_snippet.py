@@ -49,3 +49,4 @@ assert C.__subclasses__() == []
 
 assert type in object.__subclasses__()
 
+assert cls.__name__ == 'Cls'
