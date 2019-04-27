@@ -739,8 +739,8 @@ impl Frame {
                 };
                 let context = match argc {
                     0 => vm.get_none(), // We have already got the exception,
-                    _ => match vm.pop_exception() {
-                        Some(exc) => exc,
+                    _ => match vm.last_exception() {
+                        Some(exc) => exc.clone(),
                         None => vm.get_none(),
                     },
                 };
