@@ -99,6 +99,10 @@ impl PyClassRef {
         issubclass(&subclass, &self)
     }
 
+    fn name(self, _vm: &VirtualMachine) -> String {
+        self.name.clone()
+    }
+
     fn repr(self, _vm: &VirtualMachine) -> String {
         format!("<class '{}'>", self.name)
     }
@@ -198,6 +202,7 @@ pub fn init(ctx: &PyContext) {
                 .add_getter(PyClassRef::mro)
                 .add_setter(PyClassRef::set_mro)
                 .create(),
+        "__name__" => ctx.new_property(PyClassRef::name),
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
         "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
