@@ -27,6 +27,12 @@ assert complex(1, 2).__eq__('foo') == NotImplemented
 assert -complex(1, -1) == complex(-1, 1)
 assert -complex(0, 0) == complex(0, 0)
 
+# __bool__
+
+assert bool(complex(0, 0)) is False
+assert bool(complex(0, 1)) is True
+assert bool(complex(1, 0)) is True
+
 # real
 
 a = complex(3, 4)

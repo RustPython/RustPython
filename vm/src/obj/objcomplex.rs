@@ -1,5 +1,5 @@
 use num_complex::Complex64;
-use num_traits::ToPrimitive;
+use num_traits::{ToPrimitive, Zero};
 
 use crate::function::OptionalArg;
 use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
@@ -146,5 +146,10 @@ impl PyComplex {
         } else {
             format!("({}+{}j)", re, im)
         }
+    }
+
+    #[pymethod(name = "__bool__")]
+    fn bool(&self, _vm: &VirtualMachine) -> bool {
+        self.value != Complex64::zero()
     }
 }
