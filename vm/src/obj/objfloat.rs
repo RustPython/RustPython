@@ -7,7 +7,7 @@ use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
-use num_bigint::ToBigInt;
+use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 
@@ -344,6 +344,16 @@ impl PyFloat {
     #[pymethod(name = "__rmul__")]
     fn rmul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.mul(other, vm)
+    }
+
+    #[pymethod(name = "__int__")]
+    fn int(&self, _vm: &VirtualMachine) -> BigInt {
+        self.value.to_bigint().unwrap()
+    }
+
+    #[pymethod(name = "__float__")]
+    fn float(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
+        zelf
     }
 
     #[pyproperty(name = "real")]

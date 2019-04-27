@@ -84,6 +84,9 @@ assert 1.0.__rtruediv__(2) == 2.0
 assert 2.0.__mul__(1) == 2.0
 assert 2.0.__rsub__(1) == -1.0
 
+assert 1.2.__int__() == 1
+assert 1.2.__float__() == 1.2
+
 assert (1.7).real == 1.7
 assert (1.3).is_integer() == False
 assert (1.0).is_integer()    == True
