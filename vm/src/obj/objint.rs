@@ -535,6 +535,12 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
     &obj.payload::<PyInt>().unwrap().value
 }
 
+pub fn get_float_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+    get_value(obj).to_f64().ok_or_else(|| {
+        vm.new_overflow_error("OverflowError: int too large to convert to float".to_string())
+    })
+}
+
 #[inline]
 fn div_ints(vm: &VirtualMachine, i1: &BigInt, i2: &BigInt) -> PyResult {
     if i2.is_zero() {

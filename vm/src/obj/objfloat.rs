@@ -162,9 +162,7 @@ impl PyFloat {
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
         } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_value(&other).to_f64().ok_or_else(|| {
-                vm.new_overflow_error("int too large to convert to float".to_string())
-            })?
+            objint::get_float_value(&other, vm)?
         } else {
             return Ok(vm.ctx.not_implemented());
         };
@@ -180,12 +178,10 @@ impl PyFloat {
         let value = if objtype::isinstance(&arg, &vm.ctx.float_type()) {
             get_value(&arg)
         } else if objtype::isinstance(&arg, &vm.ctx.int_type()) {
-            match objint::get_value(&arg).to_f64() {
-                Some(f) => f,
-                None => {
-                    return Err(
-                        vm.new_overflow_error("int too large to convert to float".to_string())
-                    );
+            match objint::get_float_value(&arg, vm) {
+                Ok(f) => f,
+                Err(e) => {
+                    return Err(e);
                 }
             }
         } else if objtype::isinstance(&arg, &vm.ctx.str_type()) {
@@ -222,9 +218,7 @@ impl PyFloat {
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
         } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_value(&other).to_f64().ok_or_else(|| {
-                vm.new_overflow_error("int too large to convert to float".to_string())
-            })?
+            objint::get_float_value(&other, vm)?
         } else {
             return Ok(vm.ctx.not_implemented());
         };
@@ -293,9 +287,7 @@ impl PyFloat {
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
         } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_value(&other).to_f64().ok_or_else(|| {
-                vm.new_overflow_error("int too large to convert to float".to_string())
-            })?
+            objint::get_float_value(&other, vm)?
         } else {
             return Ok(vm.ctx.not_implemented());
         };
@@ -313,9 +305,7 @@ impl PyFloat {
         let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
             get_value(&other)
         } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_value(&other).to_f64().ok_or_else(|| {
-                vm.new_overflow_error("int too large to convert to float".to_string())
-            })?
+            objint::get_float_value(&other, vm)?
         } else {
             return Ok(vm.ctx.not_implemented());
         };
