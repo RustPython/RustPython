@@ -7,10 +7,15 @@ from testutils import assert_raises
 a = 1.2
 b = 1.3
 c = 1.2
+z = 2
+
+assert -a == -1.2
+
 assert a < b
 assert not b < a
 assert a <= b
 assert a <= c
+assert a < z
 
 assert b > a
 assert not a > b
@@ -18,13 +23,25 @@ assert not a > c
 assert b >= a
 assert c >= a
 assert not a >= b
+assert z > a
 
 assert a + b == 2.5
 assert a - c == 0
 assert a / c == 1
+assert a % c == 0
+assert a + z == 3.2
+assert z + a == 3.2
+assert a - z == -0.8
+assert z - a == 0.8
+assert a / z == 0.6
+assert 6 / a == 5.0
+assert 2.0 % z == 0.0
+# assert z % 2.0 == 0.0
 
 assert a < 5
 assert a <= 5
+assert a < 5.5
+assert a <= 5.5
 try:
     assert a < 'a'
 except TypeError:
