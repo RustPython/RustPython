@@ -11,22 +11,22 @@ use num_traits::Signed;
 use crate::compile;
 use crate::import::import_module;
 use crate::obj::objbool;
+use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
-use crate::obj::objtype::{self, PyClassRef};
+use crate::obj::objtuple::PyTuple;
+use crate::obj::objtype::{self, PyClass, PyClassRef};
 
 use crate::frame::Scope;
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    Either, IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
+    IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
-use crate::obj::objcode::PyCodeRef;
-use crate::obj::objtuple::PyTupleRef;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
@@ -313,42 +313,37 @@ fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 
-fn builtin_isinstance(
-    obj: PyObjectRef,
-    typ: Either<PyClassRef, PyTupleRef>,
+fn type_test(
     vm: &VirtualMachine,
+    typ: PyObjectRef,
+    test: impl Fn(&PyClassRef) -> PyResult<bool>,
+    test_name: &str,
 ) -> PyResult<bool> {
-    match typ {
-        Either::A(ref cls) => vm.isinstance(&obj, cls),
-        Either::B(ref tuple) => {
+    match_class!(typ,
+        cls @ PyClass => test(&cls),
+        tuple @ PyTuple => {
             for cls_obj in tuple.elements.borrow().iter() {
                 let cls = PyClassRef::try_from_object(vm, cls_obj.clone())?;
-                if vm.isinstance(&obj, &cls)? {
+                if test(&cls)? {
                     return Ok(true);
                 }
             }
             Ok(false)
-        }
-    }
+        },
+        _ => Err(vm.new_type_error(format!("{}() arg 2 must be a type or tuple of types", test_name)))
+    )
+}
+
+fn builtin_isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    type_test(vm, typ, |cls| vm.isinstance(&obj, cls), "isinstance")
 }
 
 fn builtin_issubclass(
     subclass: PyClassRef,
-    typ: Either<PyClassRef, PyTupleRef>,
+    typ: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
-    match typ {
-        Either::A(ref cls) => vm.issubclass(&subclass, cls),
-        Either::B(ref tuple) => {
-            for cls_obj in tuple.elements.borrow().iter() {
-                let cls = PyClassRef::try_from_object(vm, cls_obj.clone())?;
-                if vm.issubclass(&subclass, &cls)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        }
-    }
+    type_test(vm, typ, |cls| vm.issubclass(&subclass, cls), "issubclass")
 }
 
 fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
