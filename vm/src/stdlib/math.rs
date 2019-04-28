@@ -8,7 +8,7 @@ use statrs::function::gamma::{gamma, ln_gamma};
 
 use crate::function::PyFuncArgs;
 use crate::obj::objfloat;
-use crate::pyobject::{PyObjectRef, PyResult};
+use crate::pyobject::{PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 // Helper macro:
@@ -172,6 +172,20 @@ fn math_lgamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn math_trunc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(value, None)]);
+    const MAGIC_NAME: &str = "__trunc__";
+    if let Ok(method) = vm.get_method(value.clone(), MAGIC_NAME) {
+        vm.invoke(method, vec![])
+    } else {
+        Err(vm.new_type_error(format!(
+            "TypeError: type {} doesn't define {} method",
+            value.class().name,
+            MAGIC_NAME,
+        )))
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -218,6 +232,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "erfc" => ctx.new_rustfunc(math_erfc),
         "gamma" => ctx.new_rustfunc(math_gamma),
         "lgamma" => ctx.new_rustfunc(math_lgamma),
+
+        // Rounding functions:
+        "trunc" => ctx.new_rustfunc(math_trunc),
 
         // Constants:
         "pi" => ctx.new_float(std::f64::consts::PI), // 3.14159...
