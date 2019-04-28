@@ -182,7 +182,14 @@ with assertRaises(ZeroDivisionError):
         1/0
     except ZeroDivisionError:
         try:
-            raise 
+            raise
         except NameError:
             pass
         raise
+
+# Regression https://github.com/RustPython/RustPython/issues/867
+for _ in [1, 2]:
+    try:
+        raise ArithmeticError()
+    except ArithmeticError as e:
+        continue
