@@ -5,13 +5,14 @@ use num_bigint::BigInt;
 use num_traits::Zero;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objtype::PyClassRef;
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyEnumerate {
     counter: RefCell<BigInt>,
@@ -44,8 +45,10 @@ fn enumerate_new(
     .into_ref_with_type(vm, cls)
 }
 
-impl PyEnumerateRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
+#[pyimpl]
+impl PyEnumerate {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         let iterator = &self.iterator;
         let counter = &self.counter;
         let next_obj = objiter::call_next(vm, iterator)?;
@@ -58,16 +61,15 @@ impl PyEnumerateRef {
         Ok(result)
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
 pub fn init(context: &PyContext) {
-    let enumerate_type = &context.enumerate_type;
-    extend_class!(context, enumerate_type, {
+    PyEnumerate::extend_class(context, &context.enumerate_type);
+    extend_class!(context, &context.enumerate_type, {
         "__new__" => context.new_rustfunc(enumerate_new),
-        "__next__" => context.new_rustfunc(PyEnumerateRef::next),
-        "__iter__" => context.new_rustfunc(PyEnumerateRef::iter),
     });
 }

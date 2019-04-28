@@ -8,7 +8,8 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    IdProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -776,6 +777,7 @@ fn list_sort(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyListIterator {
     pub position: Cell<usize>,
@@ -788,10 +790,10 @@ impl PyValue for PyListIterator {
     }
 }
 
-type PyListIteratorRef = PyRef<PyListIterator>;
-
-impl PyListIteratorRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
+#[pyimpl]
+impl PyListIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         if self.position.get() < self.list.elements.borrow().len() {
             let ret = self.list.elements.borrow()[self.position.get()].clone();
             self.position.set(self.position.get() + 1);
@@ -801,8 +803,9 @@ impl PyListIteratorRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
@@ -848,9 +851,5 @@ pub fn init(context: &PyContext) {
         "remove" => context.new_rustfunc(PyListRef::remove)
     });
 
-    let listiterator_type = &context.listiterator_type;
-    extend_class!(context, listiterator_type, {
-        "__next__" => context.new_rustfunc(PyListIteratorRef::next),
-        "__iter__" => context.new_rustfunc(PyListIteratorRef::iter),
-    });
+    PyListIterator::extend_class(context, &context.listiterator_type);
 }

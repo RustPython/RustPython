@@ -1,10 +1,15 @@
 use crate::function::Args;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objiter;
 use super::objtype::PyClassRef;
 
+/// map(func, *iterables) --> map object
+///
+/// Make an iterator that computes the function using arguments from
+/// each of the iterables.  Stops when the shortest iterable is exhausted.
+#[pyclass]
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,
@@ -35,8 +40,10 @@ fn map_new(
     .into_ref_with_type(vm, cls.clone())
 }
 
-impl PyMapRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
+#[pyimpl]
+impl PyMap {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         let next_objs = self
             .iterators
             .iter()
@@ -47,22 +54,15 @@ impl PyMapRef {
         vm.invoke(self.mapper.clone(), next_objs)
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
 pub fn init(context: &PyContext) {
-    let map_type = &context.map_type;
-
-    let map_doc = "map(func, *iterables) --> map object\n\n\
-                   Make an iterator that computes the function using arguments from\n\
-                   each of the iterables.  Stops when the shortest iterable is exhausted.";
-
-    extend_class!(context, map_type, {
+    PyMap::extend_class(context, &context.map_type);
+    extend_class!(context, &context.map_type, {
         "__new__" => context.new_rustfunc(map_new),
-        "__next__" => context.new_rustfunc(PyMapRef::next),
-        "__iter__" => context.new_rustfunc(PyMapRef::iter),
-        "__doc__" => context.new_str(map_doc.to_string())
     });
 }

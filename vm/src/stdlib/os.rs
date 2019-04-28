@@ -15,7 +15,7 @@ use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{ItemProtocol, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -232,6 +232,7 @@ impl DirEntryRef {
     }
 }
 
+#[pyclass]
 #[derive(Debug)]
 struct ScandirIterator {
     entries: RefCell<fs::ReadDir>,
@@ -243,10 +244,10 @@ impl PyValue for ScandirIterator {
     }
 }
 
-type ScandirIteratorRef = PyRef<ScandirIterator>;
-
-impl ScandirIteratorRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
+#[pyimpl]
+impl ScandirIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         match self.entries.borrow_mut().next() {
             Some(entry) => match entry {
                 Ok(entry) => Ok(DirEntry { entry }.into_ref(vm).into_object()),
@@ -256,8 +257,9 @@ impl ScandirIteratorRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
@@ -418,10 +420,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let environ = _os_environ(vm);
 
-    let scandir_iter = py_class!(ctx, "ScandirIter", ctx.object(), {
-         "__iter__" => ctx.new_rustfunc(ScandirIteratorRef::iter),
-         "__next__" => ctx.new_rustfunc(ScandirIteratorRef::next),
-    });
+    let scandir_iter = ctx.new_class("ScandirIter", ctx.object());
+    ScandirIterator::extend_class(ctx, &scandir_iter);
 
     let dir_entry = py_class!(ctx, "DirEntry", ctx.object(), {
          "name" => ctx.new_property(DirEntryRef::name),
