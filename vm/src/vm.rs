@@ -931,17 +931,6 @@ impl VirtualMachine {
     pub fn pop_exception(&self) -> Option<PyObjectRef> {
         self.exceptions.borrow_mut().pop()
     }
-
-    pub fn last_exception(&self) -> Option<Ref<PyObjectRef>> {
-        let exceptions = self.exceptions.borrow();
-        if exceptions.is_empty() {
-            None
-        } else {
-            Some(Ref::map(self.exceptions.borrow(), |exceptions| {
-                exceptions.last().unwrap()
-            }))
-        }
-    }
 }
 
 impl Default for VirtualMachine {
