@@ -116,6 +116,28 @@ impl PyComplex {
         }
     }
 
+    #[pymethod(name = "__sub__")]
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.complex_type()) {
+            Ok(vm.ctx.new_complex(self.value - get_value(&other)))
+        } else {
+            match to_complex(other, vm) {
+                Ok(Some(other)) => Ok(vm.ctx.new_complex(self.value - other)),
+                Ok(None) => Ok(vm.ctx.not_implemented()),
+                Err(err) => Err(err),
+            }
+        }
+    }
+
+    #[pymethod(name = "__rsub__")]
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match to_complex(other, vm) {
+            Ok(Some(other)) => Ok(vm.ctx.new_complex(other - self.value)),
+            Ok(None) => Ok(vm.ctx.not_implemented()),
+            Err(err) => Err(err),
+        }
+    }
+
     #[pymethod(name = "conjugate")]
     fn conjugate(&self, _vm: &VirtualMachine) -> PyComplex {
         self.value.conj().into()
