@@ -36,7 +36,7 @@ assert z - a == 0.8
 assert a / z == 0.6
 assert 6 / a == 5.0
 assert 2.0 % z == 0.0
-# assert z % 2.0 == 0.0
+assert z % 2.0 == 0.0
 
 assert a < 5
 assert a <= 5
@@ -100,6 +100,11 @@ assert 1.0.__truediv__(2) == 0.5
 assert 1.0.__rtruediv__(2) == 2.0
 assert 2.0.__mul__(1) == 2.0
 assert 2.0.__rsub__(1) == -1.0
+assert 2.0.__mod__(2) == 0.0
+assert 2.0.__rmod__(2) == 0.0
+assert_raises(ZeroDivisionError, lambda: 2.0 / 0)
+assert_raises(ZeroDivisionError, lambda: 2.0 // 0)
+assert_raises(ZeroDivisionError, lambda: 2.0 % 0)
 
 assert 1.2.__int__() == 1
 assert 1.2.__float__() == 1.2

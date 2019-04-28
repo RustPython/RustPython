@@ -41,6 +41,14 @@ impl From<f64> for PyFloat {
     }
 }
 
+fn mod_(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
+    if v2 != 0.0 {
+        Ok(vm.ctx.new_float(v1 % v2))
+    } else {
+        Err(vm.new_zero_division_error("float mod by zero".to_string()))
+    }
+}
+
 #[pyimpl]
 impl PyFloat {
     #[pymethod(name = "__eq__")]
@@ -223,11 +231,19 @@ impl PyFloat {
             return Ok(vm.ctx.not_implemented());
         };
 
-        if v2 != 0.0 {
-            Ok(vm.ctx.new_float(v1 % v2))
+        mod_(v1, v2, vm)
+    }
+
+    #[pymethod(name = "__rmod__")]
+    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let v2 = self.value;
+        let v1 = if objtype::isinstance(&other, &vm.ctx.int_type) {
+            objint::get_float_value(&other, vm)?
         } else {
-            Err(vm.new_zero_division_error("float mod by zero".to_string()))
-        }
+            return Ok(vm.ctx.not_implemented());
+        };
+
+        mod_(v1, v2, vm)
     }
 
     #[pymethod(name = "__neg__")]
