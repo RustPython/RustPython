@@ -72,6 +72,9 @@ fn to_complex(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Comple
             Some(v) => Ok(Some(Complex64::new(v, 0.0))),
             None => Err(vm.new_overflow_error("int too large to convert to float".to_string())),
         }
+    } else if objtype::isinstance(&value, &vm.ctx.float_type()) {
+        let v = objfloat::get_value(&value);
+        Ok(Some(Complex64::new(v, 0.0)))
     } else {
         Ok(None)
     }

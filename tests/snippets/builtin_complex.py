@@ -53,6 +53,12 @@ assert 1j + 1 == complex(1, 1)
 assert (1j + 1) + 3 == complex(4, 1)
 assert 3 + (1j + 1) == complex(4, 1)
 
+# float and complex addition
+assert 1.1 + 1.2j == complex(1.1, 1.2)
+assert 1.3j + 1.4 == complex(1.4, 1.3)
+assert (1.5j + 1.6) + 3 == complex(4.6, 1.5)
+assert 3.5 + (1.1j + 1.2) == complex(4.7, 1.1)
+
 # overflow
 with assertRaises(OverflowError):
     complex(10 ** 1000, 0)
