@@ -86,6 +86,10 @@ assert 2.0.__rsub__(1) == -1.0
 
 assert 1.2.__int__() == 1
 assert 1.2.__float__() == 1.2
+assert 1.2.__trunc__() == 1
+assert int(1.2) == 1
+assert float(1.2) == 1.2
+# assert math.trunc(1.2) == 1
 
 assert (1.7).real == 1.7
 assert (1.3).is_integer() == False

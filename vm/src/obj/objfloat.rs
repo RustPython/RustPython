@@ -346,9 +346,14 @@ impl PyFloat {
         self.mul(other, vm)
     }
 
-    #[pymethod(name = "__int__")]
-    fn int(&self, _vm: &VirtualMachine) -> BigInt {
+    #[pymethod(name = "__trunc__")]
+    fn trunc(&self, _vm: &VirtualMachine) -> BigInt {
         self.value.to_bigint().unwrap()
+    }
+
+    #[pymethod(name = "__int__")]
+    fn int(&self, vm: &VirtualMachine) -> BigInt {
+        self.trunc(vm)
     }
 
     #[pymethod(name = "__float__")]
