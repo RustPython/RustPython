@@ -167,3 +167,22 @@ try:
         raise NameError
 except NameError as ex2:
     assert ex2.__context__ == None
+
+def f():
+    raise
+
+with assertRaises(ZeroDivisionError):
+    try:
+        1/0
+    except:
+        f()
+
+with assertRaises(ZeroDivisionError):
+    try:
+        1/0
+    except ZeroDivisionError:
+        try:
+            raise 
+        except NameError:
+            pass
+        raise
