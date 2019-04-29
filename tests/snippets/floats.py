@@ -111,7 +111,9 @@ assert 1.2.__float__() == 1.2
 assert 1.2.__trunc__() == 1
 assert int(1.2) == 1
 assert float(1.2) == 1.2
-# assert math.trunc(1.2) == 1
+assert math.trunc(1.2) == 1
+assert_raises(OverflowError, float('inf').__trunc__)
+assert_raises(ValueError, float('nan').__trunc__)
 
 assert (1.7).real == 1.7
 assert (1.3).is_integer() == False

@@ -377,8 +377,8 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__trunc__")]
-    fn trunc(&self, _vm: &VirtualMachine) -> BigInt {
-        self.value.to_bigint().unwrap()
+    fn trunc(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        try_to_bigint(self.value, vm)
     }
 
     #[pymethod(name = "__round__")]
@@ -413,7 +413,7 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__int__")]
-    fn int(&self, vm: &VirtualMachine) -> BigInt {
+    fn int(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         self.trunc(vm)
     }
 
