@@ -27,6 +27,12 @@ assert None.__class__ is type(None)
 assert isinstance(type, type)
 assert issubclass(type, type)
 
+assert not isinstance(type, (int, float))
+assert isinstance(type, (int, object))
+
+assert not issubclass(type, (int, float))
+assert issubclass(type, (int, type))
+
 class A: pass
 class B(A): pass
 class C(A): pass

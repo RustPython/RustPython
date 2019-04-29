@@ -304,8 +304,12 @@ impl VirtualMachine {
 
     /// Determines if `subclass` is a subclass of `cls`, either directly, indirectly or virtually
     /// via the __subclasscheck__ magic method.
-    pub fn issubclass(&self, subclass: &PyObjectRef, cls: &PyObjectRef) -> PyResult<bool> {
-        let ret = self.call_method(cls, "__subclasscheck__", vec![subclass.clone()])?;
+    pub fn issubclass(&self, subclass: &PyClassRef, cls: &PyClassRef) -> PyResult<bool> {
+        let ret = self.call_method(
+            cls.as_object(),
+            "__subclasscheck__",
+            vec![subclass.clone().into_object()],
+        )?;
         objbool::boolval(self, ret)
     }
 

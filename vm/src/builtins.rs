@@ -11,11 +11,13 @@ use num_traits::Signed;
 use crate::compile;
 use crate::import::import_module;
 use crate::obj::objbool;
+use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
-use crate::obj::objtype::{self, PyClassRef};
+use crate::obj::objtuple::PyTuple;
+use crate::obj::objtype::{self, PyClass, PyClassRef};
 
 use crate::frame::Scope;
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
@@ -25,7 +27,6 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use crate::obj::objcode::PyCodeRef;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
@@ -312,19 +313,37 @@ fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 
-fn builtin_isinstance(obj: PyObjectRef, typ: PyClassRef, vm: &VirtualMachine) -> PyResult<bool> {
-    vm.isinstance(&obj, &typ)
+fn type_test(
+    vm: &VirtualMachine,
+    typ: PyObjectRef,
+    test: impl Fn(&PyClassRef) -> PyResult<bool>,
+    test_name: &str,
+) -> PyResult<bool> {
+    match_class!(typ,
+        cls @ PyClass => test(&cls),
+        tuple @ PyTuple => {
+            for cls_obj in tuple.elements.borrow().iter() {
+                let cls = PyClassRef::try_from_object(vm, cls_obj.clone())?;
+                if test(&cls)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        },
+        _ => Err(vm.new_type_error(format!("{}() arg 2 must be a type or tuple of types", test_name)))
+    )
 }
 
-fn builtin_issubclass(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(subclass, Some(vm.get_type())), (cls, Some(vm.get_type()))]
-    );
+fn builtin_isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    type_test(vm, typ, |cls| vm.isinstance(&obj, cls), "isinstance")
+}
 
-    let issubclass = vm.issubclass(subclass, cls)?;
-    Ok(vm.context().new_bool(issubclass))
+fn builtin_issubclass(
+    subclass: PyClassRef,
+    typ: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    type_test(vm, typ, |cls| vm.issubclass(&subclass, cls), "issubclass")
 }
 
 fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
