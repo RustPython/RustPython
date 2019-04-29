@@ -861,7 +861,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::PopException {} => {
-                assert!(!vm.pop_exception().is_none());
+                assert!(vm.pop_exception().is_some());
                 Ok(None)
             }
         }
