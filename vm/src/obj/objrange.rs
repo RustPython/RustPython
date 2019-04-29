@@ -1,5 +1,4 @@
 use std::cell::Cell;
-use std::ops::Mul;
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
@@ -14,7 +13,7 @@ use crate::vm::VirtualMachine;
 use super::objint::{PyInt, PyIntRef};
 use super::objiter;
 use super::objslice::{PySlice, PySliceRef};
-use super::objtype::PyClassRef;
+use super::objtype::{self, PyClassRef};
 
 #[derive(Debug, Clone)]
 pub struct PyRange {
@@ -65,15 +64,22 @@ impl PyRange {
     }
 
     #[inline]
-    pub fn get<'a, T>(&'a self, index: T) -> Option<BigInt>
-    where
-        &'a BigInt: Mul<T, Output = BigInt>,
-    {
+    pub fn get(&self, index: &BigInt) -> Option<BigInt> {
         let start = self.start.as_bigint();
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
 
-        let result = start + step * index;
+        let index = if index < &BigInt::zero() {
+            let index = stop + index;
+            if index < BigInt::zero() {
+                return None;
+            }
+            index
+        } else {
+            index.clone()
+        };
+
+        let result = start + step * &index;
 
         if (self.forward() && !self.is_empty() && &result < stop)
             || (!self.forward() && !self.is_empty() && &result > stop)
@@ -104,6 +110,7 @@ pub fn init(context: &PyContext) {
         "__bool__" => context.new_rustfunc(PyRange::bool),
         "__contains__" => context.new_rustfunc(PyRange::contains),
         "__doc__" => context.new_str(range_doc.to_string()),
+        "__eq__" => context.new_rustfunc(PyRange::eq),
         "__getitem__" => context.new_rustfunc(PyRange::getitem),
         "__iter__" => context.new_rustfunc(PyRange::iter),
         "__len__" => context.new_rustfunc(PyRange::len),
@@ -240,6 +247,17 @@ impl PyRange {
         }
     }
 
+    fn eq(&self, rhs: PyObjectRef, vm: &VirtualMachine) -> bool {
+        if objtype::isinstance(&rhs, &vm.ctx.range_type()) {
+            let rhs = get_value(&rhs);
+            self.start.as_bigint() == rhs.start.as_bigint()
+                && self.stop.as_bigint() == rhs.stop.as_bigint()
+                && self.step.as_bigint() == rhs.step.as_bigint()
+        } else {
+            false
+        }
+    }
+
     fn index(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyInt> {
         if let Ok(int) = needle.downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
@@ -274,7 +292,7 @@ impl PyRange {
             }
             RangeIndex::Slice(slice) => {
                 let new_start = if let Some(int) = slice.start_index(vm)? {
-                    if let Some(i) = self.get(int) {
+                    if let Some(i) = self.get(&int) {
                         PyInt::new(i).into_ref(vm)
                     } else {
                         self.start.clone()
@@ -284,7 +302,7 @@ impl PyRange {
                 };
 
                 let new_end = if let Some(int) = slice.stop_index(vm)? {
-                    if let Some(i) = self.get(int) {
+                    if let Some(i) = self.get(&int) {
                         PyInt::new(i).into_ref(vm)
                     } else {
                         self.stop.clone()
@@ -339,7 +357,8 @@ type PyRangeIteratorRef = PyRef<PyRangeIterator>;
 
 impl PyRangeIteratorRef {
     fn next(self, vm: &VirtualMachine) -> PyResult<BigInt> {
-        if let Some(int) = self.range.get(self.position.get()) {
+        let position = BigInt::from(self.position.get());
+        if let Some(int) = self.range.get(&position) {
             self.position.set(self.position.get() + 1);
             Ok(int)
         } else {

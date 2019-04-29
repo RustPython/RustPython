@@ -54,3 +54,9 @@ assert list(reversed(range(1,10,5))) == [6, 1]
 # range retains the original int refs
 i = 2**64
 assert range(i).stop is i
+
+# negative index
+assert range(10)[-1] == 9
+assert_raises(IndexError, lambda: range(10)[-11], 'out of bound')
+assert range(10)[-2:4] == range(8, 4)
+assert range(10)[-6:-2] == range(4, 8)
