@@ -2,9 +2,11 @@ use super::objbytes;
 use super::objint;
 use super::objstr;
 use super::objtype;
+use crate::function::OptionalArg;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
@@ -355,6 +357,36 @@ impl PyFloat {
     #[pymethod(name = "__trunc__")]
     fn trunc(&self, _vm: &VirtualMachine) -> BigInt {
         self.value.to_bigint().unwrap()
+    }
+
+    #[pymethod(name = "__round__")]
+    fn round(&self, ndigits: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyObjectRef {
+        let ndigits = match ndigits {
+            OptionalArg::Missing => None,
+            OptionalArg::Present(ref value) => {
+                if !vm.get_none().is(value) {
+                    // retrive int to implement it
+                    Some(vm.ctx.not_implemented())
+                } else {
+                    None
+                }
+            }
+        };
+        if ndigits.is_none() {
+            let fract = self.value.fract();
+            let value = if fract.abs() == 0.5 {
+                if self.value.trunc() % 2.0 == 0.0 {
+                    self.value - fract
+                } else {
+                    self.value + fract
+                }
+            } else {
+                self.value.round()
+            };
+            vm.ctx.new_int(value.to_bigint().unwrap())
+        } else {
+            vm.ctx.not_implemented()
+        }
     }
 
     #[pymethod(name = "__int__")]
