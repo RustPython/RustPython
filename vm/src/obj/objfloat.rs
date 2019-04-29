@@ -11,7 +11,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::ToPrimitive;
+use num_traits::{ToPrimitive, Zero};
 
 #[pyclass(name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -387,8 +387,19 @@ impl PyFloat {
             OptionalArg::Missing => None,
             OptionalArg::Present(ref value) => {
                 if !vm.get_none().is(value) {
-                    // retrive int to implement it
-                    Some(vm.ctx.not_implemented())
+                    let ndigits = if objtype::isinstance(value, &vm.ctx.int_type()) {
+                        objint::get_value(value)
+                    } else {
+                        return Err(vm.new_type_error(format!(
+                            "TypeError: '{}' object cannot be interpreted as an integer",
+                            value.class().name
+                        )));
+                    };
+                    if ndigits.is_zero() {
+                        None
+                    } else {
+                        Some(ndigits)
+                    }
                 } else {
                     None
                 }

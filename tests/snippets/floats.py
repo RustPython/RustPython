@@ -114,6 +114,14 @@ assert float(1.2) == 1.2
 assert math.trunc(1.2) == 1
 assert_raises(OverflowError, float('inf').__trunc__)
 assert_raises(ValueError, float('nan').__trunc__)
+assert 0.5.__round__() == 0.0
+assert 1.5.__round__() == 2.0
+assert 0.5.__round__(0) == 0.0
+assert 1.5.__round__(0) == 2.0
+assert 0.5.__round__(None) == 0.0
+assert 1.5.__round__(None) == 2.0
+assert_raises(OverflowError, float('inf').__round__)
+assert_raises(ValueError, float('nan').__round__)
 
 assert (1.7).real == 1.7
 assert (1.3).is_integer() == False
