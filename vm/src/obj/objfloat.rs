@@ -51,11 +51,27 @@ fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> 
     })
 }
 
-fn mod_(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
+fn inner_div(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     if v2 != 0.0 {
-        Ok(vm.ctx.new_float(v1 % v2))
+        Ok(v1 / v2)
+    } else {
+        Err(vm.new_zero_division_error("float division by zero".to_string()))
+    }
+}
+
+fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
+    if v2 != 0.0 {
+        Ok(v1 % v2)
     } else {
         Err(vm.new_zero_division_error("float mod by zero".to_string()))
+    }
+}
+
+fn inner_floordiv(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
+    if v2 != 0.0 {
+        Ok((v1 / v2).floor())
+    } else {
+        Err(vm.new_zero_division_error("float floordiv by zero".to_string()))
     }
 }
 
@@ -139,20 +155,15 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__add__")]
-    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        let v1 = self.value;
-        if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            vm.ctx.new_float(v1 + get_value(&other))
-        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx
-                .new_float(v1 + objint::get_value(&other).to_f64().unwrap())
-        } else {
-            vm.ctx.not_implemented()
-        }
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value + other).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__radd__")]
-    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.add(other, vm)
     }
 
@@ -163,45 +174,39 @@ impl PyFloat {
 
     #[pymethod(name = "__divmod__")]
     fn divmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.float_type())
-            || objtype::isinstance(&other, &vm.ctx.int_type())
-        {
-            let r1 = self.floordiv(other.clone(), vm)?;
-            let r2 = self.mod_(other, vm)?;
-            Ok(vm.ctx.new_tuple(vec![r1, r2]))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| {
+                let r1 = inner_floordiv(self.value, other, vm)?;
+                let r2 = inner_mod(self.value, other, vm)?;
+                Ok(vm
+                    .ctx
+                    .new_tuple(vec![vm.ctx.new_float(r1), vm.ctx.new_float(r2)]))
+            },
+        )
     }
 
     #[pymethod(name = "__floordiv__")]
     fn floordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let v1 = self.value;
-        let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
-            get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_float_value(&other, vm)?
-        } else {
-            return Ok(vm.ctx.not_implemented());
-        };
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| inner_floordiv(self.value, other, vm)?.into_pyobject(vm),
+        )
+    }
 
-        if v2 != 0.0 {
-            Ok(vm.ctx.new_float((v1 / v2).floor()))
-        } else {
-            Err(vm.new_zero_division_error("float floordiv by zero".to_string()))
-        }
+    #[pymethod(name = "__rfloordiv__")]
+    fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| inner_floordiv(other, self.value, vm)?.into_pyobject(vm),
+        )
     }
 
     fn new_float(cls: PyClassRef, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyFloatRef> {
         let value = if objtype::isinstance(&arg, &vm.ctx.float_type()) {
             get_value(&arg)
         } else if objtype::isinstance(&arg, &vm.ctx.int_type()) {
-            match objint::get_float_value(&arg, vm) {
-                Ok(f) => f,
-                Err(e) => {
-                    return Err(e);
-                }
-            }
+            objint::get_float_value(&arg, vm)?
         } else if objtype::isinstance(&arg, &vm.ctx.str_type()) {
             match lexical::try_parse(objstr::get_value(&arg)) {
                 Ok(f) => f,
@@ -232,28 +237,18 @@ impl PyFloat {
 
     #[pymethod(name = "__mod__")]
     fn mod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let v1 = self.value;
-        let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
-            get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_float_value(&other, vm)?
-        } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-
-        mod_(v1, v2, vm)
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| inner_mod(self.value, other, vm)?.into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__rmod__")]
     fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let v2 = self.value;
-        let v1 = if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_float_value(&other, vm)?
-        } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-
-        mod_(v1, v2, vm)
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| inner_mod(other, self.value, vm)?.into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__neg__")]
@@ -271,30 +266,18 @@ impl PyFloat {
 
     #[pymethod(name = "__sub__")]
     fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let v1 = self.value;
-        if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            Ok(vm.ctx.new_float(v1 - get_value(&other)))
-        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            Ok(vm
-                .ctx
-                .new_float(v1 - objint::get_value(&other).to_f64().unwrap()))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value - other).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__rsub__")]
     fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let v1 = self.value;
-        if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            Ok(vm.ctx.new_float(get_value(&other) - v1))
-        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            Ok(vm
-                .ctx
-                .new_float(objint::get_value(&other).to_f64().unwrap() - v1))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (other - self.value).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__repr__")]
@@ -304,52 +287,26 @@ impl PyFloat {
 
     #[pymethod(name = "__truediv__")]
     fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let v1 = self.value;
-        let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
-            get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_float_value(&other, vm)?
-        } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-
-        if v2 != 0.0 {
-            Ok(vm.ctx.new_float(v1 / v2))
-        } else {
-            Err(vm.new_zero_division_error("float division by zero".to_string()))
-        }
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| inner_div(self.value, other, vm)?.into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__rtruediv__")]
     fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let v1 = self.value;
-        let v2 = if objtype::isinstance(&other, &vm.ctx.float_type) {
-            get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            objint::get_float_value(&other, vm)?
-        } else {
-            return Ok(vm.ctx.not_implemented());
-        };
-
-        if v1 != 0.0 {
-            Ok(vm.ctx.new_float(v2 / v1))
-        } else {
-            Err(vm.new_zero_division_error("float division by zero".to_string()))
-        }
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| inner_div(other, self.value, vm)?.into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        let v1 = self.value;
-        if objtype::isinstance(&other, &vm.ctx.float_type) {
-            Ok(vm.ctx.new_float(v1 * get_value(&other)))
-        } else if objtype::isinstance(&other, &vm.ctx.int_type) {
-            Ok(vm
-                .ctx
-                .new_float(v1 * objint::get_value(&other).to_f64().unwrap()))
-        } else {
-            Ok(vm.ctx.not_implemented())
-        }
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value * other).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__rmul__")]

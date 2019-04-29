@@ -8,6 +8,7 @@ a = 1.2
 b = 1.3
 c = 1.2
 z = 2
+ov = 10 ** 1000
 
 assert -a == -1.2
 
@@ -37,6 +38,20 @@ assert a / z == 0.6
 assert 6 / a == 5.0
 assert 2.0 % z == 0.0
 assert z % 2.0 == 0.0
+assert_raises(OverflowError, lambda: a + ov)
+assert_raises(OverflowError, lambda: a - ov)
+assert_raises(OverflowError, lambda: a * ov)
+assert_raises(OverflowError, lambda: a / ov)
+assert_raises(OverflowError, lambda: a // ov)
+assert_raises(OverflowError, lambda: a % ov)
+assert_raises(OverflowError, lambda: a ** ov)
+assert_raises(OverflowError, lambda: ov + a)
+assert_raises(OverflowError, lambda: ov - a)
+assert_raises(OverflowError, lambda: ov * a)
+assert_raises(OverflowError, lambda: ov / a)
+assert_raises(OverflowError, lambda: ov // a)
+assert_raises(OverflowError, lambda: ov % a)
+# assert_raises(OverflowError, lambda: ov ** a)
 
 assert a < 5
 assert a <= 5
