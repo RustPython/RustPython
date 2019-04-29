@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 a = 4
 
@@ -25,3 +25,16 @@ assert round(0.5) == 0
 assert round(1.5) == 2
 assert round(-0.5) == 0
 assert round(-1.5) == -2
+
+assert_raises(
+    ValueError,
+    lambda: round(float('nan')),
+    'ValueError: cannot convert float NaN to integer')
+assert_raises(
+    OverflowError,
+    lambda: round(float('inf')),
+    'OverflowError: cannot convert float NaN to integer')
+assert_raises(
+    OverflowError,
+    lambda: round(-float('inf')),
+    'OverflowError: cannot convert float NaN to integer')

@@ -51,6 +51,28 @@ fn mod_(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
+    match value.to_bigint() {
+        Some(int) => Ok(int),
+        None => {
+            if value.is_infinite() {
+                Err(vm.new_overflow_error(
+                    "OverflowError: cannot convert float NaN to integer".to_string(),
+                ))
+            } else if value.is_nan() {
+                Err(vm
+                    .new_value_error("ValueError: cannot convert float NaN to integer".to_string()))
+            } else {
+                // unreachable unless BigInt has a bug
+                unreachable!(
+                    "A finite float value failed to be converted to bigint: {}",
+                    value
+                )
+            }
+        }
+    }
+}
+
 #[pyimpl]
 impl PyFloat {
     #[pymethod(name = "__eq__")]
@@ -360,7 +382,7 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__round__")]
-    fn round(&self, ndigits: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyObjectRef {
+    fn round(&self, ndigits: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let ndigits = match ndigits {
             OptionalArg::Missing => None,
             OptionalArg::Present(ref value) => {
@@ -383,9 +405,10 @@ impl PyFloat {
             } else {
                 self.value.round()
             };
-            vm.ctx.new_int(value.to_bigint().unwrap())
+            let int = try_to_bigint(value, vm)?;
+            Ok(vm.ctx.new_int(int))
         } else {
-            vm.ctx.not_implemented()
+            Ok(vm.ctx.not_implemented())
         }
     }
 
