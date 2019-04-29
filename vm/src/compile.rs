@@ -41,17 +41,17 @@ pub fn compile(
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            let symbol_table = make_symbol_table(&ast);
+            let symbol_table = make_symbol_table(&ast)?;
             compiler.compile_program(&ast, symbol_table)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            let symbol_table = statements_to_symbol_table(&statement);
+            let symbol_table = statements_to_symbol_table(&statement)?;
             compiler.compile_statement_eval(&statement, symbol_table)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            let symbol_table = make_symbol_table(&ast);
+            let symbol_table = make_symbol_table(&ast)?;
             compiler.compile_program_single(&ast, symbol_table)
         }
     }?;
@@ -1776,7 +1776,7 @@ mod tests {
         compiler.source_path = Some("source_path".to_string());
         compiler.push_new_code_object("<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
-        let symbol_scope = make_symbol_table(&ast);
+        let symbol_scope = make_symbol_table(&ast).unwrap();
         compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()
     }

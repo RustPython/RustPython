@@ -29,6 +29,7 @@ pub enum CompileErrorType {
     ExpectExpr,
     /// Parser error
     Parse(ParseError),
+    SyntaxError(String),
     /// Multiple `*` detected
     StarArgs,
     /// Break statement outside of loop.
@@ -46,6 +47,7 @@ impl fmt::Display for CompileError {
             CompileErrorType::Delete(target) => write!(f, "can't delete {}", target),
             CompileErrorType::ExpectExpr => write!(f, "Expecting expression, got statement"),
             CompileErrorType::Parse(err) => write!(f, "{}", err),
+            CompileErrorType::SyntaxError(err) => write!(f, "{}", err),
             CompileErrorType::StarArgs => write!(f, "Two starred expressions in assignment"),
             CompileErrorType::InvalidBreak => write!(f, "'break' outside loop"),
             CompileErrorType::InvalidContinue => write!(f, "'continue' outside loop"),
