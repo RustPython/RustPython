@@ -136,7 +136,6 @@ pub enum Instruction {
     PopBlock,
     Raise {
         argc: usize,
-        in_exc: bool,
     },
     BuildString {
         size: usize,
@@ -183,6 +182,7 @@ pub enum Instruction {
         conversion: Option<ast::ConversionFlag>,
         spec: String,
     },
+    PopException,
 }
 
 use self::Instruction::*;
@@ -365,7 +365,7 @@ impl Instruction {
             SetupWith { end } => w!(SetupWith, end),
             CleanupWith { end } => w!(CleanupWith, end),
             PopBlock => w!(PopBlock),
-            Raise { argc, in_exc } => w!(Raise, argc, in_exc),
+            Raise { argc } => w!(Raise, argc),
             BuildString { size } => w!(BuildString, size),
             BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
             BuildList { size, unpack } => w!(BuildList, size, unpack),
@@ -381,6 +381,7 @@ impl Instruction {
             UnpackEx { before, after } => w!(UnpackEx, before, after),
             Unpack => w!(Unpack),
             FormatValue { spec, .. } => w!(FormatValue, spec), // TODO: write conversion
+            PopException => w!(PopException),
         }
     }
 }

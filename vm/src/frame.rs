@@ -718,15 +718,15 @@ impl Frame {
                 Ok(None)
             }
 
-            bytecode::Instruction::Raise { argc, in_exc } => {
+            bytecode::Instruction::Raise { argc } => {
                 let cause = match argc {
                     2 => self.get_exception(vm, true)?,
                     _ => vm.get_none(),
                 };
                 let exception = match argc {
-                    0 => match in_exc {
-                        true => self.get_exception(vm, false)?,
-                        false => {
+                    0 => match vm.pop_exception() {
+                        Some(exc) => exc,
+                        None => {
                             return Err(vm.new_exception(
                                 vm.ctx.exceptions.runtime_error.clone(),
                                 "No active exception to reraise".to_string(),
@@ -739,9 +739,9 @@ impl Frame {
                 };
                 let context = match argc {
                     0 => vm.get_none(), // We have already got the exception,
-                    _ => match in_exc {
-                        true => self.get_exception(vm, false)?,
-                        false => vm.get_none(),
+                    _ => match vm.pop_exception() {
+                        Some(exc) => exc,
+                        None => vm.get_none(),
                     },
                 };
                 info!(
@@ -860,6 +860,10 @@ impl Frame {
                 self.push_value(formatted);
                 Ok(None)
             }
+            bytecode::Instruction::PopException {} => {
+                assert!(vm.pop_exception().is_some());
+                Ok(None)
+            }
         }
     }
 
@@ -966,7 +970,8 @@ impl Frame {
         while let Some(block) = self.pop_block() {
             match block.typ {
                 BlockType::TryExcept { handler } => {
-                    self.push_value(exc);
+                    self.push_value(exc.clone());
+                    vm.push_exception(exc);
                     self.jump(handler);
                     return None;
                 }

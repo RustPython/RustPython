@@ -167,3 +167,29 @@ try:
         raise NameError
 except NameError as ex2:
     assert ex2.__context__ == None
+
+def f():
+    raise
+
+with assertRaises(ZeroDivisionError):
+    try:
+        1/0
+    except:
+        f()
+
+with assertRaises(ZeroDivisionError):
+    try:
+        1/0
+    except ZeroDivisionError:
+        try:
+            raise
+        except NameError:
+            pass
+        raise
+
+# Regression https://github.com/RustPython/RustPython/issues/867
+for _ in [1, 2]:
+    try:
+        raise ArithmeticError()
+    except ArithmeticError as e:
+        continue

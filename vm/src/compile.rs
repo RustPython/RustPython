@@ -24,7 +24,6 @@ struct Compiler {
     current_qualified_path: Option<String>,
     in_loop: bool,
     in_function_def: bool,
-    in_exc_handler: bool,
 }
 
 /// Compile a given sourcecode into a bytecode object.
@@ -86,7 +85,6 @@ impl Compiler {
             current_qualified_path: None,
             in_loop: false,
             in_function_def: false,
-            in_exc_handler: false,
         }
     }
 
@@ -330,24 +328,15 @@ impl Compiler {
                     match cause {
                         Some(cause) => {
                             self.compile_expression(cause)?;
-                            self.emit(Instruction::Raise {
-                                argc: 2,
-                                in_exc: self.in_exc_handler,
-                            });
+                            self.emit(Instruction::Raise { argc: 2 });
                         }
                         None => {
-                            self.emit(Instruction::Raise {
-                                argc: 1,
-                                in_exc: self.in_exc_handler,
-                            });
+                            self.emit(Instruction::Raise { argc: 1 });
                         }
                     }
                 }
                 None => {
-                    self.emit(Instruction::Raise {
-                        argc: 0,
-                        in_exc: self.in_exc_handler,
-                    });
+                    self.emit(Instruction::Raise { argc: 0 });
                 }
             },
             ast::Statement::Try {
@@ -392,10 +381,7 @@ impl Compiler {
                         });
                     }
                 }
-                self.emit(Instruction::Raise {
-                    argc: 1,
-                    in_exc: self.in_exc_handler,
-                });
+                self.emit(Instruction::Raise { argc: 1 });
                 self.set_label(end_label);
             }
             ast::Statement::Break => {
@@ -597,8 +583,6 @@ impl Compiler {
         self.emit(Instruction::Jump { target: else_label });
 
         // except handlers:
-        let was_in_exc_handler = self.in_exc_handler;
-        self.in_exc_handler = true;
         self.set_label(handler_label);
         // Exception is on top of stack now
         handler_label = self.new_label();
@@ -627,16 +611,20 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = &handler.name {
-                    // Duplicate exception for context:
-                    self.emit(Instruction::Duplicate);
                     self.store_name(alias);
+                } else {
+                    // Drop exception from top of stack:
+                    self.emit(Instruction::Pop);
                 }
+            } else {
+                // Catch all!
+                // Drop exception from top of stack:
+                self.emit(Instruction::Pop);
             }
 
             // Handler code:
             self.compile_statements(&handler.body)?;
-            // Drop exception from top of stack:
-            self.emit(Instruction::Pop);
+            self.emit(Instruction::PopException);
             self.emit(Instruction::Jump {
                 target: finally_label,
             });
@@ -657,12 +645,7 @@ impl Compiler {
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
         }
-        self.emit(Instruction::Raise {
-            argc: 0,
-            in_exc: true,
-        });
-
-        self.in_exc_handler = was_in_exc_handler;
+        self.emit(Instruction::Raise { argc: 0 });
 
         // We successfully ran the try block:
         // else:
