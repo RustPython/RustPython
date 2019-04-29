@@ -262,16 +262,11 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__pow__")]
-    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        let v1 = self.value;
-        if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            vm.ctx.new_float(v1.powf(get_value(&other)))
-        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let result = v1.powf(objint::get_value(&other).to_f64().unwrap());
-            vm.ctx.new_float(result)
-        } else {
-            vm.ctx.not_implemented()
-        }
+    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| self.value.powf(other).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__sub__")]

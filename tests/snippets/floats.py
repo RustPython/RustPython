@@ -113,6 +113,9 @@ assert int(1.2) == 1
 assert float(1.2) == 1.2
 # assert math.trunc(1.2) == 1
 
+assert 1.2 ** 2 == 1.44
+assert_raises(OverflowError, lambda: 1.2 ** (10 ** 1000))
+
 assert (1.7).real == 1.7
 assert (1.3).is_integer() == False
 assert (1.0).is_integer()    == True
