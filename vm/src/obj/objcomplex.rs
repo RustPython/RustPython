@@ -67,7 +67,9 @@ impl PyComplexRef {
 }
 
 fn to_complex(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
-    if objtype::isinstance(&value, &vm.ctx.int_type()) {
+    if objtype::isinstance(&value, &vm.ctx.complex_type()) {
+        Ok(Some(get_value(&value)))
+    } else if objtype::isinstance(&value, &vm.ctx.int_type()) {
         match objint::get_value(&value).to_f64() {
             Some(v) => Ok(Some(Complex64::new(v, 0.0))),
             None => Err(vm.new_overflow_error("int too large to convert to float".to_string())),
