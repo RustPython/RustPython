@@ -1,4 +1,4 @@
-from testutils import assertRaises
+from testutils import assert_raises
 
 # __abs__
 
@@ -73,19 +73,13 @@ assert 1j - 1 == complex(-1, 1)
 assert 2j - 1j == complex(0, 1)
 
 # type error addition
-with assertRaises(TypeError):
-    assert 1j + 'str'
-with assertRaises(TypeError):
-    assert 1j - 'str'
-with assertRaises(TypeError):
-    assert 'str' + 1j
-with assertRaises(TypeError):
-    assert 'str' - 1j
+assert_raises(TypeError, lambda: 1j + 'str')
+assert_raises(TypeError, lambda: 1j - 'str')
+assert_raises(TypeError, lambda: 'str' + 1j)
+assert_raises(TypeError, lambda: 'str' - 1j)
 
 # overflow
-with assertRaises(OverflowError):
-    complex(10 ** 1000, 0)
-with assertRaises(OverflowError):
-    complex(0, 10 ** 1000)
-with assertRaises(OverflowError):
-    complex(0, 0) + 10 ** 1000
+msg = 'int too large to convert to float'
+assert_raises(OverflowError, lambda: complex(10 ** 1000, 0), msg)
+assert_raises(OverflowError, lambda: complex(0, 10 ** 1000), msg)
+assert_raises(OverflowError, lambda: 0j + 10 ** 1000, msg)
