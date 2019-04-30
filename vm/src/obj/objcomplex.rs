@@ -9,6 +9,9 @@ use super::objfloat::{self, PyFloat};
 use super::objint;
 use super::objtype::{self, PyClassRef};
 
+/// Create a complex number from a real part and an optional imaginary part.
+///
+/// This is equivalent to (real + imag*1j) where imag defaults to 0.
 #[pyclass(name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
@@ -30,40 +33,10 @@ impl From<Complex64> for PyComplex {
 
 pub fn init(context: &PyContext) {
     PyComplex::extend_class(context, &context.complex_type);
-    let complex_doc =
-        "Create a complex number from a real part and an optional imaginary part.\n\n\
-         This is equivalent to (real + imag*1j) where imag defaults to 0.";
-
-    extend_class!(context, &context.complex_type, {
-        "__doc__" => context.new_str(complex_doc.to_string()),
-        "__new__" => context.new_rustfunc(PyComplexRef::new),
-    });
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
     obj.payload::<PyComplex>().unwrap().value
-}
-
-impl PyComplexRef {
-    fn new(
-        cls: PyClassRef,
-        real: OptionalArg<PyObjectRef>,
-        imag: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComplexRef> {
-        let real = match real {
-            OptionalArg::Missing => 0.0,
-            OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
-        };
-
-        let imag = match imag {
-            OptionalArg::Missing => 0.0,
-            OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
-        };
-
-        let value = Complex64::new(real, imag);
-        PyComplex { value }.into_ref_with_type(vm, cls)
-    }
 }
 
 fn to_complex(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
@@ -203,5 +176,26 @@ impl PyComplex {
     #[pymethod(name = "__bool__")]
     fn bool(&self, _vm: &VirtualMachine) -> bool {
         self.value != Complex64::zero()
+    }
+
+    #[pymethod(name = "__new__")]
+    fn complex_new(
+        cls: PyClassRef,
+        real: OptionalArg<PyObjectRef>,
+        imag: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComplexRef> {
+        let real = match real {
+            OptionalArg::Missing => 0.0,
+            OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
+        };
+
+        let imag = match imag {
+            OptionalArg::Missing => 0.0,
+            OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
+        };
+
+        let value = Complex64::new(real, imag);
+        PyComplex { value }.into_ref_with_type(vm, cls)
     }
 }
