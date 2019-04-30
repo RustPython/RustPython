@@ -41,6 +41,16 @@ impl From<f64> for PyFloat {
     }
 }
 
+fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+    Ok(if objtype::isinstance(&value, &vm.ctx.float_type()) {
+        Some(get_value(&value))
+    } else if objtype::isinstance(&value, &vm.ctx.int_type()) {
+        Some(objint::get_float_value(&value, vm)?)
+    } else {
+        None
+    })
+}
+
 fn mod_(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     if v2 != 0.0 {
         Ok(vm.ctx.new_float(v1 % v2))
