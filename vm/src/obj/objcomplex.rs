@@ -146,6 +146,32 @@ impl PyComplex {
         self.mul(other, vm)
     }
 
+    #[pymethod(name = "__truediv__")]
+    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value / other).into_pyobject(vm),
+        )
+    }
+
+    #[pymethod(name = "__rtruediv__")]
+    fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (other / self.value).into_pyobject(vm),
+        )
+    }
+
+    #[pymethod(name = "__floordiv__")]
+    fn floordiv(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("can't take floor of complex number.".to_string()))
+    }
+
+    #[pymethod(name = "__rfloordiv__")]
+    fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.floordiv(other, vm)
+    }
+
     #[pymethod(name = "__neg__")]
     fn neg(&self, _vm: &VirtualMachine) -> Complex64 {
         -self.value

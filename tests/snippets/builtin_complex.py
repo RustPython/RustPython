@@ -25,11 +25,27 @@ assert complex(1, 2) != 'foo'
 assert complex(1, 2).__eq__('foo') == NotImplemented
 assert 1j != 10 ** 1000
 
-# __mul__
+# __mul__, __rmul__
 
 assert complex(2, -3) * complex(-5, 7) == complex(11, 29)
 assert complex(2, -3) * 5 == complex(10, -15)
 assert 5 * complex(2, -3) == complex(2, -3) * 5
+
+# __truediv__, __rtruediv__
+
+assert complex(2, -3) / 2 == complex(1, -1.5)
+assert 5 / complex(3, -4) == complex(0.6, 0.8)
+
+# __floordiv__, __rfloordiv__
+
+assert_raises(
+    TypeError,
+    lambda: complex(2, -3) // 2,
+    "can't take floor of complex number.")
+assert_raises(
+    TypeError,
+    lambda: 2 // complex(2, -3),
+    "can't take floor of complex number.")
 
 # __neg__
 
