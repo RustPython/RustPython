@@ -13,7 +13,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objfloat::{self, PyFloat};
+use super::objfloat::PyFloat;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -327,9 +327,6 @@ impl PyInt {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other).to_u32().unwrap();
             vm.ctx.new_int(self.value.pow(v2))
-        } else if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            let v2 = objfloat::get_value(&other);
-            vm.ctx.new_float((self.value.to_f64().unwrap()).powf(v2))
         } else {
             vm.ctx.not_implemented()
         }
