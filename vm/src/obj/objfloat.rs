@@ -11,6 +11,7 @@ use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 
+/// Convert a string or number to a floating point number, if possible.
 #[pyclass(name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyFloat {
@@ -222,7 +223,8 @@ impl PyFloat {
         )
     }
 
-    fn new_float(cls: PyClassRef, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyFloatRef> {
+    #[pymethod(name = "__new__")]
+    fn float_new(cls: PyClassRef, arg: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyFloatRef> {
         let value = if objtype::isinstance(&arg, &vm.ctx.float_type()) {
             get_value(&arg)
         } else if objtype::isinstance(&arg, &vm.ctx.int_type()) {
@@ -408,9 +410,4 @@ pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
 #[rustfmt::skip] // to avoid line splitting
 pub fn init(context: &PyContext) {
     PyFloat::extend_class(context, &context.float_type);
-    let float_doc = "Convert a string or number to a floating point number, if possible.";
-    extend_class!(context, &context.float_type, {
-        "__new__" => context.new_rustfunc(PyFloat::new_float),
-        "__doc__" => context.new_str(float_doc.to_string()),
-    });
 }
