@@ -284,6 +284,14 @@ impl PyFloat {
         )
     }
 
+    #[pymethod(name = "__rpow__")]
+    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| other.powf(self.value).into_pyobject(vm),
+        )
+    }
+
     #[pymethod(name = "__sub__")]
     fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         try_float(&other, vm)?.map_or_else(
