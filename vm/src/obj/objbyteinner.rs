@@ -612,18 +612,9 @@ impl PyByteInner {
 
     pub fn join(&self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
         let mut refs = vec![];
-        for (index, v) in iter.iter(vm)?.enumerate() {
+        for v in iter.iter(vm)? {
             let v = v?;
-            match try_as_bytes_like(&v) {
-                None => {
-                    return Err(vm.new_type_error(format!(
-                        "sequence item {}: expected a bytes-like object, {} found",
-                        index,
-                        &v.class().name,
-                    )));
-                }
-                Some(value) => refs.extend(value),
-            }
+            refs.extend(PyByteInner::try_from_object(vm, v)?.elements)
         }
 
         Ok(vm.ctx.new_bytes(refs))
@@ -642,15 +633,7 @@ impl PyByteInner {
             Either::B(tuple) => {
                 let mut flatten = vec![];
                 for v in objsequence::get_elements(tuple.as_object()).to_vec() {
-                    match try_as_bytes_like(&v) {
-                        None => {
-                            return Err(vm.new_type_error(format!(
-                                "a bytes-like object is required, not {}",
-                                &v.class().name,
-                            )));
-                        }
-                        Some(value) => flatten.extend(value),
-                    }
+                    flatten.extend(PyByteInner::try_from_object(vm, v)?.elements)
                 }
                 flatten
             }
@@ -781,15 +764,6 @@ pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
 
     i @ PyBytes => Some(i.get_value().to_vec()),
     j @ PyByteArray => Some(get_value_bytearray(&j.as_object()).to_vec()),
-    _ => None)
-}
-
-pub fn try_as_bytes_like(obj: &PyObjectRef) -> Option<Vec<u8>> {
-    match_class!(obj.clone(),
-
-    i @ PyBytes => Some(i.get_value().to_vec()),
-    j @ PyByteArray => Some(get_value_bytearray(&j.as_object()).to_vec()),
-    k @ PyMemoryView => Some(k.get_obj_value().unwrap()),
     _ => None)
 }
 
