@@ -106,6 +106,8 @@ assert 2.0.__sub__(1.0) == 1.0
 assert 2.0.__rmul__(1.0) == 2.0
 assert 1.0.__truediv__(2.0) == 0.5
 assert 1.0.__rtruediv__(2.0) == 2.0
+assert 2.5.__divmod__(2.0) == (1.0, 0.5)
+assert 2.0.__rdivmod__(2.5) == (1.0, 0.5)
 
 assert 1.0.__add__(1) == 2.0
 assert 1.0.__radd__(1) == 2.0
@@ -120,6 +122,11 @@ assert 2.0.__rmod__(2) == 0.0
 assert_raises(ZeroDivisionError, lambda: 2.0 / 0)
 assert_raises(ZeroDivisionError, lambda: 2.0 // 0)
 assert_raises(ZeroDivisionError, lambda: 2.0 % 0)
+assert_raises(ZeroDivisionError, lambda: divmod(2.0, 0))
+assert_raises(ZeroDivisionError, lambda: 2 / 0.0)
+assert_raises(ZeroDivisionError, lambda: 2 // 0.0)
+assert_raises(ZeroDivisionError, lambda: 2 % 0.0)
+# assert_raises(ZeroDivisionError, lambda: divmod(2, 0.0))
 
 assert 1.2.__int__() == 1
 assert 1.2.__float__() == 1.2

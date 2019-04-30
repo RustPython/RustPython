@@ -75,6 +75,14 @@ fn inner_floordiv(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
     }
 }
 
+fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
+    if v2 != 0.0 {
+        Ok(((v1 / v2).floor(), v1 % v2))
+    } else {
+        Err(vm.new_zero_division_error("float divmod()".to_string()))
+    }
+}
+
 #[pyimpl]
 impl PyFloat {
     #[pymethod(name = "__eq__")]
@@ -177,8 +185,20 @@ impl PyFloat {
         try_float(&other, vm)?.map_or_else(
             || Ok(vm.ctx.not_implemented()),
             |other| {
-                let r1 = inner_floordiv(self.value, other, vm)?;
-                let r2 = inner_mod(self.value, other, vm)?;
+                let (r1, r2) = inner_divmod(self.value, other, vm)?;
+                Ok(vm
+                    .ctx
+                    .new_tuple(vec![vm.ctx.new_float(r1), vm.ctx.new_float(r2)]))
+            },
+        )
+    }
+
+    #[pymethod(name = "__rdivmod__")]
+    fn rdivmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_float(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| {
+                let (r1, r2) = inner_divmod(other, self.value, vm)?;
                 Ok(vm
                     .ctx
                     .new_tuple(vec![vm.ctx.new_float(r1), vm.ctx.new_float(r2)]))
