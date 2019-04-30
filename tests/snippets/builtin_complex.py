@@ -29,6 +29,7 @@ assert 1j != 10 ** 1000
 
 assert complex(2, -3) * complex(-5, 7) == complex(11, 29)
 assert complex(2, -3) * 5 == complex(10, -15)
+assert 5 * complex(2, -3) == complex(2, -3) * 5
 
 # __neg__
 

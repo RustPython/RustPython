@@ -141,6 +141,11 @@ impl PyComplex {
         )
     }
 
+    #[pymethod(name = "__rmul__")]
+    fn rmul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.mul(other, vm)
+    }
+
     #[pymethod(name = "__neg__")]
     fn neg(&self, _vm: &VirtualMachine) -> Complex64 {
         -self.value
