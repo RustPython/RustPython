@@ -364,6 +364,16 @@ impl PyFloat {
         zelf
     }
 
+    #[pyproperty(name = "imag")]
+    fn imag(&self, _vm: &VirtualMachine) -> f64 {
+        0.0f64
+    }
+
+    #[pymethod(name = "conjugate")]
+    fn conjugate(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
+        zelf
+    }
+
     #[pymethod(name = "is_integer")]
     fn is_integer(&self, _vm: &VirtualMachine) -> bool {
         let v = self.value;
