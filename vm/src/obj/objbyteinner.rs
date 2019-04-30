@@ -256,26 +256,16 @@ impl ByteInnerTranslateOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerSplitOptions {
     #[pyarg(positional_or_keyword, optional = true)]
-    sep: OptionalArg<PyObjectRef>,
+    sep: OptionalArg<Option<PyByteInner>>,
     #[pyarg(positional_or_keyword, optional = true)]
     maxsplit: OptionalArg<PyIntRef>,
 }
 
 impl ByteInnerSplitOptions {
-    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Vec<u8>, i32)> {
-        let sep = if let OptionalArg::Present(value) = self.sep {
-            match try_as_bytes_like(&value) {
-                Some(value) => value,
-                None => match_class!(value,
-                     _n @ PyNone=> vec![],
-                     obj =>  {return Err(vm.new_type_error(format!(
-                    "a bytes-like object is required, not {}",
-                    obj
-                )));}
-                    ),
-            }
-        } else {
-            vec![]
+    pub fn get_value(self) -> PyResult<(Vec<u8>, i32)> {
+        let sep = match self.sep.into_option() {
+            Some(Some(bytes)) => bytes.elements,
+            _ => vec![],
         };
 
         let maxsplit = if let OptionalArg::Present(value) = self.maxsplit {
@@ -829,13 +819,8 @@ impl PyByteInner {
         Ok(self.elements[start..end].to_vec())
     }
 
-    pub fn split(
-        &self,
-        options: ByteInnerSplitOptions,
-        reverse: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<&[u8]>> {
-        let (sep, maxsplit) = options.get_value(vm)?;
+    pub fn split(&self, options: ByteInnerSplitOptions, reverse: bool) -> PyResult<Vec<&[u8]>> {
+        let (sep, maxsplit) = options.get_value()?;
 
         if self.elements.is_empty() {
             if !sep.is_empty() {

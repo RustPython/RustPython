@@ -339,7 +339,7 @@ impl PyBytesRef {
     fn split(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
-            .split(options, false, vm)?
+            .split(options, false)?
             .iter()
             .map(|x| vm.ctx.new_bytes(x.to_vec()))
             .collect::<Vec<PyObjectRef>>();
@@ -350,7 +350,7 @@ impl PyBytesRef {
     fn rsplit(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
-            .split(options, true, vm)?
+            .split(options, true)?
             .iter()
             .map(|x| vm.ctx.new_bytes(x.to_vec()))
             .collect::<Vec<PyObjectRef>>();
