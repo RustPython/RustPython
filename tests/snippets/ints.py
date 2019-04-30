@@ -37,6 +37,8 @@ assert (2).__mul__(1) == 2
 assert (2).__rmul__(1) == 2
 assert (2).__truediv__(1) == 2.0
 assert (2).__rtruediv__(1) == 0.5
+assert (2).__pow__(3) == 8
+assert (10).__pow__(-1) == 0.1
 
 # real/imag attributes
 assert (1).real == 1
@@ -58,6 +60,7 @@ assert (2).__mul__(1.0) == NotImplemented
 assert (2).__rmul__(1.0) == NotImplemented
 assert (2).__truediv__(1.0) == NotImplemented
 assert (2).__rtruediv__(1.0) == NotImplemented
+assert (2).__pow__(3.0) == NotImplemented
 
 
 assert int() == 0

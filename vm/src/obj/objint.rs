@@ -323,13 +323,21 @@ impl PyInt {
     }
 
     #[pymethod(name = "__pow__")]
-    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let v2 = get_value(&other).to_u32().unwrap();
-            vm.ctx.new_int(self.value.pow(v2))
+    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Ok(if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            let other = other.payload::<PyInt>().unwrap();
+            if other.value.is_negative() {
+                let v1 = self.float(vm)?;
+                let v2 = other.float(vm)?;
+                vm.ctx.new_float(v1.pow(v2.to_f64().unwrap()))
+            } else if let Some(v2) = other.value.to_u32() {
+                vm.ctx.new_int(self.value.pow(v2))
+            } else {
+                vm.ctx.not_implemented()
+            }
         } else {
             vm.ctx.not_implemented()
-        }
+        })
     }
 
     #[pymethod(name = "__mod__")]
@@ -400,10 +408,9 @@ impl PyInt {
     }
 
     #[pymethod(name = "__float__")]
-    fn float(&self, vm: &VirtualMachine) -> PyResult<PyFloat> {
+    fn float(&self, vm: &VirtualMachine) -> PyResult<f64> {
         self.value
             .to_f64()
-            .map(PyFloat::from)
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))
     }
 
@@ -541,9 +548,7 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
 }
 
 pub fn get_float_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    get_value(obj).to_f64().ok_or_else(|| {
-        vm.new_overflow_error("OverflowError: int too large to convert to float".to_string())
-    })
+    obj.payload::<PyInt>().unwrap().float(vm)
 }
 
 #[inline]
