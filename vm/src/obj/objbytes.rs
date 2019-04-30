@@ -1,4 +1,5 @@
 use crate::obj::objint::PyIntRef;
+
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
@@ -9,7 +10,9 @@ use core::cell::Cell;
 use std::ops::Deref;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 
 use super::objbyteinner::{
     ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -360,8 +363,10 @@ impl PyBytesRef {
     #[pymethod(name = "partition")]
     fn partition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // TODO:  when implementing bytearray,remember sep ALWAYS converted to  bytearray
-        // even it's bytes or memoryview
-        let (left, right) = self.inner.partition(&sep, false, vm)?;
+        // even it's bytes or memoryview so PyByteInner wiil be ok for args
+        let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
+
+        let (left, right) = self.inner.partition(&sepa, false)?;
         Ok(vm
             .ctx
             .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
@@ -369,8 +374,10 @@ impl PyBytesRef {
     #[pymethod(name = "rpartition")]
     fn rpartition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // TODO:  when implementing bytearray,remember sep ALWAYS converted to  bytearray
-        // even it's bytes or memoryview
-        let (left, right) = self.inner.partition(&sep, true, vm)?;
+        // even it's bytes or memoryview so PyByteInner wiil be ok for args
+        let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
+
+        let (left, right) = self.inner.partition(&sepa, true)?;
         Ok(vm
             .ctx
             .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
@@ -385,7 +392,7 @@ impl PyBytesRef {
     fn splitlines(self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
         let as_bytes = self
             .inner
-            .splitlines(options, vm)?
+            .splitlines(options)
             .iter()
             .map(|x| vm.ctx.new_bytes(x.to_vec()))
             .collect::<Vec<PyObjectRef>>();
@@ -400,12 +407,12 @@ impl PyBytesRef {
     #[pymethod(name = "replace")]
     fn replace(
         self,
-        old: PyObjectRef,
-        new: PyObjectRef,
+        old: PyByteInner,
+        new: PyByteInner,
         count: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Ok(vm.ctx.new_bytes(self.inner.replace(old, new, count, vm)?))
+        Ok(vm.ctx.new_bytes(self.inner.replace(old, new, count)?))
     }
 }
 

@@ -281,19 +281,14 @@ impl ByteInnerSplitOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerExpandtabsOptions {
     #[pyarg(positional_or_keyword, optional = true)]
-    tabsize: OptionalArg<PyObjectRef>,
+    tabsize: OptionalArg<PyIntRef>,
 }
 
 impl ByteInnerExpandtabsOptions {
     pub fn get_value(self) -> usize {
-        if let OptionalArg::Present(value) = self.tabsize {
-            if let Some(v) = objint::get_value(&value).to_usize() {
-                v
-            } else {
-                0
-            }
-        } else {
-            8
+        match self.tabsize.into_option() {
+            Some(int) => int.as_bigint().to_usize().unwrap_or(0),
+            None => 8,
         }
     }
 }
@@ -301,16 +296,20 @@ impl ByteInnerExpandtabsOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerSplitlinesOptions {
     #[pyarg(positional_or_keyword, optional = true)]
-    keepends: OptionalArg<PyObjectRef>,
+    keepends: OptionalArg<bool>,
 }
 
 impl ByteInnerSplitlinesOptions {
-    pub fn get_value(self, vm: &VirtualMachine) -> PyResult<bool> {
-        if let OptionalArg::Present(value) = self.keepends {
-            Ok(bool::try_from_object(vm, value)?)
-        } else {
-            Ok(false)
+    pub fn get_value(self) -> bool {
+        match self.keepends.into_option() {
+            Some(x) => x,
+            None => false,
         }
+        // if let OptionalArg::Present(value) = self.keepends {
+        //     Ok(bool::try_from_object(vm, value)?)
+        // } else {
+        //     Ok(false)
+        // }
     }
 }
 
@@ -836,24 +835,11 @@ impl PyByteInner {
         }
     }
 
-    pub fn partition(
-        &self,
-        sep: &PyObjectRef,
-        reverse: bool,
-        vm: &VirtualMachine,
-    ) -> PyResult<(Vec<u8>, Vec<u8>)> {
-        let sep = match try_as_bytes_like(&sep) {
-            Some(value) => value,
-            None => {
-                return Err(
-                    vm.new_type_error(format!("a bytes-like object is required, not {}", sep))
-                );
-            }
-        };
+    pub fn partition(&self, sep: &PyByteInner, reverse: bool) -> PyResult<(Vec<u8>, Vec<u8>)> {
         let splitted = if reverse {
-            split_slice_reverse(&self.elements, &sep, 1)
+            split_slice_reverse(&self.elements, &sep.elements, 1)
         } else {
-            split_slice(&self.elements, &sep, 1)
+            split_slice(&self.elements, &sep.elements, 1)
         };
         Ok((splitted[0].to_vec(), splitted[1].to_vec()))
     }
@@ -890,17 +876,13 @@ impl PyByteInner {
         res
     }
 
-    pub fn splitlines(
-        &self,
-        options: ByteInnerSplitlinesOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<&[u8]>> {
-        let keepends = options.get_value(vm)?;
+    pub fn splitlines(&self, options: ByteInnerSplitlinesOptions) -> Vec<&[u8]> {
+        let keepends = options.get_value();
 
         let mut res = vec![];
 
         if self.elements.is_empty() {
-            return Ok(vec![]);
+            return vec![];
         }
 
         let mut prev_index = 0;
@@ -935,7 +917,7 @@ impl PyByteInner {
             }
         }
 
-        Ok(res)
+        res
     }
 
     pub fn zfill(&self, width: PyIntRef) -> Vec<u8> {
@@ -960,37 +942,16 @@ impl PyByteInner {
 
     pub fn replace(
         &self,
-        old: PyObjectRef,
-        new: PyObjectRef,
+        old: PyByteInner,
+        new: PyByteInner,
         count: OptionalArg<PyIntRef>,
-        vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let old = match try_as_bytes_like(&old) {
-            Some(value) => value,
-            None => {
-                return Err(
-                    vm.new_type_error(format!("a bytes-like object is required, not {}", old))
-                );
-            }
-        };
-
-        let new = match try_as_bytes_like(&new) {
-            Some(value) => value,
-            None => {
-                return Err(
-                    vm.new_type_error(format!("a bytes-like object is required, not {}", new))
-                );
-            }
-        };
-
-        let count = if let OptionalArg::Present(int) = count {
-            if let Some(value) = int.as_bigint().to_u32() {
-                value
-            } else {
-                self.elements.len() as u32
-            }
-        } else {
-            self.elements.len() as u32
+        let count = match count.into_option() {
+            Some(int) => int
+                .as_bigint()
+                .to_u32()
+                .unwrap_or(self.elements.len() as u32),
+            None => self.elements.len() as u32,
         };
 
         let mut res = vec![];
@@ -1003,8 +964,8 @@ impl PyByteInner {
                 res.extend_from_slice(&slice[index..]);
                 break;
             }
-            if &slice[index..index + old.len()] == old.as_slice() {
-                res.extend_from_slice(&new);
+            if &slice[index..index + old.len()] == old.elements.as_slice() {
+                res.extend_from_slice(&new.elements);
                 index += old.len();
                 done += 1;
             } else {
