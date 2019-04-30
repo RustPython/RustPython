@@ -2,7 +2,9 @@ use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+};
 use crate::vm::VirtualMachine;
 
 use super::objfloat::{self, PyFloat};
@@ -22,6 +24,12 @@ type PyComplexRef = PyRef<PyComplex>;
 impl PyValue for PyComplex {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.complex_type()
+    }
+}
+
+impl IntoPyObject for Complex64 {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_complex(self))
     }
 }
 
@@ -114,8 +122,8 @@ impl PyComplex {
     }
 
     #[pymethod(name = "conjugate")]
-    fn conjugate(&self, _vm: &VirtualMachine) -> PyComplex {
-        self.value.conj().into()
+    fn conjugate(&self, _vm: &VirtualMachine) -> Complex64 {
+        self.value.conj()
     }
 
     #[pymethod(name = "__eq__")]
@@ -148,19 +156,15 @@ impl PyComplex {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match to_complex(other, vm) {
-            Ok(Some(other)) => Ok(vm.ctx.new_complex(Complex64::new(
-                self.value.re * other.re - self.value.im * other.im,
-                self.value.re * other.im + self.value.im * other.re,
-            ))),
-            Ok(None) => Ok(vm.ctx.not_implemented()),
-            Err(err) => Err(err),
-        }
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value * other).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__neg__")]
-    fn neg(&self, _vm: &VirtualMachine) -> PyComplex {
-        PyComplex::from(-self.value)
+    fn neg(&self, _vm: &VirtualMachine) -> Complex64 {
+        -self.value
     }
 
     #[pymethod(name = "__repr__")]
