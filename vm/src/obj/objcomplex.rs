@@ -207,6 +207,22 @@ impl PyComplex {
         }
     }
 
+    #[pymethod(name = "__pow__")]
+    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value.powc(other)).into_pyobject(vm),
+        )
+    }
+
+    #[pymethod(name = "__rpow__")]
+    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (other.powc(self.value)).into_pyobject(vm),
+        )
+    }
+
     #[pymethod(name = "__bool__")]
     fn bool(&self, _vm: &VirtualMachine) -> bool {
         !Complex64::is_zero(&self.value)

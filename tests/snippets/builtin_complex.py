@@ -69,6 +69,12 @@ assert_raises(
     lambda: divmod(2, complex(2, -3)),
     "can't take floor or mod of complex number.")
 
+# __pow__, __rpow__
+
+# assert 1j ** 2 == -1
+assert complex(1) ** 2 == 1
+assert 2 ** complex(2) == 4
+
 # __neg__
 
 assert -complex(1, -1) == complex(-1, 1)
