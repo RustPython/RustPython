@@ -1,4 +1,9 @@
+use crate::obj::objint::PyIntRef;
+use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
+use crate::obj::objtuple::PyTupleRef;
+
+use crate::pyobject::Either;
 use crate::vm::VirtualMachine;
 use core::cell::Cell;
 use std::ops::Deref;
@@ -35,7 +40,6 @@ impl PyBytes {
             inner: PyByteInner { elements },
         }
     }
-
     pub fn get_value(&self) -> &[u8] {
         &self.inner.elements
     }
@@ -150,12 +154,12 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__contains__")]
-    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn contains(self, needle: Either<PyByteInner, PyIntRef>, vm: &VirtualMachine) -> PyResult {
         self.inner.contains(needle, vm)
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn getitem(self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         self.inner.getitem(needle, vm)
     }
 
@@ -256,7 +260,7 @@ impl PyBytesRef {
     #[pymethod(name = "endswith")]
     fn endswith(
         self,
-        suffix: PyObjectRef,
+        suffix: Either<PyByteInner, PyTupleRef>,
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
@@ -267,12 +271,12 @@ impl PyBytesRef {
     #[pymethod(name = "startswith")]
     fn startswith(
         self,
-        suffix: PyObjectRef,
+        prefix: Either<PyByteInner, PyTupleRef>,
         start: OptionalArg<PyObjectRef>,
         end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        self.inner.startsendswith(suffix, start, end, false, vm)
+        self.inner.startsendswith(prefix, start, end, false, vm)
     }
 
     #[pymethod(name = "find")]
@@ -281,12 +285,12 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "index")]
-    fn index(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult {
+    fn index(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let res = self.inner.find(options, false, vm)?;
         if res == -1 {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
-        Ok(vm.new_int(res))
+        Ok(res)
     }
 
     #[pymethod(name = "rfind")]
@@ -295,12 +299,12 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "rindex")]
-    fn rindex(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult {
+    fn rindex(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
         let res = self.inner.find(options, true, vm)?;
         if res == -1 {
             return Err(vm.new_value_error("substring not found".to_string()));
         }
-        Ok(vm.new_int(res))
+        Ok(res)
     }
 
     #[pymethod(name = "translate")]
@@ -309,21 +313,21 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "strip")]
-    fn strip(self, chars: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    fn strip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
         Ok(vm
             .ctx
             .new_bytes(self.inner.strip(chars, ByteInnerPosition::All, vm)?))
     }
 
     #[pymethod(name = "lstrip")]
-    fn lstrip(self, chars: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    fn lstrip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
         Ok(vm
             .ctx
             .new_bytes(self.inner.strip(chars, ByteInnerPosition::Left, vm)?))
     }
 
     #[pymethod(name = "rstrip")]
-    fn rstrip(self, chars: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    fn rstrip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
         Ok(vm
             .ctx
             .new_bytes(self.inner.strip(chars, ByteInnerPosition::Right, vm)?))
