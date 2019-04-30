@@ -158,7 +158,7 @@ impl PyComplex {
 
     #[pymethod(name = "__bool__")]
     fn bool(&self, _vm: &VirtualMachine) -> bool {
-        self.value != Complex64::zero()
+        !Complex64::is_zero(&self.value)
     }
 
     #[pymethod(name = "__new__")]
