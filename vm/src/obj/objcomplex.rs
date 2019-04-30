@@ -47,20 +47,14 @@ pub fn get_value(obj: &PyObjectRef) -> Complex64 {
     obj.payload::<PyComplex>().unwrap().value
 }
 
-fn to_complex(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
-    if objtype::isinstance(&value, &vm.ctx.complex_type()) {
-        Ok(Some(get_value(&value)))
-    } else if objtype::isinstance(&value, &vm.ctx.int_type()) {
-        match objint::get_value(&value).to_f64() {
-            Some(v) => Ok(Some(Complex64::new(v, 0.0))),
-            None => Err(vm.new_overflow_error("int too large to convert to float".to_string())),
-        }
-    } else if objtype::isinstance(&value, &vm.ctx.float_type()) {
-        let v = objfloat::get_value(&value);
-        Ok(Some(Complex64::new(v, 0.0)))
+fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
+    Ok(if objtype::isinstance(&value, &vm.ctx.complex_type()) {
+        Some(get_value(&value))
+    } else if let Some(float) = objfloat::try_float(value, vm)? {
+        Some(Complex64::new(float, 0.0))
     } else {
-        Ok(None)
-    }
+        None
+    })
 }
 
 #[pyimpl]
@@ -83,42 +77,31 @@ impl PyComplex {
 
     #[pymethod(name = "__add__")]
     fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.complex_type()) {
-            Ok(vm.ctx.new_complex(self.value + get_value(&other)))
-        } else {
-            self.radd(other, vm)
-        }
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value + other).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__radd__")]
     fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match to_complex(other, vm) {
-            Ok(Some(other)) => Ok(vm.ctx.new_complex(self.value + other)),
-            Ok(None) => Ok(vm.ctx.not_implemented()),
-            Err(err) => Err(err),
-        }
+        self.add(other, vm)
     }
 
     #[pymethod(name = "__sub__")]
     fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        if objtype::isinstance(&other, &vm.ctx.complex_type()) {
-            Ok(vm.ctx.new_complex(self.value - get_value(&other)))
-        } else {
-            match to_complex(other, vm) {
-                Ok(Some(other)) => Ok(vm.ctx.new_complex(self.value - other)),
-                Ok(None) => Ok(vm.ctx.not_implemented()),
-                Err(err) => Err(err),
-            }
-        }
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value - other).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "__rsub__")]
     fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match to_complex(other, vm) {
-            Ok(Some(other)) => Ok(vm.ctx.new_complex(other - self.value)),
-            Ok(None) => Ok(vm.ctx.not_implemented()),
-            Err(err) => Err(err),
-        }
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (other - self.value).into_pyobject(vm),
+        )
     }
 
     #[pymethod(name = "conjugate")]
