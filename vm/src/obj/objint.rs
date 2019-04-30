@@ -111,6 +111,19 @@ impl_try_from_object_int!(
     (u64, to_u64),
 );
 
+fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
+    Ok(if int2.value.is_negative() {
+        let v1 = int1.float(vm)?;
+        let v2 = int2.float(vm)?;
+        vm.ctx.new_float(v1.pow(v2))
+    } else if let Some(v2) = int2.value.to_u64() {
+        vm.ctx.new_int(int1.value.pow(v2))
+    } else {
+        // missing feature: BigInt exp
+        vm.ctx.not_implemented()
+    })
+}
+
 #[pyimpl]
 impl PyInt {
     #[pymethod(name = "__eq__")]
@@ -324,20 +337,22 @@ impl PyInt {
 
     #[pymethod(name = "__pow__")]
     fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        Ok(if objtype::isinstance(&other, &vm.ctx.int_type()) {
+        if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let other = other.payload::<PyInt>().unwrap();
-            if other.value.is_negative() {
-                let v1 = self.float(vm)?;
-                let v2 = other.float(vm)?;
-                vm.ctx.new_float(v1.pow(v2.to_f64().unwrap()))
-            } else if let Some(v2) = other.value.to_u32() {
-                vm.ctx.new_int(self.value.pow(v2))
-            } else {
-                vm.ctx.not_implemented()
-            }
+            inner_pow(self, &other, vm)
         } else {
-            vm.ctx.not_implemented()
-        })
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__rpow__")]
+    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            let other = other.payload::<PyInt>().unwrap();
+            inner_pow(&other, self, vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
     }
 
     #[pymethod(name = "__mod__")]
