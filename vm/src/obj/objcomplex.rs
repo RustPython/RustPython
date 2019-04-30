@@ -1,5 +1,5 @@
 use num_complex::Complex64;
-use num_traits::{ToPrimitive, Zero};
+use num_traits::Zero;
 
 use crate::function::OptionalArg;
 use crate::pyobject::{
@@ -8,7 +8,6 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use super::objfloat::{self, PyFloat};
-use super::objint;
 use super::objtype::{self, PyClassRef};
 
 /// Create a complex number from a real part and an optional imaginary part.
@@ -113,15 +112,12 @@ impl PyComplex {
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let result = if objtype::isinstance(&other, &vm.ctx.complex_type()) {
             self.value == get_value(&other)
-        } else if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            match objint::get_value(&other).to_f64() {
-                Some(f) => self.value.im == 0.0f64 && self.value.re == f,
-                None => false,
-            }
-        } else if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            self.value.im == 0.0 && self.value.re == objfloat::get_value(&other)
         } else {
-            return vm.ctx.not_implemented();
+            match objfloat::try_float(&other, vm) {
+                Ok(Some(other)) => self.value.im == 0.0f64 && self.value.re == other,
+                Err(_) => false,
+                Ok(None) => return vm.ctx.not_implemented(),
+            }
         };
 
         vm.ctx.new_bool(result)

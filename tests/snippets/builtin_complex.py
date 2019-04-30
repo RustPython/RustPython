@@ -23,6 +23,7 @@ assert bool(complex(1, 0))
 assert complex(1, 2) != complex(1, 1)
 assert complex(1, 2) != 'foo'
 assert complex(1, 2).__eq__('foo') == NotImplemented
+assert 1j != 10 ** 1000
 
 # __mul__
 
@@ -40,17 +41,18 @@ assert bool(complex(0, 0)) is False
 assert bool(complex(0, 1)) is True
 assert bool(complex(1, 0)) is True
 
-# real
+# numbers.Complex
 
 a = complex(3, 4)
 b = 4j
 assert a.real == 3
 assert b.real == 0
 
-# imag
-
 assert a.imag == 4
 assert b.imag == 4
+
+assert a.conjugate() == 3 - 4j
+assert b.conjugate() == -4j
 
 # int and complex addition
 assert 1 + 1j == complex(1, 1)
