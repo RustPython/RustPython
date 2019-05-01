@@ -65,3 +65,9 @@ except IndexError:
     pass
 else:
     assert False
+
+a = bytearray(b'appen')
+assert len(a) == 5
+a.append(100)
+assert len(a) == 6
+assert a.pop() == 100
