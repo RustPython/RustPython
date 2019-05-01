@@ -79,6 +79,7 @@ pub fn init(context: &PyContext) {
         "istitle" =>context.new_rustfunc(PyByteArrayRef::istitle),
         "isupper" => context.new_rustfunc(PyByteArrayRef::isupper),
         "lower" => context.new_rustfunc(PyByteArrayRef::lower),
+        "append" => context.new_rustfunc(PyByteArrayRef::append),
         "pop" => context.new_rustfunc(PyByteArrayRef::pop),
         "upper" => context.new_rustfunc(PyByteArrayRef::upper)
     });
@@ -211,6 +212,10 @@ impl PyByteArrayRef {
 
     fn clear(self, _vm: &VirtualMachine) {
         self.value.borrow_mut().clear();
+    }
+
+    fn append(self, x: u8, _vm: &VirtualMachine) {
+        self.value.borrow_mut().push(x);
     }
 
     fn pop(self, vm: &VirtualMachine) -> PyResult<u8> {
