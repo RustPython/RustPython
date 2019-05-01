@@ -8,6 +8,7 @@ a = 1.2
 b = 1.3
 c = 1.2
 z = 2
+ov = 10 ** 1000
 
 assert -a == -1.2
 
@@ -37,6 +38,20 @@ assert a / z == 0.6
 assert 6 / a == 5.0
 assert 2.0 % z == 0.0
 assert z % 2.0 == 0.0
+assert_raises(OverflowError, lambda: a + ov)
+assert_raises(OverflowError, lambda: a - ov)
+assert_raises(OverflowError, lambda: a * ov)
+assert_raises(OverflowError, lambda: a / ov)
+assert_raises(OverflowError, lambda: a // ov)
+assert_raises(OverflowError, lambda: a % ov)
+assert_raises(OverflowError, lambda: a ** ov)
+assert_raises(OverflowError, lambda: ov + a)
+assert_raises(OverflowError, lambda: ov - a)
+assert_raises(OverflowError, lambda: ov * a)
+assert_raises(OverflowError, lambda: ov / a)
+assert_raises(OverflowError, lambda: ov // a)
+assert_raises(OverflowError, lambda: ov % a)
+# assert_raises(OverflowError, lambda: ov ** a)
 
 assert a < 5
 assert a <= 5
@@ -91,6 +106,8 @@ assert 2.0.__sub__(1.0) == 1.0
 assert 2.0.__rmul__(1.0) == 2.0
 assert 1.0.__truediv__(2.0) == 0.5
 assert 1.0.__rtruediv__(2.0) == 2.0
+assert 2.5.__divmod__(2.0) == (1.0, 0.5)
+assert 2.0.__rdivmod__(2.5) == (1.0, 0.5)
 
 assert 1.0.__add__(1) == 2.0
 assert 1.0.__radd__(1) == 2.0
@@ -105,6 +122,11 @@ assert 2.0.__rmod__(2) == 0.0
 assert_raises(ZeroDivisionError, lambda: 2.0 / 0)
 assert_raises(ZeroDivisionError, lambda: 2.0 // 0)
 assert_raises(ZeroDivisionError, lambda: 2.0 % 0)
+assert_raises(ZeroDivisionError, lambda: divmod(2.0, 0))
+assert_raises(ZeroDivisionError, lambda: 2 / 0.0)
+assert_raises(ZeroDivisionError, lambda: 2 // 0.0)
+assert_raises(ZeroDivisionError, lambda: 2 % 0.0)
+# assert_raises(ZeroDivisionError, lambda: divmod(2, 0.0))
 
 assert 1.2.__int__() == 1
 assert 1.2.__float__() == 1.2
@@ -112,6 +134,10 @@ assert 1.2.__trunc__() == 1
 assert int(1.2) == 1
 assert float(1.2) == 1.2
 # assert math.trunc(1.2) == 1
+
+assert 1.2 ** 2 == 1.44
+assert_raises(OverflowError, lambda: 1.2 ** (10 ** 1000))
+assert 3 ** 2.0 == 9.0
 
 assert (1.7).real == 1.7
 assert (1.3).is_integer() == False
