@@ -6,7 +6,8 @@ use std::char;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use num_traits::Signed;
+use num_bigint::Sign;
+use num_traits::{Signed, Zero};
 
 use crate::compile;
 use crate::import::import_module;
@@ -530,24 +531,32 @@ fn builtin_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(mod_value, Some(vm.ctx.int_type()))]
     );
 
-    let result = vm.call_or_reflection(x.clone(), y.clone(), "__pow__", "__rpow__", |vm, x, y| {
-        Err(vm.new_unsupported_operand_error(x, y, "pow"))
-    });
-
-    //Check if the 3rd argument is defined and perform modulus on the result
-    //this should be optimized in the future to perform a "power-mod" algorithm in
-    //order to improve performance
     match mod_value {
-        Some(mod_value) => {
-            let mod_method_name = "__mod__";
-            match vm.get_method(result.expect("result not defined").clone(), mod_method_name) {
-                Ok(value) => vm.invoke(value, vec![mod_value.clone()]),
-                Err(..) => {
-                    Err(vm.new_type_error("unsupported operand type(s) for mod".to_string()))
-                }
+        None => vm.call_or_reflection(x.clone(), y.clone(), "__pow__", "__rpow__", |vm, x, y| {
+            Err(vm.new_unsupported_operand_error(x, y, "pow"))
+        }),
+        Some(m) => {
+            // Check if the 3rd argument is defined and perform modulus on the result
+            if !(objtype::isinstance(x, &vm.ctx.int_type())
+                && objtype::isinstance(y, &vm.ctx.int_type()))
+            {
+                return Err(vm.new_type_error(
+                    "pow() 3rd argument not allowed unless all arguments are integers".to_string(),
+                ));
             }
+            let y = objint::get_value(y);
+            if y.sign() == Sign::Minus {
+                return Err(vm.new_value_error(
+                    "pow() 2nd argument cannot be negative when 3rd argument specified".to_string(),
+                ));
+            }
+            let m = objint::get_value(m);
+            if m.is_zero() {
+                return Err(vm.new_value_error("pow() 3rd argument cannot be 0".to_string()));
+            }
+            let x = objint::get_value(x);
+            Ok(vm.new_int(x.modpow(&y, &m)))
         }
-        None => result,
     }
 }
 

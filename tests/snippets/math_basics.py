@@ -42,3 +42,25 @@ assert_raises(
 assert pow(2, 2) == 4
 assert pow(1, 2.0) == 1.0
 assert pow(2.0, 1) == 2.0
+
+assert pow(2, 4, 5) == 1
+assert_raises(
+    TypeError,
+    lambda: pow(2, 4, 5.0),
+    'pow() 3rd argument not allowed unless all arguments are integers')
+assert_raises(
+    TypeError,
+    lambda: pow(2, 4.0, 5),
+    'pow() 3rd argument not allowed unless all arguments are integers')
+assert_raises(
+    TypeError,
+    lambda: pow(2.0, 4, 5),
+    'pow() 3rd argument not allowed unless all arguments are integers')
+assert_raises(
+    ValueError,
+    lambda: pow(2, -1, 5),
+    'pow() 2nd argument cannot be negative when 3rd argument specified')
+assert_raises(
+    ValueError,
+    lambda: pow(2, 2, 0),
+    'pow() 3rd argument cannot be 0')
