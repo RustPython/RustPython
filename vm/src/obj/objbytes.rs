@@ -64,11 +64,7 @@ pub fn init(context: &PyContext) {
     extend_class!(context, bytes_type, {
     "fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
     });
-    let bytesiterator_type = &context.bytesiterator_type;
-    extend_class!(context, bytesiterator_type, {
-    "__next__" => context.new_rustfunc(PyBytesIteratorRef::next),
-    "__iter__" => context.new_rustfunc(PyBytesIteratorRef::iter),
-    });
+    PyBytesIterator::extend_class(context, &context.bytesiterator_type);
 }
 
 #[pyimpl]
@@ -271,6 +267,7 @@ impl PyBytesRef {
     }
 }
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyBytesIterator {
     position: Cell<usize>,
@@ -283,10 +280,10 @@ impl PyValue for PyBytesIterator {
     }
 }
 
-type PyBytesIteratorRef = PyRef<PyBytesIterator>;
-
-impl PyBytesIteratorRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult<u8> {
+#[pyimpl]
+impl PyBytesIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
         if self.position.get() < self.bytes.inner.len() {
             let ret = self.bytes[self.position.get()];
             self.position.set(self.position.get() + 1);
@@ -296,7 +293,8 @@ impl PyBytesIteratorRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }

@@ -6,7 +6,7 @@ use num_traits::{One, Signed, Zero};
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -124,11 +124,7 @@ pub fn init(context: &PyContext) {
         "step" => context.new_property(PyRange::step),
     });
 
-    let rangeiterator_type = &context.rangeiterator_type;
-    extend_class!(context, rangeiterator_type, {
-        "__next__" => context.new_rustfunc(PyRangeIteratorRef::next),
-        "__iter__" => context.new_rustfunc(PyRangeIteratorRef::iter),
-    });
+    PyRangeIterator::extend_class(context, &context.rangeiterator_type);
 }
 
 type PyRangeRef = PyRef<PyRange>;
@@ -341,6 +337,7 @@ fn range_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(range.into_object())
 }
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyRangeIterator {
     position: Cell<usize>,
@@ -353,10 +350,10 @@ impl PyValue for PyRangeIterator {
     }
 }
 
-type PyRangeIteratorRef = PyRef<PyRangeIterator>;
-
-impl PyRangeIteratorRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult<BigInt> {
+#[pyimpl]
+impl PyRangeIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         let position = BigInt::from(self.position.get());
         if let Some(int) = self.range.get(&position) {
             self.position.set(self.position.get() + 1);
@@ -366,8 +363,9 @@ impl PyRangeIteratorRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
