@@ -14,9 +14,9 @@ def assert_raises(exc_type, expr, msg=None):
     except exc_type:
         pass
     else:
-        failmsg = '{!s} was not raised'.format(exc_type.__name__)
+        failmsg = '{} was not raised'.format(exc_type.__name__)
         if msg is not None:
-            failmsg += ': {!s}'.format(msg)
+            failmsg += ': {}'.format(msg)
         assert False, failmsg
 
 
@@ -29,8 +29,8 @@ class assertRaises:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if exc_type is None:
-            failmsg = '{!s} was not raised'.format(self.expected.__name__)
-            assert False, failmsg            
+            failmsg = '{} was not raised'.format(self.expected.__name__)
+            assert False, failmsg
         if not issubclass(exc_type, self.expected):
             return False
         return True
