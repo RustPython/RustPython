@@ -14,7 +14,7 @@ assert a ** 3 == 64
 assert a * 3 == 12
 assert a / 2 == 2
 assert 2 == a / 2
-# assert a % 3 == 1
+assert a % 3 == 1
 assert a - 3 == 1
 assert -a == -4
 assert +a == 4
@@ -38,3 +38,7 @@ assert_raises(
     OverflowError,
     lambda: round(-float('inf')),
     'OverflowError: cannot convert float NaN to integer')
+
+assert pow(2, 2) == 4
+assert pow(1, 2.0) == 1.0
+assert pow(2.0, 1) == 2.0

@@ -529,11 +529,11 @@ fn builtin_pow(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(x, None), (y, None)],
         optional = [(mod_value, Some(vm.ctx.int_type()))]
     );
-    let pow_method_name = "__pow__";
-    let result = match vm.get_method(x.clone(), pow_method_name) {
-        Ok(attrib) => vm.invoke(attrib, vec![y.clone()]),
-        Err(..) => Err(vm.new_type_error("unsupported operand type(s) for pow".to_string())),
-    };
+
+    let result = vm.call_or_reflection(x.clone(), y.clone(), "__pow__", "__rpow__", |vm, x, y| {
+        Err(vm.new_unsupported_operand_error(x, y, "pow"))
+    });
+
     //Check if the 3rd argument is defined and perform modulus on the result
     //this should be optimized in the future to perform a "power-mod" algorithm in
     //order to improve performance
