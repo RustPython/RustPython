@@ -50,17 +50,25 @@ pub struct Lexer<T: Iterator<Item = char>> {
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
     indentation_stack: Vec<IndentationLevel>,
-    pending: Vec<Spanned<Tok>>,
+    pending: Vec<LexResult>,
     chr0: Option<char>,
     chr1: Option<char>,
     location: Location,
+    keywords: HashMap<String, Tok>,
 }
 
 #[derive(Debug)]
-pub enum LexicalError {
+pub struct LexicalError {
+    pub error: LexicalErrorType,
+    pub location: Location,
+}
+
+#[derive(Debug)]
+pub enum LexicalErrorType {
     StringError,
     NestingError,
     UnrecognizedToken { tok: char },
+    OtherError(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -125,9 +133,10 @@ pub fn get_keywords() -> HashMap<String, Tok> {
     keywords
 }
 
-pub type Spanned<Tok> = Result<(Location, Tok, Location), LexicalError>;
+pub type Spanned = (Location, Tok, Location);
+pub type LexResult = Result<Spanned, LexicalError>;
 
-pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = Spanned<Tok>> + 'a {
+pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = LexResult> + 'a {
     let nlh = NewlineHandler::new(source.chars());
     let lch = LineContinationHandler::new(nlh);
     Lexer::new(lch)
@@ -259,6 +268,7 @@ where
             chr0: None,
             location: Location::new(0, 0),
             chr1: None,
+            keywords: get_keywords(),
         };
         lxr.next_char();
         lxr.next_char();
@@ -269,7 +279,7 @@ where
     }
 
     // Lexer helper functions:
-    fn lex_identifier(&mut self) -> Spanned<Tok> {
+    fn lex_identifier(&mut self) -> LexResult {
         let mut name = String::new();
         let start_pos = self.get_pos();
 
@@ -310,16 +320,14 @@ where
         }
         let end_pos = self.get_pos();
 
-        let mut keywords = get_keywords();
-
-        if keywords.contains_key(&name) {
-            Ok((start_pos, keywords.remove(&name).unwrap(), end_pos))
+        if self.keywords.contains_key(&name) {
+            Ok((start_pos, self.keywords[&name].clone(), end_pos))
         } else {
             Ok((start_pos, Tok::Name { name }, end_pos))
         }
     }
 
-    fn lex_number(&mut self) -> Spanned<Tok> {
+    fn lex_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
         if self.chr0 == Some('0') {
             if self.chr1 == Some('x') || self.chr1 == Some('X') {
@@ -345,12 +353,12 @@ where
         }
     }
 
-    fn lex_number_radix(&mut self, start_pos: Location, radix: u32) -> Spanned<Tok> {
+    fn lex_number_radix(&mut self, start_pos: Location, radix: u32) -> LexResult {
         let mut value_text = String::new();
 
         loop {
-            if self.is_number(radix) {
-                value_text.push(self.next_char().unwrap());
+            if let Some(c) = self.take_number(radix) {
+                value_text.push(c);
             } else if self.chr0 == Some('_') {
                 self.next_char();
             } else {
@@ -359,18 +367,21 @@ where
         }
 
         let end_pos = self.get_pos();
-        let value = BigInt::from_str_radix(&value_text, radix).unwrap();
+        let value = BigInt::from_str_radix(&value_text, radix).map_err(|e| LexicalError {
+            error: LexicalErrorType::OtherError(format!("{:?}", e)),
+            location: start_pos.clone(),
+        })?;
         Ok((start_pos, Tok::Int { value }, end_pos))
     }
 
-    fn lex_normal_number(&mut self) -> Spanned<Tok> {
+    fn lex_normal_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
 
         let mut value_text = String::new();
 
         // Normal number:
-        while self.is_number(10) {
-            value_text.push(self.next_char().unwrap());
+        while let Some(c) = self.take_number(10) {
+            value_text.push(c);
         }
 
         // If float:
@@ -378,8 +389,8 @@ where
             // Take '.':
             if self.chr0 == Some('.') {
                 value_text.push(self.next_char().unwrap());
-                while self.is_number(10) {
-                    value_text.push(self.next_char().unwrap());
+                while let Some(c) = self.take_number(10) {
+                    value_text.push(c);
                 }
             }
 
@@ -392,8 +403,8 @@ where
                     value_text.push(self.next_char().unwrap());
                 }
 
-                while self.is_number(10) {
-                    value_text.push(self.next_char().unwrap());
+                while let Some(c) = self.take_number(10) {
+                    value_text.push(c);
                 }
             }
 
@@ -448,7 +459,7 @@ where
         is_raw: bool,
         _is_unicode: bool,
         is_fstring: bool,
-    ) -> Spanned<Tok> {
+    ) -> LexResult {
         let quote_char = self.next_char().unwrap();
         let mut string_content = String::new();
         let start_pos = self.get_pos();
@@ -474,7 +485,10 @@ where
                         if let Some(c) = self.next_char() {
                             string_content.push(c)
                         } else {
-                            return Err(LexicalError::StringError);
+                            return Err(LexicalError {
+                                error: LexicalErrorType::StringError,
+                                location: self.get_pos(),
+                            });
                         }
                     } else {
                         match self.next_char() {
@@ -502,7 +516,10 @@ where
                                 string_content.push(c);
                             }
                             None => {
-                                return Err(LexicalError::StringError);
+                                return Err(LexicalError {
+                                    error: LexicalErrorType::StringError,
+                                    location: self.get_pos(),
+                                });
                             }
                         }
                     }
@@ -525,7 +542,10 @@ where
                     } else {
                         if c == '\n' {
                             if !triple_quoted {
-                                return Err(LexicalError::StringError);
+                                return Err(LexicalError {
+                                    error: LexicalErrorType::StringError,
+                                    location: self.get_pos(),
+                                });
                             }
                             self.new_line();
                         }
@@ -533,7 +553,10 @@ where
                     }
                 }
                 None => {
-                    return Err(LexicalError::StringError);
+                    return Err(LexicalError {
+                        error: LexicalErrorType::StringError,
+                        location: self.get_pos(),
+                    });
                 }
             }
         }
@@ -545,7 +568,10 @@ where
                     value: lex_byte(string_content)?,
                 }
             } else {
-                return Err(LexicalError::StringError);
+                return Err(LexicalError {
+                    error: LexicalErrorType::StringError,
+                    location: self.get_pos(),
+                });
             }
         } else {
             Tok::String {
@@ -575,8 +601,8 @@ where
         }
     }
 
-    fn is_number(&self, radix: u32) -> bool {
-        match radix {
+    fn take_number(&mut self, radix: u32) -> Option<char> {
+        let take_char = match radix {
             2 => match self.chr0 {
                 Some('0'..='1') => true,
                 _ => false,
@@ -594,6 +620,12 @@ where
                 _ => false,
             },
             x => unimplemented!("Radix not implemented: {}", x),
+        };
+
+        if take_char {
+            Some(self.next_char().unwrap())
+        } else {
+            None
         }
     }
 
@@ -615,7 +647,7 @@ where
         self.location.column = 1;
     }
 
-    fn inner_next(&mut self) -> Option<Spanned<Tok>> {
+    fn inner_next(&mut self) -> Option<LexResult> {
         if !self.pending.is_empty() {
             return Some(self.pending.remove(0));
         }
@@ -631,6 +663,17 @@ where
                 loop {
                     match self.chr0 {
                         Some(' ') => {
+                            /*
+                            if tabs != 0 {
+                                // Don't allow spaces after tabs as part of indentation.
+                                // This is technically stricter than python3 but spaces after
+                                // tabs is even more insane than mixing spaces and tabs.
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::OtherError("Spaces not allowed as part of indentation after tabs".to_string()),
+                                    location: self.get_pos(),
+                                }));
+                            }
+                            */
                             self.next_char();
                             spaces += 1;
                         }
@@ -639,7 +682,13 @@ where
                                 // Don't allow tabs after spaces as part of indentation.
                                 // This is technically stricter than python3 but spaces before
                                 // tabs is even more insane than mixing spaces and tabs.
-                                panic!("Tabs not allowed as part of indentation after spaces");
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::OtherError(
+                                        "Tabs not allowed as part of indentation after spaces"
+                                            .to_string(),
+                                    ),
+                                    location: self.get_pos(),
+                                }));
                             }
                             self.next_char();
                             tabs += 1;
@@ -694,7 +743,10 @@ where
                                         self.pending.push(Ok((tok_start, Tok::Dedent, tok_end)));
                                     }
                                     None => {
-                                        panic!("inconsistent use of tabs and spaces in indentation")
+                                        return Some(Err(LexicalError {
+                                            error: LexicalErrorType::OtherError("inconsistent use of tabs and spaces in indentation".to_string()),
+                                            location: self.get_pos(),
+                                        }));
                                     }
                                     _ => {
                                         break;
@@ -704,12 +756,25 @@ where
 
                             if indentation_level != *self.indentation_stack.last().unwrap() {
                                 // TODO: handle wrong indentations
-                                panic!("Non matching indentation levels!");
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::OtherError(
+                                        "Non matching indentation levels!".to_string(),
+                                    ),
+                                    location: self.get_pos(),
+                                }));
                             }
 
                             return Some(self.pending.remove(0));
                         }
-                        None => panic!("inconsistent use of tabs and spaces in indentation"),
+                        None => {
+                            return Some(Err(LexicalError {
+                                error: LexicalErrorType::OtherError(
+                                    "inconsistent use of tabs and spaces in indentation"
+                                        .to_string(),
+                                ),
+                                location: self.get_pos(),
+                            }));
+                        }
                     }
                 }
             }
@@ -928,7 +993,10 @@ where
                                 let tok_end = self.get_pos();
                                 return Some(Ok((tok_start, Tok::NotEqual, tok_end)));
                             } else {
-                                return Some(Err(LexicalError::UnrecognizedToken { tok: '!' }));
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::UnrecognizedToken { tok: '!' },
+                                    location: tok_start,
+                                }));
                             }
                         }
                         '~' => {
@@ -942,7 +1010,10 @@ where
                         ')' => {
                             let result = self.eat_single_char(Tok::Rpar);
                             if self.nesting == 0 {
-                                return Some(Err(LexicalError::NestingError));
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::NestingError,
+                                    location: self.get_pos(),
+                                }));
                             }
                             self.nesting -= 1;
                             return Some(result);
@@ -955,7 +1026,10 @@ where
                         ']' => {
                             let result = self.eat_single_char(Tok::Rsqb);
                             if self.nesting == 0 {
-                                return Some(Err(LexicalError::NestingError));
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::NestingError,
+                                    location: self.get_pos(),
+                                }));
                             }
                             self.nesting -= 1;
                             return Some(result);
@@ -968,7 +1042,10 @@ where
                         '}' => {
                             let result = self.eat_single_char(Tok::Rbrace);
                             if self.nesting == 0 {
-                                return Some(Err(LexicalError::NestingError));
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::NestingError,
+                                    location: self.get_pos(),
+                                }));
                             }
                             self.nesting -= 1;
                             return Some(result);
@@ -1089,7 +1166,10 @@ where
                         }
                         _ => {
                             let c = self.next_char();
-                            return Some(Err(LexicalError::UnrecognizedToken { tok: c.unwrap() }));
+                            return Some(Err(LexicalError {
+                                error: LexicalErrorType::UnrecognizedToken { tok: c.unwrap() },
+                                location: self.get_pos(),
+                            }));
                         } // Ignore all the rest..
                     }
                 }
@@ -1099,7 +1179,7 @@ where
         }
     }
 
-    fn eat_single_char(&mut self, ty: Tok) -> Spanned<Tok> {
+    fn eat_single_char(&mut self, ty: Tok) -> LexResult {
         let tok_start = self.get_pos();
         self.next_char();
         let tok_end = self.get_pos();
@@ -1116,7 +1196,7 @@ impl<T> Iterator for Lexer<T>
 where
     T: Iterator<Item = char>,
 {
-    type Item = Spanned<Tok>;
+    type Item = LexResult;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Idea: create some sort of hash map for single char tokens:
@@ -1152,7 +1232,10 @@ fn lex_byte(s: String) -> Result<Vec<u8>, LexicalError> {
                     hex_value.clear();
                 }
             } else {
-                return Err(LexicalError::StringError);
+                return Err(LexicalError {
+                    error: LexicalErrorType::StringError,
+                    location: Default::default(),
+                });
             }
         } else {
             match (c, escape) {
