@@ -19,6 +19,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
+use super::objbyteinner;
 use super::objdict::PyDict;
 use super::objint::{self, PyInt};
 use super::objnone::PyNone;
@@ -956,6 +957,31 @@ impl PyString {
                 )),
             }
         }
+    }
+
+    #[pymethod]
+    fn encode(
+        &self,
+        encoding: OptionalArg<PyObjectRef>,
+        _errors: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let encoding = encoding.map_or_else(
+            || Ok("utf-8".to_string()),
+            |v| {
+                if objtype::isinstance(&v, &vm.ctx.str_type()) {
+                    Ok(get_value(&v))
+                } else {
+                    Err(vm.new_type_error(format!(
+                        "encode() argument 1 must be str, not {}",
+                        v.class().name
+                    )))
+                }
+            },
+        )?;
+
+        let encoded = objbyteinner::encode_to_vec(&self.value, &encoding, vm)?;
+        Ok(vm.ctx.new_bytes(encoded))
     }
 }
 

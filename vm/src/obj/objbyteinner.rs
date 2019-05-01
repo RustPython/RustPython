@@ -93,6 +93,18 @@ pub fn normalize_encoding(encoding: &str) -> String {
     res
 }
 
+pub fn encode_to_vec(value: &str, encoding: &str, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    let encoding = normalize_encoding(encoding);
+    if encoding == "utf_8" || encoding == "u8" {
+        Ok(value.as_bytes().to_vec())
+    } else {
+        // TODO: different encoding
+        return Err(
+            vm.new_value_error(format!("unknown encoding: {}", encoding)), //should be lookup error
+        );
+    }
+}
+
 impl ByteInnerNewOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyByteInner> {
         // First handle bytes(string, encoding[, errors])
@@ -100,17 +112,9 @@ impl ByteInnerNewOptions {
             if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
                     let encoding = enc.as_str();
-                    if encoding.to_lowercase() == "utf8" || encoding.to_lowercase() == "utf-8"
-                    // TODO: different encoding
-                    {
-                        return Ok(PyByteInner {
-                            elements: input.value.as_bytes().to_vec(),
-                        });
-                    } else {
-                        return Err(
-                            vm.new_value_error(format!("unknown encoding: {}", encoding)), //should be lookup error
-                        );
-                    }
+                    return Ok(PyByteInner {
+                        elements: encode_to_vec(&input.value, &encoding, vm)?,
+                    });
                 } else {
                     return Err(vm.new_type_error("encoding without a string argument".to_string()));
                 }
