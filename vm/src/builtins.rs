@@ -22,8 +22,8 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::frame::Scope;
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -559,32 +559,60 @@ pub struct PrintOptions {
     end: Option<PyStringRef>,
     #[pyarg(keyword_only, default = "false")]
     flush: bool,
+    #[pyarg(keyword_only, default = "None")]
+    file: Option<PyObjectRef>,
 }
 
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
-    let stdout = io::stdout();
-    let mut stdout_lock = stdout.lock();
-    let mut first = true;
-    for object in objects {
-        if first {
-            first = false;
-        } else if let Some(ref sep) = options.sep {
-            write!(stdout_lock, "{}", sep.value).unwrap();
-        } else {
-            write!(stdout_lock, " ").unwrap();
+    if let Some(file) = options.file {
+        let sep = match options.sep {
+            Some(sep) => sep.into_pyobject(vm).unwrap(),
+            _ => PyString::from(" ").into_pyobject(vm).unwrap(),
+        };
+
+        let mut first = true;
+        for object in objects {
+            if first {
+                first = false;
+            } else {
+                vm.call_method(&file, "write", vec![sep.clone()])?;
+            }
+
+            vm.call_method(&file, "write", vec![object])?;
         }
-        let s = &vm.to_str(&object)?.value;
-        write!(stdout_lock, "{}", s).unwrap();
-    }
 
-    if let Some(end) = options.end {
-        write!(stdout_lock, "{}", end.value).unwrap();
+        let end = match options.end {
+            Some(end) => end.into_pyobject(vm).unwrap(),
+            _ => PyString::from("\n").into_pyobject(vm).unwrap(),
+        };
+        vm.call_method(&file, "write", vec![end])?;
+
+        if options.flush {
+            vm.call_method(&file, "flush", vec![])?;
+        }
     } else {
-        writeln!(stdout_lock).unwrap();
-    }
+        let sep = options.sep.as_ref().map_or(" ", |sep| &sep.value);
 
-    if options.flush {
-        stdout_lock.flush().unwrap();
+        let stdout = io::stdout();
+        let mut stdout_lock = stdout.lock();
+        let mut first = true;
+        for object in objects {
+            if first {
+                first = false;
+            } else {
+                write!(stdout_lock, "{}", sep).unwrap();
+            }
+
+            let s = &vm.to_str(&object)?.value;
+            write!(stdout_lock, "{}", s).unwrap();
+        }
+
+        let end = options.end.as_ref().map_or("\n", |end| &end.value);
+        write!(stdout_lock, "{}", end).unwrap();
+
+        if options.flush {
+            stdout_lock.flush().unwrap();
+        }
     }
 
     Ok(())
