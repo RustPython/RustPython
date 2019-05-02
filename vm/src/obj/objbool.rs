@@ -42,6 +42,9 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
     extend_class!(context, bool_type, {
         "__new__" => context.new_rustfunc(bool_new),
         "__repr__" => context.new_rustfunc(bool_repr),
+        "__ror__" => context.new_rustfunc(bool_ror),
+        "__rand__" => context.new_rustfunc(bool_rand),
+        "__rxor__" => context.new_rustfunc(bool_rxor),
         "__doc__" => context.new_str(bool_doc.to_string())
     });
 }
@@ -69,6 +72,29 @@ fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObj
         "False".to_string()
     };
     Ok(vm.new_str(s))
+}
+
+fn bool_ror(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    arg_check!(vm, args, required = [(rhs, Some(vm.ctx.bool_type())), (lhs, None)]);
+    // TODO: possibly this skip calling boolval for lhs if rhs is true
+    let rhs = get_value(rhs);
+    let lhs = boolval(vm, lhs.clone())?;
+    (lhs || rhs).into_pyobject(vm)
+}
+
+fn bool_rand(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    arg_check!(vm, args, required = [(rhs, Some(vm.ctx.bool_type())), (lhs, None)]);
+    // TODO: possibly this skip calling boolval for lhs if rhs is false
+    let rhs = get_value(rhs);
+    let lhs = boolval(vm, lhs.clone())?;
+    (lhs && rhs).into_pyobject(vm)
+}
+
+fn bool_rxor(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    arg_check!(vm, args, required = [(rhs, Some(vm.ctx.bool_type())), (lhs, None)]);
+    let rhs = get_value(rhs);
+    let lhs = boolval(vm, lhs.clone())?;
+    (lhs ^ rhs).into_pyobject(vm)
 }
 
 fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

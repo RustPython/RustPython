@@ -51,3 +51,18 @@ assert True > 0
 assert int(True) == 1
 assert True.conjugate() == 1
 assert isinstance(True.conjugate(), int)
+
+assert not False.__ror__(0)
+assert False.__ror__(1)
+assert True.__ror__(0)
+assert True.__ror__(1)
+
+assert not False.__rand__(0)
+assert not False.__rand__(1)
+assert not True.__rand__(0)
+assert True.__rand__(1)
+
+assert not False.__rxor__(0)
+assert False.__rxor__(1)
+assert True.__rxor__(0)
+assert not True.__rxor__(1)
