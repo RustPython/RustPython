@@ -183,7 +183,12 @@ impl PyString {
         if objtype::isinstance(&val, &vm.ctx.int_type()) {
             let value = &self.value;
             let multiplier = objint::get_value(&val).to_i32().unwrap();
-            let mut result = String::new();
+            let capacity = if multiplier > 0 {
+                multiplier.to_usize().unwrap() * value.len()
+            } else {
+                0
+            };
+            let mut result = String::with_capacity(capacity);
             for _x in 0..multiplier {
                 result.push_str(value.as_str());
             }
@@ -206,7 +211,7 @@ impl PyString {
         } else {
             '\''
         };
-        let mut formatted = String::new();
+        let mut formatted = String::with_capacity(value.len());
         formatted.push(quote_char);
         for c in value.chars() {
             if c == quote_char || c == '\\' {
@@ -799,7 +804,7 @@ impl PyString {
     #[pymethod]
     fn expandtabs(&self, tab_stop: OptionalArg<usize>, _vm: &VirtualMachine) -> String {
         let tab_stop = tab_stop.into_option().unwrap_or(8 as usize);
-        let mut expanded_str = String::new();
+        let mut expanded_str = String::with_capacity(self.value.len());
         let mut tab_size = tab_stop;
         let mut col_count = 0 as usize;
         for ch in self.value.chars() {
