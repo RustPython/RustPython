@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use num_traits::ToPrimitive;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint;
@@ -79,15 +79,12 @@ pub fn init(context: &PyContext) {
         "istitle" =>context.new_rustfunc(PyByteArrayRef::istitle),
         "isupper" => context.new_rustfunc(PyByteArrayRef::isupper),
         "lower" => context.new_rustfunc(PyByteArrayRef::lower),
+        "append" => context.new_rustfunc(PyByteArrayRef::append),
         "pop" => context.new_rustfunc(PyByteArrayRef::pop),
         "upper" => context.new_rustfunc(PyByteArrayRef::upper)
     });
 
-    let bytearrayiterator_type = &context.bytearrayiterator_type;
-    extend_class!(context, bytearrayiterator_type, {
-        "__next__" => context.new_rustfunc(PyByteArrayIteratorRef::next),
-        "__iter__" => context.new_rustfunc(PyByteArrayIteratorRef::iter),
-    });
+    PyByteArrayIterator::extend_class(context, &context.bytearrayiterator_type);
 }
 
 fn bytearray_new(
@@ -213,6 +210,10 @@ impl PyByteArrayRef {
         self.value.borrow_mut().clear();
     }
 
+    fn append(self, x: u8, _vm: &VirtualMachine) {
+        self.value.borrow_mut().push(x);
+    }
+
     fn pop(self, vm: &VirtualMachine) -> PyResult<u8> {
         let mut bytes = self.value.borrow_mut();
         bytes
@@ -282,6 +283,7 @@ mod tests {
     }
 }
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyByteArrayIterator {
     position: Cell<usize>,
@@ -294,10 +296,10 @@ impl PyValue for PyByteArrayIterator {
     }
 }
 
-type PyByteArrayIteratorRef = PyRef<PyByteArrayIterator>;
-
-impl PyByteArrayIteratorRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult<u8> {
+#[pyimpl]
+impl PyByteArrayIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
         if self.position.get() < self.bytearray.value.borrow().len() {
             let ret = self.bytearray.value.borrow()[self.position.get()];
             self.position.set(self.position.get() + 1);
@@ -307,7 +309,8 @@ impl PyByteArrayIteratorRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }

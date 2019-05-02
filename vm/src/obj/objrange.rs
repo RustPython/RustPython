@@ -113,6 +113,7 @@ type PyRangeRef = PyRef<PyRange>;
 
 #[pyimpl]
 impl PyRange {
+    #[pymethod(name = "__new__")]
     fn new(cls: PyClassRef, stop: PyIntRef, vm: &VirtualMachine) -> PyResult<PyRangeRef> {
         PyRange {
             start: PyInt::new(BigInt::zero()).into_ref(vm),

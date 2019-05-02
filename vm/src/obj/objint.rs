@@ -1,12 +1,12 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use num_bigint::{BigInt, ToBigInt};
+use num_bigint::BigInt;
 use num_integer::Integer;
 use num_traits::{Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -510,11 +510,8 @@ fn int_new(cls: PyClassRef, options: IntOptions, vm: &VirtualMachine) -> PyResul
 }
 
 // Casting function:
-// TODO: this should just call `__int__` on the object
 pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<BigInt> {
     match_class!(obj.clone(),
-        i @ PyInt => Ok(i.as_bigint().clone()),
-        f @ PyFloat => Ok(f.to_f64().to_bigint().unwrap()),
         s @ PyString => {
             i32::from_str_radix(s.as_str(), base)
                 .map(BigInt::from)
@@ -523,10 +520,21 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
                     base, s
                 )))
         },
-        obj => Err(vm.new_type_error(format!(
-            "int() argument must be a string or a number, not '{}'",
-            obj.class().name
-        )))
+        obj => {
+            if let Ok(f) = vm.get_method(obj.clone(), "__int__") {
+                let int_res = vm.invoke(f, PyFuncArgs::default())?;
+                match int_res.payload::<PyInt>() {
+                    Some(i) => Ok(i.as_bigint().clone()),
+                    None => Err(vm.new_type_error(format!(
+                        "TypeError: __int__ returned non-int (type '{}')", int_res.class().name))),
+                }
+            } else {
+                Err(vm.new_type_error(format!(
+                    "int() argument must be a string or a number, not '{}'",
+                    obj.class().name
+                )))
+            }
+        }
     )
 }
 

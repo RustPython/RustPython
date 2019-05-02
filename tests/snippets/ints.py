@@ -74,3 +74,37 @@ with assertRaises(TypeError):
 with assertRaises(TypeError):
     # check that first parameter is truly positional only
     int(val_options=1)
+
+class A(object):
+    def __int__(self):
+        return 10
+
+assert int(A()) == 10
+
+class B(object):
+    pass
+
+b = B()
+b.__int__ = lambda: 20
+
+with assertRaises(TypeError):
+    assert int(b) == 20
+
+class C(object):
+    def __int__(self):
+        return 'str'
+
+with assertRaises(TypeError):
+    int(C())
+
+class I(int):
+    def __int__(self):
+        return 3
+
+assert int(I(1)) == 3
+
+class F(float):
+    def __int__(self):
+        return 3
+
+assert int(F(1.2)) == 3

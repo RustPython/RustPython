@@ -1,4 +1,4 @@
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine; // Required for arg_check! to use isinstance
 
 use super::objbool;
@@ -7,6 +7,11 @@ use crate::obj::objtype::PyClassRef;
 
 pub type PyFilterRef = PyRef<PyFilter>;
 
+/// filter(function or None, iterable) --> filter object
+///
+/// Return an iterator yielding those items of iterable for which function(item)
+/// is true. If function is None, return the items that are true.
+#[pyclass]
 #[derive(Debug)]
 pub struct PyFilter {
     predicate: PyObjectRef,
@@ -34,8 +39,10 @@ fn filter_new(
     .into_ref_with_type(vm, cls)
 }
 
-impl PyFilterRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
+#[pyimpl]
+impl PyFilter {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         let predicate = &self.predicate;
         let iterator = &self.iterator;
         loop {
@@ -53,23 +60,15 @@ impl PyFilterRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
 pub fn init(context: &PyContext) {
-    let filter_type = &context.filter_type;
-
-    let filter_doc =
-        "filter(function or None, iterable) --> filter object\n\n\
-         Return an iterator yielding those items of iterable for which function(item)\n\
-         is true. If function is None, return the items that are true.";
-
-    extend_class!(context, filter_type, {
+    PyFilter::extend_class(context, &context.filter_type);
+    extend_class!(context, &context.filter_type, {
         "__new__" => context.new_rustfunc(filter_new),
-        "__doc__" => context.new_str(filter_doc.to_string()),
-        "__next__" => context.new_rustfunc(PyFilterRef::next),
-        "__iter__" => context.new_rustfunc(PyFilterRef::iter),
     });
 }
