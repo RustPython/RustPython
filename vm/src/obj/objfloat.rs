@@ -2,14 +2,16 @@ use super::objbytes;
 use super::objint;
 use super::objstr;
 use super::objtype;
+use crate::function::OptionalArg;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::ToPrimitive;
+use num_traits::{ToPrimitive, Zero};
 
 #[pyclass(name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -64,6 +66,28 @@ fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
         Ok(v1 % v2)
     } else {
         Err(vm.new_zero_division_error("float mod by zero".to_string()))
+    }
+}
+
+fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
+    match value.to_bigint() {
+        Some(int) => Ok(int),
+        None => {
+            if value.is_infinite() {
+                Err(vm.new_overflow_error(
+                    "OverflowError: cannot convert float NaN to integer".to_string(),
+                ))
+            } else if value.is_nan() {
+                Err(vm
+                    .new_value_error("ValueError: cannot convert float NaN to integer".to_string()))
+            } else {
+                // unreachable unless BigInt has a bug
+                unreachable!(
+                    "A finite float value failed to be converted to bigint: {}",
+                    value
+                )
+            }
+        }
     }
 }
 
@@ -343,12 +367,54 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__trunc__")]
-    fn trunc(&self, _vm: &VirtualMachine) -> BigInt {
-        self.value.to_bigint().unwrap()
+    fn trunc(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
+        try_to_bigint(self.value, vm)
+    }
+
+    #[pymethod(name = "__round__")]
+    fn round(&self, ndigits: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        let ndigits = match ndigits {
+            OptionalArg::Missing => None,
+            OptionalArg::Present(ref value) => {
+                if !vm.get_none().is(value) {
+                    let ndigits = if objtype::isinstance(value, &vm.ctx.int_type()) {
+                        objint::get_value(value)
+                    } else {
+                        return Err(vm.new_type_error(format!(
+                            "TypeError: '{}' object cannot be interpreted as an integer",
+                            value.class().name
+                        )));
+                    };
+                    if ndigits.is_zero() {
+                        None
+                    } else {
+                        Some(ndigits)
+                    }
+                } else {
+                    None
+                }
+            }
+        };
+        if ndigits.is_none() {
+            let fract = self.value.fract();
+            let value = if fract.abs() == 0.5 {
+                if self.value.trunc() % 2.0 == 0.0 {
+                    self.value - fract
+                } else {
+                    self.value + fract
+                }
+            } else {
+                self.value.round()
+            };
+            let int = try_to_bigint(value, vm)?;
+            Ok(vm.ctx.new_int(int))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
     }
 
     #[pymethod(name = "__int__")]
-    fn int(&self, vm: &VirtualMachine) -> BigInt {
+    fn int(&self, vm: &VirtualMachine) -> PyResult<BigInt> {
         self.trunc(vm)
     }
 

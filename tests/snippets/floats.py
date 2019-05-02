@@ -133,7 +133,17 @@ assert 1.2.__float__() == 1.2
 assert 1.2.__trunc__() == 1
 assert int(1.2) == 1
 assert float(1.2) == 1.2
-# assert math.trunc(1.2) == 1
+assert math.trunc(1.2) == 1
+assert_raises(OverflowError, float('inf').__trunc__)
+assert_raises(ValueError, float('nan').__trunc__)
+assert 0.5.__round__() == 0.0
+assert 1.5.__round__() == 2.0
+assert 0.5.__round__(0) == 0.0
+assert 1.5.__round__(0) == 2.0
+assert 0.5.__round__(None) == 0.0
+assert 1.5.__round__(None) == 2.0
+assert_raises(OverflowError, float('inf').__round__)
+assert_raises(ValueError, float('nan').__round__)
 
 assert 1.2 ** 2 == 1.44
 assert_raises(OverflowError, lambda: 1.2 ** (10 ** 1000))
