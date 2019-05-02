@@ -51,3 +51,15 @@ assert True > 0
 assert int(True) == 1
 assert True.conjugate() == 1
 assert isinstance(True.conjugate(), int)
+
+# Boolean operations on pairs of Bools should return Bools, not ints
+assert (False | True) is True
+assert (False & True) is False
+assert (False ^ True) is True
+# But only if both are Bools
+assert (False | 1) is not True
+assert (0 | True) is not True
+assert (False & 1) is not False
+assert (0 & True) is not False
+assert (False ^ 1) is not True
+assert (0 ^ True) is not True

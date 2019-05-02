@@ -42,6 +42,9 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
     extend_class!(context, bool_type, {
         "__new__" => context.new_rustfunc(bool_new),
         "__repr__" => context.new_rustfunc(bool_repr),
+        "__or__" => context.new_rustfunc(bool_or),
+        "__and__" => context.new_rustfunc(bool_and),
+        "__xor__" => context.new_rustfunc(bool_xor),
         "__doc__" => context.new_str(bool_doc.to_string())
     });
 }
@@ -69,6 +72,42 @@ fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObj
         "False".to_string()
     };
     Ok(vm.new_str(s))
+}
+
+fn bool_or(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+
+    if objtype::isinstance(lhs, &vm.ctx.bool_type()) && objtype::isinstance(rhs, &vm.ctx.bool_type()) {
+        let lhs = get_value(lhs);
+        let rhs = get_value(rhs);
+        (lhs || rhs).into_pyobject(vm)
+    } else {
+        Ok(lhs.payload::<PyInt>().unwrap().or(rhs.clone(), vm))
+    }
+}
+
+fn bool_and(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+
+    if objtype::isinstance(lhs, &vm.ctx.bool_type()) && objtype::isinstance(rhs, &vm.ctx.bool_type()) {
+        let lhs = get_value(lhs);
+        let rhs = get_value(rhs);
+        (lhs && rhs).into_pyobject(vm)
+    } else {
+        Ok(lhs.payload::<PyInt>().unwrap().and(rhs.clone(), vm))
+    }
+}
+
+fn bool_xor(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+
+    if objtype::isinstance(lhs, &vm.ctx.bool_type()) && objtype::isinstance(rhs, &vm.ctx.bool_type()) {
+        let lhs = get_value(lhs);
+        let rhs = get_value(rhs);
+        (lhs ^ rhs).into_pyobject(vm)
+    } else {
+        Ok(lhs.payload::<PyInt>().unwrap().xor(rhs.clone(), vm))
+    }
 }
 
 fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
