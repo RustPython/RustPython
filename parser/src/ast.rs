@@ -98,6 +98,12 @@ pub enum Statement {
         body: Vec<LocatedStatement>,
         orelse: Option<Vec<LocatedStatement>>,
     },
+    AsyncFor {
+        target: Expression,
+        iter: Expression,
+        body: Vec<LocatedStatement>,
+        orelse: Option<Vec<LocatedStatement>>,
+    },
     Raise {
         exception: Option<Expression>,
         cause: Option<Expression>,
@@ -116,6 +122,13 @@ pub enum Statement {
         decorator_list: Vec<Expression>,
     },
     FunctionDef {
+        name: String,
+        args: Parameters,
+        body: Vec<LocatedStatement>,
+        decorator_list: Vec<Expression>,
+        returns: Option<Expression>,
+    },
+    AsyncFunctionDef {
         name: String,
         args: Parameters,
         body: Vec<LocatedStatement>,

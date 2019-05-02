@@ -96,6 +96,26 @@ fn statement_to_ast(
                 returns => py_returns
             })
         }
+        ast::Statement::AsyncFunctionDef {
+            name,
+            args,
+            body,
+            decorator_list,
+            returns,
+        } => {
+            let py_returns = if let Some(hint) = returns {
+                expression_to_ast(vm, hint)?.into_object()
+            } else {
+                vm.ctx.none()
+            };
+            node!(vm, AsyncFunctionDef, {
+                name => vm.ctx.new_str(name.to_string()),
+                args => parameters_to_ast(vm, args)?,
+                body => statements_to_ast(vm, body)?,
+                decorator_list => expressions_to_ast(vm, decorator_list)?,
+                returns => py_returns
+            })
+        }
         ast::Statement::Continue => node!(vm, Continue),
         ast::Statement::Break => node!(vm, Break),
         ast::Statement::Pass => node!(vm, Pass),
@@ -143,6 +163,21 @@ fn statement_to_ast(
             body,
             orelse,
         } => node!(vm, For, {
+            target => expression_to_ast(vm, target)?,
+            iter => expression_to_ast(vm, iter)?,
+            body => statements_to_ast(vm, body)?,
+            or_else => if let Some(orelse) = orelse {
+                statements_to_ast(vm, orelse)?.into_object()
+            } else {
+                vm.ctx.none()
+            }
+        }),
+        ast::Statement::AsyncFor {
+            target,
+            iter,
+            body,
+            orelse,
+        } => node!(vm, AsyncFor, {
             target => expression_to_ast(vm, target)?,
             iter => expression_to_ast(vm, iter)?,
             body => statements_to_ast(vm, body)?,
@@ -462,6 +497,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // TODO: There's got to be a better way!
         "arg" => py_class!(ctx, "_ast.arg", ast_base.clone(), {}),
         "arguments" => py_class!(ctx, "_ast.arguments", ast_base.clone(), {}),
+        "AsyncFor" => py_class!(ctx, "_ast.AsyncFor", ast_base.clone(), {}),
+        "AsyncFunctionDef" => py_class!(ctx, "_ast.AsyncFunctionDef", ast_base.clone(), {}),
         "Assert" => py_class!(ctx, "_ast.Assert", ast_base.clone(), {}),
         "Attribute" => py_class!(ctx, "_ast.Attribute", ast_base.clone(), {}),
         "BinOp" => py_class!(ctx, "_ast.BinOp", ast_base.clone(), {}),

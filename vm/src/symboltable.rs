@@ -223,6 +223,13 @@ impl SymbolTableBuilder {
                 args,
                 decorator_list,
                 returns,
+            }
+            | ast::Statement::AsyncFunctionDef {
+                name,
+                body,
+                args,
+                decorator_list,
+                returns,
             } => {
                 self.scan_expressions(decorator_list)?;
                 self.register_name(name, SymbolRole::Assigned)?;
@@ -261,6 +268,12 @@ impl SymbolTableBuilder {
                 }
             }
             ast::Statement::For {
+                target,
+                iter,
+                body,
+                orelse,
+            }
+            | ast::Statement::AsyncFor {
                 target,
                 iter,
                 body,

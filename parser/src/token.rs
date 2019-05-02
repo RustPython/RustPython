@@ -72,6 +72,8 @@ pub enum Tok {
     And,
     As,
     Assert,
+    Async,
+    Await,
     Break,
     Class,
     Continue,

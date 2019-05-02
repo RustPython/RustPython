@@ -348,13 +348,14 @@ WhileStatement: ast::LocatedStatement = {
 };
 
 ForStatement: ast::LocatedStatement = {
-    <loc:@L> "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
-        let or_else = s2.map(|s| s.2);
+    <loc:@L> <is_async:"async"?> "for" <target:ExpressionList> "in" <iter:TestList> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+        let orelse = s2.map(|s| s.2);
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::For {
-                target: e,
-                iter: t, body: s, orelse: or_else
+            node: if is_async.is_some() {
+                ast::Statement::AsyncFor { target, iter, body, orelse }
+            } else {
+                ast::Statement::For { target, iter, body, orelse }
             },
         }
     },
@@ -410,16 +411,26 @@ WithItem: ast::WithItem = {
 };
 
 FuncDef: ast::LocatedStatement = {
-    <d:Decorator*> <loc:@L> "def" <i:Identifier> <a:Parameters> <r:("->" Test)?> ":" <s:Suite> => {
+    <d:Decorator*> <loc:@L> <is_async:"async"?> "def" <i:Identifier> <a:Parameters> <r:("->" Test)?> ":" <s:Suite> => {
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::FunctionDef {
-                name: i,
-                args: a,
-                body: s,
-                decorator_list: d,
-                returns: r.map(|x| x.1),
-            }
+            node: if is_async.is_some() {
+                    ast::Statement::AsyncFunctionDef {
+                        name: i,
+                        args: a,
+                        body: s,
+                        decorator_list: d,
+                        returns: r.map(|x| x.1),
+                    }
+                } else {
+                    ast::Statement::FunctionDef {
+                        name: i,
+                        args: a,
+                        body: s,
+                        decorator_list: d,
+                        returns: r.map(|x| x.1),
+                    }
+                }
         }
     },
 };
@@ -1045,6 +1056,8 @@ extern {
         "and" => lexer::Tok::And,
         "as" => lexer::Tok::As,
         "assert" => lexer::Tok::Assert,
+        "async" => lexer::Tok::Async,
+        "await" => lexer::Tok::Await,
         "break" => lexer::Tok::Break,
         "class" => lexer::Tok::Class,
         "continue" => lexer::Tok::Continue,

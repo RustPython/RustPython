@@ -322,6 +322,9 @@ impl Compiler {
                 body,
                 orelse,
             } => self.compile_for(target, iter, body, orelse)?,
+            ast::Statement::AsyncFor { .. } => {
+                unimplemented!("async for");
+            }
             ast::Statement::Raise { exception, cause } => match exception {
                 Some(value) => {
                     self.compile_expression(value)?;
@@ -352,6 +355,9 @@ impl Compiler {
                 decorator_list,
                 returns,
             } => self.compile_function_def(name, args, body, decorator_list, returns)?,
+            ast::Statement::AsyncFunctionDef { .. } => {
+                unimplemented!("async def");
+            }
             ast::Statement::ClassDef {
                 name,
                 body,
