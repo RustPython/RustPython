@@ -198,6 +198,11 @@ impl PyString {
         }
     }
 
+    #[pymethod(name = "__rmul__")]
+    fn rmul(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        self.mul(val, vm)
+    }
+
     #[pymethod(name = "__str__")]
     fn str(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyStringRef {
         zelf
