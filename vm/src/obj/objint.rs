@@ -296,11 +296,7 @@ impl PyInt {
 
     #[pymethod(name = "__rxor__")]
     fn rxor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_int(get_value(&other) ^ (&self.value))
-        } else {
-            vm.ctx.not_implemented()
-        }
+        self.xor(other, vm)
     }
 
     #[pymethod(name = "__or__")]
