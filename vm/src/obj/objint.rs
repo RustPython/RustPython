@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use num_bigint::BigInt;
 use num_integer::Integer;
-use num_traits::{Pow, Signed, ToPrimitive, Zero};
+use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -13,7 +13,6 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objfloat::PyFloat;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -116,11 +115,22 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
         let v1 = int1.float(vm)?;
         let v2 = int2.float(vm)?;
         vm.ctx.new_float(v1.pow(v2))
-    } else if let Some(v2) = int2.value.to_u64() {
-        vm.ctx.new_int(int1.value.pow(v2))
     } else {
-        // missing feature: BigInt exp
-        vm.ctx.not_implemented()
+        if let Some(v2) = int2.value.to_u64() {
+            vm.ctx.new_int(int1.value.pow(v2))
+        } else if int1.value.is_one() || int1.value.is_zero() {
+            vm.ctx.new_int(int1.value.clone())
+        } else if int1.value == BigInt::from(-1) {
+            if int2.value.is_odd() {
+                vm.ctx.new_int(-1)
+            } else {
+                vm.ctx.new_int(1)
+            }
+        } else {
+            // missing feature: BigInt exp
+            // practically, exp over u64 is not possible to calculate anyway
+            vm.ctx.not_implemented()
+        }
     })
 }
 
