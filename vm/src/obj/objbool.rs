@@ -43,8 +43,11 @@ The class bool is a subclass of the class int, and cannot be subclassed.";
         "__new__" => context.new_rustfunc(bool_new),
         "__repr__" => context.new_rustfunc(bool_repr),
         "__or__" => context.new_rustfunc(bool_or),
+        "__ror__" => context.new_rustfunc(bool_ror),
         "__and__" => context.new_rustfunc(bool_and),
+        "__rand__" => context.new_rustfunc(bool_rand),
         "__xor__" => context.new_rustfunc(bool_xor),
+        "__rxor__" => context.new_rustfunc(bool_rxor),
         "__doc__" => context.new_str(bool_doc.to_string())
     });
 }
@@ -74,10 +77,10 @@ fn bool_repr(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObj
     Ok(vm.new_str(s))
 }
 
-fn bool_or(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
-    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
-
-    if objtype::isinstance(lhs, &vm.ctx.bool_type()) && objtype::isinstance(rhs, &vm.ctx.bool_type()) {
+fn do_bool_or(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
+    if objtype::isinstance(lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+    {
         let lhs = get_value(lhs);
         let rhs = get_value(rhs);
         (lhs || rhs).into_pyobject(vm)
@@ -86,10 +89,20 @@ fn bool_or(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjec
     }
 }
 
-fn bool_and(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+fn bool_or(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+    do_bool_or(vm, lhs, rhs)
+}
 
-    if objtype::isinstance(lhs, &vm.ctx.bool_type()) && objtype::isinstance(rhs, &vm.ctx.bool_type()) {
+fn bool_ror(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
+    do_bool_or(vm, lhs, rhs)
+}
+
+fn do_bool_and(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
+    if objtype::isinstance(lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+    {
         let lhs = get_value(lhs);
         let rhs = get_value(rhs);
         (lhs && rhs).into_pyobject(vm)
@@ -98,16 +111,36 @@ fn bool_and(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObje
     }
 }
 
-fn bool_xor(vm: &VirtualMachine, args: PyFuncArgs) -> Result<PyObjectRef, PyObjectRef> {
+fn bool_and(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+    do_bool_and(vm, lhs, rhs)
+}
 
-    if objtype::isinstance(lhs, &vm.ctx.bool_type()) && objtype::isinstance(rhs, &vm.ctx.bool_type()) {
+fn bool_rand(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
+    do_bool_and(vm, lhs, rhs)
+}
+
+fn do_bool_xor(vm: &VirtualMachine, lhs: &PyObjectRef, rhs: &PyObjectRef) -> PyResult {
+    if objtype::isinstance(lhs, &vm.ctx.bool_type())
+        && objtype::isinstance(rhs, &vm.ctx.bool_type())
+    {
         let lhs = get_value(lhs);
         let rhs = get_value(rhs);
         (lhs ^ rhs).into_pyobject(vm)
     } else {
         Ok(lhs.payload::<PyInt>().unwrap().xor(rhs.clone(), vm))
     }
+}
+
+fn bool_xor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(lhs, None), (rhs, None)]);
+    do_bool_xor(vm, lhs, rhs)
+}
+
+fn bool_rxor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(vm, args, required = [(rhs, None), (lhs, None)]);
+    do_bool_xor(vm, lhs, rhs)
 }
 
 fn bool_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
