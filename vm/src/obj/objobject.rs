@@ -213,7 +213,7 @@ fn object_dict_setter(
     vm: &VirtualMachine,
 ) -> PyResult {
     Err(vm.new_not_implemented_error(
-        "Setting __dict__ attribute on am object isn't yet implemented".to_string(),
+        "Setting __dict__ attribute on an object isn't yet implemented".to_string(),
     ))
 }
 
