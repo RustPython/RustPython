@@ -385,6 +385,12 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                 }
             }
         }
+        ast::Expression::Await { value } => {
+            let py_value = expression_to_ast(vm, value)?;
+            node!(vm, Await, {
+                value => py_value
+            })
+        }
         ast::Expression::Yield { value } => {
             let py_value = match value {
                 Some(value) => expression_to_ast(vm, value)?.into_object(),
@@ -501,6 +507,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "AsyncFunctionDef" => py_class!(ctx, "_ast.AsyncFunctionDef", ast_base.clone(), {}),
         "Assert" => py_class!(ctx, "_ast.Assert", ast_base.clone(), {}),
         "Attribute" => py_class!(ctx, "_ast.Attribute", ast_base.clone(), {}),
+        "Await" => py_class!(ctx, "_ast.Await", ast_base.clone(), {}),
         "BinOp" => py_class!(ctx, "_ast.BinOp", ast_base.clone(), {}),
         "BoolOp" => py_class!(ctx, "_ast.BoolOp", ast_base.clone(), {}),
         "Break" => py_class!(ctx, "_ast.Break", ast_base.clone(), {}),

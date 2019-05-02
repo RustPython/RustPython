@@ -5,7 +5,7 @@ import ast
 src = """
 async def x():
     async for x in [1,2,3]:
-        pass
+        await y()
 """
 
 mod = ast.parse(src)

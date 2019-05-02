@@ -163,6 +163,9 @@ pub enum Expression {
         op: UnaryOperator,
         a: Box<Expression>,
     },
+    Await {
+        value: Box<Expression>,
+    },
     Yield {
         value: Option<Box<Expression>>,
     },
@@ -240,6 +243,7 @@ impl Expression {
         match self {
             BoolOp { .. } | Binop { .. } | Unop { .. } => "operator",
             Subscript { .. } => "subscript",
+            Await { .. } => "await expression",
             Yield { .. } | YieldFrom { .. } => "yield expression",
             Compare { .. } => "comparison",
             Attribute { .. } => "attribute",

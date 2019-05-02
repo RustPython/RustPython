@@ -408,6 +408,9 @@ impl SymbolTableBuilder {
                     self.scan_expression(value)?;
                 }
             }
+            ast::Expression::Await { value } => {
+                self.scan_expression(value)?;
+            }
             ast::Expression::Yield { value } => {
                 if let Some(expression) = value {
                     self.scan_expression(expression)?;

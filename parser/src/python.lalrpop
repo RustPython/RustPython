@@ -747,10 +747,20 @@ Power: ast::Expression = {
 };
 
 AtomExpr: ast::Expression = {
+    <is_await:"await"?> <atom:AtomExpr2> => {
+        if is_await.is_some() {
+            ast::Expression::Await { value: Box::new(atom) }
+        } else {
+            atom
+        }
+    }
+}
+
+AtomExpr2: ast::Expression = {
     Atom,
-    <f:AtomExpr>  "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
-    <e:AtomExpr>  "[" <s:SubscriptList> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
-    <e:AtomExpr> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
+    <f:AtomExpr2> "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
+    <e:AtomExpr2> "[" <s:SubscriptList> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
+    <e:AtomExpr2> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
 };
 
 SubscriptList: ast::Expression = {

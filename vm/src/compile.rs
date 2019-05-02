@@ -1271,6 +1271,9 @@ impl Compiler {
                 };
                 self.emit(Instruction::YieldValue);
             }
+            ast::Expression::Await { .. } => {
+                unimplemented!("await");
+            }
             ast::Expression::YieldFrom { value } => {
                 self.mark_generator();
                 self.compile_expression(value)?;
