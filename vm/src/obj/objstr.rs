@@ -425,7 +425,7 @@ impl PyString {
     /// uppercase character and the remaining characters are lowercase.
     #[pymethod]
     fn title(&self, _vm: &VirtualMachine) -> String {
-        let mut title = String::new();
+        let mut title = String::with_capacity(self.value.len());
         let mut previous_is_cased = false;
         for c in self.value.chars() {
             if c.is_lowercase() {
