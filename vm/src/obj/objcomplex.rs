@@ -67,7 +67,9 @@ impl PyComplexRef {
 }
 
 fn to_complex(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
-    if objtype::isinstance(&value, &vm.ctx.int_type()) {
+    if objtype::isinstance(&value, &vm.ctx.complex_type()) {
+        Ok(Some(get_value(&value)))
+    } else if objtype::isinstance(&value, &vm.ctx.int_type()) {
         match objint::get_value(&value).to_f64() {
             Some(v) => Ok(Some(Complex64::new(v, 0.0))),
             None => Err(vm.new_overflow_error("int too large to convert to float".to_string())),
@@ -159,6 +161,28 @@ impl PyComplex {
         };
 
         vm.ctx.new_bool(result)
+    }
+
+    #[pymethod(name = "__float__")]
+    fn float(&self, vm: &VirtualMachine) -> PyResult {
+        return Err(vm.new_type_error(String::from("Can't convert complex to float")));
+    }
+
+    #[pymethod(name = "__int__")]
+    fn int(&self, vm: &VirtualMachine) -> PyResult {
+        return Err(vm.new_type_error(String::from("Can't convert complex to int")));
+    }
+
+    #[pymethod(name = "__mul__")]
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        match to_complex(other, vm) {
+            Ok(Some(other)) => Ok(vm.ctx.new_complex(Complex64::new(
+                self.value.re * other.re - self.value.im * other.im,
+                self.value.re * other.im + self.value.im * other.re,
+            ))),
+            Ok(None) => Ok(vm.ctx.not_implemented()),
+            Err(err) => Err(err),
+        }
     }
 
     #[pymethod(name = "__neg__")]

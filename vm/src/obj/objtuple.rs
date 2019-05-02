@@ -3,7 +3,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use crate::function::OptionalArg;
-use crate::pyobject::{IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
@@ -224,6 +224,7 @@ fn tuple_new(
     PyTuple::from(elements).into_ref_with_type(vm, cls)
 }
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyTupleIterator {
     position: Cell<usize>,
@@ -236,10 +237,10 @@ impl PyValue for PyTupleIterator {
     }
 }
 
-type PyTupleIteratorRef = PyRef<PyTupleIterator>;
-
-impl PyTupleIteratorRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
+#[pyimpl]
+impl PyTupleIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         if self.position.get() < self.tuple.elements.borrow().len() {
             let ret = self.tuple.elements.borrow()[self.position.get()].clone();
             self.position.set(self.position.get() + 1);
@@ -249,8 +250,9 @@ impl PyTupleIteratorRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
@@ -282,9 +284,5 @@ If the argument is a tuple, the return value is the same object.";
         "index" => context.new_rustfunc(PyTupleRef::index)
     });
 
-    let tupleiterator_type = &context.tupleiterator_type;
-    extend_class!(context, tupleiterator_type, {
-        "__next__" => context.new_rustfunc(PyTupleIteratorRef::next),
-        "__iter__" => context.new_rustfunc(PyTupleIteratorRef::iter),
-    });
+    PyTupleIterator::extend_class(context, &context.tupleiterator_type);
 }

@@ -4,7 +4,9 @@
 
 use std::cell::Cell;
 
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 use super::objtype;
@@ -75,6 +77,7 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
     vm.new_exception(stop_iteration_type, "End of iterator".to_string())
 }
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PySequenceIterator {
     pub position: Cell<usize>,
@@ -87,10 +90,10 @@ impl PyValue for PySequenceIterator {
     }
 }
 
-type PySequenceIteratorRef = PyRef<PySequenceIterator>;
-
-impl PySequenceIteratorRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
+#[pyimpl]
+impl PySequenceIterator {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         let number = vm.ctx.new_int(self.position.get());
         match vm.call_method(&self.obj, "__getitem__", vec![number]) {
             Ok(val) => {
@@ -105,16 +108,12 @@ impl PySequenceIteratorRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
 pub fn init(context: &PyContext) {
-    let iter_type = &context.iter_type;
-
-    extend_class!(context, iter_type, {
-        "__next__" => context.new_rustfunc(PySequenceIteratorRef::next),
-        "__iter__" => context.new_rustfunc(PySequenceIteratorRef::iter),
-    });
+    PySequenceIterator::extend_class(context, &context.iter_type);
 }

@@ -1,5 +1,5 @@
 use crate::function::Args;
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objiter;
@@ -7,6 +7,7 @@ use crate::obj::objtype::PyClassRef;
 
 pub type PyZipRef = PyRef<PyZip>;
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyZip {
     iterators: Vec<PyObjectRef>,
@@ -26,8 +27,10 @@ fn zip_new(cls: PyClassRef, iterables: Args, vm: &VirtualMachine) -> PyResult<Py
     PyZip { iterators }.into_ref_with_type(vm, cls)
 }
 
-impl PyZipRef {
-    fn next(self, vm: &VirtualMachine) -> PyResult {
+#[pyimpl]
+impl PyZip {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
         if self.iterators.is_empty() {
             Err(objiter::new_stop_iteration(vm))
         } else {
@@ -41,16 +44,15 @@ impl PyZipRef {
         }
     }
 
-    fn iter(self, _vm: &VirtualMachine) -> Self {
-        self
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
 pub fn init(context: &PyContext) {
-    let zip_type = &context.zip_type;
-    extend_class!(context, zip_type, {
+    PyZip::extend_class(context, &context.zip_type);
+    extend_class!(context, &context.zip_type, {
         "__new__" => context.new_rustfunc(zip_new),
-        "__next__" => context.new_rustfunc(PyZipRef::next),
-        "__iter__" => context.new_rustfunc(PyZipRef::iter),
     });
 }

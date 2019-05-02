@@ -123,11 +123,14 @@ fn builtin_dir(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(x, None), (y, None)]);
-    match vm.get_method(x.clone(), "__divmod__") {
-        Ok(attrib) => vm.invoke(attrib, vec![y.clone()]),
-        Err(..) => Err(vm.new_type_error("unsupported operand type(s) for divmod".to_string())),
-    }
+    arg_check!(vm, args, required = [(a, None), (b, None)]);
+    vm.call_or_reflection(
+        a.clone(),
+        b.clone(),
+        "__divmod__",
+        "__rdivmod__",
+        |vm, a, b| Err(vm.new_unsupported_operand_error(a, b, "divmod")),
+    )
 }
 
 /// Implements `eval`.
