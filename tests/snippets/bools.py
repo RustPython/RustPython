@@ -63,3 +63,17 @@ assert (False & 1) is not False
 assert (0 & True) is not False
 assert (False ^ 1) is not True
 assert (0 ^ True) is not True
+
+# Check that the same works with __XXX__ methods
+assert False.__or__(0) is not False
+assert False.__or__(False) is False
+assert False.__ror__(0) is not False
+assert False.__ror__(False) is False
+assert False.__and__(0) is not False
+assert False.__and__(False) is False
+assert False.__rand__(0) is not False
+assert False.__rand__(False) is False
+assert False.__xor__(0) is not False
+assert False.__xor__(False) is False
+assert False.__rxor__(0) is not False
+assert False.__rxor__(False) is False
