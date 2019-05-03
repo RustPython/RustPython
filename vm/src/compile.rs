@@ -130,18 +130,35 @@ impl Compiler {
         symbol_scope: SymbolScope,
     ) -> Result<(), CompileError> {
         self.scope_stack.push(symbol_scope);
-        for statement in &program.statements {
+
+        let mut emitted_return = false;
+
+        for (i, statement) in program.statements.iter().enumerate() {
+            let is_last = i == program.statements.len() - 1;
+
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
-                self.emit(Instruction::PrintExpr);
+
+                if is_last {
+                    self.emit(Instruction::Duplicate);
+                    self.emit(Instruction::PrintExpr);
+                    self.emit(Instruction::ReturnValue);
+                    emitted_return = true;
+                } else {
+                    self.emit(Instruction::PrintExpr);
+                }
             } else {
                 self.compile_statement(&statement)?;
             }
         }
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::None,
-        });
-        self.emit(Instruction::ReturnValue);
+
+        if !emitted_return {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::None,
+            });
+            self.emit(Instruction::ReturnValue);
+        }
+
         Ok(())
     }
 
