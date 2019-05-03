@@ -61,7 +61,7 @@ pub fn import_file(
     sys_modules.set_item(module_name, module.clone(), vm)?;
 
     // Execute main code in module:
-    vm.run_code_obj(code_obj, Scope::new(None, attrs))?;
+    vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))?;
     Ok(module)
 }
 

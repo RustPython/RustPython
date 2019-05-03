@@ -218,18 +218,27 @@ fn make_scope(
         }
         None => None,
     };
-
     let current_scope = vm.current_scope();
     let globals = match globals {
-        Some(dict) => dict.clone().downcast().unwrap(),
+        Some(dict) => {
+            let dict: PyDictRef = dict.clone().downcast().unwrap();
+            if !dict.contains_key("__builtins__", vm) {
+                let builtins_dict = vm.builtins.dict.as_ref().unwrap().as_object();
+                dict.set_item("__builtins__", builtins_dict.clone(), vm)
+                    .unwrap();
+            }
+            dict
+        }
         None => current_scope.globals.clone(),
     };
+
     let locals = match locals {
         Some(dict) => dict.clone().downcast().ok(),
         None => current_scope.get_only_locals(),
     };
 
-    Ok(Scope::new(locals, globals))
+    let scope = Scope::with_builtins(locals, globals, vm);
+    Ok(scope)
 }
 
 fn builtin_format(
