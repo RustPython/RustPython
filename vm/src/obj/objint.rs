@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use num_bigint::BigInt;
 use num_integer::Integer;
-use num_traits::{Pow, Signed, ToPrimitive, Zero};
+use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -13,7 +13,6 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objfloat::{self, PyFloat};
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -110,6 +109,30 @@ impl_try_from_object_int!(
     (u32, to_u32),
     (u64, to_u64),
 );
+
+fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
+    Ok(if int2.value.is_negative() {
+        let v1 = int1.float(vm)?;
+        let v2 = int2.float(vm)?;
+        vm.ctx.new_float(v1.pow(v2))
+    } else {
+        if let Some(v2) = int2.value.to_u64() {
+            vm.ctx.new_int(int1.value.pow(v2))
+        } else if int1.value.is_one() || int1.value.is_zero() {
+            vm.ctx.new_int(int1.value.clone())
+        } else if int1.value == BigInt::from(-1) {
+            if int2.value.is_odd() {
+                vm.ctx.new_int(-1)
+            } else {
+                vm.ctx.new_int(1)
+            }
+        } else {
+            // missing feature: BigInt exp
+            // practically, exp over u64 is not possible to calculate anyway
+            vm.ctx.not_implemented()
+        }
+    })
+}
 
 #[pyimpl]
 impl PyInt {
@@ -323,15 +346,22 @@ impl PyInt {
     }
 
     #[pymethod(name = "__pow__")]
-    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            let v2 = get_value(&other).to_u32().unwrap();
-            vm.ctx.new_int(self.value.pow(v2))
-        } else if objtype::isinstance(&other, &vm.ctx.float_type()) {
-            let v2 = objfloat::get_value(&other);
-            vm.ctx.new_float((self.value.to_f64().unwrap()).powf(v2))
+            let other = other.payload::<PyInt>().unwrap();
+            inner_pow(self, &other, vm)
         } else {
-            vm.ctx.not_implemented()
+            Ok(vm.ctx.not_implemented())
+        }
+    }
+
+    #[pymethod(name = "__rpow__")]
+    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if objtype::isinstance(&other, &vm.ctx.int_type()) {
+            let other = other.payload::<PyInt>().unwrap();
+            inner_pow(&other, self, vm)
+        } else {
+            Ok(vm.ctx.not_implemented())
         }
     }
 
@@ -403,10 +433,9 @@ impl PyInt {
     }
 
     #[pymethod(name = "__float__")]
-    fn float(&self, vm: &VirtualMachine) -> PyResult<PyFloat> {
+    fn float(&self, vm: &VirtualMachine) -> PyResult<f64> {
         self.value
             .to_f64()
-            .map(PyFloat::from)
             .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_string()))
     }
 
@@ -544,9 +573,7 @@ pub fn get_value(obj: &PyObjectRef) -> &BigInt {
 }
 
 pub fn get_float_value(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
-    get_value(obj).to_f64().ok_or_else(|| {
-        vm.new_overflow_error("OverflowError: int too large to convert to float".to_string())
-    })
+    obj.payload::<PyInt>().unwrap().float(vm)
 }
 
 #[inline]
