@@ -1,17 +1,23 @@
-use crate::obj::objint::PyInt;
-use crate::obj::objstr::PyString;
+use crate::obj::objint::PyIntRef;
+use crate::obj::objslice::PySliceRef;
+use crate::obj::objstr::PyStringRef;
+use crate::obj::objtuple::PyTupleRef;
+
+use crate::pyobject::Either;
 use crate::vm::VirtualMachine;
 use core::cell::Cell;
 use std::ops::Deref;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
 
-use super::objbyteinner::{is_byte, PyByteInner};
+use super::objbyteinner::{
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
+    ByteInnerTranslateOptions, PyByteInner,
+};
 use super::objiter;
-use super::objslice::PySlice;
-use super::objtype::PyClassRef;
 
+use super::objtype::PyClassRef;
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
 /// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
@@ -34,7 +40,6 @@ impl PyBytes {
             inner: PyByteInner { elements },
         }
     }
-
     pub fn get_value(&self) -> &[u8] {
         &self.inner.elements
     }
@@ -63,6 +68,8 @@ pub fn init(context: &PyContext) {
     let bytes_type = &context.bytes_type;
     extend_class!(context, bytes_type, {
     "fromhex" => context.new_rustfunc(PyBytesRef::fromhex),
+    "maketrans" => context.new_rustfunc(PyByteInner::maketrans),
+
     });
     PyBytesIterator::extend_class(context, &context.bytesiterator_type);
 }
@@ -72,12 +79,11 @@ impl PyBytesRef {
     #[pymethod(name = "__new__")]
     fn bytes_new(
         cls: PyClassRef,
-        val_option: OptionalArg<PyObjectRef>,
-        enc_option: OptionalArg<PyObjectRef>,
+        options: ByteInnerNewOptions,
         vm: &VirtualMachine,
     ) -> PyResult<PyBytesRef> {
         PyBytes {
-            inner: PyByteInner::new(val_option, enc_option, vm)?,
+            inner: options.get_value(vm)?,
         }
         .into_ref_with_type(vm, cls)
     }
@@ -144,19 +150,13 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__contains__")]
-    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(needle,
-        bytes @ PyBytes => self.inner.contains_bytes(&bytes.inner, vm),
-        int @ PyInt => self.inner.contains_int(&int, vm),
-        obj  => Err(vm.new_type_error(format!("a bytes-like object is required, not {}", obj))))
+    fn contains(self, needle: Either<PyByteInner, PyIntRef>, vm: &VirtualMachine) -> PyResult {
+        self.inner.contains(needle, vm)
     }
 
     #[pymethod(name = "__getitem__")]
-    fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(needle,
-        int @ PyInt => self.inner.getitem_int(&int, vm),
-        slice @ PySlice => self.inner.getitem_slice(slice.as_object(), vm),
-        obj  => Err(vm.new_type_error(format!("byte indices must be integers or slices, not {}", obj))))
+    fn getitem(self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+        self.inner.getitem(needle, vm)
     }
 
     #[pymethod(name = "isalnum")]
@@ -214,56 +214,119 @@ impl PyBytesRef {
         Ok(vm.ctx.new_bytes(self.inner.capitalize(vm)))
     }
 
+    #[pymethod(name = "swapcase")]
+    fn swapcase(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.swapcase(vm)))
+    }
+
     #[pymethod(name = "hex")]
     fn hex(self, vm: &VirtualMachine) -> PyResult {
         self.inner.hex(vm)
     }
 
-    // #[pymethod(name = "fromhex")]
-    fn fromhex(string: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(string,
-        s @ PyString => {
-        match PyByteInner::fromhex(s.to_string(), vm) {
-        Ok(x) => Ok(vm.ctx.new_bytes(x)),
-        Err(y) => Err(y)}},
-        obj => Err(vm.new_type_error(format!("fromhex() argument must be str, not {}", obj )))
-        )
+    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(PyByteInner::fromhex(string.as_str(), vm)?))
     }
 
     #[pymethod(name = "center")]
-    fn center(
+    fn center(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.center(options, vm)?))
+    }
+
+    #[pymethod(name = "ljust")]
+    fn ljust(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.ljust(options, vm)?))
+    }
+
+    #[pymethod(name = "rjust")]
+    fn rjust(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.rjust(options, vm)?))
+    }
+
+    #[pymethod(name = "count")]
+    fn count(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+        self.inner.count(options, vm)
+    }
+
+    #[pymethod(name = "join")]
+    fn join(self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+        self.inner.join(iter, vm)
+    }
+
+    #[pymethod(name = "endswith")]
+    fn endswith(
         self,
-        width: PyObjectRef,
-        fillbyte: OptionalArg<PyObjectRef>,
+        suffix: Either<PyByteInner, PyTupleRef>,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let sym = if let OptionalArg::Present(v) = fillbyte {
-            match is_byte(&v) {
-                Some(x) => {
-                    if x.len() == 1 {
-                        x[0]
-                    } else {
-                        return Err(vm.new_type_error(format!(
-                            "center() argument 2 must be a byte string of length 1, not {}",
-                            &v
-                        )));
-                    }
-                }
-                None => {
-                    return Err(vm.new_type_error(format!(
-                        "center() argument 2 must be a byte string of length 1, not {}",
-                        &v
-                    )));
-                }
-            }
-        } else {
-            32 // default is space
-        };
+        self.inner.startsendswith(suffix, start, end, true, vm)
+    }
 
-        match_class!(width,
-        i @PyInt => Ok(vm.ctx.new_bytes(self.inner.center(i.as_bigint(), sym, vm))),
-        obj => {Err(vm.new_type_error(format!("{} cannot be interpreted as an integer", obj)))}
-        )
+    #[pymethod(name = "startswith")]
+    fn startswith(
+        self,
+        prefix: Either<PyByteInner, PyTupleRef>,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.inner.startsendswith(prefix, start, end, false, vm)
+    }
+
+    #[pymethod(name = "find")]
+    fn find(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        self.inner.find(options, false, vm)
+    }
+
+    #[pymethod(name = "index")]
+    fn index(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        let res = self.inner.find(options, false, vm)?;
+        if res == -1 {
+            return Err(vm.new_value_error("substring not found".to_string()));
+        }
+        Ok(res)
+    }
+
+    #[pymethod(name = "rfind")]
+    fn rfind(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        self.inner.find(options, true, vm)
+    }
+
+    #[pymethod(name = "rindex")]
+    fn rindex(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        let res = self.inner.find(options, true, vm)?;
+        if res == -1 {
+            return Err(vm.new_value_error("substring not found".to_string()));
+        }
+        Ok(res)
+    }
+
+    #[pymethod(name = "translate")]
+    fn translate(self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
+        self.inner.translate(options, vm)
+    }
+
+    #[pymethod(name = "strip")]
+    fn strip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytes(self.inner.strip(chars, ByteInnerPosition::All, vm)?))
+    }
+
+    #[pymethod(name = "lstrip")]
+    fn lstrip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytes(self.inner.strip(chars, ByteInnerPosition::Left, vm)?))
+    }
+
+    #[pymethod(name = "rstrip")]
+    fn rstrip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytes(self.inner.strip(chars, ByteInnerPosition::Right, vm)?))
     }
 }
 

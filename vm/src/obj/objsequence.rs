@@ -1,3 +1,5 @@
+use crate::function::OptionalArg;
+use crate::obj::objnone::PyNone;
 use std::cell::RefCell;
 use std::marker::Sized;
 use std::ops::{Deref, DerefMut, Range};
@@ -370,4 +372,21 @@ pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<
         return tuple.elements.borrow_mut();
     }
     panic!("Cannot extract elements from non-sequence");
+}
+
+//Check if given arg could be used with PySciceableSequance.get_slice_range()
+pub fn is_valid_slice_arg(
+    arg: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> Result<Option<BigInt>, PyObjectRef> {
+    if let OptionalArg::Present(value) = arg {
+        match_class!(value,
+        i @ PyInt => Ok(Some(i.as_bigint().clone())),
+        _obj @ PyNone => Ok(None),
+        _=> {return Err(vm.new_type_error("slice indices must be integers or None or have an __index__ method".to_string()));}
+        // TODO: check for an __index__ method
+        )
+    } else {
+        Ok(None)
+    }
 }
