@@ -9,7 +9,9 @@ use core::cell::Cell;
 use std::ops::Deref;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 
 use super::objbyteinner::{
     ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
@@ -100,35 +102,25 @@ impl PyBytesRef {
 
     #[pymethod(name = "__eq__")]
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.eq(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.eq(other, vm)
     }
-
     #[pymethod(name = "__ge__")]
     fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.ge(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.ge(other, vm)
     }
     #[pymethod(name = "__le__")]
     fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.le(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.le(other, vm)
     }
     #[pymethod(name = "__gt__")]
     fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.gt(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.gt(other, vm)
     }
     #[pymethod(name = "__lt__")]
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.lt(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.lt(other, vm)
     }
+
     #[pymethod(name = "__hash__")]
     fn hash(self, _vm: &VirtualMachine) -> usize {
         self.inner.hash()
@@ -144,9 +136,11 @@ impl PyBytesRef {
 
     #[pymethod(name = "__add__")]
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => Ok(vm.ctx.new_bytes(self.inner.add(&bytes.inner, vm))),
-        _  => Ok(vm.ctx.not_implemented()))
+        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+            Ok(vm.ctx.new_bytearray(self.inner.add(other)))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
     }
 
     #[pymethod(name = "__contains__")]

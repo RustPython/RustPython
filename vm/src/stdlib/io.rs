@@ -124,7 +124,7 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
         //Copy bytes from the buffer vector into the results vector
         if let Some(bytes) = buffer.payload::<PyByteArray>() {
-            result.extend_from_slice(&bytes.value.borrow());
+            result.extend_from_slice(&bytes.inner.borrow().elements);
         };
 
         let py_len = vm.call_method(&buffer, "__len__", PyFuncArgs::default())?;
@@ -207,9 +207,9 @@ fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(bytes) = obj.payload::<PyByteArray>() {
         //TODO: Implement for MemoryView
 
-        let mut value_mut = bytes.value.borrow_mut();
+        let value_mut = &mut bytes.inner.borrow_mut().elements;
         value_mut.clear();
-        match f.read_to_end(&mut value_mut) {
+        match f.read_to_end(value_mut) {
             Ok(_) => {}
             Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string())),
         }
@@ -237,7 +237,7 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match obj.payload::<PyByteArray>() {
         Some(bytes) => {
-            let value_mut = bytes.value.borrow();
+            let value_mut = &mut bytes.inner.borrow_mut().elements;
             match handle.write(&value_mut[..]) {
                 Ok(len) => {
                     //reset raw fd on the FileIO object

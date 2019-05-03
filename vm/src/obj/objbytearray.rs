@@ -1,32 +1,62 @@
 //! Implementation of the python bytearray object.
 
-use std::cell::{Cell, RefCell};
-use std::fmt::Write;
-use std::ops::{Deref, DerefMut};
-
-use num_traits::ToPrimitive;
-
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::obj::objbyteinner::{
+    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
+    ByteInnerTranslateOptions, ByteOr, PyByteInner,
+};
+use crate::obj::objint::PyIntRef;
+use crate::obj::objslice::PySliceRef;
+use crate::obj::objstr::PyStringRef;
+use crate::obj::objtuple::PyTupleRef;
+use crate::pyobject::{
+    Either, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue,
+    TryFromObject,
+};
 use crate::vm::VirtualMachine;
+use std::cell::{Cell, RefCell};
 
-use super::objint;
 use super::objiter;
 use super::objtype::PyClassRef;
 
-#[derive(Debug)]
+/// "bytearray(iterable_of_ints) -> bytearray\n\
+///  bytearray(string, encoding[, errors]) -> bytearray\n\
+///  bytearray(bytes_or_buffer) -> mutable copy of bytes_or_buffer\n\
+///  bytearray(int) -> bytes array of size given by the parameter initialized with null bytes\n\
+///  bytearray() -> empty bytes array\n\n\
+///  Construct a mutable bytearray object from:\n  \
+///  - an iterable yielding integers in range(256)\n  \
+///  - a text string encoded using the specified encoding\n  \
+///  - a bytes or a buffer object\n  \
+///  - any object implementing the buffer API.\n  \
+///  - an integer";
+#[pyclass(name = "bytearray")]
+#[derive(Clone, Debug)]
 pub struct PyByteArray {
-    // TODO: shouldn't be public
-    pub value: RefCell<Vec<u8>>,
+    pub inner: RefCell<PyByteInner>,
 }
 type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl PyByteArray {
     pub fn new(data: Vec<u8>) -> Self {
         PyByteArray {
-            value: RefCell::new(data),
+            inner: RefCell::new(PyByteInner { elements: data }),
         }
     }
+
+    pub fn from_inner(inner: PyByteInner) -> Self {
+        PyByteArray {
+            inner: RefCell::new(inner),
+        }
+    }
+
+    // pub fn get_value(&self) -> Vec<u8> {
+    //     self.inner.borrow().clone().elements
+    // }
+
+    // pub fn get_value_mut(&self) -> Vec<u8> {
+    //     self.inner.borrow_mut().clone().elements
+    // }
 }
 
 impl PyValue for PyByteArray {
@@ -35,253 +65,317 @@ impl PyValue for PyByteArray {
     }
 }
 
-pub fn get_value<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<u8>> + 'a {
-    obj.payload::<PyByteArray>().unwrap().value.borrow()
-}
+// pub fn get_value(obj: &PyObjectRef) -> Vec<u8> {
+//     obj.payload::<PyByteArray>().unwrap().get_value()
+// }
 
-pub fn get_mut_value<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<u8>> + 'a {
-    obj.payload::<PyByteArray>().unwrap().value.borrow_mut()
-}
-
-// Binary data support
+// pub fn get_value_mut(obj: &PyObjectRef) -> Vec<u8> {
+//     obj.payload::<PyByteArray>().unwrap().get_value_mut()
+// }
 
 /// Fill bytearray class methods dictionary.
 pub fn init(context: &PyContext) {
+    PyByteArrayRef::extend_class(context, &context.bytearray_type);
     let bytearray_type = &context.bytearray_type;
-
-    let bytearray_doc =
-        "bytearray(iterable_of_ints) -> bytearray\n\
-         bytearray(string, encoding[, errors]) -> bytearray\n\
-         bytearray(bytes_or_buffer) -> mutable copy of bytes_or_buffer\n\
-         bytearray(int) -> bytes array of size given by the parameter initialized with null bytes\n\
-         bytearray() -> empty bytes array\n\n\
-         Construct a mutable bytearray object from:\n  \
-         - an iterable yielding integers in range(256)\n  \
-         - a text string encoded using the specified encoding\n  \
-         - a bytes or a buffer object\n  \
-         - any object implementing the buffer API.\n  \
-         - an integer";
-
     extend_class!(context, bytearray_type, {
-        "__doc__" => context.new_str(bytearray_doc.to_string()),
-        "__new__" => context.new_rustfunc(bytearray_new),
-        "__eq__" => context.new_rustfunc(PyByteArrayRef::eq),
-        "__len__" => context.new_rustfunc(PyByteArrayRef::len),
-        "__repr__" => context.new_rustfunc(PyByteArrayRef::repr),
-        "__iter__" => context.new_rustfunc(PyByteArrayRef::iter),
-        "clear" => context.new_rustfunc(PyByteArrayRef::clear),
-        "isalnum" => context.new_rustfunc(PyByteArrayRef::isalnum),
-        "isalpha" => context.new_rustfunc(PyByteArrayRef::isalpha),
-        "isascii" => context.new_rustfunc(PyByteArrayRef::isascii),
-        "isdigit" => context.new_rustfunc(PyByteArrayRef::isdigit),
-        "islower" => context.new_rustfunc(PyByteArrayRef::islower),
-        "isspace" => context.new_rustfunc(PyByteArrayRef::isspace),
-        "istitle" =>context.new_rustfunc(PyByteArrayRef::istitle),
-        "isupper" => context.new_rustfunc(PyByteArrayRef::isupper),
-        "lower" => context.new_rustfunc(PyByteArrayRef::lower),
-        "append" => context.new_rustfunc(PyByteArrayRef::append),
-        "pop" => context.new_rustfunc(PyByteArrayRef::pop),
-        "upper" => context.new_rustfunc(PyByteArrayRef::upper)
+    "fromhex" => context.new_rustfunc(PyByteArrayRef::fromhex),
+    "maketrans" => context.new_rustfunc(PyByteInner::maketrans),
     });
 
     PyByteArrayIterator::extend_class(context, &context.bytearrayiterator_type);
 }
 
-fn bytearray_new(
-    cls: PyClassRef,
-    val_option: OptionalArg<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyByteArrayRef> {
-    // Create bytes data:
-    let value = if let OptionalArg::Present(ival) = val_option {
-        let elements = vm.extract_elements(&ival)?;
-        let mut data_bytes = vec![];
-        for elem in elements.iter() {
-            let v = objint::to_int(vm, elem, 10)?;
-            if let Some(i) = v.to_u8() {
-                data_bytes.push(i);
-            } else {
-                return Err(vm.new_value_error("byte must be in range(0, 256)".to_string()));
-            }
-        }
-        data_bytes
-    // return Err(vm.new_type_error("Cannot construct bytes".to_string()));
-    } else {
-        vec![]
-    };
-    PyByteArray::new(value).into_ref_with_type(vm, cls.clone())
-}
-
+#[pyimpl]
 impl PyByteArrayRef {
+    #[pymethod(name = "__new__")]
+    fn bytearray_new(
+        cls: PyClassRef,
+        options: ByteInnerNewOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyByteArrayRef> {
+        PyByteArray::from_inner(options.get_value(vm)?).into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__repr__")]
+    fn repr(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.new_str(format!("bytearray(b'{}')", self.inner.borrow().repr()?)))
+    }
+
+    #[pymethod(name = "__len__")]
     fn len(self, _vm: &VirtualMachine) -> usize {
-        self.value.borrow().len()
+        self.inner.borrow().len()
     }
 
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if let Ok(other) = other.downcast::<PyByteArray>() {
-            vm.ctx
-                .new_bool(self.value.borrow().as_slice() == other.value.borrow().as_slice())
-        } else {
-            vm.ctx.not_implemented()
-        }
+    #[pymethod(name = "__eq__")]
+    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().eq(other, vm)
     }
 
-    fn isalnum(self, _vm: &VirtualMachine) -> bool {
-        let bytes = self.value.borrow();
-        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_alphanumeric())
+    #[pymethod(name = "__ge__")]
+    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().ge(other, vm)
     }
 
-    fn isalpha(self, _vm: &VirtualMachine) -> bool {
-        let bytes = self.value.borrow();
-        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_alphabetic())
+    #[pymethod(name = "__le__")]
+    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().le(other, vm)
     }
 
-    fn isascii(self, _vm: &VirtualMachine) -> bool {
-        let bytes = self.value.borrow();
-        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_ascii())
+    #[pymethod(name = "__gt__")]
+    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().gt(other, vm)
     }
 
-    fn isdigit(self, _vm: &VirtualMachine) -> bool {
-        let bytes = self.value.borrow();
-        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_digit(10))
+    #[pymethod(name = "__lt__")]
+    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().lt(other, vm)
     }
 
-    fn islower(self, _vm: &VirtualMachine) -> bool {
-        let bytes = self.value.borrow();
-        !bytes.is_empty()
-            && bytes
-                .iter()
-                .filter(|x| !char::from(**x).is_whitespace())
-                .all(|x| char::from(*x).is_lowercase())
+    #[pymethod(name = "__hash__")]
+    fn hash(self, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("unhashable type: bytearray".to_string()))
     }
 
-    fn isspace(self, _vm: &VirtualMachine) -> bool {
-        let bytes = self.value.borrow();
-        !bytes.is_empty() && bytes.iter().all(|x| char::from(*x).is_whitespace())
-    }
-
-    fn isupper(self, _vm: &VirtualMachine) -> bool {
-        let bytes = self.value.borrow();
-        !bytes.is_empty()
-            && bytes
-                .iter()
-                .filter(|x| !char::from(**x).is_whitespace())
-                .all(|x| char::from(*x).is_uppercase())
-    }
-
-    fn istitle(self, _vm: &VirtualMachine) -> bool {
-        let bytes = self.value.borrow();
-        if bytes.is_empty() {
-            return false;
-        }
-
-        let mut iter = bytes.iter().peekable();
-        let mut prev_cased = false;
-
-        while let Some(c) = iter.next() {
-            let current = char::from(*c);
-            let next = if let Some(k) = iter.peek() {
-                char::from(**k)
-            } else if current.is_uppercase() {
-                return !prev_cased;
-            } else {
-                return prev_cased;
-            };
-
-            if (is_cased(current) && next.is_uppercase() && !prev_cased)
-                || (!is_cased(current) && next.is_lowercase())
-            {
-                return false;
-            }
-
-            prev_cased = is_cased(current);
-        }
-
-        true
-    }
-
-    fn repr(self, _vm: &VirtualMachine) -> String {
-        let bytes = self.value.borrow();
-        let data = String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| to_hex(&bytes.to_vec()));
-        format!("bytearray(b'{}')", data)
-    }
-
-    fn clear(self, _vm: &VirtualMachine) {
-        self.value.borrow_mut().clear();
-    }
-
-    fn append(self, x: u8, _vm: &VirtualMachine) {
-        self.value.borrow_mut().push(x);
-    }
-
-    fn pop(self, vm: &VirtualMachine) -> PyResult<u8> {
-        let mut bytes = self.value.borrow_mut();
-        bytes
-            .pop()
-            .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_string()))
-    }
-
-    fn lower(self, _vm: &VirtualMachine) -> PyByteArray {
-        let bytes = self.value.borrow().clone().to_ascii_lowercase();
-        PyByteArray {
-            value: RefCell::new(bytes),
-        }
-    }
-
-    fn upper(self, _vm: &VirtualMachine) -> PyByteArray {
-        let bytes = self.value.borrow().clone().to_ascii_uppercase();
-        PyByteArray {
-            value: RefCell::new(bytes),
-        }
-    }
-
+    #[pymethod(name = "__iter__")]
     fn iter(self, _vm: &VirtualMachine) -> PyByteArrayIterator {
         PyByteArrayIterator {
             position: Cell::new(0),
             bytearray: self,
         }
     }
-}
 
-// helper function for istitle
-fn is_cased(c: char) -> bool {
-    c.to_uppercase().next().unwrap() != c || c.to_lowercase().next().unwrap() != c
-}
+    #[pymethod(name = "__add__")]
+    fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+            Ok(vm.ctx.new_bytearray(self.inner.borrow().add(other)))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
+    }
 
-/*
-fn getitem(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(obj, Some(vm.ctx.bytearray_type())), (needle, None)]
-    );
-    let elements = get_elements(obj);
-    get_item(vm, list, &, needle.clone())
-}
-*/
-/*
-fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
-    obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
-}
-*/
+    #[pymethod(name = "__contains__")]
+    fn contains(self, needle: Either<PyByteInner, PyIntRef>, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().contains(needle, vm)
+    }
 
-/// Return a lowercase hex representation of a bytearray
-fn to_hex(bytearray: &[u8]) -> String {
-    bytearray.iter().fold(String::new(), |mut s, b| {
-        let _ = write!(s, "\\x{:02x}", b);
-        s
-    })
-}
+    #[pymethod(name = "__getitem__")]
+    fn getitem(self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().getitem(needle, vm)
+    }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    #[pymethod(name = "isalnum")]
+    fn isalnum(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().isalnum(vm)
+    }
 
-    #[test]
-    fn bytearray_to_hex_formatting() {
-        assert_eq!(&to_hex(&[11u8, 222u8]), "\\x0b\\xde");
+    #[pymethod(name = "isalpha")]
+    fn isalpha(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().isalpha(vm)
+    }
+
+    #[pymethod(name = "isascii")]
+    fn isascii(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().isascii(vm)
+    }
+
+    #[pymethod(name = "isdigit")]
+    fn isdigit(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().isdigit(vm)
+    }
+
+    #[pymethod(name = "islower")]
+    fn islower(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().islower(vm)
+    }
+
+    #[pymethod(name = "isspace")]
+    fn isspace(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().isspace(vm)
+    }
+
+    #[pymethod(name = "isupper")]
+    fn isupper(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().isupper(vm)
+    }
+
+    #[pymethod(name = "istitle")]
+    fn istitle(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().istitle(vm)
+    }
+
+    #[pymethod(name = "lower")]
+    fn lower(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().lower(vm)))
+    }
+
+    #[pymethod(name = "upper")]
+    fn upper(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().upper(vm)))
+    }
+
+    #[pymethod(name = "capitalize")]
+    fn capitalize(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().capitalize(vm)))
+    }
+
+    #[pymethod(name = "swapcase")]
+    fn swapcase(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().swapcase(vm)))
+    }
+
+    #[pymethod(name = "hex")]
+    fn hex(self, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().hex(vm)
+    }
+
+    fn fromhex(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytearray(PyByteInner::fromhex(string.as_str(), vm)?))
+    }
+
+    #[pymethod(name = "center")]
+    fn center(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytearray(self.inner.borrow().center(options, vm)?))
+    }
+
+    #[pymethod(name = "ljust")]
+    fn ljust(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytearray(self.inner.borrow().ljust(options, vm)?))
+    }
+
+    #[pymethod(name = "rjust")]
+    fn rjust(self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytearray(self.inner.borrow().rjust(options, vm)?))
+    }
+
+    #[pymethod(name = "count")]
+    fn count(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+        self.inner.borrow().count(options, vm)
+    }
+
+    #[pymethod(name = "join")]
+    fn join(self, iter: PyIterable, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().join(iter, vm)
+    }
+
+    #[pymethod(name = "endswith")]
+    fn endswith(
+        self,
+        suffix: Either<PyByteInner, PyTupleRef>,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.inner
+            .borrow()
+            .startsendswith(suffix, start, end, true, vm)
+    }
+
+    #[pymethod(name = "startswith")]
+    fn startswith(
+        self,
+        prefix: Either<PyByteInner, PyTupleRef>,
+        start: OptionalArg<PyObjectRef>,
+        end: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.inner
+            .borrow()
+            .startsendswith(prefix, start, end, false, vm)
+    }
+
+    #[pymethod(name = "find")]
+    fn find(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        self.inner.borrow().find(options, false, vm)
+    }
+
+    #[pymethod(name = "index")]
+    fn index(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        let res = self.inner.borrow().find(options, false, vm)?;
+        if res == -1 {
+            return Err(vm.new_value_error("substring not found".to_string()));
+        }
+        Ok(res)
+    }
+
+    #[pymethod(name = "rfind")]
+    fn rfind(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        self.inner.borrow().find(options, true, vm)
+    }
+
+    #[pymethod(name = "rindex")]
+    fn rindex(self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+        let res = self.inner.borrow().find(options, true, vm)?;
+        if res == -1 {
+            return Err(vm.new_value_error("substring not found".to_string()));
+        }
+        Ok(res)
+    }
+
+    #[pymethod(name = "translate")]
+    fn translate(self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().translate(options, vm)
+    }
+
+    #[pymethod(name = "strip")]
+    fn strip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(
+            self.inner
+                .borrow()
+                .strip(chars, ByteInnerPosition::All, vm)?,
+        ))
+    }
+
+    #[pymethod(name = "lstrip")]
+    fn lstrip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(
+            self.inner
+                .borrow()
+                .strip(chars, ByteInnerPosition::Left, vm)?,
+        ))
+    }
+
+    #[pymethod(name = "rstrip")]
+    fn rstrip(self, chars: OptionalArg<PyByteInner>, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(
+            self.inner
+                .borrow()
+                .strip(chars, ByteInnerPosition::Right, vm)?,
+        ))
+    }
+
+    #[pymethod(name = "clear")]
+    fn clear(self, _vm: &VirtualMachine) {
+        self.inner.borrow_mut().elements.clear();
+    }
+
+    #[pymethod(name = "append")]
+    fn append(self, x: PyIntRef, vm: &VirtualMachine) -> Result<(), PyObjectRef> {
+        self.inner
+            .borrow_mut()
+            .elements
+            .push(x.as_bigint().byte_or(vm)?);
+        Ok(())
+    }
+    #[pymethod(name = "pop")]
+    fn pop(self, vm: &VirtualMachine) -> PyResult<u8> {
+        let bytes = &mut self.inner.borrow_mut().elements;
+        bytes
+            .pop()
+            .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_string()))
     }
 }
+
+// fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
+//     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
+// }
 
 #[pyclass]
 #[derive(Debug)]
@@ -300,8 +394,8 @@ impl PyValue for PyByteArrayIterator {
 impl PyByteArrayIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult<u8> {
-        if self.position.get() < self.bytearray.value.borrow().len() {
-            let ret = self.bytearray.value.borrow()[self.position.get()];
+        if self.position.get() < self.bytearray.inner.borrow().len() {
+            let ret = self.bytearray.inner.borrow().elements[self.position.get()];
             self.position.set(self.position.get() + 1);
             Ok(ret)
         } else {
