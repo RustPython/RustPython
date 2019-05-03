@@ -102,6 +102,7 @@ assert ["kok".center(i, "|") for i in range(2, 10)] == [
 ]
 
 
+# requires CPython 3.7, and the CI currently runs with 3.6
 # assert c.isascii()
 assert c.index('a') == 1
 assert c.rindex('l') == 3
