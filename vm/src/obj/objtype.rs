@@ -11,6 +11,7 @@ use crate::vm::VirtualMachine;
 
 use super::objdict::PyDictRef;
 use super::objlist::PyList;
+use super::objmappingproxy::PyMappingProxy;
 use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
@@ -196,6 +197,11 @@ pub fn init(ctx: &PyContext) {
 
     extend_class!(&ctx, &ctx.type_type, {
         "__call__" => ctx.new_rustfunc(type_call),
+        "__dict__" =>
+        PropertyBuilder::new(ctx)
+                .add_getter(type_dict)
+                .add_setter(type_dict_setter)
+                .create(),
         "__new__" => ctx.new_rustfunc(type_new),
         "__mro__" =>
             PropertyBuilder::new(ctx)
@@ -271,6 +277,16 @@ pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMach
         }
     }
     Ok(obj)
+}
+
+fn type_dict(class: PyClassRef, _vm: &VirtualMachine) -> PyMappingProxy {
+    PyMappingProxy::new(class)
+}
+
+fn type_dict_setter(_instance: PyClassRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    Err(vm.new_not_implemented_error(
+        "Setting __dict__ attribute on a type isn't yet implemented".to_string(),
+    ))
 }
 
 // This is the internal get_attr implementation for fast lookup on a class.

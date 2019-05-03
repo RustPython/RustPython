@@ -20,6 +20,7 @@ pub mod objint;
 pub mod objiter;
 pub mod objlist;
 pub mod objmap;
+pub mod objmappingproxy;
 pub mod objmemory;
 pub mod objmodule;
 pub mod objnone;

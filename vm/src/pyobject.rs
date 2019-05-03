@@ -37,6 +37,7 @@ use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objlist::{self, PyList};
 use crate::obj::objmap;
+use crate::obj::objmappingproxy;
 use crate::obj::objmemory;
 use crate::obj::objmodule::{self, PyModule};
 use crate::obj::objnone::{self, PyNone, PyNoneRef};
@@ -160,6 +161,7 @@ pub struct PyContext {
     pub bound_method_type: PyClassRef,
     pub weakref_type: PyClassRef,
     pub weakproxy_type: PyClassRef,
+    pub mappingproxy_type: PyClassRef,
     pub object: PyClassRef,
     pub exceptions: exceptions::ExceptionZoo,
 }
@@ -292,6 +294,7 @@ impl PyContext {
         let range_type = create_type("range", &type_type, &object_type);
         let rangeiterator_type = create_type("range_iterator", &type_type, &object_type);
         let slice_type = create_type("slice", &type_type, &object_type);
+        let mappingproxy_type = create_type("mappingproxy", &type_type, &object_type);
         let exceptions = exceptions::ExceptionZoo::new(&type_type, &object_type);
 
         fn create_object<T: PyObjectPayload>(payload: T, cls: &PyClassRef) -> PyRef<T> {
@@ -358,6 +361,7 @@ impl PyContext {
             function_type,
             builtin_function_or_method_type,
             super_type,
+            mappingproxy_type,
             property_type,
             readonly_property_type,
             generator_type,
@@ -403,6 +407,7 @@ impl PyContext {
         objweakproxy::init(&context);
         objnone::init(&context);
         objmodule::init(&context);
+        objmappingproxy::init(&context);
         exceptions::init(&context);
         context
     }
