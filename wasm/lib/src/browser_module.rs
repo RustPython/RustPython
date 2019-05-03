@@ -366,10 +366,7 @@ fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachi
                 .expect("val to be of type Response");
             response.text()
         })
-        .and_then(move |text_value: Promise| {
-            // Convert this other `Promise` into a rust `Future`.
-            JsFuture::from(text_value)
-        })
+        .and_then(JsFuture::from)
         .and_then(move |text| {
             let stored_vm = &weak_vm
                 .upgrade()
