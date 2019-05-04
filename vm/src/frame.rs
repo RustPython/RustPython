@@ -862,14 +862,13 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::PopException {} => {
-                assert!(vm.pop_exception().is_some());
-                let block = self.pop_block();
-                assert!(block.is_some());
-                match block.unwrap().typ {
-                    BlockType::ExceptHandler => (),
-                    _ => assert!(false),
-                };
-                Ok(None)
+                let block = self.pop_block().unwrap(); // this asserts that the block is_some.
+                if let BlockType::ExceptHandler = block.typ {
+                    assert!(vm.pop_exception().is_some());
+                    Ok(None)
+                } else {
+                    panic!("Block type must be ExceptHandler here.")
+                }
             }
         }
     }
