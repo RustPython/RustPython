@@ -206,3 +206,17 @@ try:
     raise NameError
 except NameError as ex:
     assert ex.__context__ == None
+
+
+def y():
+    try:
+        1/0
+    except ArithmeticError:
+        yield 5
+
+
+try:
+    y()
+    raise NameError
+except NameError as ex:
+    assert ex.__context__ == None
