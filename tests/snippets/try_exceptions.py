@@ -193,3 +193,30 @@ for _ in [1, 2]:
         raise ArithmeticError()
     except ArithmeticError as e:
         continue
+
+
+def g():
+    try:
+        1/0
+    except ArithmeticError:
+        return 5
+
+try:
+    g()
+    raise NameError
+except NameError as ex:
+    assert ex.__context__ == None
+
+
+def y():
+    try:
+        1/0
+    except ArithmeticError:
+        yield 5
+
+
+try:
+    y()
+    raise NameError
+except NameError as ex:
+    assert ex.__context__ == None
