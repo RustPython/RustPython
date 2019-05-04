@@ -233,6 +233,14 @@ impl DirEntryRef {
             .is_file())
     }
 
+    fn is_symlink(self, vm: &VirtualMachine) -> PyResult<bool> {
+        Ok(self
+            .entry
+            .file_type()
+            .map_err(|s| vm.new_os_error(s.to_string()))?
+            .is_symlink())
+    }
+
     fn stat(self, vm: &VirtualMachine) -> PyResult {
         os_stat(self.path(vm).try_into_ref(vm)?, vm)
     }
@@ -484,6 +492,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "path" => ctx.new_property(DirEntryRef::path),
          "is_dir" => ctx.new_rustfunc(DirEntryRef::is_dir),
          "is_file" => ctx.new_rustfunc(DirEntryRef::is_file),
+         "is_symlink" => ctx.new_rustfunc(DirEntryRef::is_symlink),
          "stat" => ctx.new_rustfunc(DirEntryRef::stat),
     });
 

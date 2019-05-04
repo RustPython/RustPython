@@ -100,6 +100,7 @@ with TestWithTempDir() as tmpdir:
 	paths = set()
 	dirs = set()
 	files = set()
+	symlinks = set()
 	for dir_entry in os.scandir(tmpdir):
 		names.add(dir_entry.name)
 		paths.add(dir_entry.path)
@@ -109,11 +110,14 @@ with TestWithTempDir() as tmpdir:
 		if dir_entry.is_file():
 			files.add(dir_entry.name)
 			assert stat.S_ISREG(dir_entry.stat().st_mode) == True
+		if dir_entry.is_symlink():
+			symlinks.add(dir_entry.name)
 
 	assert names == set([FILE_NAME, FILE_NAME2, FOLDER, SYMLINK])
 	assert paths == set([fname, fname2, folder, symlink])
 	assert dirs == set([FOLDER])
 	assert files == set([FILE_NAME, FILE_NAME2])
+	assert symlinks == set([SYMLINK])
 
 	# Stat
 	stat_res = os.stat(fname)
