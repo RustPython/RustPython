@@ -203,6 +203,7 @@ enum BlockType {
         end: bytecode::Label,
         context_manager: PyObjectRef,
     },
+    ExceptHandler {},
 }
 
 pub type FrameRef = PyRef<Frame>;
@@ -862,6 +863,12 @@ impl Frame {
             }
             bytecode::Instruction::PopException {} => {
                 assert!(vm.pop_exception().is_some());
+                let block = self.pop_block();
+                assert!(block.is_some());
+                match block.unwrap().typ {
+                    BlockType::ExceptHandler {} => (),
+                    _ => assert!(false),
+                };
                 Ok(None)
             }
         }
@@ -937,6 +944,9 @@ impl Frame {
                         }
                     }
                 }
+                BlockType::ExceptHandler { .. } => {
+                    vm.pop_exception();
+                }
             }
         }
 
@@ -959,6 +969,9 @@ impl Frame {
                         panic!("Exception in with __exit__ {:?}", exc);
                     }
                 },
+                BlockType::ExceptHandler { .. } => {
+                    vm.pop_exception();
+                }
             }
 
             self.pop_block();
@@ -970,6 +983,7 @@ impl Frame {
         while let Some(block) = self.pop_block() {
             match block.typ {
                 BlockType::TryExcept { handler } => {
+                    self.push_block(BlockType::ExceptHandler {});
                     self.push_value(exc.clone());
                     vm.push_exception(exc);
                     self.jump(handler);
@@ -1004,6 +1018,8 @@ impl Frame {
                     }
                 }
                 BlockType::Loop { .. } => {}
+                // Exception was already poped on Raised.
+                BlockType::ExceptHandler { .. } => {}
             }
         }
         Some(exc)
