@@ -15,7 +15,9 @@ use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -230,6 +232,10 @@ impl DirEntryRef {
             .map_err(|s| vm.new_os_error(s.to_string()))?
             .is_file())
     }
+
+    fn stat(self, vm: &VirtualMachine) -> PyResult {
+        os_stat(self.path(vm).try_into_ref(vm)?, vm)
+    }
 }
 
 #[pyclass]
@@ -428,6 +434,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "path" => ctx.new_property(DirEntryRef::path),
          "is_dir" => ctx.new_rustfunc(DirEntryRef::is_dir),
          "is_file" => ctx.new_rustfunc(DirEntryRef::is_file),
+         "stat" => ctx.new_rustfunc(DirEntryRef::stat),
     });
 
     let stat_result = py_class!(ctx, "stat_result", ctx.object(), {
