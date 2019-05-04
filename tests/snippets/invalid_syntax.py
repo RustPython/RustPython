@@ -1,4 +1,4 @@
-
+from testutils import assertRaises
 
 src = """
 def valid_func():
@@ -14,3 +14,5 @@ except SyntaxError as ex:
 else:
     raise AssertionError("Must throw syntax error")
 
+with assertRaises(SyntaxError):
+    compile('0xX', 'test.py', 'exec')
