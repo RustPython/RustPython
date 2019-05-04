@@ -1,5 +1,6 @@
 import os
 import time
+import stat
 
 from testutils import assert_raises
 
@@ -99,9 +100,11 @@ with TestWithTempDir() as tmpdir:
 		names.add(dir_entry.name)
 		paths.add(dir_entry.path)
 		if dir_entry.is_dir():
+			assert stat.S_ISDIR(dir_entry.stat().st_mode) == True
 			dirs.add(dir_entry.name)
 		if dir_entry.is_file():
 			files.add(dir_entry.name)
+			assert stat.S_ISREG(dir_entry.stat().st_mode) == True
 
 	assert names == set([FILE_NAME, FILE_NAME2, FOLDER])
 	assert paths == set([fname, fname2, folder])
@@ -111,6 +114,7 @@ with TestWithTempDir() as tmpdir:
 	# Stat
 	stat_res = os.stat(fname)
 	print(stat_res.st_mode)
+	assert stat.S_ISREG(stat_res.st_mode) == True
 	print(stat_res.st_ino)
 	print(stat_res.st_dev)
 	print(stat_res.st_nlink)

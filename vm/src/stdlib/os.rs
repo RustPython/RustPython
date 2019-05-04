@@ -15,7 +15,9 @@ use crate::obj::objiter;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+};
 use crate::vm::VirtualMachine;
 
 #[cfg(unix)]
@@ -230,6 +232,10 @@ impl DirEntryRef {
             .map_err(|s| vm.new_os_error(s.to_string()))?
             .is_file())
     }
+
+    fn stat(self, vm: &VirtualMachine) -> PyResult {
+        os_stat(self.path(vm).try_into_ref(vm)?, vm)
+    }
 }
 
 #[pyclass]
@@ -380,12 +386,33 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+// Copied from CPython fileutils.c
+#[cfg(windows)]
+fn attributes_to_mode(attr: u32) -> u32 {
+    let file_attribute_directory: u32 = 16;
+    let file_attribute_readonly: u32 = 1;
+    let s_ifdir: u32 = 0o040000;
+    let s_ifreg: u32 = 0o100000;
+    let mut m: u32 = 0;
+    if attr & file_attribute_directory == file_attribute_directory {
+        m |= s_ifdir | 0111; /* IFEXEC for user,group,other */
+    } else {
+        m |= s_ifreg;
+    }
+    if attr & file_attribute_readonly == file_attribute_readonly {
+        m |= 0444;
+    } else {
+        m |= 0666;
+    }
+    m
+}
+
 #[cfg(windows)]
 fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     use std::os::windows::fs::MetadataExt;
     match fs::metadata(&path.value) {
         Ok(meta) => Ok(StatResult {
-            st_mode: meta.file_attributes(),
+            st_mode: attributes_to_mode(meta.file_attributes()),
             st_ino: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
             st_dev: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
             st_nlink: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
@@ -428,6 +455,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "path" => ctx.new_property(DirEntryRef::path),
          "is_dir" => ctx.new_rustfunc(DirEntryRef::is_dir),
          "is_file" => ctx.new_rustfunc(DirEntryRef::is_file),
+         "stat" => ctx.new_rustfunc(DirEntryRef::stat),
     });
 
     let stat_result = py_class!(ctx, "stat_result", ctx.object(), {
