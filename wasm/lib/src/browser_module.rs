@@ -6,6 +6,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use rustpython_vm::function::{OptionalArg, PyFuncArgs};
+use rustpython_vm::import::import_file;
 use rustpython_vm::obj::{
     objdict::PyDictRef, objint::PyIntRef, objstr::PyStringRef, objtype::PyClassRef,
 };
@@ -206,8 +207,12 @@ impl PyPromise {
             let vm = &stored_vm.vm;
             let ret = match res {
                 Ok(val) => {
-                    let val = convert::js_to_py(vm, val);
-                    vm.invoke(on_fulfill.into_object(), PyFuncArgs::new(vec![val], vec![]))
+                    let args = if val.is_null() {
+                        vec![]
+                    } else {
+                        vec![convert::js_to_py(vm, val)]
+                    };
+                    vm.invoke(on_fulfill.into_object(), PyFuncArgs::new(args, vec![]))
                 }
                 Err(err) => {
                     if let OptionalArg::Present(on_reject) = on_reject {
@@ -342,6 +347,42 @@ fn browser_prompt(
     Ok(result)
 }
 
+fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    let weak_vm = weak_vm(vm);
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.method("GET");
+
+    let request = web_sys::Request::new_with_str_and_init(path.as_str(), &opts)
+        .map_err(|err| convert::js_py_typeerror(vm, err))?;
+
+    let window = window();
+    let request_prom = window.fetch_with_request(&request);
+
+    let future = JsFuture::from(request_prom)
+        .and_then(move |val| {
+            let response = val
+                .dyn_into::<web_sys::Response>()
+                .expect("val to be of type Response");
+            response.text()
+        })
+        .and_then(JsFuture::from)
+        .and_then(move |text| {
+            let stored_vm = &weak_vm
+                .upgrade()
+                .expect("that the vm is valid when the promise resolves");
+            let vm = &stored_vm.vm;
+            let resp_text = text.as_string().unwrap();
+            let res = import_file(vm, module.as_str(), "WEB".to_string(), resp_text);
+            match res {
+                Ok(_) => Ok(JsValue::null()),
+                Err(err) => Err(convert::py_err_to_js_err(vm, &err)),
+            }
+        });
+
+    Ok(PyPromise::from_future(future).into_ref(vm).into_object())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -370,6 +411,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "alert" => ctx.new_rustfunc(browser_alert),
         "confirm" => ctx.new_rustfunc(browser_confirm),
         "prompt" => ctx.new_rustfunc(browser_prompt),
+        "load_module" => ctx.new_rustfunc(browser_load_module),
     })
 }
 
