@@ -563,56 +563,73 @@ pub struct PrintOptions {
     file: Option<PyObjectRef>,
 }
 
+trait Printer {
+    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()>;
+    fn flush(&mut self, vm: &VirtualMachine) -> PyResult<()>;
+}
+
+impl Printer for &'_ PyObjectRef {
+    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
+        vm.call_method(self, "write", vec![obj])?;
+        Ok(())
+    }
+
+    fn flush(&mut self, vm: &VirtualMachine) -> PyResult<()> {
+        vm.call_method(self, "flush", vec![])?;
+        Ok(())
+    }
+}
+
+impl Printer for std::io::StdoutLock<'_> {
+    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
+        let s = &vm.to_str(&obj)?.value;
+        write!(self, "{}", s).unwrap();
+        Ok(())
+    }
+
+    fn flush(&mut self, _vm: &VirtualMachine) -> PyResult<()> {
+        <Self as std::io::Write>::flush(self).unwrap();
+        Ok(())
+    }
+}
+
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
-    if let Some(file) = options.file {
-        let sep = match options.sep {
-            Some(sep) => sep.into_pyobject(vm).unwrap(),
-            _ => PyString::from(" ").into_pyobject(vm).unwrap(),
-        };
+    let stdout = io::stdout();
 
-        let mut first = true;
-        for object in objects {
-            if first {
-                first = false;
-            } else {
-                vm.call_method(&file, "write", vec![sep.clone()])?;
-            }
-
-            vm.call_method(&file, "write", vec![object])?;
-        }
-
-        let end = match options.end {
-            Some(end) => end.into_pyobject(vm).unwrap(),
-            _ => PyString::from("\n").into_pyobject(vm).unwrap(),
-        };
-        vm.call_method(&file, "write", vec![end])?;
-
-        if options.flush {
-            vm.call_method(&file, "flush", vec![])?;
-        }
+    let mut printer: Box<dyn Printer> = if let Some(file) = &options.file {
+        Box::new(file)
     } else {
-        let sep = options.sep.as_ref().map_or(" ", |sep| &sep.value);
+        Box::new(stdout.lock())
+    };
 
-        let stdout = io::stdout();
-        let mut stdout_lock = stdout.lock();
-        let mut first = true;
-        for object in objects {
-            if first {
-                first = false;
-            } else {
-                write!(stdout_lock, "{}", sep).unwrap();
-            }
+    let sep = options
+        .sep
+        .as_ref()
+        .map_or(" ", |sep| &sep.value)
+        .into_pyobject(vm)
+        .unwrap();
 
-            let s = &vm.to_str(&object)?.value;
-            write!(stdout_lock, "{}", s).unwrap();
+    let mut first = true;
+    for object in objects {
+        if first {
+            first = false;
+        } else {
+            printer.write(vm, sep.clone())?;
         }
 
-        let end = options.end.as_ref().map_or("\n", |end| &end.value);
-        write!(stdout_lock, "{}", end).unwrap();
+        printer.write(vm, object)?;
+    }
 
-        if options.flush {
-            stdout_lock.flush().unwrap();
-        }
+    let end = options
+        .end
+        .as_ref()
+        .map_or("\n", |end| &end.value)
+        .into_pyobject(vm)
+        .unwrap();
+    printer.write(vm, end)?;
+
+    if options.flush {
+        printer.flush(vm)?;
     }
 
     Ok(())
