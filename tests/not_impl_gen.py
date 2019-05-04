@@ -7,14 +7,13 @@ objects = [
     float,
     frozenset,
     int,
-    iter,
     list,
     memoryview,
     range,
     set,
     str,
     tuple,
-    object
+    object,
 ]
 
 header = open("generator/not_impl_header.txt")
