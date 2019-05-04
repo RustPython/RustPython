@@ -386,12 +386,33 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+// Copied from CPython fileutils.c
+#[cfg(windows)]
+fn attributes_to_mode(attr: u32) -> u32 {
+    let file_attribute_directory: u32 = 16;
+    let file_attribute_readonly: u32 = 1;
+    let s_ifdir: u32 = 0o040000;
+    let s_ifreg: u32 = 0o100000;
+    let mut m: u32 = 0;
+    if attr & file_attribute_directory == file_attribute_directory {
+        m |= s_ifdir | 0111; /* IFEXEC for user,group,other */
+    } else {
+        m |= s_ifreg;
+    }
+    if attr & file_attribute_readonly == file_attribute_readonly {
+        m |= 0444;
+    } else {
+        m |= 0666;
+    }
+    m
+}
+
 #[cfg(windows)]
 fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     use std::os::windows::fs::MetadataExt;
     match fs::metadata(&path.value) {
         Ok(meta) => Ok(StatResult {
-            st_mode: meta.file_attributes(),
+            st_mode: attributes_to_mode(meta.file_attributes()),
             st_ino: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
             st_dev: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
             st_nlink: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
