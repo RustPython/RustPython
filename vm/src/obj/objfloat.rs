@@ -44,7 +44,7 @@ impl From<f64> for PyFloat {
     }
 }
 
-fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
+pub fn try_float(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<f64>> {
     Ok(if objtype::isinstance(&value, &vm.ctx.float_type()) {
         Some(get_value(&value))
     } else if objtype::isinstance(&value, &vm.ctx.int_type()) {
