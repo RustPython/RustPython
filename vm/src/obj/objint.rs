@@ -309,7 +309,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__xor__")]
-    fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn xor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) ^ get_value(&other))
         } else {
@@ -319,15 +319,11 @@ impl PyInt {
 
     #[pymethod(name = "__rxor__")]
     fn rxor(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        if objtype::isinstance(&other, &vm.ctx.int_type()) {
-            vm.ctx.new_int(get_value(&other) ^ (&self.value))
-        } else {
-            vm.ctx.not_implemented()
-        }
+        self.xor(other, vm)
     }
 
     #[pymethod(name = "__or__")]
-    fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn or(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             vm.ctx.new_int((&self.value) | get_value(&other))
         } else {
@@ -336,7 +332,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__and__")]
-    fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+    pub fn and(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             vm.ctx.new_int((&self.value) & v2)
