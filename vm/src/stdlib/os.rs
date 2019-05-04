@@ -397,17 +397,17 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
 // Copied from CPython fileutils.c
 #[cfg(windows)]
 fn attributes_to_mode(attr: u32) -> u32 {
-    let file_attribute_directory: u32 = 16;
-    let file_attribute_readonly: u32 = 1;
-    let s_ifdir: u32 = 0o040000;
-    let s_ifreg: u32 = 0o100000;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 16;
+    const FILE_ATTRIBUTE_READONLY: u32 = 1;
+    const S_IFDIR: u32 = 0o040000;
+    const S_IFREG: u32 = 0o100000;
     let mut m: u32 = 0;
-    if attr & file_attribute_directory == file_attribute_directory {
-        m |= s_ifdir | 0111; /* IFEXEC for user,group,other */
+    if attr & FILE_ATTRIBUTE_DIRECTORY == FILE_ATTRIBUTE_DIRECTORY {
+        m |= S_IFDIR | 0111; /* IFEXEC for user,group,other */
     } else {
-        m |= s_ifreg;
+        m |= S_IFREG;
     }
-    if attr & file_attribute_readonly == file_attribute_readonly {
+    if attr & FILE_ATTRIBUTE_READONLY == FILE_ATTRIBUTE_READONLY {
         m |= 0444;
     } else {
         m |= 0666;
