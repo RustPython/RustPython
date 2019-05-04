@@ -23,8 +23,8 @@ use crate::obj::objtype::{self, PyClass, PyClassRef};
 use crate::frame::Scope;
 use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue, TryFromObject,
-    TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
+    TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -568,32 +568,77 @@ pub struct PrintOptions {
     end: Option<PyStringRef>,
     #[pyarg(keyword_only, default = "false")]
     flush: bool,
+    #[pyarg(keyword_only, default = "None")]
+    file: Option<PyObjectRef>,
+}
+
+trait Printer {
+    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()>;
+    fn flush(&mut self, vm: &VirtualMachine) -> PyResult<()>;
+}
+
+impl Printer for &'_ PyObjectRef {
+    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
+        vm.call_method(self, "write", vec![obj])?;
+        Ok(())
+    }
+
+    fn flush(&mut self, vm: &VirtualMachine) -> PyResult<()> {
+        vm.call_method(self, "flush", vec![])?;
+        Ok(())
+    }
+}
+
+impl Printer for std::io::StdoutLock<'_> {
+    fn write(&mut self, vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<()> {
+        let s = &vm.to_str(&obj)?.value;
+        write!(self, "{}", s).unwrap();
+        Ok(())
+    }
+
+    fn flush(&mut self, _vm: &VirtualMachine) -> PyResult<()> {
+        <Self as std::io::Write>::flush(self).unwrap();
+        Ok(())
+    }
 }
 
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
     let stdout = io::stdout();
-    let mut stdout_lock = stdout.lock();
+
+    let mut printer: Box<dyn Printer> = if let Some(file) = &options.file {
+        Box::new(file)
+    } else {
+        Box::new(stdout.lock())
+    };
+
+    let sep = options
+        .sep
+        .as_ref()
+        .map_or(" ", |sep| &sep.value)
+        .into_pyobject(vm)
+        .unwrap();
+
     let mut first = true;
     for object in objects {
         if first {
             first = false;
-        } else if let Some(ref sep) = options.sep {
-            write!(stdout_lock, "{}", sep.value).unwrap();
         } else {
-            write!(stdout_lock, " ").unwrap();
+            printer.write(vm, sep.clone())?;
         }
-        let s = &vm.to_str(&object)?.value;
-        write!(stdout_lock, "{}", s).unwrap();
+
+        printer.write(vm, object)?;
     }
 
-    if let Some(end) = options.end {
-        write!(stdout_lock, "{}", end.value).unwrap();
-    } else {
-        writeln!(stdout_lock).unwrap();
-    }
+    let end = options
+        .end
+        .as_ref()
+        .map_or("\n", |end| &end.value)
+        .into_pyobject(vm)
+        .unwrap();
+    printer.write(vm, end)?;
 
     if options.flush {
-        stdout_lock.flush().unwrap();
+        printer.flush(vm)?;
     }
 
     Ok(())
