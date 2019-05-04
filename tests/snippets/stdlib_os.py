@@ -67,6 +67,7 @@ class TestWithTempDir():
 
 FILE_NAME = "test1"
 FILE_NAME2 = "test2"
+SYMLINK = "symlink"
 FOLDER = "dir1"
 CONTENT = b"testing"
 CONTENT2 = b"rustpython"
@@ -92,6 +93,9 @@ with TestWithTempDir() as tmpdir:
 	folder = tmpdir + os.sep + FOLDER
 	os.mkdir(folder)
 
+	symlink = tmpdir + os.sep + SYMLINK
+	os.symlink(fname, symlink)
+
 	names = set()
 	paths = set()
 	dirs = set()
@@ -106,8 +110,8 @@ with TestWithTempDir() as tmpdir:
 			files.add(dir_entry.name)
 			assert stat.S_ISREG(dir_entry.stat().st_mode) == True
 
-	assert names == set([FILE_NAME, FILE_NAME2, FOLDER])
-	assert paths == set([fname, fname2, folder])
+	assert names == set([FILE_NAME, FILE_NAME2, FOLDER, SYMLINK])
+	assert paths == set([fname, fname2, folder, symlink])
 	assert dirs == set([FOLDER])
 	assert files == set([FILE_NAME, FILE_NAME2])
 

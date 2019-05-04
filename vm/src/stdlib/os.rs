@@ -436,6 +436,35 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     unimplemented!();
 }
 
+#[cfg(unix)]
+fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    use std::os::unix::fs;
+    fs::symlink(&src.value, &dst.value).map_err(|s| vm.new_os_error(s.to_string()))
+}
+
+#[cfg(windows)]
+fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    use std::os::windows::fs;
+    let ret = match fs::metadata(&dst.value) {
+        Ok(meta) => {
+            if meta.is_file() {
+                fs::symlink_file(&src.value, &dst.value)
+            } else if meta.is_dir() {
+                fs::symlink_dir(&src.value, &dst.value)
+            } else {
+                panic!("Uknown file type");
+            }
+        }
+        Err(_) => fs::symlink_file(&src.value, &dst.value),
+    };
+    ret.map_err(|s| vm.new_os_error(s.to_string()))
+}
+
+#[cfg(not(any(unix)))]
+fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    unimplemented!();
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -489,6 +518,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
         "stat" => ctx.new_rustfunc(os_stat),
+        "symlink" => ctx.new_rustfunc(os_symlink),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),
