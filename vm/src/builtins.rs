@@ -507,7 +507,7 @@ fn builtin_oct(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_ord(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
-    let string = objstr::get_value(string);
+    let string = objstr::borrow_value(string);
     let string_len = string.chars().count();
     if string_len > 1 {
         return Err(vm.new_type_error(format!(
