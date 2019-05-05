@@ -147,3 +147,6 @@ with TestWithTempDir() as tmpdir:
 	# stat default is follow_symlink=True
 	os.stat(fname).st_ino == os.stat(symlink_file).st_ino
 	os.stat(fname).st_mode == os.stat(symlink_file).st_mode
+
+	os.stat(fname, follow_symlinks=False).st_ino == os.stat(symlink_file, follow_symlinks=False).st_ino
+	os.stat(fname, follow_symlinks=False).st_mode == os.stat(symlink_file, follow_symlinks=False).st_mode
