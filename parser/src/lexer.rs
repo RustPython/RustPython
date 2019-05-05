@@ -103,6 +103,8 @@ pub fn get_keywords() -> HashMap<String, Tok> {
     keywords.insert(String::from("and"), Tok::And);
     keywords.insert(String::from("as"), Tok::As);
     keywords.insert(String::from("assert"), Tok::Assert);
+    keywords.insert(String::from("async"), Tok::Async);
+    keywords.insert(String::from("await"), Tok::Await);
     keywords.insert(String::from("break"), Tok::Break);
     keywords.insert(String::from("class"), Tok::Class);
     keywords.insert(String::from("continue"), Tok::Continue);
