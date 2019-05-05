@@ -218,19 +218,17 @@ impl DirEntryRef {
     }
 
     fn is_dir(self, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(self
-            .entry
-            .file_type()
-            .map_err(|s| vm.new_os_error(s.to_string()))?
-            .is_dir())
+        match fs::metadata(self.entry.path()) {
+            Ok(meta) => Ok(meta.is_dir()),
+            Err(s) => Err(vm.new_os_error(s.to_string())),
+        }
     }
 
     fn is_file(self, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(self
-            .entry
-            .file_type()
-            .map_err(|s| vm.new_os_error(s.to_string()))?
-            .is_file())
+        match fs::metadata(self.entry.path()) {
+            Ok(meta) => Ok(meta.is_file()),
+            Err(s) => Err(vm.new_os_error(s.to_string())),
+        }
     }
 
     fn is_symlink(self, vm: &VirtualMachine) -> PyResult<bool> {
