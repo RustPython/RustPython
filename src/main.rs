@@ -147,9 +147,23 @@ fn test_run_script() {
 fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), CompileError> {
     match compile::compile(vm, source, &compile::Mode::Single, "<stdin>".to_string()) {
         Ok(code) => {
-            if let Err(err) = vm.run_code_obj(code, scope) {
-                print_exception(vm, &err);
+            match vm.run_code_obj(code, scope.clone()) {
+                Ok(value) => {
+                    // Save non-None values as "_"
+
+                    use rustpython_vm::pyobject::{IdProtocol, IntoPyObject, ItemProtocol};
+
+                    if !value.is(&vm.get_none()) {
+                        let key = objstr::PyString::from("_").into_pyobject(vm);
+                        scope.globals.set_item(key, value, vm).unwrap();
+                    }
+                }
+
+                Err(err) => {
+                    print_exception(vm, &err);
+                }
             }
+
             Ok(())
         }
         // Don't inject syntax errors for line continuation
