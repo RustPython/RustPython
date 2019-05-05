@@ -335,8 +335,12 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
-        self.value.to_string()
+    fn repr(&self, vm: &VirtualMachine) -> String {
+        if self.is_integer(vm) {
+            format!("{:.1}", self.value)
+        } else {
+            self.value.to_string()
+        }
     }
 
     #[pymethod(name = "__truediv__")]
