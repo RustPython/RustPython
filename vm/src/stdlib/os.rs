@@ -420,7 +420,6 @@ fn attributes_to_mode(attr: u32) -> u32 {
 
 #[cfg(windows)]
 fn os_stat(path: PyStringRef, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
-    use std::os::windows::fs;
     use std::os::windows::fs::MetadataExt;
     let metadata = match follow_symlinks.follow_symlinks {
         true => fs::metadata(&path.value),
@@ -452,24 +451,24 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
 
 #[cfg(unix)]
 fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    use std::os::unix::fs;
-    fs::symlink(&src.value, &dst.value).map_err(|s| vm.new_os_error(s.to_string()))
+    use std::os::unix::fs as unix_fs;
+    unix_fs::symlink(&src.value, &dst.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
 #[cfg(windows)]
 fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
-    use std::os::windows::fs;
+    use std::os::windows::fs as win_fs;
     let ret = match fs::metadata(&dst.value) {
         Ok(meta) => {
             if meta.is_file() {
-                fs::symlink_file(&src.value, &dst.value)
+                win_fs::symlink_file(&src.value, &dst.value)
             } else if meta.is_dir() {
-                fs::symlink_dir(&src.value, &dst.value)
+                win_fs::symlink_dir(&src.value, &dst.value)
             } else {
                 panic!("Uknown file type");
             }
         }
-        Err(_) => fs::symlink_file(&src.value, &dst.value),
+        Err(_) => win_fs::symlink_file(&src.value, &dst.value),
     };
     ret.map_err(|s| vm.new_os_error(s.to_string()))
 }
