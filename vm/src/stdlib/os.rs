@@ -208,6 +208,12 @@ impl PyValue for DirEntry {
     }
 }
 
+#[derive(FromArgs)]
+struct FollowSymlinks {
+    #[pyarg(keyword_only, default = "true")]
+    follow_symlinks: bool,
+}
+
 impl DirEntryRef {
     fn name(self, _vm: &VirtualMachine) -> String {
         self.entry.file_name().into_string().unwrap()
@@ -217,18 +223,38 @@ impl DirEntryRef {
         self.entry.path().to_str().unwrap().to_string()
     }
 
-    fn is_dir(self, vm: &VirtualMachine) -> PyResult<bool> {
-        match fs::metadata(self.entry.path()) {
-            Ok(meta) => Ok(meta.is_dir()),
-            Err(s) => Err(vm.new_os_error(s.to_string())),
+    fn perform_on_metadata(
+        self,
+        follow_symlinks: FollowSymlinks,
+        action: &Fn(fs::Metadata) -> bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        match follow_symlinks.follow_symlinks {
+            true => match fs::metadata(self.entry.path()) {
+                Ok(meta) => Ok(action(meta)),
+                Err(s) => Err(vm.new_os_error(s.to_string())),
+            },
+            false => match fs::symlink_metadata(self.entry.path()) {
+                Ok(meta) => Ok(action(meta)),
+                Err(s) => Err(vm.new_os_error(s.to_string())),
+            },
         }
     }
 
-    fn is_file(self, vm: &VirtualMachine) -> PyResult<bool> {
-        match fs::metadata(self.entry.path()) {
-            Ok(meta) => Ok(meta.is_file()),
-            Err(s) => Err(vm.new_os_error(s.to_string())),
-        }
+    fn is_dir(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+        self.perform_on_metadata(
+            follow_symlinks,
+            &|meta: fs::Metadata| -> bool { meta.is_dir() },
+            vm,
+        )
+    }
+
+    fn is_file(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+        self.perform_on_metadata(
+            follow_symlinks,
+            &|meta: fs::Metadata| -> bool { meta.is_file() },
+            vm,
+        )
     }
 
     fn is_symlink(self, vm: &VirtualMachine) -> PyResult<bool> {

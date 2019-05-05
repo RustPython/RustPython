@@ -102,7 +102,9 @@ with TestWithTempDir() as tmpdir:
 	names = set()
 	paths = set()
 	dirs = set()
+	dirs_no_symlink = set()
 	files = set()
+	files_no_symlink = set()
 	symlinks = set()
 	for dir_entry in os.scandir(tmpdir):
 		names.add(dir_entry.name)
@@ -110,8 +112,14 @@ with TestWithTempDir() as tmpdir:
 		if dir_entry.is_dir():
 			assert stat.S_ISDIR(dir_entry.stat().st_mode) == True
 			dirs.add(dir_entry.name)
+		if dir_entry.is_dir(follow_symlinks=False):
+			assert stat.S_ISDIR(dir_entry.stat().st_mode) == True
+			dirs_no_symlink.add(dir_entry.name)
 		if dir_entry.is_file():
 			files.add(dir_entry.name)
+			assert stat.S_ISREG(dir_entry.stat().st_mode) == True
+		if dir_entry.is_file(follow_symlinks=False):
+			files_no_symlink.add(dir_entry.name)
 			assert stat.S_ISREG(dir_entry.stat().st_mode) == True
 		if dir_entry.is_symlink():
 			symlinks.add(dir_entry.name)
@@ -119,7 +127,9 @@ with TestWithTempDir() as tmpdir:
 	assert names == set([FILE_NAME, FILE_NAME2, FOLDER, SYMLINK_FILE, SYMLINK_FOLDER])
 	assert paths == set([fname, fname2, folder, symlink_file, symlink_folder])
 	assert dirs == set([FOLDER, SYMLINK_FOLDER])
+	assert dirs_no_symlink == set([FOLDER])
 	assert files == set([FILE_NAME, FILE_NAME2, SYMLINK_FILE])
+	assert files_no_symlink == set([FILE_NAME, FILE_NAME2])
 	assert symlinks == set([SYMLINK_FILE, SYMLINK_FOLDER])
 
 	# Stat
