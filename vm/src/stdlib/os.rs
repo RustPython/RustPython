@@ -420,6 +420,7 @@ fn attributes_to_mode(attr: u32) -> u32 {
 
 #[cfg(windows)]
 fn os_stat(path: PyStringRef, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
+    use std::os::windows::fs;
     use std::os::windows::fs::MetadataExt;
     let metadata = match follow_symlinks.follow_symlinks {
         true => fs::metadata(&path.value),
@@ -473,7 +474,7 @@ fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResu
     ret.map_err(|s| vm.new_os_error(s.to_string()))
 }
 
-#[cfg(not(any(unix)))]
+#[cfg(all(not(unix), not(windows)))]
 fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     unimplemented!();
 }
