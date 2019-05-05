@@ -67,7 +67,8 @@ class TestWithTempDir():
 
 FILE_NAME = "test1"
 FILE_NAME2 = "test2"
-SYMLINK = "symlink"
+SYMLINK_FILE = "symlink"
+SYMLINK_FOLDER = "symlink1"
 FOLDER = "dir1"
 CONTENT = b"testing"
 CONTENT2 = b"rustpython"
@@ -93,8 +94,10 @@ with TestWithTempDir() as tmpdir:
 	folder = tmpdir + os.sep + FOLDER
 	os.mkdir(folder)
 
-	symlink = tmpdir + os.sep + SYMLINK
-	os.symlink(fname, symlink)
+	symlink_file = tmpdir + os.sep + SYMLINK_FILE
+	os.symlink(fname, symlink_file)
+	symlink_folder = tmpdir + os.sep + SYMLINK_FOLDER
+	os.symlink(folder, symlink_folder)
 
 	names = set()
 	paths = set()
@@ -113,11 +116,11 @@ with TestWithTempDir() as tmpdir:
 		if dir_entry.is_symlink():
 			symlinks.add(dir_entry.name)
 
-	assert names == set([FILE_NAME, FILE_NAME2, FOLDER, SYMLINK])
-	assert paths == set([fname, fname2, folder, symlink])
-	assert dirs == set([FOLDER])
-	assert files == set([FILE_NAME, FILE_NAME2])
-	assert symlinks == set([SYMLINK])
+	assert names == set([FILE_NAME, FILE_NAME2, FOLDER, SYMLINK_FILE, SYMLINK_FOLDER])
+	assert paths == set([fname, fname2, folder, symlink_file, symlink_folder])
+	assert dirs == set([FOLDER, SYMLINK_FOLDER])
+	assert files == set([FILE_NAME, FILE_NAME2, SYMLINK_FILE])
+	assert symlinks == set([SYMLINK_FILE, SYMLINK_FOLDER])
 
 	# Stat
 	stat_res = os.stat(fname)
@@ -130,3 +133,7 @@ with TestWithTempDir() as tmpdir:
 	print(stat_res.st_gid)
 	print(stat_res.st_size)
 	assert stat_res.st_size == len(CONTENT2) + len(CONTENT3)
+
+	# stat default is follow_symlink=True
+	os.stat(fname).st_ino == os.stat(symlink_file).st_ino
+	os.stat(fname).st_mode == os.stat(symlink_file).st_mode
