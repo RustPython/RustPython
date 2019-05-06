@@ -1,3 +1,6 @@
+from testutils import assertRaises
+
+
 #__getitem__ not implemented yet
 #a = bytearray(b'abc')
 #assert a[0] == b'a'
@@ -40,12 +43,8 @@ a = bytearray(b'abcd')
 a.clear()
 assert len(a) == 0
 
-try:
+with assertRaises(ValueError):
     bytearray([400])
-except ValueError:
-      pass
-else:
-    assert False
 
 b = bytearray(b'test')
 assert len(b) == 4
@@ -58,13 +57,8 @@ c.pop()
 assert len(c) == 2
 c.pop()
 c.pop()
-
-try:
+with assertRaises(IndexError):
     c.pop()
-except IndexError:
-    pass
-else:
-    assert False
 
 a = bytearray(b'appen')
 assert len(a) == 5
@@ -76,16 +70,7 @@ a = bytearray(b'hey there, what is up?')
 assert(a.count(b'h', 3))
 assert(a.count(bytearray(b'h'), 3))
 assert(a.count(104, 3))
-try:
+with assertRaises(TypeError):
     a.count('h')
-except TypeError:
-    pass
-else:
-    assert False
-
-try:
+with assertRaises(ValueError):
     a.count(53463)
-except ValueError:
-    pass
-else:
-    assert False
