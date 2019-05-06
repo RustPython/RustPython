@@ -27,7 +27,7 @@ use crate::obj::objint::PyInt;
 use num_integer::Integer;
 use num_traits::ToPrimitive;
 
-use super::objbytearray::{get_value as get_value_bytearray, PyByteArray};
+use super::objbytearray::PyByteArray;
 use super::objbytes::PyBytes;
 use super::objmemory::PyMemoryView;
 
@@ -43,7 +43,7 @@ impl TryFromObject for PyByteInner {
         match_class!(obj,
 
             i @ PyBytes => Ok(PyByteInner{elements: i.get_value().to_vec()}),
-            j @ PyByteArray => Ok(PyByteInner{elements: get_value_bytearray(&j.as_object()).to_vec()}),
+            j @ PyByteArray => Ok(PyByteInner{elements: j.inner.borrow().elements.to_vec()}),
             k @ PyMemoryView => Ok(PyByteInner{elements: k.get_obj_value().unwrap()}),
             obj => Err(vm.new_type_error(format!(
                         "a bytes-like object is required, not {}",
@@ -321,6 +321,7 @@ impl PyByteInner {
                 0..=8 => res.push_str(&format!("\\x0{}", i)),
                 9 => res.push_str("\\t"),
                 10 => res.push_str("\\n"),
+                11 => res.push_str(&format!("\\x0{:x}", i)),
                 13 => res.push_str("\\r"),
                 32..=126 => res.push(*(i) as char),
                 _ => res.push_str(&format!("\\x{:x}", i)),
@@ -337,43 +338,43 @@ impl PyByteInner {
         self.elements.len() == 0
     }
 
-    pub fn eq(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
-        if self.elements == other.elements {
-            Ok(vm.new_bool(true))
+    pub fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+            Ok(vm.new_bool(self.elements == other.elements))
         } else {
-            Ok(vm.new_bool(false))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
-    pub fn ge(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
-        if self.elements >= other.elements {
-            Ok(vm.new_bool(true))
+    pub fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+            Ok(vm.new_bool(self.elements >= other.elements))
         } else {
-            Ok(vm.new_bool(false))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
-    pub fn le(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
-        if self.elements <= other.elements {
-            Ok(vm.new_bool(true))
+    pub fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+            Ok(vm.new_bool(self.elements <= other.elements))
         } else {
-            Ok(vm.new_bool(false))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
-    pub fn gt(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
-        if self.elements > other.elements {
-            Ok(vm.new_bool(true))
+    pub fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+            Ok(vm.new_bool(self.elements > other.elements))
         } else {
-            Ok(vm.new_bool(false))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
-    pub fn lt(&self, other: &PyByteInner, vm: &VirtualMachine) -> PyResult {
-        if self.elements < other.elements {
-            Ok(vm.new_bool(true))
+    pub fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+            Ok(vm.new_bool(self.elements < other.elements))
         } else {
-            Ok(vm.new_bool(false))
+            Ok(vm.ctx.not_implemented())
         }
     }
 
@@ -383,14 +384,12 @@ impl PyByteInner {
         hasher.finish() as usize
     }
 
-    pub fn add(&self, other: &PyByteInner, _vm: &VirtualMachine) -> Vec<u8> {
-        let elements: Vec<u8> = self
-            .elements
+    pub fn add(&self, other: PyByteInner) -> Vec<u8> {
+        self.elements
             .iter()
             .chain(other.elements.iter())
             .cloned()
-            .collect();
-        elements
+            .collect::<Vec<u8>>()
     }
 
     pub fn contains(&self, needle: Either<PyByteInner, PyIntRef>, vm: &VirtualMachine) -> PyResult {
@@ -982,7 +981,7 @@ pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {
     match_class!(obj.clone(),
 
     i @ PyBytes => Some(i.get_value().to_vec()),
-    j @ PyByteArray => Some(get_value_bytearray(&j.as_object()).to_vec()),
+    j @ PyByteArray => Some(j.inner.borrow().elements.to_vec()),
     _ => None)
 }
 

@@ -175,7 +175,8 @@ with assertRaises(TypeError):
 with assertRaises(TypeError):
     b"b".center(b"ba")
 assert b"kok".center(5, bytearray(b"x")) == b"xkokx"
-b"kok".center(-5)
+b"kok".center(-5) == b"kok"
+
 
 
 # ljust
