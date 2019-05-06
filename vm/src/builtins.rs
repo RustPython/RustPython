@@ -73,10 +73,10 @@ fn builtin_callable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
     vm.is_callable(&obj)
 }
 
-fn builtin_chr(i: u32, _vm: &VirtualMachine) -> String {
+fn builtin_chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
     match char::from_u32(i) {
-        Some(value) => value.to_string(),
-        None => '_'.to_string(),
+        Some(value) => Ok(value.to_string()),
+        None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_string())),
     }
 }
 
