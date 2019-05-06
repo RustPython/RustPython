@@ -403,7 +403,7 @@ impl PyFloat {
         };
         if ndigits.is_none() {
             let fract = self.value.fract();
-            let value = if fract.abs() == 0.5 {
+            let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
                 if self.value.trunc() % 2.0 == 0.0 {
                     self.value - fract
                 } else {
