@@ -74,6 +74,25 @@ pub struct ByteInnerNewOptions {
     encoding: OptionalArg<PyStringRef>,
 }
 
+//same algorithm as cpython
+pub fn normalize_encoding(encoding: &str) -> String {
+    let mut res = String::new();
+    let mut punct = false;
+
+    for c in encoding.chars() {
+        if c.is_alphanumeric() || c == '.' {
+            if punct && !res.is_empty() {
+                res.push('_')
+            }
+            res.push(c.to_ascii_lowercase());
+            punct = false;
+        } else {
+            punct = true;
+        }
+    }
+    res
+}
+
 impl ByteInnerNewOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyByteInner> {
         // First handle bytes(string, encoding[, errors])
