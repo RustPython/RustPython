@@ -7,16 +7,18 @@ use std::ops::{Deref, DerefMut};
 use num_traits::ToPrimitive;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
-use super::objint;
-use super::objstr;
-use super::objiter;
-use super::objint::PyInt;
-use super::objbytes::PyBytes;
-use super::objtype::PyClassRef;
 use super::objbyteinner::ByteOr;
+use super::objbytes::PyBytes;
+use super::objint;
+use super::objint::PyInt;
+use super::objiter;
+use super::objstr;
+use super::objtype::PyClassRef;
 
 #[derive(Debug)]
 pub struct PyByteArray {
@@ -254,13 +256,19 @@ impl PyByteArrayRef {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let sub_string = match sub.class().name.as_ref() {
-            "bytearray" => sub.downcast::<PyByteArray>().unwrap().value.borrow().clone(),
-            "bytes"     => sub.downcast::<PyBytes>().unwrap().get_value().to_vec(),
-            "int"       => vec![sub.downcast::<PyInt>()?.as_bigint().byte_or(vm)?],
-            _           => {
-                return Err(vm.new_type_error(
-                                format!("a bytes-like object is required, not {}", sub.class())
-                            ))
+            "bytearray" => sub
+                .downcast::<PyByteArray>()
+                .unwrap()
+                .value
+                .borrow()
+                .clone(),
+            "bytes" => sub.downcast::<PyBytes>().unwrap().get_value().to_vec(),
+            "int" => vec![sub.downcast::<PyInt>()?.as_bigint().byte_or(vm)?],
+            _ => {
+                return Err(vm.new_type_error(format!(
+                    "a bytes-like object is required, not {}",
+                    sub.class()
+                )))
             }
         };
 
