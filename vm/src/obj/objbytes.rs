@@ -402,6 +402,11 @@ impl PyBytesRef {
     ) -> PyResult {
         Ok(vm.ctx.new_bytes(self.inner.replace(old, new, count)?))
     }
+
+    #[pymethod(name = "title")]
+    fn title(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.title()))
+    }
 }
 
 #[pyclass]

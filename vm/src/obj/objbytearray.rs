@@ -364,12 +364,18 @@ impl PyByteArrayRef {
             .push(x.as_bigint().byte_or(vm)?);
         Ok(())
     }
+
     #[pymethod(name = "pop")]
     fn pop(self, vm: &VirtualMachine) -> PyResult<u8> {
         let bytes = &mut self.inner.borrow_mut().elements;
         bytes
             .pop()
             .ok_or_else(|| vm.new_index_error("pop from empty bytearray".to_string()))
+    }
+
+    #[pymethod(name = "title")]
+    fn title(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().title()))
     }
 }
 
