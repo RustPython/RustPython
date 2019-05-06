@@ -350,8 +350,6 @@ impl PyBytesRef {
 
     #[pymethod(name = "partition")]
     fn partition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // TODO:  when implementing bytearray,remember sep ALWAYS converted to  bytearray
-        // even it's bytes or memoryview so PyByteInner wiil be ok for args
         let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
 
         let (left, right) = self.inner.partition(&sepa, false)?;
@@ -361,8 +359,6 @@ impl PyBytesRef {
     }
     #[pymethod(name = "rpartition")]
     fn rpartition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        // TODO:  when implementing bytearray,remember sep ALWAYS converted to  bytearray
-        // even it's bytes or memoryview so PyByteInner wiil be ok for args
         let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
 
         let (left, right) = self.inner.partition(&sepa, true)?;
