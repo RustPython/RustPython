@@ -45,6 +45,13 @@ impl PyBytes {
             inner: PyByteInner { elements },
         }
     }
+
+    pub fn from_string(value: &str, encoding: &str, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(PyBytes {
+            inner: PyByteInner::from_string(value, encoding, vm)?,
+        })
+    }
+
     pub fn get_value(&self) -> &[u8] {
         &self.inner.elements
     }

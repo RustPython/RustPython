@@ -19,7 +19,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objbyteinner;
+use super::objbytes::PyBytes;
 use super::objdict::PyDict;
 use super::objint::{self, PyInt};
 use super::objnone::PyNone;
@@ -980,8 +980,8 @@ impl PyString {
             },
         )?;
 
-        let encoded = objbyteinner::encode_to_vec(&self.value, &encoding, vm)?;
-        Ok(vm.ctx.new_bytes(encoded))
+        let encoded = PyBytes::from_string(&self.value, &encoding, vm)?;
+        Ok(encoded.into_pyobject(vm)?)
     }
 }
 
