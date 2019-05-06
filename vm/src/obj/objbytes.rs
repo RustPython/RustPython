@@ -1,4 +1,5 @@
 use crate::obj::objint::PyIntRef;
+
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
@@ -9,15 +10,19 @@ use core::cell::Cell;
 use std::ops::Deref;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 
 use super::objbyteinner::{
-    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
+    ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+    ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
     ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objiter;
 
 use super::objtype::PyClassRef;
+
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
 /// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
@@ -327,6 +332,83 @@ impl PyBytesRef {
         Ok(vm
             .ctx
             .new_bytes(self.inner.strip(chars, ByteInnerPosition::Right, vm)?))
+    }
+
+    #[pymethod(name = "split")]
+    fn split(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .split(options, false)?
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "rsplit")]
+    fn rsplit(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .split(options, true)?
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "partition")]
+    fn partition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // TODO:  when implementing bytearray,remember sep ALWAYS converted to  bytearray
+        // even it's bytes or memoryview so PyByteInner wiil be ok for args
+        let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
+
+        let (left, right) = self.inner.partition(&sepa, false)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
+    }
+    #[pymethod(name = "rpartition")]
+    fn rpartition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        // TODO:  when implementing bytearray,remember sep ALWAYS converted to  bytearray
+        // even it's bytes or memoryview so PyByteInner wiil be ok for args
+        let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
+
+        let (left, right) = self.inner.partition(&sepa, true)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
+    }
+
+    #[pymethod(name = "expandtabs")]
+    fn expandtabs(self, options: ByteInnerExpandtabsOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.expandtabs(options)))
+    }
+
+    #[pymethod(name = "splitlines")]
+    fn splitlines(self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .splitlines(options)
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "zfill")]
+    fn zfill(self, width: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.zfill(width)))
+    }
+
+    #[pymethod(name = "replace")]
+    fn replace(
+        self,
+        old: PyByteInner,
+        new: PyByteInner,
+        count: OptionalArg<PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.replace(old, new, count)?))
     }
 }
 
