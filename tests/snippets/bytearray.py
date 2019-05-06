@@ -71,3 +71,21 @@ assert len(a) == 5
 a.append(100)
 assert len(a) == 6
 assert a.pop() == 100
+
+a = bytearray(b'hey there, what is up?')
+assert(a.count(b'h', 3))
+assert(a.count(bytearray(b'h'), 3))
+assert(a.count(104, 3))
+try:
+    a.count('h')
+except TypeError:
+    pass
+else:
+    assert False
+
+try:
+    a.count(53463)
+except ValueError:
+    pass
+else:
+    assert False

@@ -1031,7 +1031,7 @@ pub fn subscript(vm: &VirtualMachine, value: &str, b: PyObjectRef) -> PyResult {
 }
 
 // help get optional string indices
-fn adjust_indices(
+pub fn adjust_indices(
     start: OptionalArg<isize>,
     end: OptionalArg<isize>,
     len: usize,

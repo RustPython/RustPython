@@ -7,12 +7,16 @@ use std::ops::{Deref, DerefMut};
 use num_traits::ToPrimitive;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
 use crate::vm::VirtualMachine;
 
 use super::objint;
+use super::objstr;
 use super::objiter;
+use super::objint::PyInt;
+use super::objbytes::PyBytes;
 use super::objtype::PyClassRef;
+use super::objbyteinner::ByteOr;
 
 #[derive(Debug)]
 pub struct PyByteArray {
@@ -81,7 +85,8 @@ pub fn init(context: &PyContext) {
         "lower" => context.new_rustfunc(PyByteArrayRef::lower),
         "append" => context.new_rustfunc(PyByteArrayRef::append),
         "pop" => context.new_rustfunc(PyByteArrayRef::pop),
-        "upper" => context.new_rustfunc(PyByteArrayRef::upper)
+        "upper" => context.new_rustfunc(PyByteArrayRef::upper),
+        "count" => context.new_rustfunc(PyByteArrayRef::count),
     });
 
     PyByteArrayIterator::extend_class(context, &context.bytearrayiterator_type);
@@ -201,8 +206,7 @@ impl PyByteArrayRef {
     }
 
     fn repr(self, _vm: &VirtualMachine) -> String {
-        let bytes = self.value.borrow();
-        let data = String::from_utf8(bytes.to_vec()).unwrap_or_else(|_| to_hex(&bytes.to_vec()));
+        let data = vec_to_string(self.value.borrow().clone());
         format!("bytearray(b'{}')", data)
     }
 
@@ -241,11 +245,42 @@ impl PyByteArrayRef {
             bytearray: self,
         }
     }
+
+    fn count(
+        self,
+        sub: PyObjectRef,
+        start: OptionalArg<isize>,
+        end: OptionalArg<isize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        let sub_string = match sub.class().name.as_ref() {
+            "bytearray" => sub.downcast::<PyByteArray>().unwrap().value.borrow().clone(),
+            "bytes"     => sub.downcast::<PyBytes>().unwrap().get_value().to_vec(),
+            "int"       => vec![sub.downcast::<PyInt>()?.as_bigint().byte_or(vm)?],
+            _           => {
+                return Err(vm.new_type_error(
+                                format!("a bytes-like object is required, not {}", sub.class())
+                            ))
+            }
+        };
+
+        if let Some((start, end)) = objstr::adjust_indices(start, end, self.value.borrow().len()) {
+            let data = vec_to_string(self.value.borrow().clone());
+            Ok(data[start..end].matches(&vec_to_string(sub_string)).count())
+        } else {
+            Ok(0)
+        }
+    }
 }
 
 // helper function for istitle
 fn is_cased(c: char) -> bool {
     c.to_uppercase().next().unwrap() != c || c.to_lowercase().next().unwrap() != c
+}
+
+// helper function for repr and count
+fn vec_to_string(b: Vec<u8>) -> String {
+    String::from_utf8(b.clone()).unwrap_or_else(|_| to_hex(&b))
 }
 
 /*
