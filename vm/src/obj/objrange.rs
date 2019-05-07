@@ -130,14 +130,11 @@ impl PyRange {
         step: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRangeRef> {
-        PyRange {
-            start,
-            stop,
-            step: step
-                .into_option()
-                .unwrap_or_else(|| PyInt::new(BigInt::one()).into_ref(vm)),
+        let step = step.unwrap_or_else(|| PyInt::new(BigInt::one()).into_ref(vm));
+        if step.as_bigint().is_zero() {
+            return Err(vm.new_value_error("range() arg 3 must not be zero".to_string()));
         }
-        .into_ref_with_type(vm, cls)
+        PyRange { start, stop, step }.into_ref_with_type(vm, cls)
     }
 
     #[pyproperty(name = "start")]
