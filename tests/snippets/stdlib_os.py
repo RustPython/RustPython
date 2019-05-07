@@ -67,6 +67,8 @@ class TestWithTempDir():
 
 FILE_NAME = "test1"
 FILE_NAME2 = "test2"
+SYMLINK_FILE = "symlink"
+SYMLINK_FOLDER = "symlink1"
 FOLDER = "dir1"
 CONTENT = b"testing"
 CONTENT2 = b"rustpython"
@@ -92,24 +94,43 @@ with TestWithTempDir() as tmpdir:
 	folder = tmpdir + os.sep + FOLDER
 	os.mkdir(folder)
 
+	symlink_file = tmpdir + os.sep + SYMLINK_FILE
+	os.symlink(fname, symlink_file)
+	symlink_folder = tmpdir + os.sep + SYMLINK_FOLDER
+	os.symlink(folder, symlink_folder)
+
 	names = set()
 	paths = set()
 	dirs = set()
+	dirs_no_symlink = set()
 	files = set()
+	files_no_symlink = set()
+	symlinks = set()
 	for dir_entry in os.scandir(tmpdir):
 		names.add(dir_entry.name)
 		paths.add(dir_entry.path)
 		if dir_entry.is_dir():
 			assert stat.S_ISDIR(dir_entry.stat().st_mode) == True
 			dirs.add(dir_entry.name)
+		if dir_entry.is_dir(follow_symlinks=False):
+			assert stat.S_ISDIR(dir_entry.stat().st_mode) == True
+			dirs_no_symlink.add(dir_entry.name)
 		if dir_entry.is_file():
 			files.add(dir_entry.name)
 			assert stat.S_ISREG(dir_entry.stat().st_mode) == True
+		if dir_entry.is_file(follow_symlinks=False):
+			files_no_symlink.add(dir_entry.name)
+			assert stat.S_ISREG(dir_entry.stat().st_mode) == True
+		if dir_entry.is_symlink():
+			symlinks.add(dir_entry.name)
 
-	assert names == set([FILE_NAME, FILE_NAME2, FOLDER])
-	assert paths == set([fname, fname2, folder])
-	assert dirs == set([FOLDER])
-	assert files == set([FILE_NAME, FILE_NAME2])
+	assert names == set([FILE_NAME, FILE_NAME2, FOLDER, SYMLINK_FILE, SYMLINK_FOLDER])
+	assert paths == set([fname, fname2, folder, symlink_file, symlink_folder])
+	assert dirs == set([FOLDER, SYMLINK_FOLDER])
+	assert dirs_no_symlink == set([FOLDER])
+	assert files == set([FILE_NAME, FILE_NAME2, SYMLINK_FILE])
+	assert files_no_symlink == set([FILE_NAME, FILE_NAME2])
+	assert symlinks == set([SYMLINK_FILE, SYMLINK_FOLDER])
 
 	# Stat
 	stat_res = os.stat(fname)
@@ -122,3 +143,10 @@ with TestWithTempDir() as tmpdir:
 	print(stat_res.st_gid)
 	print(stat_res.st_size)
 	assert stat_res.st_size == len(CONTENT2) + len(CONTENT3)
+
+	# stat default is follow_symlink=True
+	os.stat(fname).st_ino == os.stat(symlink_file).st_ino
+	os.stat(fname).st_mode == os.stat(symlink_file).st_mode
+
+	os.stat(fname, follow_symlinks=False).st_ino == os.stat(symlink_file, follow_symlinks=False).st_ino
+	os.stat(fname, follow_symlinks=False).st_mode == os.stat(symlink_file, follow_symlinks=False).st_mode

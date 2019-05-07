@@ -208,6 +208,12 @@ impl PyValue for DirEntry {
     }
 }
 
+#[derive(FromArgs)]
+struct FollowSymlinks {
+    #[pyarg(keyword_only, default = "true")]
+    follow_symlinks: bool,
+}
+
 impl DirEntryRef {
     fn name(self, _vm: &VirtualMachine) -> String {
         self.entry.file_name().into_string().unwrap()
@@ -217,24 +223,46 @@ impl DirEntryRef {
         self.entry.path().to_str().unwrap().to_string()
     }
 
-    fn is_dir(self, vm: &VirtualMachine) -> PyResult<bool> {
+    fn perform_on_metadata(
+        self,
+        follow_symlinks: FollowSymlinks,
+        action: &Fn(fs::Metadata) -> bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let metadata = match follow_symlinks.follow_symlinks {
+            true => fs::metadata(self.entry.path()),
+            false => fs::symlink_metadata(self.entry.path()),
+        };
+        let meta = metadata.map_err(|s| vm.new_os_error(s.to_string()))?;
+        Ok(action(meta))
+    }
+
+    fn is_dir(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+        self.perform_on_metadata(
+            follow_symlinks,
+            &|meta: fs::Metadata| -> bool { meta.is_dir() },
+            vm,
+        )
+    }
+
+    fn is_file(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<bool> {
+        self.perform_on_metadata(
+            follow_symlinks,
+            &|meta: fs::Metadata| -> bool { meta.is_file() },
+            vm,
+        )
+    }
+
+    fn is_symlink(self, vm: &VirtualMachine) -> PyResult<bool> {
         Ok(self
             .entry
             .file_type()
             .map_err(|s| vm.new_os_error(s.to_string()))?
-            .is_dir())
+            .is_symlink())
     }
 
-    fn is_file(self, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(self
-            .entry
-            .file_type()
-            .map_err(|s| vm.new_os_error(s.to_string()))?
-            .is_file())
-    }
-
-    fn stat(self, vm: &VirtualMachine) -> PyResult {
-        os_stat(self.path(vm).try_into_ref(vm)?, vm)
+    fn stat(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
+        os_stat(self.path(vm).try_into_ref(vm)?, follow_symlinks, vm)
     }
 }
 
@@ -329,11 +357,15 @@ impl StatResultRef {
     }
 }
 
-#[cfg(target_os = "linux")]
-fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    use std::os::linux::fs::MetadataExt;
-    match fs::metadata(&path.value) {
-        Ok(meta) => Ok(StatResult {
+macro_rules! os_unix_stat_inner {
+    ( $path:expr, $follow_symlinks:expr, $vm:expr) => {{
+        let metadata = match $follow_symlinks.follow_symlinks {
+            true => fs::metadata($path),
+            false => fs::symlink_metadata($path),
+        };
+        let meta = metadata.map_err(|s| $vm.new_os_error(s.to_string()))?;
+
+        Ok(StatResult {
             st_mode: meta.st_mode(),
             st_ino: meta.st_ino(),
             st_dev: meta.st_dev(),
@@ -342,64 +374,43 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
             st_gid: meta.st_gid(),
             st_size: meta.st_size(),
         }
-        .into_ref(vm)
-        .into_object()),
-        Err(s) => Err(vm.new_os_error(s.to_string())),
-    }
+        .into_ref($vm)
+        .into_object())
+    }};
+}
+
+#[cfg(target_os = "linux")]
+fn os_stat(path: PyStringRef, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
+    use std::os::linux::fs::MetadataExt;
+    os_unix_stat_inner!(&path.value, follow_symlinks, vm)
 }
 
 #[cfg(target_os = "macos")]
-fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn os_stat(path: PyStringRef, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
     use std::os::macos::fs::MetadataExt;
-    match fs::metadata(&path.value) {
-        Ok(meta) => Ok(StatResult {
-            st_mode: meta.st_mode(),
-            st_ino: meta.st_ino(),
-            st_dev: meta.st_dev(),
-            st_nlink: meta.st_nlink(),
-            st_uid: meta.st_uid(),
-            st_gid: meta.st_gid(),
-            st_size: meta.st_size(),
-        }
-        .into_ref(vm)
-        .into_object()),
-        Err(s) => Err(vm.new_os_error(s.to_string())),
-    }
+    os_unix_stat_inner!(&path.value, follow_symlinks, vm)
 }
 
 #[cfg(target_os = "android")]
-fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn os_stat(path: PyStringRef, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
     use std::os::android::fs::MetadataExt;
-    match fs::metadata(&path.value) {
-        Ok(meta) => Ok(StatResult {
-            st_mode: meta.st_mode(),
-            st_ino: meta.st_ino(),
-            st_dev: meta.st_dev(),
-            st_nlink: meta.st_nlink(),
-            st_uid: meta.st_uid(),
-            st_gid: meta.st_gid(),
-            st_size: meta.st_size(),
-        }
-        .into_ref(vm)
-        .into_object()),
-        Err(s) => Err(vm.new_os_error(s.to_string())),
-    }
+    os_unix_stat_inner!(&path.value, follow_symlinks, vm)
 }
 
 // Copied from CPython fileutils.c
 #[cfg(windows)]
 fn attributes_to_mode(attr: u32) -> u32 {
-    let file_attribute_directory: u32 = 16;
-    let file_attribute_readonly: u32 = 1;
-    let s_ifdir: u32 = 0o040000;
-    let s_ifreg: u32 = 0o100000;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 16;
+    const FILE_ATTRIBUTE_READONLY: u32 = 1;
+    const S_IFDIR: u32 = 0o040000;
+    const S_IFREG: u32 = 0o100000;
     let mut m: u32 = 0;
-    if attr & file_attribute_directory == file_attribute_directory {
-        m |= s_ifdir | 0111; /* IFEXEC for user,group,other */
+    if attr & FILE_ATTRIBUTE_DIRECTORY == FILE_ATTRIBUTE_DIRECTORY {
+        m |= S_IFDIR | 0111; /* IFEXEC for user,group,other */
     } else {
-        m |= s_ifreg;
+        m |= S_IFREG;
     }
-    if attr & file_attribute_readonly == file_attribute_readonly {
+    if attr & FILE_ATTRIBUTE_READONLY == FILE_ATTRIBUTE_READONLY {
         m |= 0444;
     } else {
         m |= 0666;
@@ -408,22 +419,24 @@ fn attributes_to_mode(attr: u32) -> u32 {
 }
 
 #[cfg(windows)]
-fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+fn os_stat(path: PyStringRef, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult {
     use std::os::windows::fs::MetadataExt;
-    match fs::metadata(&path.value) {
-        Ok(meta) => Ok(StatResult {
-            st_mode: attributes_to_mode(meta.file_attributes()),
-            st_ino: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-            st_dev: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-            st_nlink: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
-            st_uid: 0,   // 0 on windows
-            st_gid: 0,   // 0 on windows
-            st_size: meta.file_size(),
-        }
-        .into_ref(vm)
-        .into_object()),
-        Err(s) => Err(vm.new_os_error(s.to_string())),
+    let metadata = match follow_symlinks.follow_symlinks {
+        true => fs::metadata(&path.value),
+        false => fs::symlink_metadata(&path.value),
+    };
+    let meta = metadata.map_err(|s| vm.new_os_error(s.to_string()))?;
+    Ok(StatResult {
+        st_mode: attributes_to_mode(meta.file_attributes()),
+        st_ino: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+        st_dev: 0,   // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+        st_nlink: 0, // TODO: Not implemented in std::os::windows::fs::MetadataExt.
+        st_uid: 0,   // 0 on windows
+        st_gid: 0,   // 0 on windows
+        st_size: meta.file_size(),
     }
+    .into_ref(vm)
+    .into_object())
 }
 
 #[cfg(not(any(
@@ -433,6 +446,35 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     windows
 )))]
 fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    unimplemented!();
+}
+
+#[cfg(unix)]
+fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    use std::os::unix::fs as unix_fs;
+    unix_fs::symlink(&src.value, &dst.value).map_err(|s| vm.new_os_error(s.to_string()))
+}
+
+#[cfg(windows)]
+fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    use std::os::windows::fs as win_fs;
+    let ret = match fs::metadata(&dst.value) {
+        Ok(meta) => {
+            if meta.is_file() {
+                win_fs::symlink_file(&src.value, &dst.value)
+            } else if meta.is_dir() {
+                win_fs::symlink_dir(&src.value, &dst.value)
+            } else {
+                panic!("Uknown file type");
+            }
+        }
+        Err(_) => win_fs::symlink_file(&src.value, &dst.value),
+    };
+    ret.map_err(|s| vm.new_os_error(s.to_string()))
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     unimplemented!();
 }
 
@@ -455,6 +497,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "path" => ctx.new_property(DirEntryRef::path),
          "is_dir" => ctx.new_rustfunc(DirEntryRef::is_dir),
          "is_file" => ctx.new_rustfunc(DirEntryRef::is_file),
+         "is_symlink" => ctx.new_rustfunc(DirEntryRef::is_symlink),
          "stat" => ctx.new_rustfunc(DirEntryRef::stat),
     });
 
@@ -489,6 +532,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
         "stat" => ctx.new_rustfunc(os_stat),
+        "symlink" => ctx.new_rustfunc(os_symlink),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),
