@@ -124,7 +124,7 @@ impl Scope {
 pub trait NameProtocol {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
-    fn delete_name(&self, vm: &VirtualMachine, name: &str);
+    fn delete_name(&self, vm: &VirtualMachine, name: &str) -> PyResult;
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
@@ -169,8 +169,8 @@ impl NameProtocol for Scope {
         self.get_locals().set_item(key, value, vm).unwrap();
     }
 
-    fn delete_name(&self, vm: &VirtualMachine, key: &str) {
-        self.get_locals().del_item(key, vm).unwrap();
+    fn delete_name(&self, vm: &VirtualMachine, key: &str) -> PyResult {
+        self.get_locals().del_item(key, vm)
     }
 
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
@@ -1071,8 +1071,10 @@ impl Frame {
     }
 
     fn delete_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
-        self.scope.delete_name(vm, name);
-        Ok(None)
+        match self.scope.delete_name(vm, name) {
+            Ok(_) => Ok(None),
+            Err(_) => Err(vm.new_name_error(format!("name '{}' is not defined", name))),
+        }
     }
 
     fn load_name(
@@ -1090,10 +1092,7 @@ impl Frame {
         let value = match optional_value {
             Some(value) => value,
             None => {
-                let name_error_type = vm.ctx.exceptions.name_error.clone();
-                let msg = format!("name '{}' is not defined", name);
-                let name_error = vm.new_exception(name_error_type, msg);
-                return Err(name_error);
+                return Err(vm.new_name_error(format!("name '{}' is not defined", name)));
             }
         };
 

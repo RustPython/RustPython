@@ -186,6 +186,11 @@ impl VirtualMachine {
         self.new_exception(type_error, msg)
     }
 
+    pub fn new_name_error(&self, msg: String) -> PyObjectRef {
+        let name_error = self.ctx.exceptions.name_error.clone();
+        self.new_exception(name_error, msg)
+    }
+
     pub fn new_unsupported_operand_error(
         &self,
         a: PyObjectRef,
