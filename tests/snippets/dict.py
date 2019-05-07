@@ -191,3 +191,10 @@ assert x['c'] is None
 
 assert {1: None, "b": None} == dict.fromkeys([1, "b"])
 assert {1: 0, "b": 0} == dict.fromkeys([1, "b"], 0)
+
+x = {'a': 1, 'b': 1, 'c': 1}
+y = {'b': 2, 'c': 2, 'd': 2}
+z = {'c': 3, 'd': 3, 'e': 3}
+
+w = {1: 1, **x, 2: 2, **y, 3: 3, **z, 4: 4}
+assert w == {1: 1, 'a': 1, 'b': 2, 'c': 3, 2: 2, 'd': 3, 3: 3, 'e': 3, 4: 4}

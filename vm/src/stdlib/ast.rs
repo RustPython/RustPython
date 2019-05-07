@@ -358,7 +358,11 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             let mut keys = Vec::new();
             let mut values = Vec::new();
             for (k, v) in elements {
-                keys.push(expression_to_ast(vm, k)?.into_object());
+                if let Some(k) = k {
+                    keys.push(expression_to_ast(vm, k)?.into_object());
+                } else {
+                    keys.push(vm.ctx.none());
+                }
                 values.push(expression_to_ast(vm, v)?.into_object());
             }
 

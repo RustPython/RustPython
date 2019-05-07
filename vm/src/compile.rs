@@ -1256,13 +1256,25 @@ impl Compiler {
             }
             ast::Expression::Dict { elements } => {
                 let size = elements.len();
+                let has_double_star = elements.iter().any(|e| e.0.is_none());
                 for (key, value) in elements {
-                    self.compile_expression(key)?;
-                    self.compile_expression(value)?;
+                    if let Some(key) = key {
+                        self.compile_expression(key)?;
+                        self.compile_expression(value)?;
+                        if has_double_star {
+                            self.emit(Instruction::BuildMap {
+                                size: 1,
+                                unpack: false,
+                            });
+                        }
+                    } else {
+                        // dict unpacking
+                        self.compile_expression(value)?;
+                    }
                 }
                 self.emit(Instruction::BuildMap {
                     size,
-                    unpack: false,
+                    unpack: has_double_star,
                 });
             }
             ast::Expression::Slice { elements } => {

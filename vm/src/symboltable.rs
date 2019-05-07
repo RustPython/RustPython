@@ -404,7 +404,11 @@ impl SymbolTableBuilder {
             }
             ast::Expression::Dict { elements } => {
                 for (key, value) in elements {
-                    self.scan_expression(key)?;
+                    if let Some(key) = key {
+                        self.scan_expression(key)?;
+                    } else {
+                        // dict unpacking marker
+                    }
                     self.scan_expression(value)?;
                 }
             }
