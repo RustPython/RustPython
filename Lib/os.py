@@ -33,8 +33,7 @@ class _Environ(MutableMapping):
             value = self._data[self.encodekey(key)]
         except KeyError:
             # raise KeyError with the original key value
-            # raise KeyError(key) from None
-            raise KeyError(key)
+            raise KeyError(key) from None
 
         return self.decodevalue(value)
 
@@ -51,8 +50,7 @@ class _Environ(MutableMapping):
             del self._data[encodedkey]
         except KeyError:
             # raise KeyError with the original key value
-            # raise KeyError(key) from None
-            raise KeyError(key)
+            raise KeyError(key) from None
 
     def __iter__(self):
         # list() from dict object is an atomic operation
