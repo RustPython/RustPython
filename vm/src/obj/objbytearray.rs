@@ -135,7 +135,7 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(self, vm: &VirtualMachine) -> PyResult {
+    fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type: bytearray".to_string()))
     }
 

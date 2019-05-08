@@ -65,3 +65,21 @@ pub fn hash_float(value: f64) -> PyHash {
 
     x as PyHash * value.signum() as PyHash
 }
+
+pub fn hash_value<T: Hash>(data: &T) -> PyHash {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    hasher.finish() as PyHash
+}
+
+pub fn hash_iter<'a, I: std::iter::Iterator<Item = &'a PyObjectRef>>(
+    iter: I,
+    vm: &VirtualMachine,
+) -> PyResult<PyHash> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for element in iter {
+        let item_hash = vm._hash(&element)?;
+        item_hash.hash(&mut hasher);
+    }
+    Ok(hasher.finish() as PyHash)
+}

@@ -5,6 +5,7 @@ use super::objtype;
 use crate::function::PyFuncArgs;
 use crate::obj::objproperty::PropertyBuilder;
 use crate::obj::objtype::PyClassRef;
+use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyAttributes, PyContext, PyObject, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -55,8 +56,8 @@ fn object_ge(_zelf: PyObjectRef, _other: PyObjectRef, vm: &VirtualMachine) -> Py
     vm.ctx.not_implemented()
 }
 
-fn object_hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> u64 {
-    zelf.get_id() as u64
+fn object_hash(zelf: PyObjectRef, _vm: &VirtualMachine) -> pyhash::PyHash {
+    zelf.get_id() as pyhash::PyHash
 }
 
 fn object_setattr(

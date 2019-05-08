@@ -759,7 +759,7 @@ impl TryFromObject for SetIterable {
     }
 }
 
-fn set_hash(_zelf: PySetRef, vm: &VirtualMachine) -> PyResult {
+fn set_hash(_zelf: PySetRef, vm: &VirtualMachine) -> PyResult<()> {
     Err(vm.new_type_error("unhashable type".to_string()))
 }
 

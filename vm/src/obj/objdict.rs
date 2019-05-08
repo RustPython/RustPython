@@ -298,7 +298,7 @@ impl PyDictRef {
         Ok(PyDict { entries }.into_ref(vm))
     }
 
-    fn hash(self, vm: &VirtualMachine) -> PyResult {
+    fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type".to_string()))
     }
 
