@@ -23,13 +23,14 @@ use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
-use crate::obj::objint;
+use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
+use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
@@ -37,7 +38,6 @@ use crate::pyobject::{
 use crate::stdlib;
 use crate::sysmodule;
 use num_bigint::BigInt;
-use num_traits::ToPrimitive;
 
 // use objects::objects;
 
@@ -914,14 +914,10 @@ impl VirtualMachine {
         })
     }
 
-    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<usize> {
-        const PRIME: usize = 0x1fff_ffff_ffff_ffff;
+    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<pyhash::PyHash> {
         let hash_obj = self.call_method(obj, "__hash__", vec![])?;
         if objtype::isinstance(&hash_obj, &self.ctx.int_type()) {
-            let hash_int = objint::get_value(&hash_obj);
-            Ok(hash_int
-                .to_usize()
-                .unwrap_or_else(|| (hash_int % PRIME).to_usize().unwrap()))
+            Ok(hash_obj.payload::<PyInt>().unwrap().hash(self))
         } else {
             Err(self.new_type_error("__hash__ method should return an integer".to_string()))
         }

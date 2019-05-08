@@ -1,5 +1,4 @@
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
@@ -7,6 +6,7 @@ use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -400,10 +400,11 @@ impl PyInt {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.value.hash(&mut hasher);
-        hasher.finish()
+    pub fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        match self.value.to_i64() {
+            Some(value) => (value % pyhash::MODULUS as i64),
+            None => (&self.value % pyhash::MODULUS).to_i64().unwrap(),
+        }
     }
 
     #[pymethod(name = "__abs__")]
