@@ -143,6 +143,22 @@ impl<T: Clone> Dict<T> {
         }
     }
 
+    pub fn delete_or_insert(
+        &mut self,
+        vm: &VirtualMachine,
+        key: &PyObjectRef,
+        value: T,
+    ) -> PyResult<()> {
+        match self.lookup(vm, &key)? {
+            LookupResult::Existing(entry_index) => self.unchecked_delete(entry_index),
+            LookupResult::NewIndex {
+                hash_value,
+                hash_index,
+            } => self.unchecked_push(hash_index, hash_value, &key, value),
+        };
+        Ok(())
+    }
+
     pub fn len(&self) -> usize {
         self.size
     }
@@ -171,6 +187,14 @@ impl<T: Clone> Dict<T> {
 
     pub fn has_changed_size(&self, position: &DictSize) -> bool {
         position.size != self.size || self.entries.len() != position.entries_size
+    }
+
+    pub fn keys<'a>(&'a self) -> Box<Iterator<Item = PyObjectRef> + 'a> {
+        Box::new(
+            self.entries
+                .iter()
+                .filter_map(|v| v.as_ref().map_or(None, |v| Some(v.key.clone()))),
+        )
     }
 
     /// Lookup the index for the given key.
@@ -225,6 +249,18 @@ impl<T: Clone> Dict<T> {
         } else {
             let key_repr = vm.to_pystr(key)?;
             Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
+        }
+    }
+
+    pub fn pop_front(&mut self) -> Option<(PyObjectRef, T)> {
+        let mut entry_index = 0;
+        match self.next_entry(&mut entry_index) {
+            Some((key, value)) => {
+                let item = (key.clone(), value.clone());
+                self.unchecked_delete(entry_index - 1);
+                Some(item)
+            }
+            None => None,
         }
     }
 }
