@@ -303,8 +303,7 @@ fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> 
 
 fn builtin_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-
-    vm.call_method(obj, "__hash__", vec![])
+    vm._hash(obj).and_then(|v| Ok(vm.new_int(v)))
 }
 
 // builtin_help
