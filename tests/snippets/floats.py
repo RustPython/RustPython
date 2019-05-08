@@ -98,6 +98,21 @@ assert float(b'2.99e-23') == 2.99e-23
 assert_raises(ValueError, lambda: float('foo'))
 assert_raises(OverflowError, lambda: float(2**10000))
 
+# check eq and hash for small numbers
+
+assert 1.0 == 1
+assert 1.0 == True
+assert 0.0 == 0
+assert 0.0 == False
+assert hash(1.0) == hash(1)
+assert hash(1.0) == hash(True)
+assert hash(0.0) == hash(0)
+assert hash(0.0) == hash(False)
+assert hash(1.0) != hash(1.0000000001)
+
+assert 5.0 in {3, 4, 5}
+assert {-1: 2}[-1.0] == 2
+
 # check that magic methods are implemented for ints and floats
 
 assert 1.0.__add__(1.0) == 2.0

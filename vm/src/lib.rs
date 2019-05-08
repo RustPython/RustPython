@@ -55,6 +55,7 @@ pub mod frame;
 pub mod function;
 pub mod import;
 pub mod obj;
+mod pyhash;
 pub mod pyobject;
 pub mod stdlib;
 mod symboltable;
