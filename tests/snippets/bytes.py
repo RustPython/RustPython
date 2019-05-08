@@ -178,7 +178,6 @@ assert b"kok".center(5, bytearray(b"x")) == b"xkokx"
 b"kok".center(-5) == b"kok"
 
 
-
 # ljust
 assert [b"koki".ljust(i, b"|") for i in range(3, 10)] == [
     b"koki",
@@ -577,9 +576,15 @@ assert b"42".zfill(1) == b"42"
 assert b"42".zfill(-1) == b"42"
 
 # replace
-assert b"123456789123".replace(b"23", b"XX") == b'1XX4567891XX'
-assert b"123456789123".replace(b"23", b"XX", 1) == b'1XX456789123'
+assert b"123456789123".replace(b"23", b"XX") == b"1XX4567891XX"
+assert b"123456789123".replace(b"23", b"XX", 1) == b"1XX456789123"
 assert b"123456789123".replace(b"23", b"XX", 0) == b"123456789123"
-assert b"123456789123".replace(b"23", b"XX", -1) == b'1XX4567891XX'
+assert b"123456789123".replace(b"23", b"XX", -1) == b"1XX4567891XX"
 assert b"123456789123".replace(b"23", b"") == b"14567891"
 
+# title
+assert b"Hello world".title() == b"Hello World"
+assert (
+    b"they're bill's friends from the UK".title()
+    == b"They'Re Bill'S Friends From The Uk"
+)

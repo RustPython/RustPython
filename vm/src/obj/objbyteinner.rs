@@ -975,6 +975,30 @@ impl PyByteInner {
 
         Ok(res)
     }
+
+    pub fn title(&self) -> Vec<u8> {
+        let mut res = vec![];
+        let mut spaced = true;
+
+        for i in self.elements.iter() {
+            match i {
+                65..=90 | 97..=122 => {
+                    if spaced {
+                        res.push(i.to_ascii_uppercase());
+                        spaced = false
+                    } else {
+                        res.push(i.to_ascii_lowercase());
+                    }
+                }
+                _ => {
+                    res.push(*i);
+                    spaced = true
+                }
+            }
+        }
+
+        res
+    }
 }
 
 pub fn try_as_byte(obj: &PyObjectRef) -> Option<Vec<u8>> {

@@ -624,3 +624,10 @@ a.append(100)
 assert a == bytearray(b"append")
 assert len(a) == 6
 assert a.pop() == 100
+
+# title
+assert bytearray(b"Hello world").title() == bytearray(b"Hello World")
+assert (
+    bytearray(b"they're bill's friends from the UK").title()
+    == bytearray(b"They'Re Bill'S Friends From The Uk")
+)
