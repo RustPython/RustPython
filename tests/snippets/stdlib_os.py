@@ -150,3 +150,11 @@ with TestWithTempDir() as tmpdir:
 
 	os.stat(fname, follow_symlinks=False).st_ino == os.stat(symlink_file, follow_symlinks=False).st_ino
 	os.stat(fname, follow_symlinks=False).st_mode == os.stat(symlink_file, follow_symlinks=False).st_mode
+
+	# os.path
+	assert os.path.exists(fname) == True
+	assert os.path.exists("NO_SUCH_FILE") == False
+	assert os.path.isfile(fname) == True
+	assert os.path.isdir(folder) == True
+	assert os.path.isfile(folder) == False
+	assert os.path.isdir(fname) == False
