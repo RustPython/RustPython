@@ -1,19 +1,19 @@
+import sys
+
 from _os import *
 
-curdir = '.'
-pardir = '..'
-extsep = '.'
 
 if name == 'nt':
-    sep = '\\'
     linesep = '\r\n'
-    altsep = '/'
-    pathsep = ';'
+    import ntpath as path
 else:
-    sep = '/'
     linesep = '\n'
-    altsep = None
-    pathsep = ':'
+    import posixpath as path
+
+
+sys.modules['os.path'] = path
+from os.path import (curdir, pardir, sep, pathsep, defpath, extsep, altsep,
+    devnull)
 
 # Change environ to automatically call putenv(), unsetenv if they exist.
 from _collections_abc import MutableMapping
@@ -166,5 +166,3 @@ def fspath(path):
                         "not {}".format(path_type.__name__,
                                         type(path_repr).__name__))
 
-
-import genericpath as path
