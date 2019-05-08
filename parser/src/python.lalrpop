@@ -833,8 +833,8 @@ TestListComp2: ast::Expression = {
     },
 };
 
-TestDict: Vec<(ast::Expression, ast::Expression)> = {
-    <elements:OneOrMore<DictEntry>> <_trailing_comma:","?> => elements,
+TestDict: Vec<(Option<ast::Expression>, ast::Expression)> = {
+    <elements:OneOrMore<DictElement>> <_trailing_comma:","?> => elements,
 };
 
 TestDictComp: ast::Expression = {
@@ -848,6 +848,11 @@ TestDictComp: ast::Expression = {
 
 DictEntry: (ast::Expression, ast::Expression) = {
     <e1: Test> ":" <e2: Test> => (e1, e2),
+};
+
+DictElement: (Option<ast::Expression>, ast::Expression) = {
+    <e:DictEntry> => (Some(e.0), e.1),
+    "**" <e:Expression> => (None, e),
 };
 
 TestSet: Vec<ast::Expression> = {

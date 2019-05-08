@@ -357,6 +357,243 @@ assert bytearray(b"   spacious   ").rstrip() == bytearray(b"   spacious")
 assert bytearray(b"mississippi").rstrip(b"ipz") == bytearray(b"mississ")
 
 
+
+# split
+assert bytearray(b"1,2,3").split(bytearray(b",")) == [bytearray(b"1"), bytearray(b"2"), bytearray(b"3")]
+assert bytearray(b"1,2,3").split(bytearray(b","), maxsplit=1) == [bytearray(b"1"), bytearray(b"2,3")]
+assert bytearray(b"1,2,,3,").split(bytearray(b",")) == [bytearray(b"1"), bytearray(b"2"), bytearray(b""), bytearray(b"3"), bytearray(b"")]
+assert bytearray(b"1 2 3").split() == [bytearray(b"1"), bytearray(b"2"), bytearray(b"3")]
+assert bytearray(b"1 2 3").split(maxsplit=1) == [bytearray(b"1"), bytearray(b"2 3")]
+assert bytearray(b"   1   2   3   ").split() == [bytearray(b"1"), bytearray(b"2"), bytearray(b"3")]
+assert bytearray(b"k\ruh\nfz e f").split() == [bytearray(b"k"), bytearray(b"uh"), bytearray(b"fz"), bytearray(b"e"), bytearray(b"f")]
+assert bytearray(b"Two lines\n").split(bytearray(b"\n")) == [bytearray(b"Two lines"), bytearray(b"")]
+assert bytearray(b"").split() == []
+assert bytearray(b"").split(bytearray(b"\n")) == [bytearray(b"")]
+assert bytearray(b"\n").split(bytearray(b"\n")) == [bytearray(b""), bytearray(b"")]
+
+SPLIT_FIXTURES = [
+    [
+        [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3],
+        [4, 5],
+        [[1, 2, 3], [1, 2, 3], [1, 2, 3]],
+        [[1, 2, 3], [1, 2, 3], [1, 2, 3]],
+        -1,
+    ],
+    [
+        [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5],
+        [4, 5],
+        [[1, 2, 3], [1, 2, 3], [1, 2, 3], []],
+        [[1, 2, 3], [1, 2, 3], [1, 2, 3], []],
+        -1,
+    ],
+    [
+        [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 3],
+        [4, 5],
+        [[1, 2, 3], [1, 2, 3], [1, 2, 3], [3]],
+        [[1, 2, 3], [1, 2, 3], [1, 2, 3], [3]],
+        -1,
+    ],
+    [
+        [4, 5, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3],
+        [4, 5],
+        [[], [2, 3], [1, 2, 3], [1, 2, 3]],
+        [[], [2, 3], [1, 2, 3], [1, 2, 3]],
+        -1,
+    ],
+    [
+        [1, 4, 5, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3],
+        [4, 5],
+        [[1], [2, 3], [1, 2, 3], [1, 2, 3]],
+        [[1], [2, 3], [1, 2, 3], [1, 2, 3]],
+        -1,
+    ],
+    [
+        [1, 2, 3, 4, 5, 4, 5, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3],
+        [4, 5],
+        [[1, 2, 3], [], [], [1, 2, 3], [1, 2, 3]],
+        [[1, 2, 3], [], [], [1, 2, 3], [1, 2, 3]],
+        -1,
+    ],
+    # maxsplit
+    [
+        [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3],
+        [4, 5],
+        [[1, 2, 3], [1, 2, 3, 4, 5, 1, 2, 3]],
+        [[1, 2, 3, 4, 5, 1, 2, 3], [1, 2, 3]],
+        1,
+    ],
+    [
+        [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5],
+        [4, 5],
+        [[1, 2, 3], [1, 2, 3, 4, 5, 1, 2, 3, 4, 5]],
+        [[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3], []],
+        1,
+    ],
+    [
+        [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 3],
+        [4, 5],
+        [[1, 2, 3], [1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 3]],
+        [[1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3], [3]],
+        1,
+    ],
+    [
+        [4, 5, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3],
+        [4, 5],
+        [[], [2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3]],
+        [[4, 5, 2, 3, 4, 5, 1, 2, 3], [1, 2, 3]],
+        1,
+    ],
+    [
+        [1, 4, 5, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3],
+        [4, 5],
+        [[1], [2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3]],
+        [[1, 4, 5, 2, 3, 4, 5, 1, 2, 3], [1, 2, 3]],
+        1,
+    ],
+    [
+        [1, 2, 3, 4, 5, 4, 5, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3],
+        [4, 5],
+        [[1, 2, 3], [], [4, 5, 1, 2, 3, 4, 5, 1, 2, 3]],
+        [[1, 2, 3, 4, 5, 4, 5], [1, 2, 3], [1, 2, 3]],
+        2,
+    ],
+    [
+        [13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102, 9, 9],
+        None,
+        [[117, 104], [102, 122], [101, 102]],
+        [[117, 104], [102, 122], [101, 102]],
+        -1,
+    ],
+    [
+        [13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102, 9, 9],
+        None,
+        [[117, 104, 10, 102, 122, 32, 101, 102, 9, 9]],
+        [[13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102]],
+        0,
+    ],
+    [
+        [13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102, 9, 9],
+        None,
+        [[117, 104], [102, 122, 32, 101, 102, 9, 9]],
+        [[13, 13, 13, 117, 104, 10, 102, 122], [101, 102]],
+        1,
+    ],
+    [
+        [13, 13, 13, 117, 104, 10, 102, 122, 32, 101, 102, 9, 9],
+        None,
+        [[117, 104], [102, 122], [101, 102, 9, 9]],
+        [[13, 13, 13, 117, 104], [102, 122], [101, 102]],
+        2,
+    ],
+    [
+        [13, 13, 13, 117, 104, 10, 10, 10, 102, 122, 32, 32, 101, 102, 9, 9],
+        None,
+        [[117, 104], [102, 122], [101, 102]],
+        [[117, 104], [102, 122], [101, 102]],
+        -1,
+    ],
+    [[49, 44, 50, 44, 51], [44], [[49], [50], [51]], [[49], [50], [51]], -1],
+    [[49, 44, 50, 44, 51], [44], [[49], [50, 44, 51]], [[49, 44, 50], [51]], 1],
+    [
+        [49, 44, 50, 44, 44, 51, 44],
+        [44],
+        [[49], [50], [], [51], []],
+        [[49], [50], [], [51], []],
+        -1,
+    ],
+    [[49, 32, 50, 32, 51], None, [[49], [50], [51]], [[49], [50], [51]], -1],
+    [[49, 32, 50, 32, 51], None, [[49], [50, 32, 51]], [[49, 32, 50], [51]], 1],
+    [
+        [32, 32, 32, 49, 32, 32, 32, 50, 32, 32, 32, 51, 32, 32, 32],
+        None,
+        [[49], [50], [51]],
+        [[49], [50], [51]],
+        -1,
+    ],
+]
+
+
+# for i in SPLIT_FIXTURES:  # for not yet implemented : TypeError: Unsupported method: __next__
+n_sp = 0
+while n_sp < len(SPLIT_FIXTURES):
+    i = SPLIT_FIXTURES[n_sp]
+    sep = None if i[1] == None else bytearray(i[1])
+    try:
+        assert bytearray(i[0]).split(sep=sep, maxsplit=i[4]) == [bytearray(j) for j in i[2]]
+    except AssertionError:
+        print(i[0], i[1], i[2])
+        print(
+            "Expected : ", [list(x) for x in bytearray(i[0]).split(sep=sep, maxsplit=i[4])]
+        )
+        break
+
+    try:
+        assert bytearray(i[0]).rsplit(sep=sep, maxsplit=i[4]) == [bytearray(j) for j in i[3]]
+    except AssertionError:
+        print(i[0], i[1], i[2])
+        print(
+            "Expected Rev : ",
+            [list(x) for x in bytearray(i[0]).rsplit(sep=sep, maxsplit=i[4])],
+        )
+        break
+
+    n_sp += 1
+
+
+# expandtabs
+a = bytearray(b"\x01\x03\r\x05\t8CYZ\t\x06CYZ\t\x17cba`\n\x12\x13\x14")
+assert (
+    a.expandtabs() == bytearray(b"\x01\x03\r\x05       8CYZ    \x06CYZ    \x17cba`\n\x12\x13\x14")
+)
+assert a.expandtabs(5) == bytearray(b"\x01\x03\r\x05    8CYZ \x06CYZ \x17cba`\n\x12\x13\x14")
+assert bytearray(b"01\t012\t0123\t01234").expandtabs() == bytearray(b"01      012     0123    01234")
+assert bytearray(b"01\t012\t0123\t01234").expandtabs(4) == bytearray(b"01  012 0123    01234")
+assert bytearray(b"123\t123").expandtabs(-5) == bytearray(b"123123")
+assert bytearray(b"123\t123").expandtabs(0) == bytearray(b"123123")
+
+
+# # partition
+assert bytearray(b"123456789").partition(b"45") == ((b"123"), bytearray(b"45"), bytearray(b"6789"))
+assert bytearray(b"14523456789").partition(b"45") == ((b"1"), bytearray(b"45"), bytearray(b"23456789"))
+a = bytearray(b"14523456789").partition(b"45")
+assert isinstance(a[1], bytearray)
+a = bytearray(b"14523456789").partition(memoryview(b"45"))
+assert isinstance(a[1], bytearray)
+
+# partition
+assert bytearray(b"123456789").rpartition(bytearray(b"45")) == ((bytearray(b"123")), bytearray(b"45"), bytearray(b"6789"))
+assert bytearray(b"14523456789").rpartition(bytearray(b"45")) == ((bytearray(b"14523")), bytearray(b"45"), bytearray(b"6789"))
+a = bytearray(b"14523456789").rpartition(b"45")
+assert isinstance(a[1], bytearray)
+a = bytearray(b"14523456789").rpartition(memoryview(b"45"))
+assert isinstance(a[1], bytearray)
+
+# splitlines
+assert bytearray(b"ab c\n\nde fg\rkl\r\n").splitlines() == [bytearray(b"ab c"), bytearray(b""), bytearray(b"de fg"), bytearray(b"kl")]
+assert bytearray(b"ab c\n\nde fg\rkl\r\n").splitlines(keepends=True) == [
+    bytearray(b"ab c\n"),
+    bytearray(b"\n"),
+    bytearray(b"de fg\r"),
+    bytearray(b"kl\r\n"),
+]
+assert bytearray(b"").splitlines() == []
+assert bytearray(b"One line\n").splitlines() == [b"One line"]
+
+# zfill
+
+assert bytearray(b"42").zfill(5) == bytearray(b"00042")
+assert bytearray(b"-42").zfill(5) == bytearray(b"-0042")
+assert bytearray(b"42").zfill(1) == bytearray(b"42")
+assert bytearray(b"42").zfill(-1) == bytearray(b"42")
+
+# replace
+assert bytearray(b"123456789123").replace(b"23",b"XX") ==bytearray(b'1XX4567891XX')
+assert bytearray(b"123456789123").replace(b"23",b"XX", 1) ==bytearray(b'1XX456789123')
+assert bytearray(b"123456789123").replace(b"23",b"XX", 0) == bytearray(b"123456789123")
+assert bytearray(b"123456789123").replace(b"23",b"XX", -1) ==bytearray(b'1XX4567891XX')
+assert bytearray(b"123456789123").replace(b"23", bytearray(b"")) == bytearray(b"14567891")
+
+
 # clear
 a = bytearray(b"abcd")
 a.clear()
@@ -394,4 +631,3 @@ assert (
     bytearray(b"they're bill's friends from the UK").title()
     == bytearray(b"They'Re Bill'S Friends From The Uk")
 )
-

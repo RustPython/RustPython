@@ -195,7 +195,7 @@ pub enum Expression {
         elements: Vec<Expression>,
     },
     Dict {
-        elements: Vec<(Expression, Expression)>,
+        elements: Vec<(Option<Expression>, Expression)>,
     },
     Set {
         elements: Vec<Expression>,

@@ -29,6 +29,14 @@ assert repr('\n\t') == "'\\n\\t'"
 
 assert str(["a", "b", "can't"]) == "['a', 'b', \"can't\"]"
 
+assert "xy" * 3 == "xyxyxy"
+assert "x" * 0 == ""
+assert "x" * -1 == ""
+
+assert 3 * "xy" == "xyxyxy"
+assert 0 * "x" == ""
+assert -1 * "x" == ""
+
 a = 'Hallo'
 assert a.lower() == 'hallo'
 assert a.upper() == 'HALLO'
@@ -94,6 +102,7 @@ assert ["kok".center(i, "|") for i in range(2, 10)] == [
 ]
 
 
+# requires CPython 3.7, and the CI currently runs with 3.6
 # assert c.isascii()
 assert c.index('a') == 1
 assert c.rindex('l') == 3

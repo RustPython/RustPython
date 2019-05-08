@@ -2,7 +2,8 @@
 
 use crate::function::OptionalArg;
 use crate::obj::objbyteinner::{
-    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
+    ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+    ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
     ByteInnerTranslateOptions, ByteOr, PyByteInner,
 };
 use crate::obj::objint::PyIntRef;
@@ -349,6 +350,89 @@ impl PyByteArrayRef {
                 .borrow()
                 .strip(chars, ByteInnerPosition::Right, vm)?,
         ))
+    }
+
+    #[pymethod(name = "split")]
+    fn split(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .borrow()
+            .split(options, false)?
+            .iter()
+            .map(|x| vm.ctx.new_bytearray(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "rsplit")]
+    fn rsplit(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .borrow()
+            .split(options, true)?
+            .iter()
+            .map(|x| vm.ctx.new_bytearray(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "partition")]
+    fn partition(self, sep: PyByteInner, vm: &VirtualMachine) -> PyResult {
+        // sep ALWAYS converted to  bytearray even it's bytes or memoryview
+        // so its ok to accept PyByteInner
+        let (left, right) = self.inner.borrow().partition(&sep, false)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_bytearray(left),
+            vm.ctx.new_bytearray(sep.elements),
+            vm.ctx.new_bytearray(right),
+        ]))
+    }
+
+    #[pymethod(name = "rpartition")]
+    fn rpartition(self, sep: PyByteInner, vm: &VirtualMachine) -> PyResult {
+        let (left, right) = self.inner.borrow().partition(&sep, true)?;
+        Ok(vm.ctx.new_tuple(vec![
+            vm.ctx.new_bytearray(left),
+            vm.ctx.new_bytearray(sep.elements),
+            vm.ctx.new_bytearray(right),
+        ]))
+    }
+
+    #[pymethod(name = "expandtabs")]
+    fn expandtabs(self, options: ByteInnerExpandtabsOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytearray(self.inner.borrow().expandtabs(options)))
+    }
+
+    #[pymethod(name = "splitlines")]
+    fn splitlines(self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .borrow()
+            .splitlines(options)
+            .iter()
+            .map(|x| vm.ctx.new_bytearray(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "zfill")]
+    fn zfill(self, width: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().zfill(width)))
+    }
+
+    #[pymethod(name = "replace")]
+    fn replace(
+        self,
+        old: PyByteInner,
+        new: PyByteInner,
+        count: OptionalArg<PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(vm
+            .ctx
+            .new_bytearray(self.inner.borrow().replace(old, new, count)?))
     }
 
     #[pymethod(name = "clear")]

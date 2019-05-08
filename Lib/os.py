@@ -1,19 +1,19 @@
+import sys
+
 from _os import *
 
-curdir = '.'
-pardir = '..'
-extsep = '.'
 
 if name == 'nt':
-    sep = '\\'
     linesep = '\r\n'
-    altsep = '/'
-    pathsep = ';'
+    import ntpath as path
 else:
-    sep = '/'
     linesep = '\n'
-    altsep = None
-    pathsep = ':'
+    import posixpath as path
+
+
+sys.modules['os.path'] = path
+from os.path import (curdir, pardir, sep, pathsep, defpath, extsep, altsep,
+    devnull)
 
 # Change environ to automatically call putenv(), unsetenv if they exist.
 from _collections_abc import MutableMapping
@@ -33,8 +33,7 @@ class _Environ(MutableMapping):
             value = self._data[self.encodekey(key)]
         except KeyError:
             # raise KeyError with the original key value
-            # raise KeyError(key) from None
-            raise KeyError(key)
+            raise KeyError(key) from None
 
         return self.decodevalue(value)
 
@@ -51,8 +50,7 @@ class _Environ(MutableMapping):
             del self._data[encodedkey]
         except KeyError:
             # raise KeyError with the original key value
-            # raise KeyError(key) from None
-            raise KeyError(key)
+            raise KeyError(key) from None
 
     def __iter__(self):
         # list() from dict object is an atomic operation
@@ -135,3 +133,34 @@ def getenv(key, default=None):
     The optional second argument can specify an alternate default.
     key, default and the result are str."""
     return environ.get(key, default)
+
+
+def fspath(path):
+    """Return the path representation of a path-like object.
+
+    If str or bytes is passed in, it is returned unchanged. Otherwise the
+    os.PathLike interface is used to get the path representation. If the
+    path representation is not str or bytes, TypeError is raised. If the
+    provided path is not str, bytes, or os.PathLike, TypeError is raised.
+    """
+    if isinstance(path, (str, bytes)):
+        return path
+
+    # Work from the object's type to match method resolution of other magic
+    # methods.
+    path_type = type(path)
+    try:
+        path_repr = path_type.__fspath__(path)
+    except AttributeError:
+        if hasattr(path_type, '__fspath__'):
+            raise
+        else:
+            raise TypeError("expected str, bytes or os.PathLike object, "
+                            "not " + path_type.__name__)
+    if isinstance(path_repr, (str, bytes)):
+        return path_repr
+    else:
+        raise TypeError("expected {}.__fspath__() to return str or bytes, "
+                        "not {}".format(path_type.__name__,
+                                        type(path_repr).__name__))
+
