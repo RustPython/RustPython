@@ -678,3 +678,10 @@ assert a == bytearray(b"owhello, worlwd"), a
 # inserting after the end just inserts at the end
 a.insert(1000, 111)
 assert a == bytearray(b"owhello, worlwdo"), a
+
+
+# remove
+a = bytearray(b'abcdabcd')
+a.remove(99)  # the letter c
+# Only the first is removed
+assert a == bytearray(b'abdabcd')

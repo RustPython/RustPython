@@ -322,6 +322,21 @@ impl PyByteArrayRef {
         Ok(res)
     }
 
+    #[pymethod(name = "remove")]
+    fn remove(self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        let x = x.as_bigint().byte_or(vm)?;
+
+        let bytes = &mut self.inner.borrow_mut().elements;
+        let pos = bytes
+            .iter()
+            .position(|b| *b == x)
+            .ok_or(vm.new_value_error("value not found in bytearray".to_string()))?;
+
+        bytes.remove(pos);
+
+        Ok(())
+    }
+
     #[pymethod(name = "translate")]
     fn translate(self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow().translate(options, vm)
