@@ -685,3 +685,9 @@ a = bytearray(b'abcdabcd')
 a.remove(99)  # the letter c
 # Only the first is removed
 assert a == bytearray(b'abdabcd')
+
+
+# reverse
+a = bytearray(b'hello, world')
+a.reverse()
+assert a == bytearray(b'dlrow ,olleh')

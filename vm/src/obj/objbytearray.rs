@@ -543,6 +543,12 @@ impl PyByteArrayRef {
     fn irepeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.borrow_mut().irepeat(n, vm)
     }
+
+    #[pymethod(name = "reverse")]
+    fn reverse(self, _vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().elements.reverse();
+        Ok(())
+    }
 }
 
 // fn set_value(obj: &PyObjectRef, value: Vec<u8>) {
