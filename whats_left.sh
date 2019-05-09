@@ -8,4 +8,4 @@ python3 not_impl_gen.py
 
 cd ..
 
-cargo run -- tests/snippets/whats_left_to_implement.py
+cargo +nightly run -- tests/snippets/whats_left_to_implement.py
