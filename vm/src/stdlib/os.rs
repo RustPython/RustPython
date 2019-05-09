@@ -357,6 +357,7 @@ impl StatResultRef {
     }
 }
 
+#[cfg(unix)]
 macro_rules! os_unix_stat_inner {
     ( $path:expr, $follow_symlinks:expr, $vm:expr) => {{
         let metadata = match $follow_symlinks.follow_symlinks {
