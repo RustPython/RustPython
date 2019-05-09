@@ -489,6 +489,29 @@ impl PyInt {
         zelf
     }
 
+    #[pymethod]
+    fn from_bytes(bytes: PyByteInner, byteorder: PyStringRef, signed: OptionalArg<bool>, vm: &VirtualMachine) -> PyResult<BigInt>{
+        let x;
+        if byteorder.value == "big" {
+            x = match signed {
+                OptionalArg::Present(true) => BigInt::from_signed_bytes_be(&bytes.elements),
+                _ => BigInt::from_bytes_be(Sign::Plus, &bytes.elements),
+            }
+        }
+        else if byteorder.value == "little" {
+            x = match signed {
+                OptionalArg::Present(true) => BigInt::from_signed_bytes_le(&bytes.elements),
+                _ => BigInt::from_bytes_le(Sign::Plus, &bytes.elements),
+            }
+        }
+        else {
+            return Err(vm.new_value_error(
+                            "byteorder must be either 'little' or 'big'".to_string(),
+            ));
+        }
+        Ok(x)
+    }
+
     #[pyproperty]
     fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
