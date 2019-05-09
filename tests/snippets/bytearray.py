@@ -655,3 +655,11 @@ assert a == b
 assert a is not b
 b.append(100)
 assert a != b
+
+
+# extend
+a = bytearray(b"hello,")
+# any iterable of ints should work
+a.extend([32, 119, 111, 114])
+a.extend(b"ld")
+assert a == bytearray(b"hello, world")

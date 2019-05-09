@@ -454,6 +454,20 @@ impl PyByteArrayRef {
         Ok(())
     }
 
+    #[pymethod(name = "extend")]
+    fn extend(self, iterable_of_ints: PyIterable, vm: &VirtualMachine) -> Result<(), PyObjectRef> {
+        let mut inner = self.inner.borrow_mut();
+
+        for x in iterable_of_ints.iter(vm)? {
+            let x = x?;
+            let x = PyIntRef::try_from_object(vm, x)?;
+            let x = x.as_bigint().byte_or(vm)?;
+            inner.elements.push(x);
+        }
+
+        Ok(())
+    }
+
     #[pymethod(name = "pop")]
     fn pop(self, vm: &VirtualMachine) -> PyResult<u8> {
         let bytes = &mut self.inner.borrow_mut().elements;
