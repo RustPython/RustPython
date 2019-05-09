@@ -440,6 +440,11 @@ impl PyByteArrayRef {
         self.inner.borrow_mut().elements.clear();
     }
 
+    #[pymethod(name = "copy")]
+    fn copy(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().elements.clone()))
+    }
+
     #[pymethod(name = "append")]
     fn append(self, x: PyIntRef, vm: &VirtualMachine) -> Result<(), PyObjectRef> {
         self.inner

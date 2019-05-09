@@ -646,3 +646,12 @@ a.__imul__(3)
 assert a == bytearray(b'abcdabcdabcd')
 a.__imul__(0)
 assert a == bytearray(b'')
+
+
+# copy
+a = bytearray(b"my bytearray")
+b = a.copy()
+assert a == b
+assert a is not b
+b.append(100)
+assert a != b
