@@ -52,7 +52,7 @@ dict_keys = type({}.keys())
 dict_values = type({}.values())
 dict_items = type({}.items())
 ## misc ##
-# mappingproxy = type(type.__dict__)
+mappingproxy = type(type.__dict__)
 # generator = type((lambda: (yield))())
 ## coroutine ##
 # async def _coro(): pass
@@ -688,7 +688,7 @@ class Mapping(Collection):
 
     __reversed__ = None
 
-# Mapping.register(mappingproxy)
+Mapping.register(mappingproxy)
 
 
 class MappingView(Sized):

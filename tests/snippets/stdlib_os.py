@@ -55,7 +55,7 @@ class TestWithTempDir():
 			base_folder = os.environ["TEMP"]
 		else:
 			base_folder = "/tmp"
-		name = base_folder + os.sep + "rustpython_test_os_" + str(int(time.time()))
+		name = os.path.join(base_folder, "rustpython_test_os_" + str(int(time.time())))
 		os.mkdir(name)
 		self.name = name
 		return name
@@ -75,7 +75,7 @@ CONTENT2 = b"rustpython"
 CONTENT3 = b"BOYA"
 
 with TestWithTempDir() as tmpdir:
-	fname = tmpdir + os.sep + FILE_NAME
+	fname = os.path.join(tmpdir, FILE_NAME)
 	with open(fname, "wb"):
 		pass
 	fd = os.open(fname, 1)
@@ -88,15 +88,15 @@ with TestWithTempDir() as tmpdir:
 	assert os.read(fd, len(CONTENT3)) == CONTENT3
 	os.close(fd)
 
-	fname2 = tmpdir + os.sep + FILE_NAME2
+	fname2 = os.path.join(tmpdir, FILE_NAME2)
 	with open(fname2, "wb"):
 		pass
-	folder = tmpdir + os.sep + FOLDER
+	folder = os.path.join(tmpdir, FOLDER)
 	os.mkdir(folder)
 
-	symlink_file = tmpdir + os.sep + SYMLINK_FILE
+	symlink_file = os.path.join(tmpdir, SYMLINK_FILE)
 	os.symlink(fname, symlink_file)
-	symlink_folder = tmpdir + os.sep + SYMLINK_FOLDER
+	symlink_folder = os.path.join(tmpdir, SYMLINK_FOLDER)
 	os.symlink(folder, symlink_folder)
 
 	names = set()
@@ -150,3 +150,14 @@ with TestWithTempDir() as tmpdir:
 
 	os.stat(fname, follow_symlinks=False).st_ino == os.stat(symlink_file, follow_symlinks=False).st_ino
 	os.stat(fname, follow_symlinks=False).st_mode == os.stat(symlink_file, follow_symlinks=False).st_mode
+
+	# os.path
+	assert os.path.exists(fname) == True
+	assert os.path.exists("NO_SUCH_FILE") == False
+	assert os.path.isfile(fname) == True
+	assert os.path.isdir(folder) == True
+	assert os.path.isfile(folder) == False
+	assert os.path.isdir(fname) == False
+
+	assert os.path.basename(fname) == FILE_NAME
+	assert os.path.dirname(fname) == tmpdir
