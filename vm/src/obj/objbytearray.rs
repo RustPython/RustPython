@@ -461,6 +461,21 @@ impl PyByteArrayRef {
     fn title(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytearray(self.inner.borrow().title()))
     }
+
+    #[pymethod(name = "__mul__")]
+    fn repeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().repeat(n, vm)?))
+    }
+
+    #[pymethod(name = "__rmul__")]
+    fn rmul(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        self.repeat(n, vm)
+    }
+
+    #[pymethod(name = "__imul__")]
+    fn irepeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().irepeat(n, vm)
+    }
 }
 
 // fn set_value(obj: &PyObjectRef, value: Vec<u8>) {

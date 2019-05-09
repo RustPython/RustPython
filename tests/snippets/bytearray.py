@@ -631,3 +631,18 @@ assert (
     bytearray(b"they're bill's friends from the UK").title()
     == bytearray(b"They'Re Bill'S Friends From The Uk")
 )
+
+
+# repeat by multiply
+a = bytearray(b'abcd')
+assert a * 0 == bytearray(b'')
+assert a * -1 == bytearray(b'')
+assert a * 1 == bytearray(b'abcd')
+assert a * 3 == bytearray(b'abcdabcdabcd')
+assert 3 * a == bytearray(b'abcdabcdabcd')
+
+a = bytearray(b'abcd')
+a.__imul__(3)
+assert a == bytearray(b'abcdabcdabcd')
+a.__imul__(0)
+assert a == bytearray(b'')
