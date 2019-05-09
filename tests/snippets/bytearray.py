@@ -663,3 +663,18 @@ a = bytearray(b"hello,")
 a.extend([32, 119, 111, 114])
 a.extend(b"ld")
 assert a == bytearray(b"hello, world")
+
+
+# insert
+a = bytearray(b"hello, world")
+a.insert(0, 119)
+assert a == bytearray(b"whello, world"), a
+# -1 is not at the end, but one before
+a.insert(-1, 119)
+assert a == bytearray(b"whello, worlwd"), a
+# inserting before the beginning just inserts at the beginning
+a.insert(-1000, 111)
+assert a == bytearray(b"owhello, worlwd"), a
+# inserting after the end just inserts at the end
+a.insert(1000, 111)
+assert a == bytearray(b"owhello, worlwdo"), a

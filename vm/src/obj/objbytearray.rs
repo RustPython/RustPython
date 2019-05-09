@@ -15,7 +15,9 @@ use crate::pyobject::{
     TryFromObject,
 };
 use crate::vm::VirtualMachine;
+use num_traits::ToPrimitive;
 use std::cell::{Cell, RefCell};
+use std::convert::TryFrom;
 
 use super::objiter;
 use super::objtype::PyClassRef;
@@ -464,6 +466,37 @@ impl PyByteArrayRef {
             let x = x.as_bigint().byte_or(vm)?;
             inner.elements.push(x);
         }
+
+        Ok(())
+    }
+
+    #[pymethod(name = "insert")]
+    fn insert(self, index: PyIntRef, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        let bytes = &mut self.inner.borrow_mut().elements;
+        let len = isize::try_from(bytes.len())
+            .map_err(|_e| vm.new_overflow_error("bytearray too big".to_string()))?;
+
+        let x = x.as_bigint().byte_or(vm)?;
+
+        let mut index = index
+            .as_bigint()
+            .to_isize()
+            .ok_or_else(|| vm.new_overflow_error("index too big".to_string()))?;
+
+        if index >= len {
+            bytes.push(x);
+            return Ok(());
+        }
+
+        if index < 0 {
+            index += len;
+            index = index.max(0);
+        }
+
+        let index = usize::try_from(index)
+            .map_err(|_e| vm.new_overflow_error("overflow in index calculation".to_string()))?;
+
+        bytes.insert(index, x);
 
         Ok(())
     }
