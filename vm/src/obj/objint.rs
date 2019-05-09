@@ -1,7 +1,7 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
@@ -15,6 +15,7 @@ use crate::vm::VirtualMachine;
 
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
+use super::objbyteinner::{PyByteInner};
 use crate::obj::objtype::PyClassRef;
 
 /// int(x=0) -> integer
