@@ -16,7 +16,8 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objint;
+use super::objnone::PyNone;
+use super::objint::{self, PyInt};
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySlice;
 use super::objtype::{self, PyClassRef};
@@ -829,6 +830,36 @@ impl PyString {
             false
         }
     }
+
+    // https://docs.python.org/3/library/stdtypes.html#str.translate
+    // Make it work for only subscribtable types
+    #[pymethod]
+    fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        let mut result = String::new();
+        for c in self.value.chars() {
+            let args = PyFuncArgs::new(vec![vm.new_int(c as i32)], vec![]);
+            match vm.call_method(&table, "__getitem__", args) {
+                Ok(value) => {
+                    if let Some(text) = value.payload::<PyString>() {
+                        result.extend(text.value.chars());
+                    } else if let Some(_) = value.payload::<PyNone>() {
+                        // Do Nothing
+                    } else if let Some(bigint) = value.payload::<PyInt>() {
+                        match bigint.as_bigint()
+                            .to_u32()
+                            .and_then(std::char::from_u32) {
+                            Some(ch) => result.push(ch as char),
+                            None => return Err(vm.new_value_error(format!("character mapping must be in range(0x110000)"))),
+                        }
+                    } else {
+                        return Err(vm.new_type_error("character mapping must return integer, None or str".to_owned()));
+                    }
+                },
+                _ => result.push(c),
+            }
+        }
+        Ok(result)
+    }
 }
 
 impl PyValue for PyString {
@@ -1103,5 +1134,20 @@ mod tests {
         for s in neg {
             assert!(!PyString::from(s).istitle(&vm));
         }
+    }
+
+    #[test]
+    fn str_translate() {
+        let vm = VirtualMachine::new();
+        
+        let table = vm.context().new_dict();
+        vm.call_method(table.as_object(), "__setitem__", vec![vm.new_int(97), vm.new_str("🎅".to_owned())]).unwrap();
+        vm.call_method(table.as_object(), "__setitem__", vec![vm.new_int(98), vm.get_none()]).unwrap();
+        vm.call_method(table.as_object(), "__setitem__", vec![vm.new_int(99), vm.new_str("xda".to_owned())]).unwrap();
+        let text = PyString::from("abc");
+        let translated = text.translate(table.into_object(), &vm).unwrap();
+        assert_eq!(translated, "🎅xda".to_owned());
+        let translated = text.translate(vm.new_int(3), &vm);
+        println!("{:?}", translated);
     }
 }
