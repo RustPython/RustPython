@@ -1,18 +1,19 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
+use super::objbyteinner::PyByteInner;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -487,6 +488,42 @@ impl PyInt {
     #[pymethod]
     fn conjugate(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
+    }
+
+    #[pymethod]
+    fn from_bytes(
+        bytes: PyByteInner,
+        byteorder: PyStringRef,
+        kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<BigInt> {
+        let mut signed = false;
+        for (key, value) in kwargs.into_iter() {
+            if key == "signed" {
+                signed = match_class!(value,
+
+                    b @ PyInt => !b.as_bigint().is_zero(),
+                    _ => false,
+                );
+            }
+        }
+        let x;
+        if byteorder.value == "big" {
+            x = match signed {
+                true => BigInt::from_signed_bytes_be(&bytes.elements),
+                false => BigInt::from_bytes_be(Sign::Plus, &bytes.elements),
+            }
+        } else if byteorder.value == "little" {
+            x = match signed {
+                true => BigInt::from_signed_bytes_le(&bytes.elements),
+                false => BigInt::from_bytes_le(Sign::Plus, &bytes.elements),
+            }
+        } else {
+            return Err(
+                vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
+            );
+        }
+        Ok(x)
     }
 
     #[pyproperty]

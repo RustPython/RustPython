@@ -70,6 +70,11 @@ assert int("101", 2) == 5
 assert int("101", base=2) == 5
 assert int(1) == 1
 
+assert int.from_bytes(b'\x00\x10', 'big') == 16
+assert int.from_bytes(b'\x00\x10', 'little') == 4096
+assert int.from_bytes(b'\xfc\x00', 'big', signed=True) == -1024
+assert int.from_bytes(b'\xfc\x00', 'big', signed=False) == 64512
+
 with assertRaises(TypeError):
     int(base=2)
 
