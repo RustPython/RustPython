@@ -64,6 +64,10 @@ assert (2).__rtruediv__(1.0) == NotImplemented
 assert (2).__pow__(3.0) == NotImplemented
 assert (2).__rpow__(3.0) == NotImplemented
 
+assert 10 // 4 == 2
+assert -10 // 4 == -3
+assert 10 // -4 == -3
+assert -10 // -4 == 2
 
 assert int() == 0
 assert int("101", 2) == 5

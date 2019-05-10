@@ -260,7 +260,8 @@ impl PyInt {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             if *v2 != BigInt::zero() {
-                Ok(vm.ctx.new_int((&self.value) / v2))
+                let modulo = (&self.value % v2 + v2) % v2;
+                Ok(vm.ctx.new_int((&self.value - modulo) / v2))
             } else {
                 Err(vm.new_zero_division_error("integer floordiv by zero".to_string()))
             }
