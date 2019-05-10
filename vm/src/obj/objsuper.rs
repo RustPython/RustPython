@@ -127,8 +127,10 @@ fn super_new(
             match vm.get_locals().get_item_option(first_arg, vm)? {
                 Some(obj) => obj.clone(),
                 _ => {
-                    return Err(vm
-                        .new_type_error(format!("super arguement {} was not supplied", first_arg)));
+                    return Err(vm.new_type_error(format!(
+                        "super arguement {} was not supplied",
+                        first_arg
+                    )));
                 }
             }
         } else {

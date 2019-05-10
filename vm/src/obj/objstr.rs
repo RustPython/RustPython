@@ -1145,25 +1145,13 @@ mod tests {
         let vm = VirtualMachine::new();
 
         let table = vm.context().new_dict();
-        // TODO: use table.set_item
-        vm.call_method(
-            table.as_object(),
-            "__setitem__",
-            vec![vm.new_int(97), vm.new_str("🎅".to_owned())],
-        )
-        .unwrap();
-        vm.call_method(
-            table.as_object(),
-            "__setitem__",
-            vec![vm.new_int(98), vm.get_none()],
-        )
-        .unwrap();
-        vm.call_method(
-            table.as_object(),
-            "__setitem__",
-            vec![vm.new_int(99), vm.new_str("xda".to_owned())],
-        )
-        .unwrap();
+        table
+            .set_item(97, vm.new_str("🎅".to_owned()), &vm)
+            .unwrap();
+        table.set_item(98, vm.get_none(), &vm).unwrap();
+        table
+            .set_item(99, vm.new_str("xda".to_owned()), &vm)
+            .unwrap();
         let text = PyString::from("abc");
         let translated = text.translate(table.into_object(), &vm).unwrap();
         assert_eq!(translated, "🎅xda".to_owned());

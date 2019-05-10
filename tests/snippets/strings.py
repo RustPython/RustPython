@@ -157,6 +157,9 @@ assert 'z' > 'b'
 assert 'z' >= 'b'
 assert 'a' >= 'a'
 
+# str.translate
+assert "abc".translate({97: '🎅', 98: None, 99: "xd"}) == "🎅xd"
+
 def try_mutate_str():
    word = "word"
    word[0] = 'x'
