@@ -1,3 +1,5 @@
+extern crate unicode_xid;
+
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
@@ -7,6 +9,7 @@ use std::string::ToString;
 use num_traits::ToPrimitive;
 use unicode_casing::CharExt;
 use unicode_segmentation::UnicodeSegmentation;
+use unicode_xid::UnicodeXID;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::function::{OptionalArg, PyFuncArgs};
@@ -832,20 +835,14 @@ impl PyString {
 
     #[pymethod]
     fn isidentifier(&self, _vm: &VirtualMachine) -> bool {
-        let value = &self.value;
+        let mut chars = self.value.chars();
+        let is_identifier_start = match chars.next() {
+            Some('_') => true,
+            Some(c) => UnicodeXID::is_xid_start(c),
+            None => false,
+        };
         // a string is not an identifier if it has whitespace or starts with a number
-        if !value.chars().any(|c| c.is_ascii_whitespace())
-            && !value.chars().nth(0).unwrap().is_digit(10)
-        {
-            for c in value.chars() {
-                if c != "_".chars().nth(0).unwrap() && !c.is_digit(10) && !c.is_alphabetic() {
-                    return false;
-                }
-            }
-            true
-        } else {
-            false
-        }
+        is_identifier_start && chars.all(|c| UnicodeXID::is_xid_continue(c))
     }
 }
 
