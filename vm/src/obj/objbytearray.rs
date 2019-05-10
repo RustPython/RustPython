@@ -15,7 +15,9 @@ use crate::pyobject::{
     TryFromObject,
 };
 use crate::vm::VirtualMachine;
+use num_traits::ToPrimitive;
 use std::cell::{Cell, RefCell};
+use std::convert::TryFrom;
 
 use super::objiter;
 use super::objtype::PyClassRef;
@@ -320,6 +322,21 @@ impl PyByteArrayRef {
         Ok(res)
     }
 
+    #[pymethod(name = "remove")]
+    fn remove(self, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        let x = x.as_bigint().byte_or(vm)?;
+
+        let bytes = &mut self.inner.borrow_mut().elements;
+        let pos = bytes
+            .iter()
+            .position(|b| *b == x)
+            .ok_or(vm.new_value_error("value not found in bytearray".to_string()))?;
+
+        bytes.remove(pos);
+
+        Ok(())
+    }
+
     #[pymethod(name = "translate")]
     fn translate(self, options: ByteInnerTranslateOptions, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow().translate(options, vm)
@@ -440,12 +457,62 @@ impl PyByteArrayRef {
         self.inner.borrow_mut().elements.clear();
     }
 
+    #[pymethod(name = "copy")]
+    fn copy(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().elements.clone()))
+    }
+
     #[pymethod(name = "append")]
     fn append(self, x: PyIntRef, vm: &VirtualMachine) -> Result<(), PyObjectRef> {
         self.inner
             .borrow_mut()
             .elements
             .push(x.as_bigint().byte_or(vm)?);
+        Ok(())
+    }
+
+    #[pymethod(name = "extend")]
+    fn extend(self, iterable_of_ints: PyIterable, vm: &VirtualMachine) -> Result<(), PyObjectRef> {
+        let mut inner = self.inner.borrow_mut();
+
+        for x in iterable_of_ints.iter(vm)? {
+            let x = x?;
+            let x = PyIntRef::try_from_object(vm, x)?;
+            let x = x.as_bigint().byte_or(vm)?;
+            inner.elements.push(x);
+        }
+
+        Ok(())
+    }
+
+    #[pymethod(name = "insert")]
+    fn insert(self, index: PyIntRef, x: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        let bytes = &mut self.inner.borrow_mut().elements;
+        let len = isize::try_from(bytes.len())
+            .map_err(|_e| vm.new_overflow_error("bytearray too big".to_string()))?;
+
+        let x = x.as_bigint().byte_or(vm)?;
+
+        let mut index = index
+            .as_bigint()
+            .to_isize()
+            .ok_or_else(|| vm.new_overflow_error("index too big".to_string()))?;
+
+        if index >= len {
+            bytes.push(x);
+            return Ok(());
+        }
+
+        if index < 0 {
+            index += len;
+            index = index.max(0);
+        }
+
+        let index = usize::try_from(index)
+            .map_err(|_e| vm.new_overflow_error("overflow in index calculation".to_string()))?;
+
+        bytes.insert(index, x);
+
         Ok(())
     }
 
@@ -460,6 +527,27 @@ impl PyByteArrayRef {
     #[pymethod(name = "title")]
     fn title(self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.ctx.new_bytearray(self.inner.borrow().title()))
+    }
+
+    #[pymethod(name = "__mul__")]
+    fn repeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytearray(self.inner.borrow().repeat(n, vm)?))
+    }
+
+    #[pymethod(name = "__rmul__")]
+    fn rmul(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        self.repeat(n, vm)
+    }
+
+    #[pymethod(name = "__imul__")]
+    fn irepeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().irepeat(n, vm)
+    }
+
+    #[pymethod(name = "reverse")]
+    fn reverse(self, _vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().elements.reverse();
+        Ok(())
     }
 }
 

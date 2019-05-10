@@ -588,3 +588,12 @@ assert (
     b"they're bill's friends from the UK".title()
     == b"They'Re Bill'S Friends From The Uk"
 )
+
+
+# repeat by multiply
+a = b'abcd'
+assert a * 0 == b''
+assert a * -1 == b''
+assert a * 1 == b'abcd'
+assert a * 3 == b'abcdabcdabcd'
+assert 3 * a == b'abcdabcdabcd'
