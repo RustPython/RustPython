@@ -1,6 +1,9 @@
 import itertools
 
-# count
+from testutils import assertRaises
+
+
+# itertools.count tests
 
 # default arguments
 c = itertools.count()
@@ -53,3 +56,29 @@ assert next(c) == 5
 # assert next(c) == 0.5
 # assert next(c) == 1
 # assert next(c) == 1.5
+
+
+# itertools.repeat tests
+
+# no times
+r = itertools.repeat(5)
+assert next(r) == 5
+assert next(r) == 5
+assert next(r) == 5
+
+# times
+r = itertools.repeat(1, 2)
+assert next(r) == 1
+assert next(r) == 1
+with assertRaises(StopIteration):
+    next(r)
+
+# timees = 0
+r = itertools.repeat(1, 0)
+with assertRaises(StopIteration):
+    next(r)
+
+# negative times
+r = itertools.repeat(1, -1)
+with assertRaises(StopIteration):
+    next(r)
