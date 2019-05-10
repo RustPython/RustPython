@@ -61,6 +61,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "binascii", {
         "hexlify" => ctx.new_rustfunc(binascii_hexlify),
+        "b2a_hex" => ctx.new_rustfunc(binascii_hexlify),
         "unhexlify" => ctx.new_rustfunc(binascii_unhexlify),
+        "a2b_hex" => ctx.new_rustfunc(binascii_unhexlify),
     })
 }
