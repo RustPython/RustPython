@@ -57,6 +57,11 @@ impl PyClassMethod {
             .ctx
             .new_bound_method(self.callable.clone(), owner.clone()))
     }
+
+    #[pyproperty(name = "__func__")]
+    fn func(&self, _vm: &VirtualMachine) -> PyObjectRef {
+        self.callable.clone()
+    }
 }
 
 pub fn init(context: &PyContext) {
