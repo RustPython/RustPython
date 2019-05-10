@@ -11,8 +11,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult,
-    PyValue, TryFromObject, TryIntoRef, TypeProtocol,
+    IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
+    PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -832,13 +832,13 @@ impl PyString {
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
-    // Make it work for only subscribtable types
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         let mut result = String::new();
+        // It throws a type error if it is not subscribtable
+        vm.get_method(table.clone(), "__getitem__")?;
         for c in self.value.chars() {
-            let args = PyFuncArgs::new(vec![vm.new_int(c as i32)], vec![]);
-            match vm.call_method(&table, "__getitem__", args) {
+            match table.get_item(c as i32, vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
                         result.extend(text.value.chars());
@@ -1145,6 +1145,7 @@ mod tests {
         let vm = VirtualMachine::new();
 
         let table = vm.context().new_dict();
+        // TODO: use table.set_item
         vm.call_method(
             table.as_object(),
             "__setitem__",
