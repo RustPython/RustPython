@@ -160,6 +160,10 @@ assert 'a' >= 'a'
 # str.translate
 assert "abc".translate({97: '🎅', 98: None, 99: "xd"}) == "🎅xd"
 
+# str.maketrans
+assert str.maketrans({"a": "abc", "b": None, "c": 33}) == {97: "abc", 98: None, 99: 33}
+assert str.maketrans("hello", "world", "rust") == {103: "w", 101: "o", 108: "l", 111: "d", "r": None, "u": None, "s": None, "t": None}
+
 def try_mutate_str():
    word = "word"
    word[0] = 'x'

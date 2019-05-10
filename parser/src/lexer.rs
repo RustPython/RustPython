@@ -826,7 +826,11 @@ where
                                         }
                                         _ => {
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((tok_start, Tok::DoubleSlash, tok_end)));
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::DoubleSlash,
+                                                tok_end,
+                                            )));
                                         }
                                     }
                                 }
