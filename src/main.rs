@@ -10,8 +10,15 @@ extern crate rustyline;
 use clap::{App, Arg};
 use rustpython_parser::error::ParseError;
 use rustpython_vm::{
-    compile, error::CompileError, error::CompileErrorType, frame::Scope, import, obj::objstr,
-    print_exception, pyobject::PyResult, util, VirtualMachine,
+    compile,
+    error::CompileError,
+    error::CompileErrorType,
+    frame::Scope,
+    import,
+    obj::objstr,
+    print_exception,
+    pyobject::{ItemProtocol, PyResult},
+    util, VirtualMachine,
 };
 use rustyline::{error::ReadlineError, Editor};
 use std::path::PathBuf;
@@ -65,11 +72,12 @@ fn main() {
 }
 
 fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResult {
-    let code_obj = compile::compile(vm, source, &compile::Mode::Exec, source_path)
+    let code_obj = compile::compile(vm, source, &compile::Mode::Exec, source_path.clone())
         .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj.borrow());
-    let vars = vm.ctx.new_scope(); // Keep track of local variables
-    vm.run_code_obj(code_obj, vars)
+    let attrs = vm.ctx.new_dict();
+    attrs.set_item("__file__", vm.new_str(source_path), vm)?;
+    vm.run_code_obj(code_obj, Scope::new(None, attrs))
 }
 
 fn handle_exception(vm: &VirtualMachine, result: PyResult) {
