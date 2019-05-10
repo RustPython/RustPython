@@ -34,3 +34,12 @@ class assertRaises:
         if not issubclass(exc_type, self.expected):
             return False
         return True
+
+
+class TestFailingBool:
+    def __bool__(self):
+        raise RuntimeError
+
+class TestFailingIter:
+    def __iter__(self):
+        raise RuntimeError
