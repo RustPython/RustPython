@@ -884,7 +884,7 @@ impl PyString {
             let new_dict = vm.context().new_dict();
             if to_str.len(vm) == from_str.len(vm) {
                 for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
-                    new_dict.set_item(c1.to_string(), vm.new_str(c2.to_string()), vm)?;
+                    new_dict.set_item(c1 as u32, vm.new_int(c2 as u32), vm)?;
                 }
             } else {
                 return Err(vm.new_value_error(
@@ -893,7 +893,7 @@ impl PyString {
             }
             if let OptionalArg::Present(none_str) = none_str {
                 for c in none_str.value.chars() {
-                    new_dict.set_item(c.to_string(), vm.get_none(), vm)?;
+                    new_dict.set_item(c as u32, vm.get_none(), vm)?;
                 }
             }
             new_dict.into_pyobject(vm)

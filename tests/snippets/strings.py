@@ -162,7 +162,7 @@ assert "abc".translate({97: '🎅', 98: None, 99: "xd"}) == "🎅xd"
 
 # str.maketrans
 assert str.maketrans({"a": "abc", "b": None, "c": 33}) == {97: "abc", 98: None, 99: 33}
-assert str.maketrans("hello", "world", "rust") == {103: "w", 101: "o", 108: "l", 111: "d", "r": None, "u": None, "s": None, "t": None}
+assert str.maketrans("hello", "world", "rust") == {104: 119, 101: 111, 108: 108, 111: 100, 114: None, 117: None, 115: None, 116: None}
 
 def try_mutate_str():
    word = "word"
