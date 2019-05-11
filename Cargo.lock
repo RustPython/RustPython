@@ -849,6 +849,7 @@ dependencies = [
  "statrs 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "unicode-casing 0.1.0 (git+https://github.com/OddCoincidence/unicode-casing?rev=90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb)",
  "unicode-segmentation 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "unicode-xid 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
