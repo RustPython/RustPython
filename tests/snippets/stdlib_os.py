@@ -65,6 +65,14 @@ class TestWithTempDir():
 		pass
 
 
+class TestWithTempCurrentDir():
+	def __enter__(self):
+		self.prev_cwd = os.getcwd()
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		os.chdir(self.prev_cwd)
+
+
 FILE_NAME = "test1"
 FILE_NAME2 = "test2"
 SYMLINK_FILE = "symlink"
@@ -161,3 +169,8 @@ with TestWithTempDir() as tmpdir:
 
 	assert os.path.basename(fname) == FILE_NAME
 	assert os.path.dirname(fname) == tmpdir
+
+	with TestWithTempCurrentDir():
+		os.chdir(tmpdir)
+		assert os.getcwd() == tmpdir
+		os.path.exists(FILE_NAME)
