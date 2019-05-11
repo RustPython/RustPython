@@ -479,6 +479,19 @@ fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResu
     unimplemented!();
 }
 
+fn os_getcwd(vm: &VirtualMachine) -> PyResult<String> {
+    Ok(env::current_dir()
+        .map_err(|s| vm.new_os_error(s.to_string()))?
+        .as_path()
+        .to_str()
+        .unwrap()
+        .to_string())
+}
+
+fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    env::set_current_dir(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -534,6 +547,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "stat_result" => stat_result,
         "stat" => ctx.new_rustfunc(os_stat),
         "symlink" => ctx.new_rustfunc(os_symlink),
+        "getcwd" => ctx.new_rustfunc(os_getcwd),
+        "chdir" => ctx.new_rustfunc(os_chdir),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),
