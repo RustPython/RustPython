@@ -16,7 +16,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objdict::{PyDict, PyDictRef};
+use super::objdict::PyDict;
 use super::objint::{self, PyInt};
 use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
