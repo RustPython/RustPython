@@ -835,19 +835,19 @@ impl PyString {
     // https://docs.python.org/3/library/stdtypes.html#str.translate
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        let mut result = String::new();
+        let mut translated = String::new();
         // It throws a type error if it is not subscribtable
         vm.get_method(table.clone(), "__getitem__")?;
         for c in self.value.chars() {
             match table.get_item(c as u32, vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
-                        result.extend(text.value.chars());
+                        translated.extend(text.value.chars());
                     } else if let Some(_) = value.payload::<PyNone>() {
                         // Do Nothing
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         match bigint.as_bigint().to_u32().and_then(std::char::from_u32) {
-                            Some(ch) => result.push(ch as char),
+                            Some(ch) => translated.push(ch as char),
                             None => {
                                 return Err(vm.new_value_error(format!(
                                     "character mapping must be in range(0x110000)"
@@ -860,10 +860,10 @@ impl PyString {
                         ));
                     }
                 }
-                _ => result.push(c),
+                _ => translated.push(c),
             }
         }
-        Ok(result)
+        Ok(translated)
     }
 
     #[pymethod]
@@ -873,53 +873,54 @@ impl PyString {
         none_str: OptionalArg<PyStringRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let new_dict = vm.context().new_dict();
         if let OptionalArg::Present(to_str) = to_str {
-            // dict_or_str is str
-            let from_str = dict_or_str.payload::<PyString>().ok_or(
-                vm.new_type_error(
-                    "first maketrans argument must be a string if there is a second argument"
-                        .to_owned(),
-                ),
-            )?;
-            let new_dict = vm.context().new_dict();
-            if to_str.len(vm) == from_str.len(vm) {
-                for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
-                    new_dict.set_item(c1 as u32, vm.new_int(c2 as u32), vm)?;
-                }
-            } else {
-                return Err(vm.new_value_error(
-                    "the first two maketrans arguments must have equal length".to_owned(),
-                ));
-            }
-            if let OptionalArg::Present(none_str) = none_str {
-                for c in none_str.value.chars() {
-                    new_dict.set_item(c as u32, vm.get_none(), vm)?;
-                }
-            }
-            new_dict.into_pyobject(vm)
-        } else {
-            // dict_str must be a dict
-            if let Ok(dict) = dict_or_str.downcast::<PyDict>() {
-                let new_dict = vm.context().new_dict();
-                for (key, val) in dict {
-                    if let Some(num) = key.payload::<PyInt>() {
-                        new_dict.set_item(num.as_bigint().to_i32(), val, vm)?;
-                    } else if let Some(string) = key.payload::<PyString>() {
-                        if string.len(vm) == 1 {
-                            let num_value = string.value.chars().next().unwrap() as u32;
-                            new_dict.set_item(num_value, val, vm)?;
-                        } else {
-                            return Err(vm.new_value_error(
-                                "string keys in translate table must be of length 1".to_owned(),
-                            ));
+            match dict_or_str.downcast::<PyString>() {
+                Ok(from_str) => {
+                    if to_str.len(vm) == from_str.len(vm) {
+                        for (c1, c2) in from_str.value.chars().zip(to_str.value.chars()) {
+                            new_dict.set_item(c1 as u32, vm.new_int(c2 as u32), vm)?;
                         }
+                        if let OptionalArg::Present(none_str) = none_str {
+                            for c in none_str.value.chars() {
+                                new_dict.set_item(c as u32, vm.get_none(), vm)?;
+                            }
+                        }
+                        new_dict.into_pyobject(vm)
+                    } else {
+                        Err(vm.new_value_error(
+                            "the first two maketrans arguments must have equal length".to_owned(),
+                        ))
                     }
                 }
-                new_dict.into_pyobject(vm)
-            } else {
-                Err(vm.new_value_error(
+                _ => Err(vm.new_type_error(
+                    "first maketrans argument must be a string if there is a second argument"
+                        .to_owned(),
+                )),
+            }
+        } else {
+            // dict_str must be a dict
+            match dict_or_str.downcast::<PyDict>() {
+                Ok(dict) => {
+                    for (key, val) in dict {
+                        if let Some(num) = key.payload::<PyInt>() {
+                            new_dict.set_item(num.as_bigint().to_i32(), val, vm)?;
+                        } else if let Some(string) = key.payload::<PyString>() {
+                            if string.len(vm) == 1 {
+                                let num_value = string.value.chars().next().unwrap() as u32;
+                                new_dict.set_item(num_value, val, vm)?;
+                            } else {
+                                return Err(vm.new_value_error(
+                                    "string keys in translate table must be of length 1".to_owned(),
+                                ));
+                            }
+                        }
+                    }
+                    new_dict.into_pyobject(vm)
+                }
+                _ => Err(vm.new_value_error(
                     "if you give only one argument to maketrans it must be a dict".to_owned(),
-                ))
+                )),
             }
         }
     }
@@ -1216,5 +1217,10 @@ mod tests {
         assert_eq!(translated, "🎅xda".to_owned());
         let translated = text.translate(vm.new_int(3), &vm);
         println!("{:?}", translated);
+    }
+
+    #[test]
+    fn str_maketrans() {
+        let vm = VirtualMachine::new();
     }
 }
