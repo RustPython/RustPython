@@ -62,6 +62,19 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     };
     let path = ctx.new_list(path_list);
 
+    let platform = if cfg!(target_os = "linux") {
+        "linux".to_string()
+    } else if cfg!(target_os = "macos") {
+        "darwin".to_string()
+    } else if cfg!(target_os = "windows") {
+        "win32".to_string()
+    } else if cfg!(target_os = "android") {
+        // Linux as well. see https://bugs.python.org/issue32637
+        "linux".to_string()
+    } else {
+        "unknown".to_string()
+    };
+
     let sys_doc = "This module provides access to some objects used or maintained by the
 interpreter and to functions that interact strongly with the interpreter.
 
@@ -145,6 +158,7 @@ settrace() -- set the global debug tracing function
       "_getframe" => ctx.new_rustfunc(getframe),
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
+      "platform" => ctx.new_str(platform),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();

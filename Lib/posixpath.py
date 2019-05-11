@@ -444,7 +444,7 @@ def _joinrealpath(path, rest, seen):
     return path, True
 
 
-supports_unicode_filenames = (hasattr(sys, "platform") and sys.platform == 'darwin')
+supports_unicode_filenames = (sys.platform == 'darwin')
 
 def relpath(path, start=None):
     """Return a relative version of a path"""
