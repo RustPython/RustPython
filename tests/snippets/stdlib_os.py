@@ -88,6 +88,9 @@ with TestWithTempDir() as tmpdir:
 	assert os.read(fd, len(CONTENT3)) == CONTENT3
 	os.close(fd)
 
+	# wait a little bit to ensure that the file times aren't the same
+	time.sleep(0.1)
+
 	fname2 = os.path.join(tmpdir, FILE_NAME2)
 	with open(fname2, "wb"):
 		pass
@@ -150,6 +153,33 @@ with TestWithTempDir() as tmpdir:
 	assert stat_res.st_atime > 1557500000
 	assert stat_res.st_ctime > 1557500000
 	assert stat_res.st_mtime > 1557500000
+
+	stat_file2 = os.stat(fname2)
+	print(stat_file2.st_ctime)
+	assert stat_file2.st_ctime > stat_res.st_ctime
+
+	# wait a little bit to ensures that the access/modify time is different
+	time.sleep(0.1)
+
+	old_atime = stat_res.st_atime
+	old_mtime = stat_res.st_mtime
+
+	fd = os.open(fname, os.O_RDWR)
+	os.write(fd, CONTENT)
+	os.fsync(fd)
+
+	os.read(fd, 1)
+	os.fsync(fd)
+	os.close(fd)
+
+	# retrieve update file stats
+	stat_res = os.stat(fname)
+	print(stat_res.st_atime)
+	print(stat_res.st_ctime)
+	print(stat_res.st_mtime)
+	assert stat_res.st_atime > old_atime, "Access time should be update"
+	assert stat_res.st_mtime > old_mtime, "Modified time should be update"
+	assert stat_res.st_atime > stat_res.st_mtime
 
 	# stat default is follow_symlink=True
 	os.stat(fname).st_ino == os.stat(symlink_file).st_ino

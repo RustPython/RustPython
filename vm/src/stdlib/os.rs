@@ -89,6 +89,7 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let handle = match objint::get_value(mode).to_u16().unwrap() {
         0 => OpenOptions::new().read(true).open(&fname),
         1 => OpenOptions::new().write(true).open(&fname),
+        2 => OpenOptions::new().read(true).write(true).open(&fname),
         512 => OpenOptions::new().write(true).create(true).open(&fname),
         _ => OpenOptions::new().read(true).open(&fname),
     }
@@ -122,6 +123,15 @@ fn os_error(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
 
     Err(vm.new_os_error(msg))
+}
+
+fn os_fsync(fd: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+    let file = rust_file(fd.as_bigint().to_i64().unwrap());
+    file.sync_all()
+        .map_err(|s| vm.new_os_error(s.to_string()))?;
+    // Avoid closing the fd
+    raw_file_number(file);
+    Ok(())
 }
 
 fn os_read(fd: PyIntRef, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
@@ -580,6 +590,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "open" => ctx.new_rustfunc(os_open),
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),
+        "fsync" => ctx.new_rustfunc(os_fsync),
         "read" => ctx.new_rustfunc(os_read),
         "write" => ctx.new_rustfunc(os_write),
         "remove" => ctx.new_rustfunc(os_remove),
