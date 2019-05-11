@@ -177,9 +177,12 @@ with TestWithTempDir() as tmpdir:
 	print(stat_res.st_atime)
 	print(stat_res.st_ctime)
 	print(stat_res.st_mtime)
-	assert stat_res.st_atime > old_atime, "Access time should be update"
+	if os.name != "nt":
+		# access time on windows has a resolution ranging from 1 hour to 1 day
+		# https://docs.microsoft.com/en-gb/windows/desktop/api/minwinbase/ns-minwinbase-filetime
+		assert stat_res.st_atime > old_atime, "Access time should be update"
+		assert stat_res.st_atime > stat_res.st_mtime
 	assert stat_res.st_mtime > old_mtime, "Modified time should be update"
-	assert stat_res.st_atime > stat_res.st_mtime
 
 	# stat default is follow_symlink=True
 	os.stat(fname).st_ino == os.stat(symlink_file).st_ino

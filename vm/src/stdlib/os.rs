@@ -395,6 +395,7 @@ fn to_seconds_from_unix_epoch(sys_time: SystemTime) -> f64 {
     }
 }
 
+#[cfg(unix)]
 fn to_seconds_from_nanos(secs: i64, nanos: i64) -> f64 {
     let duration = Duration::new(secs as u64, nanos as u32);
     duration_as_secs_f64(duration)
