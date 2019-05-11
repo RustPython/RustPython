@@ -158,7 +158,7 @@ with TestWithTempDir() as tmpdir:
 	print(stat_file2.st_ctime)
 	assert stat_file2.st_ctime > stat_res.st_ctime
 
-	# wait a little bit to ensures that the access/modify time is different
+	# wait a little bit to ensures that the access/modify time will change
 	time.sleep(0.1)
 
 	old_atime = stat_res.st_atime
@@ -167,6 +167,9 @@ with TestWithTempDir() as tmpdir:
 	fd = os.open(fname, os.O_RDWR)
 	os.write(fd, CONTENT)
 	os.fsync(fd)
+
+	# wait a little bit to ensures that the access/modify time is different
+	time.sleep(0.1)
 
 	os.read(fd, 1)
 	os.fsync(fd)
