@@ -143,6 +143,13 @@ with TestWithTempDir() as tmpdir:
 	print(stat_res.st_gid)
 	print(stat_res.st_size)
 	assert stat_res.st_size == len(CONTENT2) + len(CONTENT3)
+	print(stat_res.st_atime)
+	print(stat_res.st_ctime)
+	print(stat_res.st_mtime)
+	# test that it all of these times are greater than the 10 May 2019, when this test was written
+	assert stat_res.st_atime > 1557500000
+	assert stat_res.st_ctime > 1557500000
+	assert stat_res.st_mtime > 1557500000
 
 	# stat default is follow_symlink=True
 	os.stat(fname).st_ino == os.stat(symlink_file).st_ino
