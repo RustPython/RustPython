@@ -250,6 +250,10 @@ impl VirtualMachine {
         syntax_error
     }
 
+    pub fn new_scope_with_builtins(&self) -> Scope {
+        Scope::with_builtins(None, self.ctx.new_dict(), self)
+    }
+
     pub fn get_none(&self) -> PyObjectRef {
         self.ctx.none()
     }

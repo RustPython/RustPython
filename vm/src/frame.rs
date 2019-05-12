@@ -98,6 +98,20 @@ impl Scope {
         Scope { locals, globals }
     }
 
+    pub fn with_builtins(
+        locals: Option<PyDictRef>,
+        globals: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> Scope {
+        if !globals.contains_key("__builtins__", vm) {
+            globals
+                .clone()
+                .set_item("__builtins__", vm.builtins.clone(), vm)
+                .unwrap();
+        }
+        Scope::new(locals, globals)
+    }
+
     pub fn get_locals(&self) -> PyDictRef {
         match self.locals.iter().next() {
             Some(dict) => dict.clone(),
