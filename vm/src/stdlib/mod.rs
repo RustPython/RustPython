@@ -1,6 +1,7 @@
 mod ast;
 mod binascii;
 mod dis;
+mod itertools;
 pub(crate) mod json;
 mod keyword;
 mod math;
@@ -36,6 +37,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     );
     modules.insert("binascii".to_string(), Box::new(binascii::make_module));
     modules.insert("dis".to_string(), Box::new(dis::make_module));
+    modules.insert("itertools".to_string(), Box::new(itertools::make_module));
     modules.insert("json".to_string(), Box::new(json::make_module));
     modules.insert("keyword".to_string(), Box::new(keyword::make_module));
     modules.insert("math".to_string(), Box::new(math::make_module));
