@@ -152,3 +152,6 @@ class T4:
 
 assert T4.__doc__ == "test4"
 assert T4.t1.__doc__ == "t1"
+
+cm = classmethod(lambda cls: cls)
+assert cm.__func__(int) is int
