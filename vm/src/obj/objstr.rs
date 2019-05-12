@@ -1201,26 +1201,28 @@ mod tests {
     }
 
     #[test]
-    fn str_translate() {
+    fn str_maketrans_and_translate() {
         let vm = VirtualMachine::new();
 
         let table = vm.context().new_dict();
         table
-            .set_item(97, vm.new_str("🎅".to_owned()), &vm)
+            .set_item("a", vm.new_str("🎅".to_owned()), &vm)
             .unwrap();
-        table.set_item(98, vm.get_none(), &vm).unwrap();
+        table.set_item("b", vm.get_none(), &vm).unwrap();
         table
-            .set_item(99, vm.new_str("xda".to_owned()), &vm)
+            .set_item("c", vm.new_str("xda".to_owned()), &vm)
             .unwrap();
+        let translated = PyString::maketrans(
+            table.into_object(),
+            OptionalArg::Missing,
+            OptionalArg::Missing,
+            &vm,
+        )
+        .unwrap();
         let text = PyString::from("abc");
-        let translated = text.translate(table.into_object(), &vm).unwrap();
+        let translated = text.translate(translated, &vm).unwrap();
         assert_eq!(translated, "🎅xda".to_owned());
         let translated = text.translate(vm.new_int(3), &vm);
-        println!("{:?}", translated);
-    }
-
-    #[test]
-    fn str_maketrans() {
-        let vm = VirtualMachine::new();
+        assert_eq!(translated.unwrap_err().class().name, "TypeError".to_owned());
     }
 }
