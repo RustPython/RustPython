@@ -42,9 +42,15 @@ assert a.lower() == 'hallo'
 assert a.upper() == 'HALLO'
 assert a.split('al') == ['H', 'lo']
 assert a.startswith('H')
+assert a.startswith(('H', 1))
+assert a.startswith(('A', 'H'))
 assert not a.startswith('f')
+assert not a.startswith(('A', 'f'))
 assert a.endswith('llo')
+assert a.endswith(('lo', 1))
+assert a.endswith(('A', 'lo'))
 assert not a.endswith('on')
+assert not a.endswith(('A', 'll'))
 assert a.zfill(8) == '000Hallo'
 assert a.isalnum()
 assert not a.isdigit()
@@ -144,6 +150,7 @@ assert '___a__'.find('a', 3, 4) == 3
 assert '___a__'.find('a', 4, 3) == -1
 
 assert 'abcd'.startswith('b', 1)
+assert 'abcd'.startswith(('b', 'z'), 1)
 assert not 'abcd'.startswith('b', -4)
 assert 'abcd'.startswith('b', -3)
 

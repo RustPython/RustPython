@@ -12,7 +12,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_xid::UnicodeXID;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
@@ -344,30 +344,52 @@ impl PyString {
     #[pymethod]
     fn endswith(
         &self,
-        suffix: PyStringRef,
+        suffix: PyObjectRef,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        _vm: &VirtualMachine,
-    ) -> bool {
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
-            self.value[start..end].ends_with(&suffix.value)
+            let value = &self.value[start..end];
+            single_or_tuple_any(
+                suffix,
+                |s: PyStringRef| Ok(value.ends_with(&s.value)),
+                |o| {
+                    format!(
+                        "endswith first arg must be str or a tuple of str, not {}",
+                        o.class(),
+                    )
+                },
+                vm,
+            )
         } else {
-            false
+            Ok(false)
         }
     }
 
     #[pymethod]
     fn startswith(
         &self,
-        prefix: PyStringRef,
+        prefix: PyObjectRef,
         start: OptionalArg<isize>,
         end: OptionalArg<isize>,
-        _vm: &VirtualMachine,
-    ) -> bool {
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
         if let Some((start, end)) = adjust_indices(start, end, self.value.len()) {
-            self.value[start..end].starts_with(&prefix.value)
+            let value = &self.value[start..end];
+            single_or_tuple_any(
+                prefix,
+                |s: PyStringRef| Ok(value.starts_with(&s.value)),
+                |o| {
+                    format!(
+                        "startswith first arg must be str or a tuple of str, not {}",
+                        o.class(),
+                    )
+                },
+                vm,
+            )
         } else {
-            false
+            Ok(false)
         }
     }
 

@@ -17,11 +17,10 @@ use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{self, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objstr::{self, PyString, PyStringRef};
-use crate::obj::objtuple::PyTuple;
-use crate::obj::objtype::{self, PyClass, PyClassRef};
+use crate::obj::objtype::{self, PyClassRef};
 
 use crate::frame::Scope;
-use crate::function::{Args, KwArgs, OptionalArg, PyFuncArgs};
+use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
@@ -331,29 +330,18 @@ fn builtin_id(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 // builtin_input
 
-fn type_test(
-    vm: &VirtualMachine,
-    typ: PyObjectRef,
-    test: impl Fn(&PyClassRef) -> PyResult<bool>,
-    test_name: &str,
-) -> PyResult<bool> {
-    match_class!(typ,
-        cls @ PyClass => test(&cls),
-        tuple @ PyTuple => {
-            for cls_obj in tuple.elements.borrow().iter() {
-                let cls = PyClassRef::try_from_object(vm, cls_obj.clone())?;
-                if test(&cls)? {
-                    return Ok(true);
-                }
-            }
-            Ok(false)
-        },
-        _ => Err(vm.new_type_error(format!("{}() arg 2 must be a type or tuple of types", test_name)))
-    )
-}
-
 fn builtin_isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-    type_test(vm, typ, |cls| vm.isinstance(&obj, cls), "isinstance")
+    single_or_tuple_any(
+        typ,
+        |cls: PyClassRef| vm.isinstance(&obj, &cls),
+        |o| {
+            format!(
+                "isinstance() arg 2 must be a type or tuple of types, not {}",
+                o.class()
+            )
+        },
+        vm,
+    )
 }
 
 fn builtin_issubclass(
@@ -361,7 +349,17 @@ fn builtin_issubclass(
     typ: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<bool> {
-    type_test(vm, typ, |cls| vm.issubclass(&subclass, cls), "issubclass")
+    single_or_tuple_any(
+        typ,
+        |cls: PyClassRef| vm.issubclass(&subclass, &cls),
+        |o| {
+            format!(
+                "issubclass() arg 2 must be a class or tuple of classes, not {}",
+                o.class()
+            )
+        },
+        vm,
+    )
 }
 
 fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
