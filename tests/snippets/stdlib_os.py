@@ -217,3 +217,8 @@ with TestWithTempDir() as tmpdir:
 		os.chdir(tmpdir)
 		assert os.getcwd() == tmpdir
 		os.path.exists(FILE_NAME)
+
+# supports
+assert isinstance(os.supports_fd, set)
+assert isinstance(os.supports_dir_fd, set)
+assert isinstance(os.supports_follow_symlinks, set)

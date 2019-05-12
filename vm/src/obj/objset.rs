@@ -472,7 +472,7 @@ impl PySetRef {
         Ok(vm.new_str(s))
     }
 
-    fn add(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub fn add(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow_mut().add(&item, vm)
     }
 

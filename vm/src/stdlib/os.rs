@@ -7,14 +7,13 @@ use std::{env, fs};
 
 use num_traits::cast::ToPrimitive;
 
-use crate::function::PyFuncArgs;
+use crate::function::{IntoPyNativeFunc, PyFuncArgs};
 use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objdict::PyDictRef;
-use crate::obj::objint;
-use crate::obj::objint::PyIntRef;
+use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objiter;
-use crate::obj::objstr;
-use crate::obj::objstr::PyStringRef;
+use crate::obj::objset::PySet;
+use crate::obj::objstr::{self, PyString, PyStringRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
     ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
@@ -61,6 +60,14 @@ pub fn raw_file_number(handle: File) -> i64 {
     unimplemented!();
 }
 
+fn make_path(_vm: &VirtualMachine, path: PyStringRef, dir_fd: &DirFd) -> PyStringRef {
+    if dir_fd.dir_fd.is_some() {
+        unimplemented!();
+    } else {
+        path
+    }
+}
+
 pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(fileno, Some(vm.ctx.int_type()))]);
 
@@ -81,10 +88,19 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [
             (name, Some(vm.ctx.str_type())),
             (mode, Some(vm.ctx.int_type()))
-        ]
+        ],
+        optional = [(dir_fd, Some(vm.ctx.int_type()))]
     );
 
-    let fname = objstr::get_value(&name);
+    let name = name.clone().downcast::<PyString>().unwrap();
+    let dir_fd = if let Some(obj) = dir_fd {
+        DirFd {
+            dir_fd: Some(obj.clone().downcast::<PyInt>().unwrap()),
+        }
+    } else {
+        DirFd::default()
+    };
+    let fname = &make_path(vm, name, &dir_fd).value;
 
     let handle = match objint::get_value(mode).to_u16().unwrap() {
         0 => OpenOptions::new().read(true).open(&fname),
@@ -159,11 +175,13 @@ fn os_write(fd: PyIntRef, data: PyBytesRef, vm: &VirtualMachine) -> PyResult {
     Ok(vm.ctx.new_int(written))
 }
 
-fn os_remove(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+fn os_remove(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
+    let path = make_path(vm, path, &dir_fd);
     fs::remove_file(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
-fn os_mkdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+fn os_mkdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
+    let path = make_path(vm, path, &dir_fd);
     fs::create_dir(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
@@ -171,7 +189,8 @@ fn os_mkdirs(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     fs::create_dir_all(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
-fn os_rmdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+fn os_rmdir(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<()> {
+    let path = make_path(vm, path, &dir_fd);
     fs::remove_dir(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
@@ -217,6 +236,12 @@ impl PyValue for DirEntry {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.class("os", "DirEntry")
     }
+}
+
+#[derive(FromArgs, Default)]
+struct DirFd {
+    #[pyarg(keyword_only, default = "None")]
+    dir_fd: Option<PyIntRef>,
 }
 
 #[derive(FromArgs)]
@@ -272,8 +297,13 @@ impl DirEntryRef {
             .is_symlink())
     }
 
-    fn stat(self, follow_symlinks: FollowSymlinks, vm: &VirtualMachine) -> PyResult<StatResult> {
-        os_stat(self.path(vm).try_into_ref(vm)?, follow_symlinks, vm)
+    fn stat(
+        self,
+        dir_fd: DirFd,
+        follow_symlinks: FollowSymlinks,
+        vm: &VirtualMachine,
+    ) -> PyResult<StatResult> {
+        os_stat(self.path(vm).try_into_ref(vm)?, dir_fd, follow_symlinks, vm)
     }
 }
 
@@ -432,30 +462,36 @@ macro_rules! os_unix_stat_inner {
 #[cfg(target_os = "linux")]
 fn os_stat(
     path: PyStringRef,
+    dir_fd: DirFd,
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
 ) -> PyResult<StatResult> {
     use std::os::linux::fs::MetadataExt;
+    let path = make_path(vm, path, &dir_fd);
     os_unix_stat_inner!(path, follow_symlinks, vm)
 }
 
 #[cfg(target_os = "macos")]
 fn os_stat(
     path: PyStringRef,
+    dir_fd: DirFd,
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
 ) -> PyResult<StatResult> {
     use std::os::macos::fs::MetadataExt;
+    let path = make_path(vm, path, &dir_fd);
     os_unix_stat_inner!(path, follow_symlinks, vm)
 }
 
 #[cfg(target_os = "android")]
 fn os_stat(
     path: PyStringRef,
+    dir_fd: DirFd,
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
 ) -> PyResult<StatResult> {
     use std::os::android::fs::MetadataExt;
+    let path = make_path(vm, path, &dir_fd);
     os_unix_stat_inner!(path, follow_symlinks, vm)
 }
 
@@ -483,6 +519,7 @@ fn attributes_to_mode(attr: u32) -> u32 {
 #[cfg(windows)]
 fn os_stat(
     path: PyStringRef,
+    _dir_fd: DirFd, // TODO: error
     follow_symlinks: FollowSymlinks,
     vm: &VirtualMachine,
 ) -> PyResult<StatResult> {
@@ -523,13 +560,24 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
 }
 
 #[cfg(unix)]
-fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+fn os_symlink(
+    src: PyStringRef,
+    dst: PyStringRef,
+    dir_fd: DirFd,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     use std::os::unix::fs as unix_fs;
+    let dst = make_path(vm, dst, &dir_fd);
     unix_fs::symlink(&src.value, &dst.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
 #[cfg(windows)]
-fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+fn os_symlink(
+    src: PyStringRef,
+    dst: PyStringRef,
+    _dir_fd: DirFd,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     use std::os::windows::fs as win_fs;
     let ret = match fs::metadata(&dst.value) {
         Ok(meta) => {
@@ -547,7 +595,12 @@ fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResu
 }
 
 #[cfg(all(not(unix), not(windows)))]
-fn os_symlink(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+fn os_symlink(
+    src: PyStringRef,
+    dst: PyStringRef,
+    dir_fd: DirFd,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     unimplemented!();
 }
 
@@ -600,36 +653,114 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
          "st_mtime" => ctx.new_property(StatResultRef::st_mtime),
     });
 
-    py_module!(vm, "_os", {
-        "open" => ctx.new_rustfunc(os_open),
+    struct SupportFunc<'a> {
+        name: &'a str,
+        func_obj: PyObjectRef,
+        fd: Option<bool>,
+        dir_fd: Option<bool>,
+        follow_symlinks: Option<bool>,
+    };
+    impl<'a> SupportFunc<'a> {
+        fn new<F, T, R>(
+            vm: &VirtualMachine,
+            name: &'a str,
+            func: F,
+            fd: Option<bool>,
+            dir_fd: Option<bool>,
+            follow_symlinks: Option<bool>,
+        ) -> Self
+        where
+            F: IntoPyNativeFunc<T, R>,
+        {
+            Self {
+                name: name,
+                func_obj: vm.ctx.new_rustfunc(func),
+                fd: fd,
+                dir_fd: dir_fd,
+                follow_symlinks: follow_symlinks,
+            }
+        }
+    }
+    let support_funcs = vec![
+        SupportFunc::new(vm, "open", os_open, None, Some(false), None),
+        // access Some Some None
+        SupportFunc::new(vm, "chdir", os_chdir, Some(false), None, None),
+        // chflags Some, None Some
+        // chmod Some Some Some
+        // chown Some Some Some
+        // chroot Some None None
+        SupportFunc::new(vm, "listdir", os_listdir, Some(false), None, None),
+        SupportFunc::new(vm, "mkdir", os_mkdir, Some(false), Some(false), None),
+        // mkfifo Some Some None
+        // mknod Some Some None
+        // pathconf Some None None
+        // readlink Some Some None
+        SupportFunc::new(vm, "remove", os_remove, Some(false), Some(false), None),
+        // rename Some Some None
+        // replace Some Some None
+        SupportFunc::new(vm, "rmdir", os_rmdir, Some(false), Some(false), None),
+        SupportFunc::new(vm, "scandir", os_scandir, Some(false), None, None),
+        SupportFunc::new(vm, "stat", os_stat, Some(false), Some(false), Some(false)),
+        SupportFunc::new(vm, "symlink", os_symlink, None, Some(false), None),
+        // truncate Some None None
+        SupportFunc::new(vm, "unlink", os_remove, Some(false), Some(false), None),
+        // utime Some Some Some
+    ];
+    let supports_fd = PySet::default().into_ref(vm);
+    let supports_dir_fd = PySet::default().into_ref(vm);
+    let supports_follow_symlinks = PySet::default().into_ref(vm);
+
+    let module = py_module!(vm, "_os", {
         "close" => ctx.new_rustfunc(os_close),
         "error" => ctx.new_rustfunc(os_error),
         "fsync" => ctx.new_rustfunc(os_fsync),
         "read" => ctx.new_rustfunc(os_read),
         "write" => ctx.new_rustfunc(os_write),
-        "remove" => ctx.new_rustfunc(os_remove),
-        "unlink" => ctx.new_rustfunc(os_remove),
-        "mkdir" => ctx.new_rustfunc(os_mkdir),
         "mkdirs" => ctx.new_rustfunc(os_mkdirs),
-        "rmdir" => ctx.new_rustfunc(os_rmdir),
-        "listdir" => ctx.new_rustfunc(os_listdir),
         "putenv" => ctx.new_rustfunc(os_putenv),
         "unsetenv" => ctx.new_rustfunc(os_unsetenv),
         "environ" => environ,
         "name" => ctx.new_str(os_name),
-        "scandir" => ctx.new_rustfunc(os_scandir),
         "ScandirIter" => scandir_iter,
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
-        "stat" => ctx.new_rustfunc(os_stat),
-        "symlink" => ctx.new_rustfunc(os_symlink),
         "getcwd" => ctx.new_rustfunc(os_getcwd),
-        "chdir" => ctx.new_rustfunc(os_chdir),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),
         "O_NONBLOCK" => ctx.new_int(4),
         "O_APPEND" => ctx.new_int(8),
         "O_CREAT" => ctx.new_int(512)
-    })
+    });
+
+    for support in support_funcs {
+        if support.fd.unwrap_or(false) {
+            supports_fd
+                .clone()
+                .add(support.func_obj.clone(), vm)
+                .unwrap();
+        }
+        if support.dir_fd.unwrap_or(false) {
+            supports_dir_fd
+                .clone()
+                .add(support.func_obj.clone(), vm)
+                .unwrap();
+        }
+        if support.follow_symlinks.unwrap_or(false) {
+            supports_follow_symlinks
+                .clone()
+                .add(support.func_obj.clone(), vm)
+                .unwrap();
+        }
+        vm.set_attr(&module, support.name, support.func_obj)
+            .unwrap();
+    }
+
+    extend_module!(vm, module, {
+        "supports_fd" => supports_fd.into_object(),
+        "supports_dir_fd" => supports_dir_fd.into_object(),
+        "supports_follow_symlinks" => supports_follow_symlinks.into_object(),
+    });
+
+    module
 }
