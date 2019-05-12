@@ -171,7 +171,7 @@ fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         vm,
         args,
         required = [(source, None)],
-        optional = [(globals, None), (locals, Some(vm.ctx.dict_type()))]
+        optional = [(globals, None), (locals, None)]
     );
 
     let scope = make_scope(vm, globals, locals)?;
@@ -219,6 +219,16 @@ fn make_scope(
         None => None,
     };
     let current_scope = vm.current_scope();
+    let locals = match locals {
+        Some(dict) => dict.clone().downcast().ok(),
+        None => {
+            if globals.is_some() {
+                None
+            } else {
+                current_scope.get_only_locals()
+            }
+        }
+    };
     let globals = match globals {
         Some(dict) => {
             let dict: PyDictRef = dict.clone().downcast().unwrap();
@@ -230,11 +240,6 @@ fn make_scope(
             dict
         }
         None => current_scope.globals.clone(),
-    };
-
-    let locals = match locals {
-        Some(dict) => dict.clone().downcast().ok(),
-        None => current_scope.get_only_locals(),
     };
 
     let scope = Scope::with_builtins(locals, globals, vm);
