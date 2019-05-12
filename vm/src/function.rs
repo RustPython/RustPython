@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::mem;
 use std::ops::RangeInclusive;
 
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
     IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -523,3 +524,28 @@ into_py_native_func_tuple!((a, A), (b, B));
 into_py_native_func_tuple!((a, A), (b, B), (c, C));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
+
+/// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
+/// test that any of the values contained within the tuples satisfies the predicate. Type parameter
+/// T specifies the type that is expected, if the input value is not of that type or a tuple of
+/// values of that type, then a TypeError is raised.
+pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
+    obj: PyObjectRef,
+    predicate: F,
+    message: fn(&PyObjectRef) -> String,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    match_class!(obj,
+        obj @ T => predicate(obj),
+        tuple @ PyTuple => {
+            for obj in tuple.elements.borrow().iter() {
+                let inner_val = PyRef::<T>::try_from_object(vm, obj.clone())?;
+                if predicate(inner_val)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        },
+        obj => Err(vm.new_type_error(message(&obj)))
+    )
+}
