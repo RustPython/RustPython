@@ -17,11 +17,13 @@ pub enum Tok {
     StartProgram,
     StartStatement,
     StartExpression,
+    EndOfFile,
     Lpar,
     Rpar,
     Lsqb,
     Rsqb,
     Colon,
+    Walrus, // ':='
     Comma,
     Semi,
     Plus,
