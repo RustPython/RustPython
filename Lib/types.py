@@ -13,21 +13,21 @@ FunctionType = type(_f)
 LambdaType = type(lambda: None)         # Same as FunctionType
 CodeType = type(_f.__code__)
 MappingProxyType = type(type.__dict__)
-SimpleNamespace = type(sys.implementation)
+# SimpleNamespace = type(sys.implementation)
 
 def _g():
     yield 1
 GeneratorType = type(_g())
 
-async def _c(): pass
-_c = _c()
-CoroutineType = type(_c)
-_c.close()  # Prevent ResourceWarning
+# async def _c(): pass
+# _c = _c()
+# CoroutineType = type(_c)
+# _c.close()  # Prevent ResourceWarning
 
-async def _ag():
-    yield
-_ag = _ag()
-AsyncGeneratorType = type(_ag)
+# async def _ag():
+#     yield
+# _ag = _ag()
+# AsyncGeneratorType = type(_ag)
 
 class _C:
     def _m(self): pass
@@ -43,19 +43,19 @@ ClassMethodDescriptorType = type(dict.__dict__['fromkeys'])
 
 ModuleType = type(sys)
 
-try:
-    raise TypeError
-except TypeError:
-    tb = sys.exc_info()[2]
-    TracebackType = type(tb)
-    FrameType = type(tb.tb_frame)
-    tb = None; del tb
+# try:
+#     raise TypeError
+# except TypeError:
+#     tb = sys.exc_info()[2]
+#     TracebackType = type(tb)
+#     FrameType = type(tb.tb_frame)
+#     tb = None; del tb
 
 # For Jython, the following two types are identical
 GetSetDescriptorType = type(FunctionType.__code__)
-MemberDescriptorType = type(FunctionType.__globals__)
+# MemberDescriptorType = type(FunctionType.__globals__)
 
-del sys, _f, _g, _C, _c, _ag  # Not for export
+del sys, _f, _g, _C  # Not for export
 
 
 # Provide a PEP 3115 compliant mechanism for class creation
