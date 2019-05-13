@@ -11,3 +11,5 @@ print(mo)
 # assert isinstance(mo, re.Match)
 assert mo.start() == 1
 assert mo.end() == 5
+
+assert re.escape('python.exe') == 'python\\.exe'
