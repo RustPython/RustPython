@@ -82,3 +82,47 @@ with assertRaises(StopIteration):
 r = itertools.repeat(1, -1)
 with assertRaises(StopIteration):
     next(r)
+
+
+# itertools.takewhile tests
+
+from itertools import takewhile as tw
+
+t = tw(lambda n: n < 5, [1, 2, 5, 1, 3])
+assert next(t) == 1
+assert next(t) == 2
+with assertRaises(StopIteration):
+    next(t)
+
+# not iterable
+with assertRaises(TypeError):
+    tw(lambda n: n < 1, 1)
+
+# not callable
+t = tw(5, [1, 2])
+with assertRaises(TypeError):
+    next(t)
+
+# non-bool predicate
+t = tw(lambda n: n, [1, 2, 0])
+assert next(t) == 1
+assert next(t) == 2
+with assertRaises(StopIteration):
+    next(t)
+
+# bad predicate prototype
+t = tw(lambda: True, [1])
+with assertRaises(TypeError):
+    next(t)
+
+# StopIteration before attempting to call (bad) predicate
+t = tw(lambda: True, [])
+with assertRaises(StopIteration):
+    next(t)
+
+# doesn't try again after the first predicate failure
+t = tw(lambda n: n < 1, [1, 0])
+with assertRaises(StopIteration):
+    next(t)
+with assertRaises(StopIteration):
+    next(t)
