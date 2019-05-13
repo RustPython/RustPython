@@ -222,7 +222,7 @@ fn calc_hash(vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<usize> {
 /// Invoke __eq__ on two keys
 fn do_eq(vm: &VirtualMachine, key1: &PyObjectRef, key2: &PyObjectRef) -> Result<bool, PyObjectRef> {
     let result = vm._eq(key1.clone(), key2.clone())?;
-    Ok(objbool::get_value(&result))
+    objbool::boolval(vm, result)
 }
 
 #[cfg(test)]
