@@ -7,6 +7,7 @@ use crate::pyobject::PyRef;
 use crate::pyobject::PyValue;
 use crate::pyobject::TryFromObject;
 use crate::pyobject::{PyIterable, PyObjectRef};
+use core::convert::TryFrom;
 use core::ops::Range;
 use num_bigint::BigInt;
 
@@ -998,6 +999,56 @@ impl PyByteInner {
         }
 
         res
+    }
+
+    pub fn repeat(&self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        if self.elements.is_empty() {
+            // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
+            return Ok(vec![]);
+        }
+
+        let n = n.as_bigint().to_isize().ok_or_else(|| {
+            vm.new_overflow_error("can't multiply bytes that many times".to_string())
+        })?;
+
+        if n <= 0 {
+            Ok(vec![])
+        } else {
+            let n = usize::try_from(n).unwrap();
+
+            let mut new_value = Vec::with_capacity(n * self.elements.len());
+            for _ in 0..n {
+                new_value.extend(&self.elements);
+            }
+
+            Ok(new_value)
+        }
+    }
+
+    pub fn irepeat(&mut self, n: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        if self.elements.is_empty() {
+            // We can multiple an empty vector by any integer, even if it doesn't fit in an isize.
+            return Ok(());
+        }
+
+        let n = n.as_bigint().to_isize().ok_or_else(|| {
+            vm.new_overflow_error("can't multiply bytes that many times".to_string())
+        })?;
+
+        if n <= 0 {
+            self.elements.clear();
+        } else {
+            let n = usize::try_from(n).unwrap();
+
+            let old = self.elements.clone();
+
+            self.elements.reserve((n - 1) * old.len());
+            for _ in 1..n {
+                self.elements.extend(&old);
+            }
+        }
+
+        Ok(())
     }
 }
 

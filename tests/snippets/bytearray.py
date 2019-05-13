@@ -631,3 +631,63 @@ assert (
     bytearray(b"they're bill's friends from the UK").title()
     == bytearray(b"They'Re Bill'S Friends From The Uk")
 )
+
+
+# repeat by multiply
+a = bytearray(b'abcd')
+assert a * 0 == bytearray(b'')
+assert a * -1 == bytearray(b'')
+assert a * 1 == bytearray(b'abcd')
+assert a * 3 == bytearray(b'abcdabcdabcd')
+assert 3 * a == bytearray(b'abcdabcdabcd')
+
+a = bytearray(b'abcd')
+a.__imul__(3)
+assert a == bytearray(b'abcdabcdabcd')
+a.__imul__(0)
+assert a == bytearray(b'')
+
+
+# copy
+a = bytearray(b"my bytearray")
+b = a.copy()
+assert a == b
+assert a is not b
+b.append(100)
+assert a != b
+
+
+# extend
+a = bytearray(b"hello,")
+# any iterable of ints should work
+a.extend([32, 119, 111, 114])
+a.extend(b"ld")
+assert a == bytearray(b"hello, world")
+
+
+# insert
+a = bytearray(b"hello, world")
+a.insert(0, 119)
+assert a == bytearray(b"whello, world"), a
+# -1 is not at the end, but one before
+a.insert(-1, 119)
+assert a == bytearray(b"whello, worlwd"), a
+# inserting before the beginning just inserts at the beginning
+a.insert(-1000, 111)
+assert a == bytearray(b"owhello, worlwd"), a
+# inserting after the end just inserts at the end
+a.insert(1000, 111)
+assert a == bytearray(b"owhello, worlwdo"), a
+
+
+# remove
+a = bytearray(b'abcdabcd')
+a.remove(99)  # the letter c
+# Only the first is removed
+assert a == bytearray(b'abdabcd')
+
+
+# reverse
+a = bytearray(b'hello, world')
+a.reverse()
+assert a == bytearray(b'dlrow ,olleh')

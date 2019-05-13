@@ -42,9 +42,15 @@ assert a.lower() == 'hallo'
 assert a.upper() == 'HALLO'
 assert a.split('al') == ['H', 'lo']
 assert a.startswith('H')
+assert a.startswith(('H', 1))
+assert a.startswith(('A', 'H'))
 assert not a.startswith('f')
+assert not a.startswith(('A', 'f'))
 assert a.endswith('llo')
+assert a.endswith(('lo', 1))
+assert a.endswith(('A', 'lo'))
 assert not a.endswith('on')
+assert not a.endswith(('A', 'll'))
 assert a.zfill(8) == '000Hallo'
 assert a.isalnum()
 assert not a.isdigit()
@@ -144,6 +150,7 @@ assert '___a__'.find('a', 3, 4) == 3
 assert '___a__'.find('a', 4, 3) == -1
 
 assert 'abcd'.startswith('b', 1)
+assert 'abcd'.startswith(('b', 'z'), 1)
 assert not 'abcd'.startswith('b', -4)
 assert 'abcd'.startswith('b', -3)
 
@@ -164,6 +171,13 @@ assert not ''.isdecimal()
 assert '123'.isdecimal()
 assert not '\u00B2'.isdecimal()
 
+assert not ''.isidentifier()
+assert 'python'.isidentifier()
+assert '_'.isidentifier()
+assert '유니코드'.isidentifier()
+assert not '😂'.isidentifier()
+assert not '123'.isidentifier()
+
 # String Formatting
 assert "{} {}".format(1,2) == "1 2"
 assert "{0} {1}".format(2,3) == "2 3"
@@ -176,6 +190,13 @@ assert 'a' <= 'a'
 assert 'z' > 'b'
 assert 'z' >= 'b'
 assert 'a' >= 'a'
+
+# str.translate
+assert "abc".translate({97: '🎅', 98: None, 99: "xd"}) == "🎅xd"
+
+# str.maketrans
+assert str.maketrans({"a": "abc", "b": None, "c": 33}) == {97: "abc", 98: None, 99: 33}
+assert str.maketrans("hello", "world", "rust") == {104: 119, 101: 111, 108: 108, 111: 100, 114: None, 117: None, 115: None, 116: None}
 
 def try_mutate_str():
    word = "word"

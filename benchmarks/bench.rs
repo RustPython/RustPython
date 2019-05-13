@@ -99,7 +99,7 @@ fn bench_rustpy_nbody(b: &mut test::Bencher) {
     };
 
     b.iter(|| {
-        let scope = vm.ctx.new_scope();
+        let scope = vm.new_scope_with_builtins();
         let res: PyResult = vm.run_code_obj(code.clone(), scope);
         assert!(res.is_ok());
     })
@@ -118,7 +118,7 @@ fn bench_rustpy_mandelbrot(b: &mut test::Bencher) {
     };
 
     b.iter(|| {
-        let scope = vm.ctx.new_scope();
+        let scope = vm.new_scope_with_builtins();
         let res: PyResult = vm.run_code_obj(code.clone(), scope);
         assert!(res.is_ok());
     })

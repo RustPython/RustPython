@@ -48,19 +48,20 @@ pub fn import_file(
     content: String,
 ) -> PyResult {
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-    let code_obj = compile::compile(vm, &content, &compile::Mode::Exec, file_path)
+    let code_obj = compile::compile(vm, &content, &compile::Mode::Exec, file_path.clone())
         .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj);
 
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
+    attrs.set_item("__file__", vm.new_str(file_path), vm)?;
     let module = vm.ctx.new_module(module_name, attrs.clone());
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
     sys_modules.set_item(module_name, module.clone(), vm)?;
 
     // Execute main code in module:
-    vm.run_code_obj(code_obj, Scope::new(None, attrs))?;
+    vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))?;
     Ok(module)
 }
 
