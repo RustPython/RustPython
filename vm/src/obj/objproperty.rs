@@ -2,16 +2,16 @@
 
 */
 
-use crate::function::IntoPyNativeFunc;
-use crate::function::OptionalArg;
-use crate::obj::objstr::PyStringRef;
+use crate::function::{IntoPyNativeFunc, OptionalArg, PyFuncArgs};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    IdProtocol, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
+    IdProtocol, PyClassImpl, PyContext, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
+    TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
-/// Read-only property, doesn't have __set__ or __delete__
+// Read-only property, doesn't have __set__ or __delete__
+#[pyclass]
 #[derive(Debug)]
 pub struct PyReadOnlyProperty {
     getter: PyObjectRef,
@@ -25,27 +25,62 @@ impl PyValue for PyReadOnlyProperty {
 
 pub type PyReadOnlyPropertyRef = PyRef<PyReadOnlyProperty>;
 
-impl PyReadOnlyPropertyRef {
+#[pyimpl]
+impl PyReadOnlyProperty {
+    #[pymethod(name = "__get__")]
     fn get(
-        self,
+        zelf: PyRef<Self>,
         obj: PyObjectRef,
         _owner: OptionalArg<PyClassRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         if obj.is(vm.ctx.none.as_object()) {
-            Ok(self.into_object())
+            Ok(zelf.into_object())
         } else {
-            vm.invoke(self.getter.clone(), obj)
+            vm.invoke(zelf.getter.clone(), obj)
         }
     }
 }
 
-/// Fully fledged property
+/// Property attribute.
+///
+///   fget
+///     function to be used for getting an attribute value
+///   fset
+///     function to be used for setting an attribute value
+///   fdel
+///     function to be used for del'ing an attribute
+///   doc
+///     docstring
+///
+/// Typical use is to define a managed attribute x:
+///
+/// class C(object):
+///     def getx(self): return self._x
+///     def setx(self, value): self._x = value
+///     def delx(self): del self._x
+///     x = property(getx, setx, delx, "I'm the 'x' property.")
+///
+/// Decorators make defining new properties or modifying existing ones easy:
+///
+/// class C(object):
+///     @property
+///     def x(self):
+///         "I am the 'x' property."
+///         return self._x
+///     @x.setter
+///     def x(self, value):
+///         self._x = value
+///     @x.deleter
+///     def x(self):
+///         del self._x
+#[pyclass]
 #[derive(Debug)]
 pub struct PyProperty {
     getter: Option<PyObjectRef>,
     setter: Option<PyObjectRef>,
     deleter: Option<PyObjectRef>,
+    doc: Option<PyObjectRef>,
 }
 
 impl PyValue for PyProperty {
@@ -56,19 +91,36 @@ impl PyValue for PyProperty {
 
 pub type PyPropertyRef = PyRef<PyProperty>;
 
-impl PyPropertyRef {
+#[pyimpl]
+impl PyProperty {
+    #[pymethod(name = "__new__")]
     fn new_property(
         cls: PyClassRef,
-        fget: OptionalArg<PyObjectRef>,
-        fset: OptionalArg<PyObjectRef>,
-        fdel: OptionalArg<PyObjectRef>,
-        _doc: OptionalArg<PyStringRef>,
+        args: PyFuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<PyPropertyRef> {
+        arg_check!(
+            vm,
+            args,
+            required = [],
+            optional = [(fget, None), (fset, None), (fdel, None), (doc, None)]
+        );
+
+        fn into_option(vm: &VirtualMachine, arg: Option<&PyObjectRef>) -> Option<PyObjectRef> {
+            arg.and_then(|arg| {
+                if vm.ctx.none().is(arg) {
+                    None
+                } else {
+                    Some(arg.clone())
+                }
+            })
+        }
+
         PyProperty {
-            getter: fget.into_option(),
-            setter: fset.into_option(),
-            deleter: fdel.into_option(),
+            getter: into_option(vm, fget),
+            setter: into_option(vm, fset),
+            deleter: into_option(vm, fdel),
+            doc: into_option(vm, doc),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -76,7 +128,7 @@ impl PyPropertyRef {
     // Descriptor methods
 
     // specialised version that doesn't check for None
-    pub(crate) fn instance_binding_get(self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn instance_binding_get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(getter) = self.getter.as_ref() {
             vm.invoke(getter.clone(), obj)
         } else {
@@ -84,15 +136,16 @@ impl PyPropertyRef {
         }
     }
 
+    #[pymethod(name = "__get__")]
     fn get(
-        self,
+        zelf: PyRef<Self>,
         obj: PyObjectRef,
         _owner: OptionalArg<PyClassRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        if let Some(getter) = self.getter.as_ref() {
+        if let Some(getter) = zelf.getter.as_ref() {
             if obj.is(vm.ctx.none.as_object()) {
-                Ok(self.into_object())
+                Ok(zelf.into_object())
             } else {
                 vm.invoke(getter.clone(), obj)
             }
@@ -101,7 +154,8 @@ impl PyPropertyRef {
         }
     }
 
-    fn set(self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__set__")]
+    fn set(&self, obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(setter) = self.setter.as_ref() {
             vm.invoke(setter.clone(), vec![obj, value])
         } else {
@@ -109,7 +163,8 @@ impl PyPropertyRef {
         }
     }
 
-    fn delete(self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__delete__")]
+    fn delete(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(deleter) = self.deleter.as_ref() {
             vm.invoke(deleter.clone(), obj)
         } else {
@@ -119,45 +174,66 @@ impl PyPropertyRef {
 
     // Access functions
 
-    fn fget(self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    #[pyproperty]
+    fn fget(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.getter.clone()
     }
 
-    fn fset(self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    #[pyproperty]
+    fn fset(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.setter.clone()
     }
 
-    fn fdel(self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+    #[pyproperty]
+    fn fdel(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.deleter.clone()
     }
 
     // Python builder functions
 
-    fn getter(self, getter: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod]
+    fn getter(
+        zelf: PyRef<Self>,
+        getter: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyPropertyRef> {
         PyProperty {
-            getter: getter.or_else(|| self.getter.clone()),
-            setter: self.setter.clone(),
-            deleter: self.deleter.clone(),
+            getter: getter.or_else(|| zelf.getter.clone()),
+            setter: zelf.setter.clone(),
+            deleter: zelf.deleter.clone(),
+            doc: None,
         }
-        .into_ref_with_type(vm, TypeProtocol::class(&self))
+        .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
 
-    fn setter(self, setter: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod]
+    fn setter(
+        zelf: PyRef<Self>,
+        setter: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyPropertyRef> {
         PyProperty {
-            getter: self.getter.clone(),
-            setter: setter.or_else(|| self.setter.clone()),
-            deleter: self.deleter.clone(),
+            getter: zelf.getter.clone(),
+            setter: setter.or_else(|| zelf.setter.clone()),
+            deleter: zelf.deleter.clone(),
+            doc: None,
         }
-        .into_ref_with_type(vm, TypeProtocol::class(&self))
+        .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
 
-    fn deleter(self, deleter: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Self> {
+    #[pymethod]
+    fn deleter(
+        zelf: PyRef<Self>,
+        deleter: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyPropertyRef> {
         PyProperty {
-            getter: self.getter.clone(),
-            setter: self.setter.clone(),
-            deleter: deleter.or_else(|| self.deleter.clone()),
+            getter: zelf.getter.clone(),
+            setter: zelf.setter.clone(),
+            deleter: deleter.or_else(|| zelf.deleter.clone()),
+            doc: None,
         }
-        .into_ref_with_type(vm, TypeProtocol::class(&self))
+        .into_ref_with_type(vm, TypeProtocol::class(&zelf))
     }
 }
 
@@ -200,6 +276,7 @@ impl<'a> PropertyBuilder<'a> {
                 getter: self.getter.clone(),
                 setter: self.setter.clone(),
                 deleter: None,
+                doc: None,
             };
 
             PyObject::new(payload, self.ctx.property_type(), None)
@@ -216,52 +293,6 @@ impl<'a> PropertyBuilder<'a> {
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(context, &context.readonly_property_type, {
-        "__get__" => context.new_rustfunc(PyReadOnlyPropertyRef::get),
-    });
-
-    let property_doc =
-        "Property attribute.\n\n  \
-         fget\n    \
-         function to be used for getting an attribute value\n  \
-         fset\n    \
-         function to be used for setting an attribute value\n  \
-         fdel\n    \
-         function to be used for del\'ing an attribute\n  \
-         doc\n    \
-         docstring\n\n\
-         Typical use is to define a managed attribute x:\n\n\
-         class C(object):\n    \
-         def getx(self): return self._x\n    \
-         def setx(self, value): self._x = value\n    \
-         def delx(self): del self._x\n    \
-         x = property(getx, setx, delx, \"I\'m the \'x\' property.\")\n\n\
-         Decorators make defining new properties or modifying existing ones easy:\n\n\
-         class C(object):\n    \
-         @property\n    \
-         def x(self):\n        \"I am the \'x\' property.\"\n        \
-         return self._x\n    \
-         @x.setter\n    \
-         def x(self, value):\n        \
-         self._x = value\n    \
-         @x.deleter\n    \
-         def x(self):\n        \
-         del self._x";
-
-    extend_class!(context, &context.property_type, {
-        "__new__" => context.new_rustfunc(PyPropertyRef::new_property),
-        "__doc__" => context.new_str(property_doc.to_string()),
-
-        "__get__" => context.new_rustfunc(PyPropertyRef::get),
-        "__set__" => context.new_rustfunc(PyPropertyRef::set),
-        "__delete__" => context.new_rustfunc(PyPropertyRef::delete),
-
-        "fget" => context.new_property(PyPropertyRef::fget),
-        "fset" => context.new_property(PyPropertyRef::fset),
-        "fdel" => context.new_property(PyPropertyRef::fdel),
-
-        "getter" => context.new_rustfunc(PyPropertyRef::getter),
-        "setter" => context.new_rustfunc(PyPropertyRef::setter),
-        "deleter" => context.new_rustfunc(PyPropertyRef::deleter),
-    });
+    PyReadOnlyProperty::extend_class(context, &context.readonly_property_type);
+    PyProperty::extend_class(context, &context.property_type);
 }

@@ -77,7 +77,7 @@ fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResu
     // trace!("Code object: {:?}", code_obj.borrow());
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__file__", vm.new_str(source_path), vm)?;
-    vm.run_code_obj(code_obj, Scope::new(None, attrs))
+    vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))
 }
 
 fn handle_exception(vm: &VirtualMachine, result: PyResult) {
@@ -217,7 +217,7 @@ fn run_shell(vm: &VirtualMachine) -> PyResult {
         "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
         crate_version!()
     );
-    let vars = vm.ctx.new_scope();
+    let vars = vm.new_scope_with_builtins();
 
     // Read a single line:
     let mut input = String::new();

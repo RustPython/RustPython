@@ -26,7 +26,7 @@ pub(crate) struct StoredVirtualMachine {
 impl StoredVirtualMachine {
     fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
         let mut vm = VirtualMachine::new();
-        let scope = vm.ctx.new_scope();
+        let scope = vm.new_scope_with_builtins();
         if inject_browser_module {
             setup_browser_module(&vm);
         }

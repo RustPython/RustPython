@@ -4,7 +4,7 @@ use std::{env, mem};
 use crate::frame::FrameRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyResult};
+use crate::pyobject::{IntoPyObject, ItemProtocol, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 /*
@@ -61,6 +61,19 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         None => vec![],
     };
     let path = ctx.new_list(path_list);
+
+    let platform = if cfg!(target_os = "linux") {
+        "linux".to_string()
+    } else if cfg!(target_os = "macos") {
+        "darwin".to_string()
+    } else if cfg!(target_os = "windows") {
+        "win32".to_string()
+    } else if cfg!(target_os = "android") {
+        // Linux as well. see https://bugs.python.org/issue32637
+        "linux".to_string()
+    } else {
+        "unknown".to_string()
+    };
 
     let sys_doc = "This module provides access to some objects used or maintained by the
 interpreter and to functions that interact strongly with the interpreter.
@@ -131,9 +144,14 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
+    let mut module_names: Vec<_> = vm.stdlib_inits.borrow().keys().cloned().collect();
+    module_names.push("sys".to_string());
+    module_names.push("builtins".to_string());
+    module_names.sort();
     let modules = ctx.new_dict();
     extend_module!(vm, module, {
       "argv" => argv(ctx),
+      "builtin_module_names" => ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm).unwrap()).collect()),
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
       "intern" => ctx.new_rustfunc(sys_intern),
@@ -145,6 +163,7 @@ settrace() -- set the global debug tracing function
       "_getframe" => ctx.new_rustfunc(getframe),
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
+      "platform" => ctx.new_str(platform),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
