@@ -2,6 +2,7 @@ use crate::obj::objint::PyIntRef;
 use crate::obj::objnone::PyNoneRef;
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objtuple::PyTupleRef;
+use crate::pyhash;
 use crate::pyobject::Either;
 use crate::pyobject::PyRef;
 use crate::pyobject::PyValue;
@@ -12,17 +13,12 @@ use core::ops::Range;
 use num_bigint::BigInt;
 
 use crate::function::OptionalArg;
-
-use crate::vm::VirtualMachine;
-
 use crate::pyobject::{PyResult, TypeProtocol};
-
-use crate::obj::objstr::{PyString, PyStringRef};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use crate::vm::VirtualMachine;
 
 use super::objint;
 use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
+use super::objstr::{PyString, PyStringRef};
 
 use crate::obj::objint::PyInt;
 use num_integer::Integer;
@@ -379,10 +375,8 @@ impl PyByteInner {
         }
     }
 
-    pub fn hash(&self) -> usize {
-        let mut hasher = DefaultHasher::new();
-        self.elements.hash(&mut hasher);
-        hasher.finish() as usize
+    pub fn hash(&self) -> pyhash::PyHash {
+        pyhash::hash_value(&self.elements)
     }
 
     pub fn add(&self, other: PyByteInner) -> Vec<u8> {

@@ -4,6 +4,7 @@ use super::objstr;
 use super::objtype;
 use crate::function::OptionalArg;
 use crate::obj::objtype::PyClassRef;
+use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
@@ -427,6 +428,11 @@ impl PyFloat {
     #[pymethod(name = "__float__")]
     fn float(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
         zelf
+    }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        pyhash::hash_float(self.value)
     }
 
     #[pyproperty(name = "real")]

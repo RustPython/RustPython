@@ -1,7 +1,6 @@
 extern crate unicode_xid;
 
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
 use std::string::ToString;
@@ -13,6 +12,7 @@ use unicode_xid::UnicodeXID;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
@@ -172,10 +172,8 @@ impl PyString {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> usize {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.value.hash(&mut hasher);
-        hasher.finish() as usize
+    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        pyhash::hash_value(&self.value)
     }
 
     #[pymethod(name = "__len__")]

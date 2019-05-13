@@ -1,13 +1,12 @@
 use std::cell::{Cell, RefCell};
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
 use crate::function::OptionalArg;
+use crate::pyhash;
 use crate::pyobject::{IdProtocol, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::{ReprGuard, VirtualMachine};
 
 use super::objbool;
-use super::objint;
 use super::objiter;
 use super::objsequence::{
     get_elements, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
@@ -129,14 +128,8 @@ impl PyTupleRef {
         }
     }
 
-    fn hash(self, vm: &VirtualMachine) -> PyResult<u64> {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        for element in self.elements.borrow().iter() {
-            let hash_result = vm.call_method(element, "__hash__", vec![])?;
-            let element_hash = objint::get_value(&hash_result);
-            element_hash.hash(&mut hasher);
-        }
-        Ok(hasher.finish())
+    fn hash(self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
+        pyhash::hash_iter(self.elements.borrow().iter(), vm)
     }
 
     fn iter(self, _vm: &VirtualMachine) -> PyTupleIterator {

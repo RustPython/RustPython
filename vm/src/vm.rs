@@ -23,12 +23,14 @@ use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
+use crate::obj::objint::PyInt;
 use crate::obj::objiter;
 use crate::obj::objsequence;
 use crate::obj::objstr::{PyString, PyStringRef};
 use crate::obj::objtuple::PyTupleRef;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
+use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyResult, PyValue, TryFromObject, TryIntoRef,
     TypeProtocol,
@@ -910,6 +912,15 @@ impl VirtualMachine {
         self.call_or_reflection(a, b, "__ge__", "__le__", |vm, a, b| {
             Err(vm.new_unsupported_operand_error(a, b, ">="))
         })
+    }
+
+    pub fn _hash(&self, obj: &PyObjectRef) -> PyResult<pyhash::PyHash> {
+        let hash_obj = self.call_method(obj, "__hash__", vec![])?;
+        if objtype::isinstance(&hash_obj, &self.ctx.int_type()) {
+            Ok(hash_obj.payload::<PyInt>().unwrap().hash(self))
+        } else {
+            Err(self.new_type_error("__hash__ method should return an integer".to_string()))
+        }
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
