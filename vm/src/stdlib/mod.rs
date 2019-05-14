@@ -6,6 +6,7 @@ pub(crate) mod json;
 mod keyword;
 mod math;
 mod platform;
+mod pwd;
 mod pystruct;
 mod random;
 mod re;
@@ -41,6 +42,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("keyword".to_string(), Box::new(keyword::make_module));
     modules.insert("math".to_string(), Box::new(math::make_module));
     modules.insert("platform".to_string(), Box::new(platform::make_module));
+    modules.insert("pwd".to_string(), Box::new(pwd::make_module));
     modules.insert("re".to_string(), Box::new(re::make_module));
     modules.insert("random".to_string(), Box::new(random::make_module));
     modules.insert("string".to_string(), Box::new(string::make_module));
