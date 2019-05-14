@@ -29,6 +29,7 @@ use crate::vm::VirtualMachine;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
+use crate::obj::objlist::PyList;
 
 fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     match vm.get_method(x.clone(), "__abs__") {
@@ -113,7 +114,12 @@ fn builtin_delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> 
 
 fn builtin_dir(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if args.args.is_empty() {
-        Ok(vm.get_locals().into_object())
+        let locals = vm.get_locals();
+        let mut vec: Vec<PyObjectRef> = Vec::new();
+        for (key, _val) in locals {
+            vec.push(key);
+        }
+        PyList::from(vec).into_pyobject(vm)
     } else {
         let obj = args.args.into_iter().next().unwrap();
         let seq = vm.call_method(&obj, "__dir__", vec![])?;
