@@ -3,6 +3,7 @@ use super::objint;
 use super::objstr;
 use super::objtype;
 use crate::function::OptionalArg;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyhash;
 use crate::pyobject::{
@@ -10,6 +11,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use hexf;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
 use num_traits::{ToPrimitive, Zero};
@@ -472,6 +474,16 @@ impl PyFloat {
         let numer = vm.ctx.new_int(ratio.numer().clone());
         let denom = vm.ctx.new_int(ratio.denom().clone());
         Ok(vm.ctx.new_tuple(vec![numer, denom]))
+    }
+
+    #[pymethod]
+    fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
+        hexf::parse_hexf64(&repr.value, false).or_else(|_| match repr.value.as_ref() {
+            "nan" => Ok(std::f64::NAN),
+            "inf" => Ok(std::f64::INFINITY),
+            "-inf" => Ok(std::f64::NEG_INFINITY),
+            _ => Err(vm.new_value_error("invalid hexadecimal floating-point string".to_string())),
+        })
     }
 }
 

@@ -196,3 +196,9 @@ assert str(1.123456789) == '1.123456789'
 a = .5
 assert a == 0.5
 
+assert float.fromhex('0x0.0p+0') == 0.0
+assert float.fromhex('-0x0.0p+0') == -0.0
+assert float.fromhex('0x1.000000p+0') == 1.0
+assert float.fromhex('-0x1.800000p+0') == -1.5
+assert float.fromhex('inf') == float('inf')
+assert math.isnan(float.fromhex('nan'))

@@ -28,6 +28,7 @@ unicode-xid = "0.1.0"
 lazy_static = "^1.0.1"
 lexical = "2.0.0"
 itertools = "^0.8.0"
+hexf = "0.1.0"
 
 # TODO: release and publish to crates.io
 [dependencies.unicode-casing]
