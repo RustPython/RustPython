@@ -8,8 +8,8 @@ use std::fmt;
 use crate::dictdatatype;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyClassImpl, PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue,
-    TryFromObject, TypeProtocol,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
@@ -280,7 +280,7 @@ impl PySetInner {
         Ok(())
     }
 
-    fn intersection_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn intersection_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let temp_inner = self.copy();
         self.clear();
         for item in iterable.iter(vm)? {
@@ -289,25 +289,25 @@ impl PySetInner {
                 self.add(&obj, vm)?;
             }
         }
-        Ok(vm.get_none())
+        Ok(())
     }
 
-    fn difference_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn difference_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         for item in iterable.iter(vm)? {
             self.content.delete_if_exists(vm, &item?)?;
         }
-        Ok(vm.get_none())
+        Ok(())
     }
 
     fn symmetric_difference_update(
         &mut self,
         iterable: PyIterable,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<()> {
         for item in iterable.iter(vm)? {
             self.content.delete_or_insert(vm, &item?, ())?;
         }
-        Ok(vm.get_none())
+        Ok(())
     }
 }
 
@@ -329,7 +329,7 @@ impl PySet {
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PySetRef> {
-        PySet {
+        Self {
             inner: RefCell::new(PySetInner::from_arg(iterable, vm)?),
         }
         .into_ref_with_type(vm, cls)
@@ -341,8 +341,8 @@ impl PySet {
     }
 
     #[pymethod]
-    fn copy(&self, _vm: &VirtualMachine) -> PySet {
-        PySet {
+    fn copy(&self, _vm: &VirtualMachine) -> Self {
+        Self {
             inner: RefCell::new(self.inner.borrow().copy()),
         }
     }
@@ -378,47 +378,31 @@ impl PySet {
     }
 
     #[pymethod]
-    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(self.inner.borrow().union(other, vm)?),
-            },
-            PySet::class(vm),
-            None,
-        ))
+    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: RefCell::new(self.inner.borrow().union(other, vm)?),
+        })
     }
 
     #[pymethod]
-    fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(self.inner.borrow().intersection(other, vm)?),
-            },
-            PySet::class(vm),
-            None,
-        ))
+    fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: RefCell::new(self.inner.borrow().intersection(other, vm)?),
+        })
     }
 
     #[pymethod]
-    fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(self.inner.borrow().difference(other, vm)?),
-            },
-            PySet::class(vm),
-            None,
-        ))
+    fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: RefCell::new(self.inner.borrow().difference(other, vm)?),
+        })
     }
 
     #[pymethod]
-    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(self.inner.borrow().symmetric_difference(other, vm)?),
-            },
-            PySet::class(vm),
-            None,
-        ))
+    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: RefCell::new(self.inner.borrow().symmetric_difference(other, vm)?),
+        })
     }
 
     #[pymethod]
@@ -437,22 +421,22 @@ impl PySet {
     }
 
     #[pymethod(name = "__or__")]
-    fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.union(other.iterable, vm)
     }
 
     #[pymethod(name = "__and__")]
-    fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.intersection(other.iterable, vm)
     }
 
     #[pymethod(name = "__sub__")]
-    fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.difference(other.iterable, vm)
     }
 
     #[pymethod(name = "__xor__")]
-    fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.symmetric_difference(other.iterable, vm)
     }
 
@@ -571,7 +555,7 @@ impl PyFrozenSet {
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSetRef> {
-        PyFrozenSet {
+        Self {
             inner: PySetInner::from_arg(iterable, vm)?,
         }
         .into_ref_with_type(vm, cls)
@@ -583,8 +567,8 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
-    fn copy(&self, _vm: &VirtualMachine) -> PyFrozenSet {
-        PyFrozenSet {
+    fn copy(&self, _vm: &VirtualMachine) -> Self {
+        Self {
             inner: self.inner.copy(),
         }
     }
@@ -620,47 +604,31 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
-    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: self.inner.union(other, vm)?,
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
+    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.union(other, vm)?,
+        })
     }
 
     #[pymethod]
-    fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: self.inner.intersection(other, vm)?,
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
+    fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.intersection(other, vm)?,
+        })
     }
 
     #[pymethod]
-    fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: self.inner.difference(other, vm)?,
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
+    fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.difference(other, vm)?,
+        })
     }
 
     #[pymethod]
-    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: self.inner.symmetric_difference(other, vm)?,
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
+    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.symmetric_difference(other, vm)?,
+        })
     }
 
     #[pymethod]
@@ -679,22 +647,22 @@ impl PyFrozenSet {
     }
 
     #[pymethod(name = "__or__")]
-    fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.union(other.iterable, vm)
     }
 
     #[pymethod(name = "__and__")]
-    fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.intersection(other.iterable, vm)
     }
 
     #[pymethod(name = "__sub__")]
-    fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.difference(other.iterable, vm)
     }
 
     #[pymethod(name = "__xor__")]
-    fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.symmetric_difference(other.iterable, vm)
     }
 
