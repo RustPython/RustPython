@@ -1,5 +1,6 @@
 use std::hash::{Hash, Hasher};
 
+use crate::obj::objfloat;
 use crate::pyobject::PyObjectRef;
 use crate::pyobject::PyResult;
 use crate::vm::VirtualMachine;
@@ -28,14 +29,7 @@ pub fn hash_float(value: f64) -> PyHash {
         };
     }
 
-    let frexp = if 0.0 == value {
-        (value, 0i32)
-    } else {
-        let bits = value.to_bits();
-        let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022;
-        let mantissa_bits = bits & (0x000fffffffffffff) | (1022 << 52);
-        (f64::from_bits(mantissa_bits), exponent)
-    };
+    let frexp = objfloat::ufrexp(value);
 
     // process 28 bits at a time;  this should work well both for binary
     // and hexadecimal floating point.

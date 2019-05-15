@@ -1,5 +1,5 @@
 import math
-from testutils import assertRaises
+from testutils import assertRaises, assert_raises
 
 # assert(math.exp(2) == math.exp(2.0))
 # assert(math.exp(True) == math.exp(1.0))
@@ -78,3 +78,12 @@ with assertRaises(TypeError):
     math.ceil(object())
 with assertRaises(TypeError):
     math.floor(object())
+
+assert str(math.frexp(0.0)) == str((+0.0, 0))
+assert str(math.frexp(-0.0)) == str((-0.0, 0))
+assert math.frexp(1) == (0.5, 1)
+assert math.frexp(1.5) == (0.75, 1)
+
+assert math.frexp(float('inf')) == (float('inf'), 0)
+assert str(math.frexp(float('nan'))) == str((float('nan'), 0))
+assert_raises(TypeError, lambda: math.frexp(None))

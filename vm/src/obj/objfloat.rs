@@ -298,6 +298,11 @@ impl PyFloat {
         )
     }
 
+    #[pymethod(name = "__pos__")]
+    fn pos(&self, _vm: &VirtualMachine) -> f64 {
+        self.value
+    }
+
     #[pymethod(name = "__neg__")]
     fn neg(&self, _vm: &VirtualMachine) -> f64 {
         -self.value
@@ -472,6 +477,17 @@ impl PyFloat {
         let numer = vm.ctx.new_int(ratio.numer().clone());
         let denom = vm.ctx.new_int(ratio.denom().clone());
         Ok(vm.ctx.new_tuple(vec![numer, denom]))
+    }
+}
+
+pub fn ufrexp(value: f64) -> (f64, i32) {
+    if 0.0 == value {
+        (0.0, 0i32)
+    } else {
+        let bits = value.to_bits();
+        let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022;
+        let mantissa_bits = bits & (0x000fffffffffffff) | (1022 << 52);
+        (f64::from_bits(mantissa_bits), exponent)
     }
 }
 
