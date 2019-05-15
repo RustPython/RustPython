@@ -27,6 +27,26 @@ assert set([1,2]) < set([1,2,3])
 assert not set([1,2]) < set([1,2])
 assert not set([1,3]) < set([1,2])
 
+assert (set() == []) is False
+assert set().__eq__([]) == NotImplemented
+assert_raises(TypeError, lambda: set() < [], "'<' not supported between instances of 'set' and 'list'")
+assert_raises(TypeError, lambda: set() <= [], "'<=' not supported between instances of 'set' and 'list'")
+assert_raises(TypeError, lambda: set() > [], "'>' not supported between instances of 'set' and 'list'")
+assert_raises(TypeError, lambda: set() >= [], "'>=' not supported between instances of 'set' and 'list'")
+assert set().issuperset([])
+assert set().issubset([])
+assert not set().issuperset([1, 2, 3])
+assert set().issubset([1, 2])
+
+assert (set() == 3) is False
+assert set().__eq__(3) == NotImplemented
+assert_raises(TypeError, lambda: set() < 3, "'int' object is not iterable")
+assert_raises(TypeError, lambda: set() <= 3, "'int' object is not iterable")
+assert_raises(TypeError, lambda: set() > 3, "'int' object is not iterable")
+assert_raises(TypeError, lambda: set() >= 3, "'int' object is not iterable")
+assert_raises(TypeError, lambda: set().issuperset(3), "'int' object is not iterable")
+assert_raises(TypeError, lambda: set().issubset(3), "'int' object is not iterable")
+
 class Hashable(object):
     def __init__(self, obj):
         self.obj = obj

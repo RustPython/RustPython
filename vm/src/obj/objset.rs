@@ -73,14 +73,20 @@ struct PySetInner {
 }
 
 impl PySetInner {
-    fn new(iterable: OptionalArg<PyIterable>, vm: &VirtualMachine) -> PyResult<PySetInner> {
+    fn new(iterable: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut set = PySetInner::default();
-        if let OptionalArg::Present(iterable) = iterable {
-            for item in iterable.iter(vm)? {
-                set.add(&item?, vm)?;
-            }
+        for item in iterable.iter(vm)? {
+            set.add(&item?, vm)?;
         }
         Ok(set)
+    }
+
+    fn from_arg(iterable: OptionalArg<PyIterable>, vm: &VirtualMachine) -> PyResult<PySetInner> {
+        if let OptionalArg::Present(iterable) = iterable {
+            Self::new(iterable, vm)
+        } else {
+            Ok(PySetInner::default())
+        }
     }
 
     fn len(&self) -> usize {
@@ -97,6 +103,7 @@ impl PySetInner {
         self.content.contains(vm, needle)
     }
 
+    #[inline]
     fn _compare_inner(
         &self,
         other: &PySetInner,
@@ -104,26 +111,13 @@ impl PySetInner {
         swap: bool,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let get_zelf = |swap: bool| -> &PySetInner {
-            if swap {
-                other
-            } else {
-                self
-            }
-        };
-        let get_other = |swap: bool| -> &PySetInner {
-            if swap {
-                self
-            } else {
-                other
-            }
-        };
+        let (zelf, other) = if swap { (other, self) } else { (self, other) };
 
-        if size_func(get_zelf(swap).len(), get_other(swap).len()) {
+        if size_func(zelf.len(), other.len()) {
             return Ok(vm.new_bool(false));
         }
-        for key in get_other(swap).content.keys() {
-            if !get_zelf(swap).contains(&key, vm)? {
+        for key in other.content.keys() {
+            if !zelf.contains(&key, vm)? {
                 return Ok(vm.new_bool(false));
             }
         }
@@ -211,6 +205,20 @@ impl PySetInner {
         }
 
         Ok(new_inner)
+    }
+
+    fn issuperset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        for item in other.iter(vm)? {
+            if !self.contains(&item?, vm)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+        let other_set = PySetInner::new(other, vm)?;
+        self.le(&other_set, vm)
     }
 
     fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
@@ -308,7 +316,7 @@ macro_rules! try_set_inner {
         match_class!($other,
             set @ PySet => $op(&*set.inner.borrow()),
             frozen @ PyFrozenSet => $op(&frozen.inner),
-            other => Err($vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class()))),
+            _ => Ok($vm.ctx.not_implemented()),
         );
     };
 }
@@ -322,7 +330,7 @@ impl PySet {
         vm: &VirtualMachine,
     ) -> PyResult<PySetRef> {
         PySet {
-            inner: RefCell::new(PySetInner::new(iterable, vm)?),
+            inner: RefCell::new(PySetInner::from_arg(iterable, vm)?),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -411,6 +419,16 @@ impl PySet {
             PySet::class(vm),
             None,
         ))
+    }
+
+    #[pymethod]
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().issubset(other, vm)
+    }
+
+    #[pymethod]
+    fn issuperset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.borrow().issuperset(other, vm)
     }
 
     #[pymethod]
@@ -539,16 +557,6 @@ impl PySet {
         Ok(zelf.as_object().clone())
     }
 
-    #[pymethod]
-    fn issubset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.le(other, vm)
-    }
-
-    #[pymethod]
-    fn issuperset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.ge(other, vm)
-    }
-
     #[pymethod(name = "__hash__")]
     fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type".to_string()))
@@ -564,7 +572,7 @@ impl PyFrozenSet {
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSetRef> {
         PyFrozenSet {
-            inner: PySetInner::new(iterable, vm)?,
+            inner: PySetInner::from_arg(iterable, vm)?,
         }
         .into_ref_with_type(vm, cls)
     }
@@ -656,6 +664,16 @@ impl PyFrozenSet {
     }
 
     #[pymethod]
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+        self.inner.issubset(other, vm)
+    }
+
+    #[pymethod]
+    fn issuperset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issuperset(other, vm)
+    }
+
+    #[pymethod]
     fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.isdisjoint(other, vm)
     }
@@ -696,16 +714,6 @@ impl PyFrozenSet {
             "frozenset(...)".to_string()
         };
         Ok(vm.new_str(s))
-    }
-
-    #[pymethod]
-    fn issubset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.le(other, vm)
-    }
-
-    #[pymethod]
-    fn issuperset(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.ge(other, vm)
     }
 }
 
