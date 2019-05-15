@@ -303,6 +303,16 @@ impl PySetInner {
     }
 }
 
+macro_rules! try_set_inner {
+    ($vm:expr, $other:expr, $op:expr) => {
+        match_class!($other,
+            set @ PySet => $op(&*set.inner.borrow()),
+            frozen @ PyFrozenSet => $op(&frozen.inner),
+            other => Err($vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class()))),
+        );
+    };
+}
+
 #[pyimpl]
 impl PySet {
     #[pymethod(name = "__new__")]
@@ -336,47 +346,27 @@ impl PySet {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().eq(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().eq(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.borrow().eq(other, vm))
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().ge(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().ge(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.borrow().ge(other, vm))
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().gt(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().gt(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.borrow().gt(other, vm))
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().le(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().le(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.borrow().le(other, vm))
     }
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().lt(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().lt(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.borrow().lt(other, vm))
     }
 
     #[pymethod]
@@ -598,47 +588,27 @@ impl PyFrozenSet {
 
     #[pymethod(name = "__eq__")]
     fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.eq(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.eq(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.eq(other, vm))
     }
 
     #[pymethod(name = "__ge__")]
     fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.ge(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.ge(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.ge(other, vm))
     }
 
     #[pymethod(name = "__gt__")]
     fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.gt(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.gt(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.gt(other, vm))
     }
 
     #[pymethod(name = "__le__")]
     fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.le(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.le(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.le(other, vm))
     }
 
     #[pymethod(name = "__lt__")]
     fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.lt(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.lt(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+        try_set_inner!(vm, other, |other| self.inner.lt(other, vm))
     }
 
     #[pymethod]
