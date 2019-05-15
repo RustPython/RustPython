@@ -103,6 +103,12 @@ assert set([1,2,3]).isdisjoint(set([5,6])) == True
 assert set([1,2,3]).isdisjoint(set([2,5,6])) == False
 assert set([1,2,3]).isdisjoint([5,6]) == True
 
+assert_raises(TypeError, lambda: set() & [])
+assert_raises(TypeError, lambda: set() | [])
+assert_raises(TypeError, lambda: set() ^ [])
+assert_raises(TypeError, lambda: set() + [])
+assert_raises(TypeError, lambda: set() - [])
+
 assert_raises(TypeError, lambda: set([[]]))
 assert_raises(TypeError, lambda: set().add([]))
 

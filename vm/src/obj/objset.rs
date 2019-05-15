@@ -425,9 +425,19 @@ impl PySet {
         self.union(other.iterable, vm)
     }
 
+    #[pymethod(name = "__ror__")]
+    fn ror(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.or(other, vm)
+    }
+
     #[pymethod(name = "__and__")]
     fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.intersection(other.iterable, vm)
+    }
+
+    #[pymethod(name = "__rand__")]
+    fn rand(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.and(other, vm)
     }
 
     #[pymethod(name = "__sub__")]
@@ -435,9 +445,19 @@ impl PySet {
         self.difference(other.iterable, vm)
     }
 
+    #[pymethod(name = "__rsub__")]
+    fn rsub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.sub(other, vm)
+    }
+
     #[pymethod(name = "__xor__")]
     fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.symmetric_difference(other.iterable, vm)
+    }
+
+    #[pymethod(name = "__rxor__")]
+    fn rxor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.xor(other, vm)
     }
 
     #[pymethod(name = "__iter__")]
@@ -651,9 +671,19 @@ impl PyFrozenSet {
         self.union(other.iterable, vm)
     }
 
+    #[pymethod(name = "__ror__")]
+    fn ror(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.or(other, vm)
+    }
+
     #[pymethod(name = "__and__")]
     fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.intersection(other.iterable, vm)
+    }
+
+    #[pymethod(name = "__rand__")]
+    fn rand(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.and(other, vm)
     }
 
     #[pymethod(name = "__sub__")]
@@ -661,9 +691,19 @@ impl PyFrozenSet {
         self.difference(other.iterable, vm)
     }
 
+    #[pymethod(name = "__rsub__")]
+    fn rsub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.sub(other, vm)
+    }
+
     #[pymethod(name = "__xor__")]
     fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.symmetric_difference(other.iterable, vm)
+    }
+
+    #[pymethod(name = "__rxor__")]
+    fn rxor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.xor(other, vm)
     }
 
     #[pymethod(name = "__iter__")]
