@@ -14,7 +14,7 @@ use crate::vm::VirtualMachine;
 use hexf;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::{ToPrimitive, Zero};
+use num_traits::{float::Float, ToPrimitive, Zero};
 
 /// Convert a string or number to a floating point number, if possible.
 #[pyclass(name = "float")]
@@ -484,6 +484,49 @@ impl PyFloat {
             "-inf" => Ok(std::f64::NEG_INFINITY),
             _ => Err(vm.new_value_error("invalid hexadecimal floating-point string".to_string())),
         })
+    }
+
+    #[pymethod]
+    fn hex(&self, _vm: &VirtualMachine) -> String {
+        to_hex(self.value)
+    }
+}
+
+fn to_hex(value: f64) -> String {
+    let (mantissa, exponent, sign) = value.integer_decode();
+    let sign_fmt = if sign < 0 { "-" } else { "" };
+    match value {
+        value if value.is_zero() => format!("{}0x0.0p+0", sign_fmt),
+        value if value.is_infinite() => format!("{}inf", sign_fmt),
+        value if value.is_nan() => "nan".to_string(),
+        _ => {
+            const BITS: i16 = 52;
+            const FRACT_MASK: u64 = 0xf_ffff_ffff_ffff;
+            format!(
+                "{}0x{:x}.{:013x}p{:+}",
+                sign_fmt,
+                mantissa >> BITS,
+                mantissa & FRACT_MASK,
+                exponent + BITS
+            )
+        }
+    }
+}
+
+#[test]
+fn test_to_hex() {
+    use rand::Rng;
+    for _ in 0..20000 {
+        let bytes = rand::thread_rng().gen::<[u64; 1]>();
+        let f = f64::from_bits(bytes[0]);
+        if !f.is_finite() {
+            continue;
+        }
+        let hex = to_hex(f);
+        // println!("{} -> {}", f, hex);
+        let roundtrip = hexf::parse_hexf64(&hex, false).unwrap();
+        // println!("  -> {}", roundtrip);
+        assert!(f == roundtrip, "{} {} {}", f, hex, roundtrip);
     }
 }
 
