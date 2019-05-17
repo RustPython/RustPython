@@ -196,3 +196,21 @@ assert str(1.123456789) == '1.123456789'
 a = .5
 assert a == 0.5
 
+assert float.fromhex('0x0.0p+0') == 0.0
+assert float.fromhex('-0x0.0p+0') == -0.0
+assert float.fromhex('0x1.000000p+0') == 1.0
+assert float.fromhex('-0x1.800000p+0') == -1.5
+assert float.fromhex('inf') == float('inf')
+assert math.isnan(float.fromhex('nan'))
+
+assert (0.0).hex() == '0x0.0p+0'
+assert (-0.0).hex() == '-0x0.0p+0'
+assert (1.0).hex() == '0x1.0000000000000p+0'
+assert (-1.5).hex() == '-0x1.8000000000000p+0'
+assert float('inf').hex() == 'inf'
+assert float('-inf').hex() == '-inf'
+assert float('nan').hex() == 'nan'
+
+#for _ in range(10000):
+#    f = random.random() * random.randint(0, 0x10000000000000000)
+#    assert f == float.fromhex(f.hex())
