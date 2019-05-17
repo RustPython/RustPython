@@ -7,12 +7,16 @@ use crate::vm::VirtualMachine;
 pub type PyHash = i64;
 pub type PyUHash = u64;
 
+/// Prime multiplier used in string and various other hashes.
+pub const MULTIPLIER: PyHash = 1000003; // 0xf4243
+/// Numeric hashes are based on reduction modulo the prime 2**_BITS - 1
 pub const BITS: usize = 61;
 pub const MODULUS: PyUHash = (1 << BITS) - 1;
-// pub const CUTOFF: usize = 7;
-
 pub const INF: PyHash = 314159;
 pub const NAN: PyHash = 0;
+pub const IMAG: PyHash = MULTIPLIER;
+
+// pub const CUTOFF: usize = 7;
 
 pub fn hash_float(value: f64) -> PyHash {
     // cpython _Py_HashDouble
