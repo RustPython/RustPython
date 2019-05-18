@@ -84,6 +84,16 @@ with assertRaises(StopIteration):
     next(r)
 
 
+# itertools.starmap tests
+starmap = itertools.starmap
+
+assert list(starmap(pow, zip(range(3), range(1,7)))) ==  [0**1, 1**2, 2**3]
+assert list(starmap(pow, [])) == []
+assert list(starmap(pow, [iter([4,5])])) == [4**5]
+with assertRaises(TypeError):
+    starmap(pow)
+
+
 # itertools.takewhile tests
 
 from itertools import takewhile as tw

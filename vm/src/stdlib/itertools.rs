@@ -122,6 +122,51 @@ impl PyItertoolsRepeat {
     }
 }
 
+#[pyclass(name = "starmap")]
+#[derive(Debug)]
+struct PyItertoolsStarmap {
+    function: PyObjectRef,
+    iter: PyObjectRef,
+}
+
+impl PyValue for PyItertoolsStarmap {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "starmap")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsStarmap {
+    #[pymethod(name = "__new__")]
+    fn new(
+        _cls: PyClassRef,
+        function: PyObjectRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let iter = get_iter(vm, &iterable)?;
+
+        Ok(PyItertoolsStarmap {
+            function: function,
+            iter: iter,
+        }
+        .into_ref(vm)
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = call_next(vm, &self.iter)?;
+
+        vm.invoke(self.function.clone(), vm.extract_elements(&obj)?)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 #[pyclass]
 #[derive(Debug)]
 struct PyItertoolsTakewhile {
@@ -190,12 +235,15 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let repeat = ctx.new_class("repeat", ctx.object());
     PyItertoolsRepeat::extend_class(ctx, &repeat);
 
+    let starmap = PyItertoolsStarmap::make_class(ctx);
+
     let takewhile = ctx.new_class("takewhile", ctx.object());
     PyItertoolsTakewhile::extend_class(ctx, &takewhile);
 
     py_module!(vm, "itertools", {
         "count" => count,
         "repeat" => repeat,
+        "starmap" => starmap,
         "takewhile" => takewhile,
     })
 }
