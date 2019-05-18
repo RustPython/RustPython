@@ -7,3 +7,8 @@ assert sys.platform == "linux" or sys.platform == "darwin" or sys.platform == "w
 
 assert isinstance(sys.builtin_module_names, tuple)
 assert 'sys' in sys.builtin_module_names
+
+assert isinstance(sys.flags, tuple)
+assert type(sys.flags).__name__ == "flags"
+assert type(sys.flags.optimize) is int
+assert sys.flags[3] == sys.flags.optimize

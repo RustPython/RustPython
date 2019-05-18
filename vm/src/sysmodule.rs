@@ -4,7 +4,7 @@ use std::{env, mem};
 use crate::frame::FrameRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{IntoPyObject, ItemProtocol, PyContext, PyObjectRef, PyResult};
+use crate::pyobject::{IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 /*
@@ -27,6 +27,26 @@ fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRe
     Ok(frame.clone())
 }
 
+#[pystruct_sequence(name = "flags")]
+#[derive(Default, Debug)]
+struct SysFlags {
+    debug: bool,
+    inspect: bool,
+    interactive: bool,
+    optimize: u8,
+    dont_write_bytecode: bool,
+    no_user_site: bool,
+    no_site: bool,
+    ignore_environment: bool,
+    verbose: bool,
+    bytes_warning: bool,
+    quiet: bool,
+    hash_randomization: bool,
+    isolated: bool,
+    dev_mode: bool,
+    utf8_mode: bool,
+}
+
 fn sys_getrefcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     let size = Rc::strong_count(&object);
@@ -47,6 +67,12 @@ fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
 
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
+
+    let flags_type = SysFlags::make_class(ctx);
+    // TODO parse command line arguments and environment variables to populate SysFlags
+    let flags = SysFlags::default()
+        .into_struct_sequence(vm, flags_type)
+        .unwrap();
 
     let path_list = match env::var_os("PYTHONPATH") {
         Some(paths) => env::split_paths(&paths)
@@ -152,6 +178,7 @@ settrace() -- set the global debug tracing function
     extend_module!(vm, module, {
       "argv" => argv(ctx),
       "builtin_module_names" => ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm).unwrap()).collect()),
+      "flags" => flags,
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
       "intern" => ctx.new_rustfunc(sys_intern),

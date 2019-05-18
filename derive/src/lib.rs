@@ -1,3 +1,5 @@
+#![recursion_limit = "128"]
+
 extern crate proc_macro;
 
 #[macro_use]
@@ -37,4 +39,11 @@ pub fn pyimpl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr as AttributeArgs);
     let item = parse_macro_input!(item as Item);
     result_to_tokens(pyclass::impl_pyimpl(attr, item))
+}
+
+#[proc_macro_attribute]
+pub fn pystruct_sequence(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attr = parse_macro_input!(attr as AttributeArgs);
+    let item = parse_macro_input!(item as Item);
+    result_to_tokens(pyclass::impl_pystruct_sequence(attr, item))
 }

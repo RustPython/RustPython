@@ -2,7 +2,9 @@ use super::Diagnostic;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use std::collections::HashMap;
-use syn::{Attribute, AttributeArgs, Ident, ImplItem, Item, Lit, Meta, MethodSig, NestedMeta};
+use syn::{
+    Attribute, AttributeArgs, Ident, ImplItem, Index, Item, Lit, Meta, MethodSig, NestedMeta,
+};
 
 enum ClassItem {
     Method {
@@ -266,16 +268,12 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
     Ok(ret)
 }
 
-pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    let (item, ident, attrs) = match item {
-        Item::Struct(struc) => (quote!(#struc), struc.ident, struc.attrs),
-        Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
-        other => bail_span!(
-            other,
-            "#[pyclass] can only be on a struct or enum declaration"
-        ),
-    };
-
+fn generate_class_def(
+    ident: &Ident,
+    attr_name: &'static str,
+    attr: AttributeArgs,
+    attrs: &Vec<Attribute>,
+) -> Result<TokenStream2, Diagnostic> {
     let mut class_name = None;
     for attr in attr {
         if let NestedMeta::Meta(meta) = attr {
@@ -284,7 +282,11 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
                     if let Lit::Str(s) = name_value.lit {
                         class_name = Some(s.value());
                     } else {
-                        bail_span!(name_value.lit, "#[pyclass(name = ...)] must be a string");
+                        bail_span!(
+                            name_value.lit,
+                            "#[{}(name = ...)] must be a string",
+                            attr_name
+                        );
                     }
                 }
             }
@@ -316,11 +318,110 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
     };
 
     let ret = quote! {
-        #item
         impl ::rustpython_vm::pyobject::PyClassDef for #ident {
             const NAME: &'static str = #class_name;
             const DOC: Option<&'static str> = #doc;
         }
     };
     Ok(ret)
+}
+
+pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
+    let (item, ident, attrs) = match item {
+        Item::Struct(struc) => (quote!(#struc), struc.ident, struc.attrs),
+        Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
+        other => bail_span!(
+            other,
+            "#[pyclass] can only be on a struct or enum declaration"
+        ),
+    };
+
+    let class_def = generate_class_def(&ident, "pyclass", attr, &attrs)?;
+
+    let ret = quote! {
+        #item
+        #class_def
+    };
+    Ok(ret)
+}
+
+pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
+    if let Item::Struct(struc) = item {
+        let class_def = generate_class_def(&struc.ident, "pystruct_sequence", attr, &struc.attrs)?;
+        let mut methods = Vec::new();
+        let mut method_references = Vec::new();
+        let mut field_names = Vec::new();
+        for (i, field) in struc.fields.iter().enumerate() {
+            let idx = Index::from(i);
+            if let Some(ref field_name) = field.ident {
+                let method_name = format!("get_{}", field_name);
+                let method_ident = Ident::new(&method_name, field_name.span());
+
+                let method = quote! {
+                    fn #method_ident(
+                        zelf: &::rustpython_vm::obj::objtuple::PyTuple,
+                        _vm: &::rustpython_vm::vm::VirtualMachine)
+                        -> ::rustpython_vm::pyobject::PyObjectRef {
+                        zelf.fast_getitem(#idx)
+                    }
+                };
+                methods.push(method);
+                let field_name_str = field_name.to_string();
+                let method_reference = quote! {
+                    class.set_str_attr(
+                        #field_name_str,
+                        ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
+                            .add_getter(Self::#method_ident)
+                            .create(),
+                    );
+                };
+                method_references.push(method_reference);
+                field_names.push(quote!(#field_name));
+            } else {
+                field_names.push(quote!(#idx));
+            }
+        }
+
+        let ty = &struc.ident;
+        let ret = quote! {
+            #struc
+            #class_def
+            impl #ty {
+                fn into_struct_sequence(&self,
+                    vm: &::rustpython_vm::vm::VirtualMachine,
+                    cls: ::rustpython_vm::obj::objtype::PyClassRef,
+                ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {
+                    let tuple: ::rustpython_vm::obj::objtuple::PyTuple =
+                        vec![#(::rustpython_vm::pyobject::IntoPyObject
+                                    ::into_pyobject(self.#field_names, vm)?
+                             ),*].into();
+                    ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
+                }
+
+                #(#methods)*
+            }
+            impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+                fn impl_extend_class(
+                    ctx: &::rustpython_vm::pyobject::PyContext,
+                    class: &::rustpython_vm::obj::objtype::PyClassRef,
+                ) {
+                    #(#method_references)*
+                }
+
+                fn make_class(
+                    ctx: &::rustpython_vm::pyobject::PyContext
+                ) -> ::rustpython_vm::obj::objtype::PyClassRef {
+                    let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type());
+                    Self::extend_class(ctx, &py_class);
+                    py_class
+                }
+            }
+        };
+        Ok(ret)
+    } else {
+        bail_span!(
+            item,
+            "#[pystruct_sequence] can only be on a struct declaration"
+        )
+    }
 }
