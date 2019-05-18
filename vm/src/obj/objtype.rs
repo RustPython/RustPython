@@ -248,7 +248,7 @@ pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let (typ, name, bases, dict) = args.bind(vm)?;
         type_new_class(vm, typ, name, bases, dict).map(PyRef::into_object)
     } else {
-        Err(vm.new_type_error(format!(": type_new: {:?}", args)))
+        Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()))
     }
 }
 
