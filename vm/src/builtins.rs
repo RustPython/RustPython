@@ -613,18 +613,11 @@ impl Printer for std::io::StdoutLock<'_> {
     }
 }
 
-pub fn builtin_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [], optional = [(object, None)]);
+pub fn builtin_exit(object: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
     match object {
-        Some(value) => match i32::try_from_object(&vm, value.clone()) {
+        OptionalArg::Present(object) => match i32::try_from_object(&vm, object.clone()) {
             Ok(code) => std::process::exit(code),
-            _ => {
-                let stdout = io::stdout();
-                let mut printer: Box<dyn Printer> = Box::new(stdout.lock());
-                printer.write(vm, value.clone())?;
-                printer.write(vm, "\n".into_pyobject(vm).unwrap())?;
-                printer.flush(vm)?;
-            }
+            _ => println!("{}", vm.to_str(&object)?.as_str()),
         },
         _ => {}
     }
