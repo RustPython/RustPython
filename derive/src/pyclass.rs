@@ -367,6 +367,7 @@ pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenSt
                 };
                 methods.push(method);
                 let field_name_str = field_name.to_string();
+                // TODO add doc to the generated property
                 let method_reference = quote! {
                     class.set_str_attr(
                         #field_name_str,

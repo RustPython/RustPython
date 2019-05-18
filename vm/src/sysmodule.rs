@@ -27,23 +27,41 @@ fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRe
     Ok(frame.clone())
 }
 
+/// sys.flags
+///
+/// Flags provided through command line arguments or environment vars.
 #[pystruct_sequence(name = "flags")]
 #[derive(Default, Debug)]
 struct SysFlags {
+    /// -d
     debug: bool,
+    /// -i
     inspect: bool,
+    /// -i
     interactive: bool,
+    /// -O or -OO
     optimize: u8,
+    /// -B
     dont_write_bytecode: bool,
+    /// -s
     no_user_site: bool,
+    /// -S
     no_site: bool,
+    /// -E
     ignore_environment: bool,
+    /// -v
     verbose: bool,
+    /// -b
     bytes_warning: bool,
+    /// -q
     quiet: bool,
+    /// -R
     hash_randomization: bool,
+    /// -I
     isolated: bool,
+    /// -X dev
     dev_mode: bool,
+    /// -X utf8
     utf8_mode: bool,
 }
 
