@@ -613,6 +613,17 @@ impl Printer for std::io::StdoutLock<'_> {
     }
 }
 
+pub fn builtin_exit(object: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+    match object {
+        OptionalArg::Present(object) => match i32::try_from_object(&vm, object.clone()) {
+            Ok(code) => std::process::exit(code),
+            _ => println!("{}", vm.to_str(&object)?.as_str()),
+        },
+        _ => {}
+    }
+    std::process::exit(0);
+}
+
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
     let stdout = io::stdout();
 
@@ -823,6 +834,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "tuple" => ctx.tuple_type(),
         "type" => ctx.type_type(),
         "zip" => ctx.zip_type(),
+        "exit" => ctx.new_rustfunc(builtin_exit),
+        "quit" => ctx.new_rustfunc(builtin_exit),
         "__import__" => ctx.new_rustfunc(builtin_import),
 
         // Constants
