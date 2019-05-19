@@ -19,7 +19,7 @@ impl PyValue for PyNamespace {
 #[pyimpl]
 impl PyNamespace {
     #[pymethod(name = "__init__")]
-    fn init(zelf: PyRef<PyNamespace>, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: PyRef<Self>, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult<()> {
         for (name, value) in kwargs.into_iter() {
             vm.set_attr(zelf.as_object(), name, value)?;
         }
