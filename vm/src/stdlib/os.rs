@@ -14,7 +14,7 @@ use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
 use crate::obj::objstr::{self, PyString, PyStringRef};
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
     ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
