@@ -346,83 +346,71 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
 }
 
 pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    if let Item::Struct(struc) = item {
-        let class_def = generate_class_def(&struc.ident, "pystruct_sequence", attr, &struc.attrs)?;
-        let mut methods = Vec::new();
-        let mut method_references = Vec::new();
-        let mut field_names = Vec::new();
-        for (i, field) in struc.fields.iter().enumerate() {
-            let idx = Index::from(i);
-            if let Some(ref field_name) = field.ident {
-                let method_name = format!("get_{}", field_name);
-                let method_ident = Ident::new(&method_name, field_name.span());
-
-                let method = quote! {
-                    fn #method_ident(
-                        zelf: &::rustpython_vm::obj::objtuple::PyTuple,
-                        _vm: &::rustpython_vm::vm::VirtualMachine)
-                        -> ::rustpython_vm::pyobject::PyObjectRef {
-                        zelf.fast_getitem(#idx)
-                    }
-                };
-                methods.push(method);
-                let field_name_str = field_name.to_string();
-                // TODO add doc to the generated property
-                let method_reference = quote! {
-                    class.set_str_attr(
-                        #field_name_str,
-                        ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
-                            .add_getter(Self::#method_ident)
-                            .create(),
-                    );
-                };
-                method_references.push(method_reference);
-                field_names.push(quote!(#field_name));
-            } else {
-                field_names.push(quote!(#idx));
-            }
-        }
-
-        let ty = &struc.ident;
-        let ret = quote! {
-            #struc
-            #class_def
-            impl #ty {
-                fn into_struct_sequence(&self,
-                    vm: &::rustpython_vm::vm::VirtualMachine,
-                    cls: ::rustpython_vm::obj::objtype::PyClassRef,
-                ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {
-                    let tuple: ::rustpython_vm::obj::objtuple::PyTuple =
-                        vec![#(::rustpython_vm::pyobject::IntoPyObject
-                                    ::into_pyobject(self.#field_names, vm)?
-                             ),*].into();
-                    ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
-                }
-
-                #(#methods)*
-            }
-            impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
-                fn impl_extend_class(
-                    ctx: &::rustpython_vm::pyobject::PyContext,
-                    class: &::rustpython_vm::obj::objtype::PyClassRef,
-                ) {
-                    #(#method_references)*
-                }
-
-                fn make_class(
-                    ctx: &::rustpython_vm::pyobject::PyContext
-                ) -> ::rustpython_vm::obj::objtype::PyClassRef {
-                    let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type());
-                    Self::extend_class(ctx, &py_class);
-                    py_class
-                }
-            }
-        };
-        Ok(ret)
+    let struc = if let Item::Struct(struc) = item {
+        struc
     } else {
         bail_span!(
             item,
             "#[pystruct_sequence] can only be on a struct declaration"
         )
+    };
+    let class_def = generate_class_def(&struc.ident, "pystruct_sequence", attr, &struc.attrs)?;
+    let mut properties = Vec::new();
+    let mut field_names = Vec::new();
+    for (i, field) in struc.fields.iter().enumerate() {
+        let idx = Index::from(i);
+        if let Some(ref field_name) = field.ident {
+            let field_name_str = field_name.to_string();
+            // TODO add doc to the generated property
+            let property = quote! {
+                class.set_str_attr(
+                    #field_name_str,
+                    ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
+                        .add_getter(|zelf: &::rustpython_vm::obj::objtuple::PyTuple,
+                                     _vm: &::rustpython_vm::vm::VirtualMachine|
+                                     zelf.fast_getitem(#idx))
+                        .create(),
+                );
+            };
+            properties.push(property);
+            field_names.push(quote!(#field_name));
+        } else {
+            field_names.push(quote!(#idx));
+        }
     }
+
+    let ty = &struc.ident;
+    let ret = quote! {
+        #struc
+        #class_def
+        impl #ty {
+            fn into_struct_sequence(&self,
+                vm: &::rustpython_vm::vm::VirtualMachine,
+                cls: ::rustpython_vm::obj::objtype::PyClassRef,
+            ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {
+                let tuple: ::rustpython_vm::obj::objtuple::PyTuple =
+                    vec![#(::rustpython_vm::pyobject::IntoPyObject
+                                ::into_pyobject(self.#field_names, vm)?
+                         ),*].into();
+                ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
+            }
+        }
+        impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+            fn impl_extend_class(
+                ctx: &::rustpython_vm::pyobject::PyContext,
+                class: &::rustpython_vm::obj::objtype::PyClassRef,
+            ) {
+                #(#properties)*
+            }
+
+            fn make_class(
+                ctx: &::rustpython_vm::pyobject::PyContext
+            ) -> ::rustpython_vm::obj::objtype::PyClassRef {
+                let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type());
+                Self::extend_class(ctx, &py_class);
+                py_class
+            }
+        }
+    };
+    Ok(ret)
 }
