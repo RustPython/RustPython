@@ -14,9 +14,9 @@ use crate::obj::objint::{self, PyInt, PyIntRef};
 use crate::obj::objiter;
 use crate::obj::objset::PySet;
 use crate::obj::objstr::{self, PyString, PyStringRef};
-use crate::obj::objtype::PyClassRef;
+use crate::obj::objtype::{self, PyClassRef};
 use crate::pyobject::{
-    ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef,
+    ItemProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -617,6 +617,19 @@ fn os_chdir(path: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
     env::set_current_dir(&path.value).map_err(|s| vm.new_os_error(s.to_string()))
 }
 
+fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    if objtype::issubclass(&path.class(), &vm.ctx.str_type())
+        || objtype::issubclass(&path.class(), &vm.ctx.bytes_type())
+    {
+        Ok(path)
+    } else {
+        Err(vm.new_type_error(format!(
+            "expected str or bytes object, not {}",
+            path.class()
+        )))
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -725,6 +738,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
         "getcwd" => ctx.new_rustfunc(os_getcwd),
+        "chdir" => ctx.new_rustfunc(os_chdir),
+        "fspath" => ctx.new_rustfunc(os_fspath),
         "O_RDONLY" => ctx.new_int(0),
         "O_WRONLY" => ctx.new_int(1),
         "O_RDWR" => ctx.new_int(2),
