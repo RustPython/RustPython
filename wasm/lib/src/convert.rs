@@ -40,10 +40,10 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
     });
     if let Ok(tb) = vm.get_attribute(py_err.clone(), "__traceback__") {
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let elements = objsequence::get_elements(&tb).to_vec();
+            let elements = objsequence::get_elements_list(&tb).to_vec();
             if let Some(top) = elements.get(0) {
                 if objtype::isinstance(&top, &vm.ctx.tuple_type()) {
-                    let element = objsequence::get_elements(&top);
+                    let element = objsequence::get_elements_list(&top);
 
                     if let Some(lineno) = objint::to_int(vm, &element[1], 10)
                         .ok()

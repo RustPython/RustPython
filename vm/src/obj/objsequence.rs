@@ -351,12 +351,16 @@ pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRe
     panic!("Cannot extract elements from non-sequence");
 }
 
-pub fn get_elements<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
+pub fn get_elements_list<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
     if let Some(list) = obj.payload::<PyList>() {
         return list.elements.borrow();
     }
+    panic!("Cannot extract elements from non-sequence");
+}
+
+pub fn get_elements_tuple<'a>(obj: &'a PyObjectRef) -> impl Deref<Target = Vec<PyObjectRef>> + 'a {
     if let Some(tuple) = obj.payload::<PyTuple>() {
-        return tuple.elements.borrow();
+        return &tuple.elements;
     }
     panic!("Cannot extract elements from non-sequence");
 }

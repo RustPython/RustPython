@@ -349,14 +349,14 @@ impl Address {
 impl TryFromObject for Address {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        if tuple.elements.borrow().len() != 2 {
+        if tuple.elements.len() != 2 {
             Err(vm.new_type_error("Address tuple should have only 2 values".to_string()))
         } else {
             Ok(Address {
-                host: PyStringRef::try_from_object(vm, tuple.elements.borrow()[0].clone())?
+                host: PyStringRef::try_from_object(vm, tuple.elements[0].clone())?
                     .value
                     .to_string(),
-                port: PyIntRef::try_from_object(vm, tuple.elements.borrow()[1].clone())?
+                port: PyIntRef::try_from_object(vm, tuple.elements[1].clone())?
                     .as_bigint()
                     .to_usize()
                     .unwrap(),

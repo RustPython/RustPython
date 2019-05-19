@@ -44,11 +44,11 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let mut elements = objsequence::get_elements(&tb).to_vec();
+            let mut elements = objsequence::get_elements_list(&tb).to_vec();
             elements.reverse();
             for element in elements.iter() {
                 if objtype::isinstance(&element, &vm.ctx.tuple_type()) {
-                    let element = objsequence::get_elements(&element);
+                    let element = objsequence::get_elements_tuple(&element);
                     let filename = if let Ok(x) = vm.to_str(&element[0]) {
                         x.value.clone()
                     } else {

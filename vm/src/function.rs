@@ -538,7 +538,7 @@ pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
     match_class!(obj,
         obj @ T => predicate(obj),
         tuple @ PyTuple => {
-            for obj in tuple.elements.borrow().iter() {
+            for obj in tuple.elements.iter() {
                 let inner_val = PyRef::<T>::try_from_object(vm, obj.clone())?;
                 if predicate(inner_val)? {
                     return Ok(true);

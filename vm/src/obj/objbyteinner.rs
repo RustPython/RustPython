@@ -686,7 +686,7 @@ impl PyByteInner {
             Either::A(byte) => byte.elements,
             Either::B(tuple) => {
                 let mut flatten = vec![];
-                for v in objsequence::get_elements(tuple.as_object()).to_vec() {
+                for v in objsequence::get_elements_tuple(tuple.as_object()).to_vec() {
                     flatten.extend(PyByteInner::try_from_object(vm, v)?.elements)
                 }
                 flatten
