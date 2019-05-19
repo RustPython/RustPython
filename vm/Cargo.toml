@@ -19,7 +19,6 @@ serde = "1.0.66"
 serde_derive = "1.0.66"
 serde_json = "1.0.26"
 byteorder = "1.2.6"
-pwd = "1"
 regex = "1"
 rustc_version_runtime = "0.1.*"
 statrs = "0.10.0"
@@ -35,3 +34,6 @@ hexf = "0.1.0"
 [dependencies.unicode-casing]
 git = "https://github.com/OddCoincidence/unicode-casing"
 rev = "90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb"
+
+[target.'cfg(unix)'.dependencies]
+pwd = "1"
