@@ -48,6 +48,12 @@ fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
+    // TODO Add crate version to this namespace
+    let implementation = py_namespace!(vm, {
+        "name" => ctx.new_str("RustPython".to_string()),
+        "cache_tag" => ctx.new_str("rustpython-01".to_string()),
+    });
+
     let path_list = match env::var_os("PYTHONPATH") {
         Some(paths) => env::split_paths(&paths)
             .map(|path| {
@@ -154,6 +160,7 @@ settrace() -- set the global debug tracing function
       "builtin_module_names" => ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm).unwrap()).collect()),
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
+      "implementation" => implementation,
       "intern" => ctx.new_rustfunc(sys_intern),
       "maxsize" => ctx.new_int(std::usize::MAX),
       "path" => path,
