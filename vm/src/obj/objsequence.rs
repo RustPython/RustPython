@@ -368,9 +368,6 @@ pub fn get_mut_elements<'a>(obj: &'a PyObjectRef) -> impl DerefMut<Target = Vec<
     if let Some(list) = obj.payload::<PyList>() {
         return list.elements.borrow_mut();
     }
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return tuple.elements.borrow_mut();
-    }
     panic!("Cannot extract elements from non-sequence");
 }
 
