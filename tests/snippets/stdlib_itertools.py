@@ -3,6 +3,24 @@ import itertools
 from testutils import assertRaises
 
 
+# itertools.chain tests
+chain = itertools.chain
+
+# empty
+assert list(chain()) == []
+assert list(chain([], "", b"", ())) == []
+
+assert list(chain([1, 2, 3, 4])) == [1, 2, 3, 4]
+assert list(chain("ab", "cd", (), 'e')) == ['a', 'b', 'c', 'd', 'e']
+with assertRaises(TypeError):
+    list(chain(1))
+
+x = chain("ab", 1)
+assert next(x) == 'a'
+assert next(x) == 'b'
+with assertRaises(TypeError):
+    next(x)
+
 # itertools.count tests
 
 # default arguments
