@@ -348,9 +348,6 @@ pub fn get_elements_cell<'a>(obj: &'a PyObjectRef) -> &'a RefCell<Vec<PyObjectRe
     if let Some(list) = obj.payload::<PyList>() {
         return &list.elements;
     }
-    if let Some(tuple) = obj.payload::<PyTuple>() {
-        return &tuple.elements;
-    }
     panic!("Cannot extract elements from non-sequence");
 }
 
