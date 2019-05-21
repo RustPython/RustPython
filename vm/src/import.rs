@@ -67,7 +67,7 @@ pub fn import_file(
 
 fn find_source(vm: &VirtualMachine, current_path: PathBuf, name: &str) -> Result<PathBuf, String> {
     let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
-    let mut paths: Vec<PathBuf> = objsequence::get_elements(&sys_path)
+    let mut paths: Vec<PathBuf> = objsequence::get_elements_list(&sys_path)
         .iter()
         .map(|item| PathBuf::from(objstr::get_value(item)))
         .collect();

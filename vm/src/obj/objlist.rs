@@ -17,8 +17,8 @@ use super::objbool;
 //use super::objint;
 use super::objiter;
 use super::objsequence::{
-    get_elements, get_elements_cell, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
-    SequenceIndex,
+    get_elements_cell, get_elements_list, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt,
+    seq_mul, SequenceIndex,
 };
 use super::objslice::PySliceRef;
 use super::objtype;
@@ -129,7 +129,7 @@ impl PyListRef {
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let e1 = self.elements.borrow();
-            let e2 = get_elements(&other);
+            let e2 = get_elements_list(&other);
             let elements = e1.iter().chain(e2.iter()).cloned().collect();
             Ok(vm.ctx.new_list(elements))
         } else {
@@ -141,7 +141,7 @@ impl PyListRef {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             self.elements
                 .borrow_mut()
-                .extend_from_slice(&get_elements(&other));
+                .extend_from_slice(&get_elements_list(&other));
             Ok(self.into_object())
         } else {
             Ok(vm.ctx.not_implemented())
@@ -490,7 +490,7 @@ impl PyListRef {
 
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_equal(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
@@ -501,7 +501,7 @@ impl PyListRef {
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_lt(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
@@ -512,7 +512,7 @@ impl PyListRef {
     fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_gt(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
@@ -523,7 +523,7 @@ impl PyListRef {
     fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_ge(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
@@ -534,7 +534,7 @@ impl PyListRef {
     fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.list_type()) {
             let zelf = self.elements.borrow();
-            let other = get_elements(&other);
+            let other = get_elements_list(&other);
             let res = seq_le(vm, &zelf, &other)?;
             Ok(vm.new_bool(res))
         } else {
