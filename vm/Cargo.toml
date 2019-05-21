@@ -34,3 +34,6 @@ hexf = "0.1.0"
 [dependencies.unicode-casing]
 git = "https://github.com/OddCoincidence/unicode-casing"
 rev = "90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb"
+
+[target.'cfg(unix)'.dependencies]
+pwd = "1"

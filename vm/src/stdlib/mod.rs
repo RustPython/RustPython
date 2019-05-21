@@ -23,6 +23,8 @@ use crate::vm::VirtualMachine;
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 mod os;
+#[cfg(unix)]
+mod pwd;
 
 use crate::pyobject::PyObjectRef;
 
@@ -56,6 +58,12 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("io".to_string(), Box::new(io::make_module));
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
+    }
+
+    // Unix-only
+    #[cfg(unix)]
+    {
+        modules.insert("pwd".to_string(), Box::new(pwd::make_module));
     }
 
     modules
