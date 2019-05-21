@@ -301,10 +301,13 @@ impl PyString {
         let num_splits = num
             .into_option()
             .unwrap_or_else(|| value.split(pattern).count());
-        let elements = value
+        let mut elements: Vec<_> = value
             .rsplitn(num_splits + 1, pattern)
             .map(|o| vm.ctx.new_str(o.to_string()))
             .collect();
+        // Unlike Python rsplit, Rust rsplitn returns an iterator that
+        // starts from the end of the string.
+        elements.reverse();
         vm.ctx.new_list(elements)
     }
 
