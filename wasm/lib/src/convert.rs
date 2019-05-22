@@ -93,7 +93,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                             let (key, val) = pair?;
                             py_func_args
                                 .kwargs
-                                .push((js_sys::JsString::from(key).into(), js_to_py(vm, val)));
+                                .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
                         }
                     }
                     let result = vm.invoke(py_obj.clone(), py_func_args);

@@ -81,3 +81,17 @@ def fubar(x, y, obj=None):
 
 rest = [4, 5]
 fubar(obj=6, *rest)
+
+
+# https://www.python.org/dev/peps/pep-0468/
+def func(**kwargs):
+    return list(kwargs.items())
+
+empty_kwargs = func()
+assert empty_kwargs == []
+
+kwargs = func(a=1, b=2)
+assert kwargs == [('a', 1), ('b', 2)]
+
+kwargs = func(a=1, b=2, c=3)
+assert kwargs == [('a', 1), ('b', 2), ('c', 3)]
