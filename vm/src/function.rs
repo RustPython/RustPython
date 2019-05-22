@@ -85,17 +85,14 @@ impl PyFuncArgs {
     }
 
     pub fn get_kwarg(&self, key: &str, default: PyObjectRef) -> PyObjectRef {
-        if let Some(kwarg_value) = self.kwargs.get(key) {
-            return kwarg_value.clone();
-        }
-        default.clone()
+        self.kwargs
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| default.clone())
     }
 
     pub fn get_optional_kwarg(&self, key: &str) -> Option<PyObjectRef> {
-        if let Some(kwarg_value) = self.kwargs.get(key) {
-            return Some(kwarg_value.clone());
-        }
-        None
+        self.kwargs.get(key).cloned()
     }
 
     pub fn get_optional_kwarg_with_type(
