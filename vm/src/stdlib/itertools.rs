@@ -4,12 +4,71 @@ use std::ops::{AddAssign, SubAssign};
 
 use num_bigint::BigInt;
 
-use crate::function::OptionalArg;
+use crate::function::{OptionalArg, PyFuncArgs};
+use crate::obj::objbool;
 use crate::obj::objint::{PyInt, PyIntRef};
-use crate::obj::objiter::new_stop_iteration;
+use crate::obj::objiter::{call_next, get_iter, new_stop_iteration};
+use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
+
+#[pyclass(name = "chain")]
+#[derive(Debug)]
+struct PyItertoolsChain {
+    iterables: Vec<PyObjectRef>,
+    cur: RefCell<(usize, Option<PyObjectRef>)>,
+}
+
+impl PyValue for PyItertoolsChain {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "chain")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsChain {
+    #[pymethod(name = "__new__")]
+    fn new(_cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        Ok(PyItertoolsChain {
+            iterables: args.args,
+            cur: RefCell::new((0, None)),
+        }
+        .into_ref(vm)
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let (ref mut cur_idx, ref mut cur_iter) = *self.cur.borrow_mut();
+        while *cur_idx < self.iterables.len() {
+            if cur_iter.is_none() {
+                *cur_iter = Some(get_iter(vm, &self.iterables[*cur_idx])?);
+            }
+
+            // can't be directly inside the 'match' clause, otherwise the borrows collide.
+            let obj = call_next(vm, cur_iter.as_ref().unwrap());
+            match obj {
+                Ok(ok) => return Ok(ok),
+                Err(err) => {
+                    if objtype::isinstance(&err, &vm.ctx.exceptions.stop_iteration) {
+                        *cur_idx += 1;
+                        *cur_iter = None;
+                    } else {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+
+        Err(new_stop_iteration(vm))
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
 
 #[pyclass]
 #[derive(Debug)]
@@ -121,8 +180,114 @@ impl PyItertoolsRepeat {
     }
 }
 
+#[pyclass(name = "starmap")]
+#[derive(Debug)]
+struct PyItertoolsStarmap {
+    function: PyObjectRef,
+    iter: PyObjectRef,
+}
+
+impl PyValue for PyItertoolsStarmap {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "starmap")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsStarmap {
+    #[pymethod(name = "__new__")]
+    fn new(
+        _cls: PyClassRef,
+        function: PyObjectRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let iter = get_iter(vm, &iterable)?;
+
+        Ok(PyItertoolsStarmap {
+            function: function,
+            iter: iter,
+        }
+        .into_ref(vm)
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = call_next(vm, &self.iter)?;
+
+        vm.invoke(self.function.clone(), vm.extract_elements(&obj)?)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
+#[pyclass]
+#[derive(Debug)]
+struct PyItertoolsTakewhile {
+    predicate: PyObjectRef,
+    iterable: PyObjectRef,
+    stop_flag: RefCell<bool>,
+}
+
+impl PyValue for PyItertoolsTakewhile {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "takewhile")
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsTakewhile {
+    #[pymethod(name = "__new__")]
+    fn new(
+        _cls: PyClassRef,
+        predicate: PyObjectRef,
+        iterable: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let iter = get_iter(vm, &iterable)?;
+
+        Ok(PyItertoolsTakewhile {
+            predicate: predicate,
+            iterable: iter,
+            stop_flag: RefCell::new(false),
+        }
+        .into_ref(vm)
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if *self.stop_flag.borrow() {
+            return Err(new_stop_iteration(vm));
+        }
+
+        // might be StopIteration or anything else, which is propaged upwwards
+        let obj = call_next(vm, &self.iterable)?;
+
+        let verdict = vm.invoke(self.predicate.clone(), vec![obj.clone()])?;
+        let verdict = objbool::boolval(vm, verdict)?;
+        if verdict {
+            Ok(obj)
+        } else {
+            *self.stop_flag.borrow_mut() = true;
+            Err(new_stop_iteration(vm))
+        }
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
+
+    let chain = PyItertoolsChain::make_class(ctx);
 
     let count = ctx.new_class("count", ctx.object());
     PyItertoolsCount::extend_class(ctx, &count);
@@ -130,8 +295,16 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let repeat = ctx.new_class("repeat", ctx.object());
     PyItertoolsRepeat::extend_class(ctx, &repeat);
 
+    let starmap = PyItertoolsStarmap::make_class(ctx);
+
+    let takewhile = ctx.new_class("takewhile", ctx.object());
+    PyItertoolsTakewhile::extend_class(ctx, &takewhile);
+
     py_module!(vm, "itertools", {
+        "chain" => chain,
         "count" => count,
         "repeat" => repeat,
+        "starmap" => starmap,
+        "takewhile" => takewhile,
     })
 }

@@ -3,15 +3,18 @@ use super::objint;
 use super::objstr;
 use super::objtype;
 use crate::function::OptionalArg;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
+use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use hexf;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::{ToPrimitive, Zero};
+use num_traits::{float::Float, ToPrimitive, Zero};
 
 /// Convert a string or number to a floating point number, if possible.
 #[pyclass(name = "float")]
@@ -297,6 +300,11 @@ impl PyFloat {
         )
     }
 
+    #[pymethod(name = "__pos__")]
+    fn pos(&self, _vm: &VirtualMachine) -> f64 {
+        self.value
+    }
+
     #[pymethod(name = "__neg__")]
     fn neg(&self, _vm: &VirtualMachine) -> f64 {
         -self.value
@@ -429,6 +437,11 @@ impl PyFloat {
         zelf
     }
 
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        pyhash::hash_float(self.value)
+    }
+
     #[pyproperty(name = "real")]
     fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
         zelf
@@ -466,6 +479,70 @@ impl PyFloat {
         let numer = vm.ctx.new_int(ratio.numer().clone());
         let denom = vm.ctx.new_int(ratio.denom().clone());
         Ok(vm.ctx.new_tuple(vec![numer, denom]))
+    }
+
+    #[pymethod]
+    fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
+        hexf::parse_hexf64(&repr.value, false).or_else(|_| match repr.value.as_ref() {
+            "nan" => Ok(std::f64::NAN),
+            "inf" => Ok(std::f64::INFINITY),
+            "-inf" => Ok(std::f64::NEG_INFINITY),
+            _ => Err(vm.new_value_error("invalid hexadecimal floating-point string".to_string())),
+        })
+    }
+
+    #[pymethod]
+    fn hex(&self, _vm: &VirtualMachine) -> String {
+        to_hex(self.value)
+    }
+}
+
+fn to_hex(value: f64) -> String {
+    let (mantissa, exponent, sign) = value.integer_decode();
+    let sign_fmt = if sign < 0 { "-" } else { "" };
+    match value {
+        value if value.is_zero() => format!("{}0x0.0p+0", sign_fmt),
+        value if value.is_infinite() => format!("{}inf", sign_fmt),
+        value if value.is_nan() => "nan".to_string(),
+        _ => {
+            const BITS: i16 = 52;
+            const FRACT_MASK: u64 = 0xf_ffff_ffff_ffff;
+            format!(
+                "{}0x{:x}.{:013x}p{:+}",
+                sign_fmt,
+                mantissa >> BITS,
+                mantissa & FRACT_MASK,
+                exponent + BITS
+            )
+        }
+    }
+}
+
+#[test]
+fn test_to_hex() {
+    use rand::Rng;
+    for _ in 0..20000 {
+        let bytes = rand::thread_rng().gen::<[u64; 1]>();
+        let f = f64::from_bits(bytes[0]);
+        if !f.is_finite() {
+            continue;
+        }
+        let hex = to_hex(f);
+        // println!("{} -> {}", f, hex);
+        let roundtrip = hexf::parse_hexf64(&hex, false).unwrap();
+        // println!("  -> {}", roundtrip);
+        assert!(f == roundtrip, "{} {} {}", f, hex, roundtrip);
+    }
+}
+
+pub fn ufrexp(value: f64) -> (f64, i32) {
+    if 0.0 == value {
+        (0.0, 0i32)
+    } else {
+        let bits = value.to_bits();
+        let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022;
+        let mantissa_bits = bits & (0x000fffffffffffff) | (1022 << 52);
+        (f64::from_bits(mantissa_bits), exponent)
     }
 }
 

@@ -1,8 +1,8 @@
 use crate::obj::objint::PyIntRef;
-
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
+use crate::pyhash;
 
 use crate::pyobject::Either;
 use crate::vm::VirtualMachine;
@@ -125,7 +125,7 @@ impl PyBytesRef {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(self, _vm: &VirtualMachine) -> usize {
+    fn hash(self, _vm: &VirtualMachine) -> pyhash::PyHash {
         self.inner.hash()
     }
 

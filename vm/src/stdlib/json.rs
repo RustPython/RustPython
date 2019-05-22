@@ -57,10 +57,11 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             serializer.serialize_i64(v.to_i64().unwrap())
         // Although this may seem nice, it does not give the right result:
         // v.serialize(serializer)
-        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.list_type())
-            || objtype::isinstance(self.pyobject, &self.vm.ctx.tuple_type())
-        {
-            let elements = objsequence::get_elements(self.pyobject);
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.list_type()) {
+            let elements = objsequence::get_elements_list(self.pyobject);
+            serialize_seq_elements(serializer, &elements)
+        } else if objtype::isinstance(self.pyobject, &self.vm.ctx.tuple_type()) {
+            let elements = objsequence::get_elements_tuple(self.pyobject);
             serialize_seq_elements(serializer, &elements)
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.dict_type()) {
             let dict: PyDictRef = self.pyobject.clone().downcast().unwrap();

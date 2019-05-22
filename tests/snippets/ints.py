@@ -79,6 +79,13 @@ assert int.from_bytes(b'\x00\x10', 'little') == 4096
 assert int.from_bytes(b'\xfc\x00', 'big', signed=True) == -1024
 assert int.from_bytes(b'\xfc\x00', 'big', signed=False) == 64512
 
+assert (1024).to_bytes(4, 'big') == b'\x00\x00\x04\x00'
+assert (1024).to_bytes(2, 'little', signed=True) == b'\x00\x04'
+assert (-1024).to_bytes(4, 'big', signed=True) == b'\xff\xff\xfc\x00'
+assert (-1024).to_bytes(4, 'little', signed=True) == b'\x00\xfc\xff\xff'
+assert (2147483647).to_bytes(8, 'big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
+assert (-2147483648).to_bytes(8, 'little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
+
 with assertRaises(TypeError):
     int(base=2)
 

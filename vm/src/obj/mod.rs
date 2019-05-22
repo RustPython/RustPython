@@ -23,6 +23,7 @@ pub mod objmap;
 pub mod objmappingproxy;
 pub mod objmemory;
 pub mod objmodule;
+pub mod objnamespace;
 pub mod objnone;
 pub mod objobject;
 pub mod objproperty;

@@ -40,6 +40,7 @@ use crate::obj::objmap;
 use crate::obj::objmappingproxy;
 use crate::obj::objmemory;
 use crate::obj::objmodule::{self, PyModule};
+use crate::obj::objnamespace::{self, PyNamespace};
 use crate::obj::objnone::{self, PyNone, PyNoneRef};
 use crate::obj::objobject;
 use crate::obj::objproperty;
@@ -56,6 +57,7 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
 
 /* Python objects and references.
 
@@ -158,6 +160,7 @@ pub struct PyContext {
     pub property_type: PyClassRef,
     pub readonly_property_type: PyClassRef,
     pub module_type: PyClassRef,
+    pub namespace_type: PyClassRef,
     pub bound_method_type: PyClassRef,
     pub weakref_type: PyClassRef,
     pub weakproxy_type: PyClassRef,
@@ -250,6 +253,7 @@ impl PyContext {
 
         let dict_type = create_type("dict", &type_type, &object_type);
         let module_type = create_type("module", &type_type, &object_type);
+        let namespace_type = create_type("SimpleNamespace", &type_type, &object_type);
         let classmethod_type = create_type("classmethod", &type_type, &object_type);
         let staticmethod_type = create_type("staticmethod", &type_type, &object_type);
         let function_type = create_type("function", &type_type, &object_type);
@@ -366,6 +370,7 @@ impl PyContext {
             readonly_property_type,
             generator_type,
             module_type,
+            namespace_type,
             bound_method_type,
             weakref_type,
             weakproxy_type,
@@ -407,6 +412,7 @@ impl PyContext {
         objweakproxy::init(&context);
         objnone::init(&context);
         objmodule::init(&context);
+        objnamespace::init(&context);
         objmappingproxy::init(&context);
         exceptions::init(&context);
         context
@@ -462,6 +468,10 @@ impl PyContext {
 
     pub fn module_type(&self) -> PyClassRef {
         self.module_type.clone()
+    }
+
+    pub fn namespace_type(&self) -> PyClassRef {
+        self.namespace_type.clone()
     }
 
     pub fn set_type(&self) -> PyClassRef {
@@ -656,6 +666,10 @@ impl PyContext {
             self.module_type.clone(),
             Some(dict),
         )
+    }
+
+    pub fn new_namespace(&self) -> PyObjectRef {
+        PyObject::new(PyNamespace, self.namespace_type(), Some(self.new_dict()))
     }
 
     pub fn new_rustfunc<F, T, R>(&self, f: F) -> PyObjectRef
@@ -1075,7 +1089,7 @@ impl<T> PyIterable<T> {
             self.method.clone(),
             PyFuncArgs {
                 args: vec![],
-                kwargs: vec![],
+                kwargs: IndexMap::new(),
             },
         )?;
 

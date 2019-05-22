@@ -40,7 +40,6 @@ assert -1 * "x" == ""
 a = 'Hallo'
 assert a.lower() == 'hallo'
 assert a.upper() == 'HALLO'
-assert a.split('al') == ['H', 'lo']
 assert a.startswith('H')
 assert a.startswith(('H', 1))
 assert a.startswith(('A', 'H'))
@@ -59,7 +58,9 @@ assert not a.isnumeric()
 assert a.istitle()
 assert a.isalpha()
 
-
+s = '1 2 3'
+assert s.split(' ', 1) == ['1', '2 3']
+assert s.rsplit(' ', 1) == ['1 2', '3']
 
 b = '  hallo  '
 assert b.strip() == 'hallo'

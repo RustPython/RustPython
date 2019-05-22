@@ -1,8 +1,6 @@
 use crate::obj::objbool;
-use crate::obj::objint;
 use crate::pyobject::{IdProtocol, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
-use num_traits::ToPrimitive;
 /// Ordered dictionary implementation.
 /// Inspired by: https://morepypy.blogspot.com/2015/01/faster-more-memory-efficient-and-more.html
 /// And: https://www.youtube.com/watch?v=p33CVV29OG8
@@ -218,8 +216,7 @@ enum LookupResult {
 }
 
 fn calc_hash(vm: &VirtualMachine, key: &PyObjectRef) -> PyResult<usize> {
-    let hash = vm.call_method(key, "__hash__", vec![])?;
-    Ok(objint::get_value(&hash).to_usize().unwrap())
+    Ok(vm._hash(key)? as usize)
 }
 
 /// Invoke __eq__ on two keys

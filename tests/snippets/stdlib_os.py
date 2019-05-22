@@ -49,6 +49,10 @@ else:
 	assert os.altsep == None
 	assert os.pathsep == ":"
 
+assert os.fspath("Testing") == "Testing"
+assert os.fspath(b"Testing") == b"Testing"
+assert_raises(TypeError, lambda: os.fspath([1,2,3]))
+
 class TestWithTempDir():
 	def __enter__(self):
 		if os.name == "nt":

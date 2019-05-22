@@ -20,13 +20,6 @@ extern crate lexical;
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
-extern crate num_bigint;
-extern crate num_complex;
-extern crate num_integer;
-extern crate num_traits;
-extern crate serde;
-extern crate serde_json;
-extern crate statrs;
 
 extern crate rustpython_parser;
 #[macro_use]
@@ -55,6 +48,7 @@ pub mod frame;
 pub mod function;
 pub mod import;
 pub mod obj;
+mod pyhash;
 pub mod pyobject;
 pub mod stdlib;
 mod symboltable;

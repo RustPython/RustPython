@@ -2,6 +2,7 @@ use num_complex::Complex64;
 use num_traits::Zero;
 
 use crate::function::OptionalArg;
+use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
 };
@@ -247,5 +248,13 @@ impl PyComplex {
 
         let value = Complex64::new(real, imag);
         PyComplex { value }.into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        let re_hash = pyhash::hash_float(self.value.re);
+        let im_hash = pyhash::hash_float(self.value.im);
+
+        re_hash + im_hash * pyhash::IMAG
     }
 }

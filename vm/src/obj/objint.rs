@@ -1,5 +1,4 @@
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
@@ -7,6 +6,7 @@ use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
 use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
@@ -14,6 +14,7 @@ use crate::pyobject::{
 use crate::vm::VirtualMachine;
 
 use super::objbyteinner::PyByteInner;
+use super::objbytes::PyBytes;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -400,10 +401,11 @@ impl PyInt {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.value.hash(&mut hasher);
-        hasher.finish()
+    pub fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        match self.value.to_i64() {
+            Some(value) => (value % pyhash::MODULUS as i64),
+            None => (&self.value % pyhash::MODULUS).to_i64().unwrap(),
+        }
     }
 
     #[pymethod(name = "__abs__")]
@@ -526,7 +528,74 @@ impl PyInt {
         }
         Ok(x)
     }
+    #[pymethod]
+    fn to_bytes(
+        &self,
+        length: PyIntRef,
+        byteorder: PyStringRef,
+        kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
+        let mut signed = false;
+        let value = self.as_bigint();
+        for (key, value) in kwargs.into_iter() {
+            if key == "signed" {
+                signed = match_class!(value,
 
+                    b @ PyInt => !b.as_bigint().is_zero(),
+                    _ => false,
+                );
+            }
+        }
+        if value.sign() == Sign::Minus && signed == false {
+            return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_string()));
+        }
+        let byte_len;
+        if let Some(temp) = length.as_bigint().to_usize() {
+            byte_len = temp;
+        } else {
+            return Err(vm.new_value_error("length parameter is illegal".to_string()));
+        }
+
+        let mut origin_bytes = match byteorder.value.as_str() {
+            "big" => match signed {
+                true => value.to_signed_bytes_be(),
+                false => value.to_bytes_be().1,
+            },
+            "little" => match signed {
+                true => value.to_signed_bytes_le(),
+                false => value.to_bytes_le().1,
+            },
+            _ => {
+                return Err(
+                    vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
+                );
+            }
+        };
+        let origin_len = origin_bytes.len();
+        if origin_len > byte_len {
+            return Err(vm.new_value_error("int too big to convert".to_string()));
+        }
+
+        let mut append_bytes = match value.sign() {
+            Sign::Minus => vec![255u8; byte_len - origin_len],
+            _ => vec![0u8; byte_len - origin_len],
+        };
+        let mut bytes = vec![];
+        match byteorder.value.as_str() {
+            "big" => {
+                bytes = append_bytes;
+                bytes.append(&mut origin_bytes);
+            }
+            "little" => {
+                bytes = origin_bytes;
+                bytes.append(&mut append_bytes);
+            }
+            _ => (),
+        }
+
+        Ok(PyBytes::new(bytes))
+    }
     #[pyproperty]
     fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf

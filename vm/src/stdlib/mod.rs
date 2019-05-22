@@ -14,7 +14,6 @@ mod string;
 mod thread;
 mod time_module;
 mod tokenize;
-mod types;
 mod weakref;
 use std::collections::HashMap;
 
@@ -24,6 +23,8 @@ use crate::vm::VirtualMachine;
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 mod os;
+#[cfg(unix)]
+mod pwd;
 
 use crate::pyobject::PyObjectRef;
 
@@ -49,7 +50,6 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("_thread".to_string(), Box::new(thread::make_module));
     modules.insert("time".to_string(), Box::new(time_module::make_module));
     modules.insert("tokenize".to_string(), Box::new(tokenize::make_module));
-    modules.insert("types".to_string(), Box::new(types::make_module));
     modules.insert("_weakref".to_string(), Box::new(weakref::make_module));
 
     // disable some modules on WASM
@@ -58,6 +58,12 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("io".to_string(), Box::new(io::make_module));
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
+    }
+
+    // Unix-only
+    #[cfg(unix)]
+    {
+        modules.insert("pwd".to_string(), Box::new(pwd::make_module));
     }
 
     modules
