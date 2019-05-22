@@ -57,6 +57,7 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
 
 /* Python objects and references.
 
@@ -1088,7 +1089,7 @@ impl<T> PyIterable<T> {
             self.method.clone(),
             PyFuncArgs {
                 args: vec![],
-                kwargs: vec![],
+                kwargs: IndexMap::new(),
             },
         )?;
 

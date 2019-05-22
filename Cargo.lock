@@ -357,6 +357,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexmap"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "itertools"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -882,6 +887,7 @@ dependencies = [
  "byteorder 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "caseless 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "hexf 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "indexmap 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lexical 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1453,6 +1459,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum hexf-impl 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "22eadcfadba76a730b2764eaa577d045f35e0ef5174b9c5b46adf1ee42b85e12"
 "checksum hexf-parse 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "79296f72d53a89096cbc9a88c9547ee8dfe793388674620e2207593d370550ac"
 "checksum humantime 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "3ca7e5f2e110db35f93b837c81797f3714500b81d517bf20c431b16d3ca4f114"
+"checksum indexmap 1.0.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7e81a7c05f79578dbc15793d8b619db9ba32b4577003ef3af1a91c416798c58d"
 "checksum itertools 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5b8467d9c1cebe26feb08c640139247fac215782d35371ade9a2136ed6085358"
 "checksum itoa 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "1306f3464951f30e30d12373d31c79fbd52d236e5e896fd92f96ec7babbbe60b"
 "checksum js-sys 0.3.17 (registry+https://github.com/rust-lang/crates.io-index)" = "d4bda84b98977341bb6ba1086ecbd9eab8bc929de0f2923c118baf76c21dd0c8"
