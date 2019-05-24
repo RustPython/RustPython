@@ -377,7 +377,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     });
 
     // IOBase Subclasses
-    let raw_io_base = py_class!(ctx, "RawIOBase", ctx.object(), {});
+    let raw_io_base = py_class!(ctx, "RawIOBase", io_base.clone(), {});
 
     let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {
         "__init__" => ctx.new_rustfunc(buffered_io_base_init)
