@@ -189,7 +189,7 @@ impl PyString {
         let value = &self.value;
         let multiplier = objint::get_value(&val)
             .to_i32()
-            .map(|multiplier| if multiplier < 0 { 0 } else { multiplier })
+            .map(|multiplier| multiplier.max(0))
             .and_then(|multiplier| multiplier.to_usize())
             .unwrap_or(0);
         Ok(value.repeat(multiplier))
