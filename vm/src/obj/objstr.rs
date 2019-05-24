@@ -183,22 +183,16 @@ impl PyString {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if objtype::isinstance(&val, &vm.ctx.int_type()) {
-            let value = &self.value;
-            let multiplier = objint::get_value(&val).to_i32().unwrap();
-            let capacity = if multiplier > 0 {
-                multiplier.to_usize().unwrap() * value.len()
-            } else {
-                0
-            };
-            let mut result = String::with_capacity(capacity);
-            for _x in 0..multiplier {
-                result.push_str(value.as_str());
-            }
-            Ok(result)
-        } else {
-            Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)))
+        if !objtype::isinstance(&val, &vm.ctx.int_type()) {
+            return Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)));
         }
+        let value = &self.value;
+        let multiplier = objint::get_value(&val)
+            .to_i32()
+            .map(|multiplier| if multiplier < 0 { 0 } else { multiplier })
+            .and_then(|multiplier| multiplier.to_usize())
+            .unwrap_or(0);
+        Ok(value.repeat(multiplier))
     }
 
     #[pymethod(name = "__rmul__")]
