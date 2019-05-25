@@ -54,15 +54,19 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         "cache_tag" => ctx.new_str("rustpython-01".to_string()),
     });
 
-    fn get_paths(env_name: &str) -> impl Iterator<Item = std::path::PathBuf> {
-        match env::var_os(env_name) {
-            Some(paths) => env::split_paths(&paths),
+    fn get_paths<'a>(
+        paths: &'a Option<std::ffi::OsString>,
+    ) -> impl Iterator<Item = std::path::PathBuf> + 'a {
+        match paths {
+            Some(paths) => env::split_paths(paths),
             None => env::split_paths(""),
         }
     }
 
-    let path_list = get_paths("RUSTPYTHONPATH")
-        .chain(get_paths("PYTHONPATH"))
+    let rustpy_path = env::var_os("RUSTPYTHONPATH");
+    let py_path = env::var_os("PYTHONPATH");
+    let path_list = get_paths(&rustpy_path)
+        .chain(get_paths(&py_path))
         .map(|path| {
             ctx.new_str(
                 path.to_str()
