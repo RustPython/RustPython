@@ -54,18 +54,23 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         "cache_tag" => ctx.new_str("rustpython-01".to_string()),
     });
 
-    let path_list = match env::var_os("PYTHONPATH") {
-        Some(paths) => env::split_paths(&paths)
-            .map(|path| {
-                ctx.new_str(
-                    path.to_str()
-                        .expect("PYTHONPATH isn't valid unicode")
-                        .to_string(),
-                )
-            })
-            .collect(),
-        None => vec![],
-    };
+    fn get_paths(env_name: &str) -> impl Iterator<Item = std::path::PathBuf> {
+        match env::var_os(env_name) {
+            Some(paths) => env::split_paths(&paths),
+            None => env::split_paths(""),
+        }
+    }
+
+    let path_list = get_paths("RUSTPYTHONPATH")
+        .chain(get_paths("PYTHONPATH"))
+        .map(|path| {
+            ctx.new_str(
+                path.to_str()
+                    .expect("PYTHONPATH isn't valid unicode")
+                    .to_string(),
+            )
+        })
+        .collect();
     let path = ctx.new_list(path_list);
 
     let platform = if cfg!(target_os = "linux") {
