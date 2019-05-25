@@ -568,17 +568,12 @@ impl PyString {
 
     #[pymethod]
     fn join(&self, iterable: PyIterable<PyStringRef>, vm: &VirtualMachine) -> PyResult<String> {
-        let mut joined = String::new();
-
-        for (idx, elem) in iterable.iter(vm)?.enumerate() {
-            let elem = elem?;
-            if idx != 0 {
-                joined.push_str(&self.value);
-            }
-            joined.push_str(&elem.value)
-        }
-
-        Ok(joined)
+        Ok(iterable
+            .iter(vm)?
+            .filter_map(|elem| elem.ok())
+            .map(|elem| elem.value.to_owned())
+            .collect::<Vec<String>>()
+            .join(&self.value))
     }
 
     #[pymethod]
