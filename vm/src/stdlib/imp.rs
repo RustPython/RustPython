@@ -1,3 +1,4 @@
+use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
@@ -20,6 +21,14 @@ fn imp_lock_held(_vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
+fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
+    if let Some(_) = vm.stdlib_inits.borrow().get(name.as_str()) {
+        true
+    } else {
+        false
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let module = py_module!(vm, "_imp", {
@@ -27,6 +36,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "acquire_lock" => ctx.new_rustfunc(imp_acquire_lock),
         "release_lock" => ctx.new_rustfunc(imp_release_lock),
         "lock_held" => ctx.new_rustfunc(imp_lock_held),
+        "is_builtin" => ctx.new_rustfunc(imp_is_builtin),
     });
 
     module
