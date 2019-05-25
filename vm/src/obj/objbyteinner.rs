@@ -426,6 +426,69 @@ impl PyByteInner {
         }
     }
 
+    pub fn setitem(
+        &mut self,
+        needle: Either<PyIntRef, PySliceRef>,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match needle {
+            Either::A(int) => {
+                if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
+                    let result = match_class!(object,
+                    i @ PyInt => {
+                        if let Some(value) = i.as_bigint().to_u8() {
+                            Ok(value)
+                        }else{
+                            Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+                        }
+                    },
+                    _ => {Err(vm.new_type_error("an integer is required".to_string()))}
+                    );
+                    match result {
+                        Ok(value) => {
+                            self.elements[idx] = value;
+                            Ok(vm.new_int(value))
+                        }
+                        Err(error) => Err(error),
+                    }
+                } else {
+                    Err(vm.new_index_error("index out of range".to_string()))
+                }
+            }
+            Either::B(slice) => {
+                let sec = match PyIterable::try_from_object(vm, object.clone()) {
+                    Ok(sec) => {
+                        let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+                        Ok(items?
+                            .into_iter()
+                            .map(|obj| u8::try_from_object(vm, obj))
+                            .collect::<PyResult<Vec<_>>>()?)
+                    }
+                    _ => match_class!(object,
+                        i @ PyMemoryView => {
+                            Ok(i.get_obj_value().unwrap())
+                        },
+                        _ => Err(vm.new_index_error(
+                        "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
+                            .to_string()))),
+                };
+                match sec {
+                    Ok(items) => {
+                        let range = self
+                            .elements
+                            .get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
+                        self.elements.splice(range, items);
+                        Ok(vm
+                            .ctx
+                            .new_bytes(self.elements.get_slice_items(vm, slice.as_object())?))
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+        }
+    }
+
     pub fn isalnum(&self, vm: &VirtualMachine) -> PyResult {
         Ok(vm.new_bool(
             !self.elements.is_empty()

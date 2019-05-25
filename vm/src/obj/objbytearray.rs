@@ -166,6 +166,16 @@ impl PyByteArrayRef {
         self.inner.borrow().getitem(needle, vm)
     }
 
+    #[pymethod(name = "__setitem__")]
+    fn setitem(
+        self,
+        needle: Either<PyIntRef, PySliceRef>,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.inner.borrow_mut().setitem(needle, value, vm)
+    }
+
     #[pymethod(name = "isalnum")]
     fn isalnum(self, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow().isalnum(vm)

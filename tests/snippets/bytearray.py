@@ -691,3 +691,18 @@ assert a == bytearray(b'abdabcd')
 a = bytearray(b'hello, world')
 a.reverse()
 assert a == bytearray(b'dlrow ,olleh')
+
+# __setitem__
+a = bytearray(b'test')
+a[0] = 1
+assert a == bytearray(b'\x01est')
+with assertRaises(TypeError):
+    a[0] = b'a'
+with assertRaises(TypeError):
+    a[0] = memoryview(b'a')
+a[:2] = [0, 9]
+assert a == bytearray(b'\x00\x09st')
+a[1:3] = b'test'
+assert a == bytearray(b'\x00testt')
+a[:6] = memoryview(b'test')
+assert a == bytearray(b'test')
