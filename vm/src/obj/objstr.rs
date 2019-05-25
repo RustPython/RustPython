@@ -186,13 +186,14 @@ impl PyString {
         if !objtype::isinstance(&val, &vm.ctx.int_type()) {
             return Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)));
         }
-        let value = &self.value;
-        let multiplier = objint::get_value(&val)
-            .to_i32()
+        objint::get_value(&val)
+            .to_isize()
             .map(|multiplier| multiplier.max(0))
             .and_then(|multiplier| multiplier.to_usize())
-            .unwrap_or(0);
-        Ok(value.repeat(multiplier))
+            .map(|multiplier| self.value.repeat(multiplier))
+            .ok_or_else(|| {
+                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_string())
+            })
     }
 
     #[pymethod(name = "__rmul__")]

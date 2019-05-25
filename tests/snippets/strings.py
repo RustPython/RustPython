@@ -37,6 +37,8 @@ assert 3 * "xy" == "xyxyxy"
 assert 0 * "x" == ""
 assert -1 * "x" == ""
 
+assert_raises(OverflowError, lambda: 'xy' * 234234234234234234234234234234)
+
 a = 'Hallo'
 assert a.lower() == 'hallo'
 assert a.upper() == 'HALLO'
