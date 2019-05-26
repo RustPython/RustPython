@@ -22,11 +22,7 @@ fn imp_lock_held(_vm: &VirtualMachine) -> PyResult<()> {
 }
 
 fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
-    if let Some(_) = vm.stdlib_inits.borrow().get(name.as_str()) {
-        true
-    } else {
-        false
-    }
+    vm.stdlib_inits.borrow().contains_key(name.as_str())
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
