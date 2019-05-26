@@ -1,6 +1,7 @@
 mod ast;
 mod binascii;
 mod dis;
+mod imp;
 mod itertools;
 pub(crate) mod json;
 mod keyword;
@@ -51,6 +52,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("time".to_string(), Box::new(time_module::make_module));
     modules.insert("tokenize".to_string(), Box::new(tokenize::make_module));
     modules.insert("_weakref".to_string(), Box::new(weakref::make_module));
+    modules.insert("_imp".to_string(), Box::new(imp::make_module));
 
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
