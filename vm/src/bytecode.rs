@@ -8,9 +8,9 @@
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_parser::ast;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use serde::{Serialize, Deserialize};
 
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.

@@ -7,12 +7,12 @@ extern crate unicode_xid;
 pub use super::token::Tok;
 use num_bigint::BigInt;
 use num_traits::Num;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unicode_xid::UnicodeXID;
-use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct IndentationLevel {

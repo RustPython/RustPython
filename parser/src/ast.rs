@@ -4,7 +4,7 @@
 
 pub use super::lexer::Location;
 use num_bigint::BigInt;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /*
 #[derive(Debug)]

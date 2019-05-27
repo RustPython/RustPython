@@ -1,8 +1,8 @@
-use crate::obj::objcode::{PyCodeRef, PyCode};
-use crate::pyobject::{PyObjectRef, PyResult, IntoPyObject};
-use crate::vm::VirtualMachine;
-use crate::obj::objbytes::{PyBytes, PyBytesRef};
 use crate::bytecode;
+use crate::obj::objbytes::{PyBytes, PyBytesRef};
+use crate::obj::objcode::{PyCode, PyCodeRef};
+use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult};
+use crate::vm::VirtualMachine;
 
 fn marshal_dumps(co: PyCodeRef, vm: &VirtualMachine) -> PyResult {
     PyBytes::new(bincode::serialize(&co.code).unwrap()).into_pyobject(vm)
