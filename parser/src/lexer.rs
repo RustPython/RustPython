@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unicode_xid::UnicodeXID;
+use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct IndentationLevel {
@@ -71,7 +72,7 @@ pub enum LexicalErrorType {
     OtherError(String),
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
     row: usize,
     column: usize,

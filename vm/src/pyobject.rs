@@ -294,7 +294,7 @@ impl PyContext {
         let zip_type = create_type("zip", &type_type, &object_type);
         let bool_type = create_type("bool", &type_type, &int_type);
         let memoryview_type = create_type("memoryview", &type_type, &object_type);
-        let code_type = create_type("code", &type_type, &int_type);
+        let code_type = create_type("code", &type_type, &object_type);
         let range_type = create_type("range", &type_type, &object_type);
         let rangeiterator_type = create_type("range_iterator", &type_type, &object_type);
         let slice_type = create_type("slice", &type_type, &object_type);

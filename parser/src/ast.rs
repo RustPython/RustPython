@@ -4,6 +4,8 @@
 
 pub use super::lexer::Location;
 use num_bigint::BigInt;
+use serde::{Serialize, Deserialize};
+
 /*
 #[derive(Debug)]
 
@@ -381,7 +383,7 @@ pub enum Number {
 }
 
 /// Transforms a value prior to formatting it.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ConversionFlag {
     /// Converts by calling `str(<value>)`.
     Str,
