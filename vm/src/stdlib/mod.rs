@@ -5,6 +5,7 @@ mod imp;
 mod itertools;
 pub(crate) mod json;
 mod keyword;
+mod marshal;
 mod math;
 mod platform;
 mod pystruct;
@@ -42,6 +43,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("itertools".to_string(), Box::new(itertools::make_module));
     modules.insert("json".to_string(), Box::new(json::make_module));
     modules.insert("keyword".to_string(), Box::new(keyword::make_module));
+    modules.insert("marshal".to_string(), Box::new(marshal::make_module));
     modules.insert("math".to_string(), Box::new(math::make_module));
     modules.insert("platform".to_string(), Box::new(platform::make_module));
     modules.insert("re".to_string(), Box::new(re::make_module));
