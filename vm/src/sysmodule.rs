@@ -57,24 +57,20 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
     let path_list = if cfg!(target_arch = "wasm32") {
         vec![]
     } else {
-        fn get_paths<'a>(
-            paths: &'a Option<std::ffi::OsString>,
-        ) -> impl Iterator<Item = std::path::PathBuf> + 'a {
-            match paths {
-                Some(paths) => env::split_paths(paths),
-                None => env::split_paths(""),
-            }
-        }
+        let get_paths = |paths| match paths {
+            Some(paths) => env::split_paths(paths),
+            None => env::split_paths(""),
+        };
 
         let rustpy_path = env::var_os("RUSTPYTHONPATH");
         let py_path = env::var_os("PYTHONPATH");
-        get_paths(&rustpy_path)
-            .chain(get_paths(&py_path))
+        get_paths(rustpy_path.as_ref())
+            .chain(get_paths(py_path.as_ref()))
             .map(|path| {
                 ctx.new_str(
-                    path.to_str()
-                        .expect("PYTHONPATH isn't valid unicode")
-                        .to_string(),
+                    path.into_os_string()
+                        .into_string()
+                        .expect("PYTHONPATH isn't valid unicode"),
                 )
             })
             .collect()
