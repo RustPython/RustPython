@@ -3,10 +3,9 @@
  */
 
 use std::cell::{Cell, RefCell};
-use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
+use crate::dictdatatype;
 use crate::function::OptionalArg;
 use crate::pyobject::{
     PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
@@ -14,11 +13,11 @@ use crate::pyobject::{
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
-use super::objbool;
-use super::objint;
 use super::objlist::PyListIterator;
 use super::objtype;
 use super::objtype::PyClassRef;
+
+pub type SetContentType = dictdatatype::Dict<()>;
 
 #[derive(Default)]
 pub struct PySet {
@@ -60,42 +59,32 @@ impl PyValue for PyFrozenSet {
 
 #[derive(Default, Clone)]
 struct PySetInner {
-    elements: HashMap<u64, PyObjectRef>,
+    content: SetContentType,
 }
 
 impl PySetInner {
     fn new(iterable: OptionalArg<PyIterable>, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let elements: HashMap<u64, PyObjectRef> = match iterable {
-            OptionalArg::Missing => HashMap::new(),
-            OptionalArg::Present(iterable) => {
-                let mut elements = HashMap::new();
-                for item in iterable.iter(vm)? {
-                    insert_into_set(vm, &mut elements, &item?)?;
-                }
-                elements
+        let mut set = PySetInner::default();
+        if let OptionalArg::Present(iterable) = iterable {
+            for item in iterable.iter(vm)? {
+                set.add(&item?, vm)?;
             }
-        };
-
-        Ok(PySetInner { elements })
+        }
+        Ok(set)
     }
 
     fn len(&self) -> usize {
-        self.elements.len()
+        self.content.len()
     }
+
     fn copy(&self) -> PySetInner {
         PySetInner {
-            elements: self.elements.clone(),
+            content: self.content.clone(),
         }
     }
 
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.elements.iter() {
-            let value = vm._eq(needle.clone(), element.1.clone())?;
-            if objbool::get_value(&value) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+    fn contains(&self, needle: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.content.contains(vm, needle)
     }
 
     fn _compare_inner(
@@ -123,8 +112,8 @@ impl PySetInner {
         if size_func(get_zelf(swap).len(), get_other(swap).len()) {
             return Ok(vm.new_bool(false));
         }
-        for element in get_other(swap).elements.iter() {
-            if !get_zelf(swap).contains(element.1.clone(), vm)? {
+        for key in get_other(swap).content.keys() {
+            if !get_zelf(swap).contains(&key, vm)? {
                 return Ok(vm.new_bool(false));
             }
         }
@@ -177,46 +166,38 @@ impl PySetInner {
     }
 
     fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut elements = self.elements.clone();
+        let mut set = self.clone();
         for item in other.iter(vm)? {
-            insert_into_set(vm, &mut elements, &item?)?;
+            set.add(&item?, vm)?;
         }
 
-        Ok(PySetInner { elements })
+        Ok(set)
     }
 
     fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut elements = HashMap::new();
+        let mut set = PySetInner::default();
         for item in other.iter(vm)? {
             let obj = item?;
-            if self.contains(obj.clone(), vm)? {
-                insert_into_set(vm, &mut elements, &obj)?;
+            if self.contains(&obj, vm)? {
+                set.add(&obj, vm)?;
             }
         }
-        Ok(PySetInner { elements })
+        Ok(set)
     }
 
     fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut elements = self.elements.clone();
+        let mut set = self.copy();
         for item in other.iter(vm)? {
-            let obj = item?;
-            if self.contains(obj.clone(), vm)? {
-                remove_from_set(vm, &mut elements, &obj)?;
-            }
+            set.content.delete_if_exists(vm, &item?)?;
         }
-        Ok(PySetInner { elements })
+        Ok(set)
     }
 
     fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut new_inner = self.clone();
 
         for item in other.iter(vm)? {
-            let obj = item?;
-            if !self.contains(obj.clone(), vm)? {
-                new_inner.add(&obj, vm)?;
-            } else {
-                new_inner.remove(&obj, vm)?;
-            }
+            new_inner.content.delete_or_insert(vm, &item?, ())?
         }
 
         Ok(new_inner)
@@ -224,8 +205,7 @@ impl PySetInner {
 
     fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         for item in other.iter(vm)? {
-            let obj = item?;
-            if self.contains(obj.clone(), vm)? {
+            if self.contains(&item?, vm)? {
                 return Ok(false);
             }
         }
@@ -233,7 +213,7 @@ impl PySetInner {
     }
 
     fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
-        let items = self.elements.values().cloned().collect();
+        let items = self.content.keys().collect();
         let set_list = vm.ctx.new_list(items);
         PyListIterator {
             position: Cell::new(0),
@@ -243,52 +223,43 @@ impl PySetInner {
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let mut str_parts = vec![];
-        for elem in self.elements.values() {
-            let part = vm.to_repr(elem)?;
+        for key in self.content.keys() {
+            let part = vm.to_repr(&key)?;
             str_parts.push(part.value.clone());
         }
 
         Ok(format!("{{{}}}", str_parts.join(", ")))
     }
 
-    fn add(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        insert_into_set(vm, &mut self.elements, &item)
+    fn add(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.content.insert(vm, item, ())
     }
 
-    fn remove(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        remove_from_set(vm, &mut self.elements, &item)
+    fn remove(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.content.delete(vm, item)
     }
 
-    fn discard(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        fn discard(
-            vm: &VirtualMachine,
-            elements: &mut HashMap<u64, PyObjectRef>,
-            key: u64,
-            _value: &PyObjectRef,
-        ) -> PyResult {
-            elements.remove(&key);
-            Ok(vm.get_none())
-        }
-        perform_action_with_hash(vm, &mut self.elements, &item, &discard)
+    fn discard(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.content.delete_if_exists(vm, item)
     }
 
     fn clear(&mut self) {
-        self.elements.clear();
+        self.content.clear()
     }
 
     fn pop(&mut self, vm: &VirtualMachine) -> PyResult {
-        let elements = &mut self.elements;
-        match elements.clone().keys().next() {
-            Some(key) => Ok(elements.remove(key).unwrap()),
-            None => Err(vm.new_key_error("pop from an empty set".to_string())),
+        if let Some((key, _)) = self.content.pop_front() {
+            Ok(key)
+        } else {
+            Err(vm.new_key_error("pop from an empty set".to_string()))
         }
     }
 
-    fn update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         for item in iterable.iter(vm)? {
-            insert_into_set(vm, &mut self.elements, &item?)?;
+            self.add(&item?, vm)?;
         }
-        Ok(vm.get_none())
+        Ok(())
     }
 
     fn intersection_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
@@ -296,7 +267,7 @@ impl PySetInner {
         self.clear();
         for item in iterable.iter(vm)? {
             let obj = item?;
-            if temp_inner.contains(obj.clone(), vm)? {
+            if temp_inner.contains(&obj, vm)? {
                 self.add(&obj, vm)?;
             }
         }
@@ -305,10 +276,7 @@ impl PySetInner {
 
     fn difference_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
         for item in iterable.iter(vm)? {
-            let obj = item?;
-            if self.contains(obj.clone(), vm)? {
-                self.remove(&obj, vm)?;
-            }
+            self.content.delete_if_exists(vm, &item?)?;
         }
         Ok(vm.get_none())
     }
@@ -319,12 +287,7 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult {
         for item in iterable.iter(vm)? {
-            let obj = item?;
-            if !self.contains(obj.clone(), vm)? {
-                self.add(&obj, vm)?;
-            } else {
-                self.remove(&obj, vm)?;
-            }
+            self.content.delete_or_insert(vm, &item?, ())?;
         }
         Ok(vm.get_none())
     }
@@ -353,7 +316,7 @@ impl PySetRef {
     }
 
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.borrow().contains(needle, vm)
+        self.inner.borrow().contains(&needle, vm)
     }
 
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -472,16 +435,18 @@ impl PySetRef {
         Ok(vm.new_str(s))
     }
 
-    pub fn add(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().add(&item, vm)
+    pub fn add(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().add(&item, vm)?;
+        Ok(())
     }
 
-    fn remove(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn remove(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.borrow_mut().remove(&item, vm)
     }
 
-    fn discard(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().discard(&item, vm)
+    fn discard(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().discard(&item, vm)?;
+        Ok(())
     }
 
     fn clear(self, _vm: &VirtualMachine) {
@@ -564,7 +529,7 @@ impl PyFrozenSetRef {
     }
 
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.contains(needle, vm)
+        self.inner.contains(&needle, vm)
     }
 
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -682,60 +647,6 @@ impl PyFrozenSetRef {
         };
         Ok(vm.new_str(s))
     }
-}
-
-fn perform_action_with_hash(
-    vm: &VirtualMachine,
-    elements: &mut HashMap<u64, PyObjectRef>,
-    item: &PyObjectRef,
-    f: &Fn(&VirtualMachine, &mut HashMap<u64, PyObjectRef>, u64, &PyObjectRef) -> PyResult,
-) -> PyResult {
-    let hash: PyObjectRef = vm.call_method(item, "__hash__", vec![])?;
-
-    let hash_value = objint::get_value(&hash);
-    let mut hasher = DefaultHasher::new();
-    hash_value.hash(&mut hasher);
-    let key = hasher.finish();
-    f(vm, elements, key, item)
-}
-
-fn insert_into_set(
-    vm: &VirtualMachine,
-    elements: &mut HashMap<u64, PyObjectRef>,
-    item: &PyObjectRef,
-) -> PyResult {
-    fn insert(
-        vm: &VirtualMachine,
-        elements: &mut HashMap<u64, PyObjectRef>,
-        key: u64,
-        value: &PyObjectRef,
-    ) -> PyResult {
-        elements.insert(key, value.clone());
-        Ok(vm.get_none())
-    }
-    perform_action_with_hash(vm, elements, item, &insert)
-}
-
-fn remove_from_set(
-    vm: &VirtualMachine,
-    elements: &mut HashMap<u64, PyObjectRef>,
-    item: &PyObjectRef,
-) -> PyResult {
-    fn remove(
-        vm: &VirtualMachine,
-        elements: &mut HashMap<u64, PyObjectRef>,
-        key: u64,
-        value: &PyObjectRef,
-    ) -> PyResult {
-        match elements.remove(&key) {
-            None => {
-                let item_str = format!("{:?}", value);
-                Err(vm.new_key_error(item_str))
-            }
-            Some(_) => Ok(vm.get_none()),
-        }
-    }
-    perform_action_with_hash(vm, elements, item, &remove)
 }
 
 struct SetIterable {

@@ -103,7 +103,7 @@ a = set([1,2])
 b = a.pop()
 assert b in [1,2]
 c = a.pop()
-assert (c in [1,2] and c != b) 
+assert (c in [1,2] and c != b)
 assert_raises(KeyError, lambda: a.pop())
 
 a = set([1,2,3])
@@ -268,3 +268,36 @@ assert set([1,2,3]).symmetric_difference(frozenset([1,2])) == set([3])
 
 assert frozenset([1,2,3]) ^ set([4,5]) == frozenset([1,2,3,4,5])
 assert set([1,2,3]) ^ frozenset([4,5]) == set([1,2,3,4,5])
+
+class A:
+    def __hash__(self):
+        return 1
+class B:
+    def __hash__(self):
+        return 1
+
+s = {1, A(), B()}
+assert len(s) == 3
+
+s = {True}
+s.add(1.0)
+assert str(s) == '{True}'
+
+class EqObject:
+    def __init__(self, eq):
+        self.eq = eq
+    def __eq__(self, other):
+        return self.eq
+    def __hash__(self):
+        return bool(self.eq)
+
+assert 'x' == (EqObject('x') == EqObject('x'))
+s = {EqObject('x')}
+assert EqObject('x') in s
+assert '[]' == (EqObject('[]') == EqObject('[]'))
+s = {EqObject([])}
+assert EqObject([]) not in s
+x = object()
+assert x == (EqObject(x) == EqObject(x))
+s = {EqObject(x)}
+assert EqObject(x) in s
