@@ -40,6 +40,21 @@ fn sys_getsizeof(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(size))
 }
 
+fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
+    // TODO: implmement non-utf-8 mode.
+    "utf-8".to_string()
+}
+
+#[cfg(not(windows))]
+fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
+    "surrogateescape".to_string()
+}
+
+#[cfg(windows)]
+fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
+    "surrogatepass".to_string()
+}
+
 // TODO implement string interning, this will be key for performance
 fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
     value
@@ -161,6 +176,8 @@ settrace() -- set the global debug tracing function
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
       "implementation" => implementation,
+      "getfilesystemencoding" => ctx.new_rustfunc(sys_getfilesystemencoding),
+      "getfilesystemencodeerrors" => ctx.new_rustfunc(sys_getfilesystemencodeerrors),
       "intern" => ctx.new_rustfunc(sys_intern),
       "maxsize" => ctx.new_int(std::usize::MAX),
       "path" => path,
