@@ -74,24 +74,33 @@ pub struct ByteInnerNewOptions {
     encoding: OptionalArg<PyStringRef>,
 }
 
+//same algorithm as cpython
+pub fn normalize_encoding(encoding: &str) -> String {
+    let mut res = String::new();
+    let mut punct = false;
+
+    for c in encoding.chars() {
+        if c.is_alphanumeric() || c == '.' {
+            if punct && !res.is_empty() {
+                res.push('_')
+            }
+            res.push(c.to_ascii_lowercase());
+            punct = false;
+        } else {
+            punct = true;
+        }
+    }
+    res
+}
+
 impl ByteInnerNewOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyByteInner> {
         // First handle bytes(string, encoding[, errors])
         if let OptionalArg::Present(enc) = self.encoding {
             if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
-                    let encoding = enc.as_str();
-                    if encoding.to_lowercase() == "utf8" || encoding.to_lowercase() == "utf-8"
-                    // TODO: different encoding
-                    {
-                        return Ok(PyByteInner {
-                            elements: input.value.as_bytes().to_vec(),
-                        });
-                    } else {
-                        return Err(
-                            vm.new_value_error(format!("unknown encoding: {}", encoding)), //should be lookup error
-                        );
-                    }
+                    let inner = PyByteInner::from_string(&input.value, enc.as_str(), vm)?;
+                    return Ok(inner);
                 } else {
                     return Err(vm.new_type_error("encoding without a string argument".to_string()));
                 }
@@ -311,6 +320,20 @@ impl ByteInnerSplitlinesOptions {
 }
 
 impl PyByteInner {
+    pub fn from_string(value: &str, encoding: &str, vm: &VirtualMachine) -> PyResult<Self> {
+        let normalized = normalize_encoding(encoding);
+        if normalized == "utf_8" || normalized == "utf8" || normalized == "u8" {
+            Ok(PyByteInner {
+                elements: value.as_bytes().to_vec(),
+            })
+        } else {
+            // TODO: different encoding
+            Err(
+                vm.new_value_error(format!("unknown encoding: {}", encoding)), // should be lookup error
+            )
+        }
+    }
+
     pub fn repr(&self) -> PyResult<String> {
         let mut res = String::with_capacity(self.elements.len());
         for i in self.elements.iter() {
