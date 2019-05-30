@@ -157,6 +157,19 @@ macro_rules! extend_class {
     }
 }
 
+#[macro_export]
+macro_rules! py_namespace {
+    ( $vm:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        {
+            let namespace = $vm.ctx.new_namespace();
+            $(
+                $vm.set_attr(&namespace, $name, $value).unwrap();
+            )*
+            namespace
+        }
+    }
+}
+
 /// Macro to match on the built-in class of a Python object.
 ///
 /// Like `match`, `match_class!` must be exhaustive, so a default arm with

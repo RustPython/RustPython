@@ -16,6 +16,7 @@ use crate::builtins;
 use crate::bytecode;
 use crate::error::CompileError;
 use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
+use crate::frozen;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
@@ -53,6 +54,7 @@ pub struct VirtualMachine {
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyObjectRef>>,
+    pub frozen: RefCell<HashMap<String, &'static str>>,
 }
 
 impl VirtualMachine {
@@ -65,6 +67,7 @@ impl VirtualMachine {
         let sysmod = ctx.new_module("sys", ctx.new_dict());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
+        let frozen = RefCell::new(frozen::get_module_inits());
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -73,6 +76,7 @@ impl VirtualMachine {
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
+            frozen,
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -527,7 +531,7 @@ impl VirtualMachine {
         // Add missing positional arguments, if we have fewer positional arguments than the
         // function definition calls for
         if nargs < nexpected_args {
-            let num_defaults_available = defaults.as_ref().map_or(0, |d| d.elements.borrow().len());
+            let num_defaults_available = defaults.as_ref().map_or(0, |d| d.elements.len());
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
@@ -547,7 +551,7 @@ impl VirtualMachine {
                 )));
             }
             if let Some(defaults) = defaults {
-                let defaults = defaults.elements.borrow();
+                let defaults = &defaults.elements;
                 // We have sufficient defaults, so iterate over the corresponding names and use
                 // the default if we don't already have a value
                 for (default_index, i) in (required_args..nexpected_args).enumerate() {
@@ -580,10 +584,10 @@ impl VirtualMachine {
 
     pub fn extract_elements(&self, value: &PyObjectRef) -> PyResult<Vec<PyObjectRef>> {
         // Extract elements from item, if possible:
-        let elements = if objtype::isinstance(value, &self.ctx.tuple_type())
-            || objtype::isinstance(value, &self.ctx.list_type())
-        {
-            objsequence::get_elements(value).to_vec()
+        let elements = if objtype::isinstance(value, &self.ctx.tuple_type()) {
+            objsequence::get_elements_tuple(value).to_vec()
+        } else if objtype::isinstance(value, &self.ctx.list_type()) {
+            objsequence::get_elements_list(value).to_vec()
         } else {
             let iter = objiter::get_iter(self, value)?;
             objiter::get_all(self, &iter)?

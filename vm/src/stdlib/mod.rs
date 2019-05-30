@@ -1,9 +1,11 @@
 mod ast;
 mod binascii;
 mod dis;
+mod imp;
 mod itertools;
 pub(crate) mod json;
 mod keyword;
+mod marshal;
 mod math;
 mod platform;
 mod pystruct;
@@ -23,6 +25,8 @@ use crate::vm::VirtualMachine;
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 mod os;
+#[cfg(unix)]
+mod pwd;
 
 use crate::pyobject::PyObjectRef;
 
@@ -39,6 +43,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("itertools".to_string(), Box::new(itertools::make_module));
     modules.insert("json".to_string(), Box::new(json::make_module));
     modules.insert("keyword".to_string(), Box::new(keyword::make_module));
+    modules.insert("marshal".to_string(), Box::new(marshal::make_module));
     modules.insert("math".to_string(), Box::new(math::make_module));
     modules.insert("platform".to_string(), Box::new(platform::make_module));
     modules.insert("re".to_string(), Box::new(re::make_module));
@@ -49,6 +54,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("time".to_string(), Box::new(time_module::make_module));
     modules.insert("tokenize".to_string(), Box::new(tokenize::make_module));
     modules.insert("_weakref".to_string(), Box::new(weakref::make_module));
+    modules.insert("_imp".to_string(), Box::new(imp::make_module));
 
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
@@ -56,6 +62,12 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         modules.insert("io".to_string(), Box::new(io::make_module));
         modules.insert("_os".to_string(), Box::new(os::make_module));
         modules.insert("socket".to_string(), Box::new(socket::make_module));
+    }
+
+    // Unix-only
+    #[cfg(unix)]
+    {
+        modules.insert("pwd".to_string(), Box::new(pwd::make_module));
     }
 
     modules

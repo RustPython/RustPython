@@ -3,6 +3,24 @@ import itertools
 from testutils import assertRaises
 
 
+# itertools.chain tests
+chain = itertools.chain
+
+# empty
+assert list(chain()) == []
+assert list(chain([], "", b"", ())) == []
+
+assert list(chain([1, 2, 3, 4])) == [1, 2, 3, 4]
+assert list(chain("ab", "cd", (), 'e')) == ['a', 'b', 'c', 'd', 'e']
+with assertRaises(TypeError):
+    list(chain(1))
+
+x = chain("ab", 1)
+assert next(x) == 'a'
+assert next(x) == 'b'
+with assertRaises(TypeError):
+    next(x)
+
 # itertools.count tests
 
 # default arguments
@@ -136,3 +154,32 @@ with assertRaises(StopIteration):
     next(t)
 with assertRaises(StopIteration):
     next(t)
+
+
+# itertools.islice tests
+
+def assert_matches_seq(it, seq):
+    assert list(it) == list(seq)
+
+i = itertools.islice
+
+it = i([1, 2, 3, 4, 5], 3)
+assert_matches_seq(it, [1, 2, 3])
+
+it = i([0.5, 1, 1.5, 2, 2.5, 3, 4, 5], 1, 6, 2)
+assert_matches_seq(it, [1, 2, 3])
+
+it = i([1, 2], None)
+assert_matches_seq(it, [1, 2])
+
+it = i([1, 2, 3], None, None, None)
+assert_matches_seq(it, [1, 2, 3])
+
+it = i([1, 2, 3], 1, None, None)
+assert_matches_seq(it, [2, 3])
+
+it = i([1, 2, 3], None, 2, None)
+assert_matches_seq(it, [1, 2])
+
+it = i([1, 2, 3], None, None, 3)
+assert_matches_seq(it, [1])

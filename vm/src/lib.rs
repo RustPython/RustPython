@@ -45,6 +45,7 @@ pub mod eval;
 mod exceptions;
 pub mod format;
 pub mod frame;
+mod frozen;
 pub mod function;
 pub mod import;
 pub mod obj;

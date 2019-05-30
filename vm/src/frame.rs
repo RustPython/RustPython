@@ -23,6 +23,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
 use itertools::Itertools;
 
 /*
@@ -674,7 +675,7 @@ impl Frame {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
                             args,
-                            kwargs: vec![],
+                            kwargs: IndexMap::new(),
                         }
                     }
                     bytecode::CallType::Keyword(count) => {
@@ -697,7 +698,7 @@ impl Frame {
                                 .map(|elem| (objstr::get_value(&elem.0), elem.1))
                                 .collect()
                         } else {
-                            vec![]
+                            IndexMap::new()
                         };
                         let args = self.pop_value();
                         let args = vm.extract_elements(&args)?;

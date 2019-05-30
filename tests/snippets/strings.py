@@ -37,10 +37,11 @@ assert 3 * "xy" == "xyxyxy"
 assert 0 * "x" == ""
 assert -1 * "x" == ""
 
+assert_raises(OverflowError, lambda: 'xy' * 234234234234234234234234234234)
+
 a = 'Hallo'
 assert a.lower() == 'hallo'
 assert a.upper() == 'HALLO'
-assert a.split('al') == ['H', 'lo']
 assert a.startswith('H')
 assert a.startswith(('H', 1))
 assert a.startswith(('A', 'H'))
@@ -59,7 +60,9 @@ assert not a.isnumeric()
 assert a.istitle()
 assert a.isalpha()
 
-
+s = '1 2 3'
+assert s.split(' ', 1) == ['1', '2 3']
+assert s.rsplit(' ', 1) == ['1 2', '3']
 
 b = '  hallo  '
 assert b.strip() == 'hallo'
@@ -203,3 +206,13 @@ def try_mutate_str():
    word[0] = 'x'
 
 assert_raises(TypeError, try_mutate_str)
+
+ss = ['Hello', '안녕', '👋']
+bs = [b'Hello', b'\xec\x95\x88\xeb\x85\x95', b'\xf0\x9f\x91\x8b']
+
+for s, b in zip(ss, bs):
+    assert s.encode() == b
+
+for s, b, e in zip(ss, bs, ['u8', 'U8', 'utf-8', 'UTF-8', 'utf_8']):
+    assert s.encode(e) == b
+    # assert s.encode(encoding=e) == b

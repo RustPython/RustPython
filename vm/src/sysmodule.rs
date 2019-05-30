@@ -78,6 +78,21 @@ fn sys_getsizeof(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(size))
 }
 
+fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
+    // TODO: implmement non-utf-8 mode.
+    "utf-8".to_string()
+}
+
+#[cfg(not(windows))]
+fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
+    "surrogateescape".to_string()
+}
+
+#[cfg(windows)]
+fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
+    "surrogatepass".to_string()
+}
+
 // TODO implement string interning, this will be key for performance
 fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
     value
@@ -92,17 +107,32 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         .into_struct_sequence(vm, flags_type)
         .unwrap();
 
-    let path_list = match env::var_os("PYTHONPATH") {
-        Some(paths) => env::split_paths(&paths)
+    // TODO Add crate version to this namespace
+    let implementation = py_namespace!(vm, {
+        "name" => ctx.new_str("RustPython".to_string()),
+        "cache_tag" => ctx.new_str("rustpython-01".to_string()),
+    });
+
+    let path_list = if cfg!(target_arch = "wasm32") {
+        vec![]
+    } else {
+        let get_paths = |paths| match paths {
+            Some(paths) => env::split_paths(paths),
+            None => env::split_paths(""),
+        };
+
+        let rustpy_path = env::var_os("RUSTPYTHONPATH");
+        let py_path = env::var_os("PYTHONPATH");
+        get_paths(rustpy_path.as_ref())
+            .chain(get_paths(py_path.as_ref()))
             .map(|path| {
                 ctx.new_str(
-                    path.to_str()
-                        .expect("PYTHONPATH isn't valid unicode")
-                        .to_string(),
+                    path.into_os_string()
+                        .into_string()
+                        .expect("PYTHONPATH isn't valid unicode"),
                 )
             })
-            .collect(),
-        None => vec![],
+            .collect()
     };
     let path = ctx.new_list(path_list);
 
@@ -199,6 +229,9 @@ settrace() -- set the global debug tracing function
       "flags" => flags,
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
+      "implementation" => implementation,
+      "getfilesystemencoding" => ctx.new_rustfunc(sys_getfilesystemencoding),
+      "getfilesystemencodeerrors" => ctx.new_rustfunc(sys_getfilesystemencodeerrors),
       "intern" => ctx.new_rustfunc(sys_intern),
       "maxsize" => ctx.new_int(std::usize::MAX),
       "path" => path,

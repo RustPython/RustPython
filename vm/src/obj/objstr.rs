@@ -19,6 +19,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
+use super::objbytes::PyBytes;
 use super::objdict::PyDict;
 use super::objint::{self, PyInt};
 use super::objnone::PyNone;
@@ -183,22 +184,17 @@ impl PyString {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if objtype::isinstance(&val, &vm.ctx.int_type()) {
-            let value = &self.value;
-            let multiplier = objint::get_value(&val).to_i32().unwrap();
-            let capacity = if multiplier > 0 {
-                multiplier.to_usize().unwrap() * value.len()
-            } else {
-                0
-            };
-            let mut result = String::with_capacity(capacity);
-            for _x in 0..multiplier {
-                result.push_str(value.as_str());
-            }
-            Ok(result)
-        } else {
-            Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)))
+        if !objtype::isinstance(&val, &vm.ctx.int_type()) {
+            return Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)));
         }
+        objint::get_value(&val)
+            .to_isize()
+            .map(|multiplier| multiplier.max(0))
+            .and_then(|multiplier| multiplier.to_usize())
+            .map(|multiplier| self.value.repeat(multiplier))
+            .ok_or_else(|| {
+                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_string())
+            })
     }
 
     #[pymethod(name = "__rmul__")]
@@ -301,10 +297,13 @@ impl PyString {
         let num_splits = num
             .into_option()
             .unwrap_or_else(|| value.split(pattern).count());
-        let elements = value
+        let mut elements: Vec<_> = value
             .rsplitn(num_splits + 1, pattern)
             .map(|o| vm.ctx.new_str(o.to_string()))
             .collect();
+        // Unlike Python rsplit, Rust rsplitn returns an iterator that
+        // starts from the end of the string.
+        elements.reverse();
         vm.ctx.new_list(elements)
     }
 
@@ -958,6 +957,31 @@ impl PyString {
                 )),
             }
         }
+    }
+
+    #[pymethod]
+    fn encode(
+        &self,
+        encoding: OptionalArg<PyObjectRef>,
+        _errors: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let encoding = encoding.map_or_else(
+            || Ok("utf-8".to_string()),
+            |v| {
+                if objtype::isinstance(&v, &vm.ctx.str_type()) {
+                    Ok(get_value(&v))
+                } else {
+                    Err(vm.new_type_error(format!(
+                        "encode() argument 1 must be str, not {}",
+                        v.class().name
+                    )))
+                }
+            },
+        )?;
+
+        let encoded = PyBytes::from_string(&self.value, &encoding, vm)?;
+        Ok(encoded.into_pyobject(vm)?)
     }
 }
 

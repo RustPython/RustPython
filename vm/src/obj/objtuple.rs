@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::fmt;
 
 use crate::function::OptionalArg;
@@ -9,14 +9,13 @@ use crate::vm::{ReprGuard, VirtualMachine};
 use super::objbool;
 use super::objiter;
 use super::objsequence::{
-    get_elements, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
+    get_elements_tuple, get_item, seq_equal, seq_ge, seq_gt, seq_le, seq_lt, seq_mul,
 };
 use super::objtype::{self, PyClassRef};
 
 pub struct PyTuple {
     // TODO: shouldn't be public
-    // TODO: tuples are immutable, remove this RefCell
-    pub elements: RefCell<Vec<PyObjectRef>>,
+    pub elements: Vec<PyObjectRef>,
 }
 
 impl fmt::Debug for PyTuple {
@@ -28,9 +27,7 @@ impl fmt::Debug for PyTuple {
 
 impl From<Vec<PyObjectRef>> for PyTuple {
     fn from(elements: Vec<PyObjectRef>) -> Self {
-        PyTuple {
-            elements: RefCell::new(elements),
-        }
+        PyTuple { elements: elements }
     }
 }
 
@@ -51,9 +48,8 @@ pub type PyTupleRef = PyRef<PyTuple>;
 impl PyTupleRef {
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_lt(vm, &zelf, &other)?;
+            let other = get_elements_tuple(&other);
+            let res = seq_lt(vm, &self.elements, &other)?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -62,9 +58,8 @@ impl PyTupleRef {
 
     fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_gt(vm, &zelf, &other)?;
+            let other = get_elements_tuple(&other);
+            let res = seq_gt(vm, &self.elements, &other)?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -73,9 +68,8 @@ impl PyTupleRef {
 
     fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_ge(vm, &zelf, &other)?;
+            let other = get_elements_tuple(&other);
+            let res = seq_ge(vm, &self.elements, &other)?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -84,9 +78,8 @@ impl PyTupleRef {
 
     fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_le(vm, &zelf, &other)?;
+            let other = get_elements_tuple(&other);
+            let res = seq_le(vm, &self.elements, &other)?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -95,9 +88,8 @@ impl PyTupleRef {
 
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let e1 = self.elements.borrow();
-            let e2 = get_elements(&other);
-            let elements = e1.iter().chain(e2.iter()).cloned().collect();
+            let e2 = get_elements_tuple(&other);
+            let elements = self.elements.iter().chain(e2.iter()).cloned().collect();
             Ok(vm.ctx.new_tuple(elements))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -105,12 +97,12 @@ impl PyTupleRef {
     }
 
     fn bool(self, _vm: &VirtualMachine) -> bool {
-        !self.elements.borrow().is_empty()
+        !self.elements.is_empty()
     }
 
     fn count(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        for element in self.elements.borrow().iter() {
+        for element in self.elements.iter() {
             if element.is(&needle) {
                 count += 1;
             } else {
@@ -125,9 +117,8 @@ impl PyTupleRef {
 
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
-            let zelf = &self.elements.borrow();
-            let other = get_elements(&other);
-            let res = seq_equal(vm, &zelf, &other)?;
+            let other = get_elements_tuple(&other);
+            let res = seq_equal(vm, &self.elements, &other)?;
             Ok(vm.new_bool(res))
         } else {
             Ok(vm.ctx.not_implemented())
@@ -135,7 +126,7 @@ impl PyTupleRef {
     }
 
     fn hash(self, vm: &VirtualMachine) -> PyResult<pyhash::PyHash> {
-        pyhash::hash_iter(self.elements.borrow().iter(), vm)
+        pyhash::hash_iter(self.elements.iter(), vm)
     }
 
     fn iter(self, _vm: &VirtualMachine) -> PyTupleIterator {
@@ -146,13 +137,13 @@ impl PyTupleRef {
     }
 
     fn len(self, _vm: &VirtualMachine) -> usize {
-        self.elements.borrow().len()
+        self.elements.len()
     }
 
     fn repr(self, vm: &VirtualMachine) -> PyResult<String> {
         let s = if let Some(_guard) = ReprGuard::enter(self.as_object()) {
             let mut str_parts = vec![];
-            for elem in self.elements.borrow().iter() {
+            for elem in self.elements.iter() {
                 let s = vm.to_repr(elem)?;
                 str_parts.push(s.value.clone());
             }
@@ -169,21 +160,16 @@ impl PyTupleRef {
     }
 
     fn mul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
-        let new_elements = seq_mul(&self.elements.borrow(), counter);
+        let new_elements = seq_mul(&self.elements, counter);
         vm.ctx.new_tuple(new_elements)
     }
 
     fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        get_item(
-            vm,
-            self.as_object(),
-            &self.elements.borrow(),
-            needle.clone(),
-        )
+        get_item(vm, self.as_object(), &self.elements, needle.clone())
     }
 
     fn index(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        for (index, element) in self.elements.borrow().iter().enumerate() {
+        for (index, element) in self.elements.iter().enumerate() {
             if element.is(&needle) {
                 return Ok(index);
             }
@@ -196,7 +182,7 @@ impl PyTupleRef {
     }
 
     fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.elements.borrow().iter() {
+        for element in self.elements.iter() {
             if element.is(&needle) {
                 return Ok(true);
             }
@@ -240,8 +226,8 @@ impl PyValue for PyTupleIterator {
 impl PyTupleIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        if self.position.get() < self.tuple.elements.borrow().len() {
-            let ret = self.tuple.elements.borrow()[self.position.get()].clone();
+        if self.position.get() < self.tuple.elements.len() {
+            let ret = self.tuple.elements[self.position.get()].clone();
             self.position.set(self.position.get() + 1);
             Ok(ret)
         } else {

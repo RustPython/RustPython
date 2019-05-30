@@ -200,3 +200,20 @@ w = {1: 1, **x, 2: 2, **y, 3: 3, **z, 4: 4}
 assert w == {1: 1, 'a': 1, 'b': 2, 'c': 3, 2: 2, 'd': 3, 3: 3, 'e': 3, 4: 4}
 
 assert str({True: True, 1.0: 1.0}) == str({True: 1.0})
+
+class A:
+    def __hash__(self):
+        return 1
+    def __eq__(self, other):
+        return isinstance(other, A)
+class B:
+    def __hash__(self):
+        return 1
+    def __eq__(self, other):
+        return isinstance(other, B)
+
+s = {1: 0, A(): 1, B(): 2}
+assert len(s) == 3
+assert s[1] == 0
+assert s[A()] == 1
+assert s[B()] == 2
