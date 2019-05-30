@@ -25,6 +25,10 @@ fn imp_is_builtin(name: PyStringRef, vm: &VirtualMachine) -> bool {
     vm.stdlib_inits.borrow().contains_key(name.as_str())
 }
 
+fn imp_is_frozen(name: PyStringRef, vm: &VirtualMachine) -> bool {
+    vm.frozen.borrow().contains_key(name.as_str())
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let module = py_module!(vm, "_imp", {
@@ -33,6 +37,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "release_lock" => ctx.new_rustfunc(imp_release_lock),
         "lock_held" => ctx.new_rustfunc(imp_lock_held),
         "is_builtin" => ctx.new_rustfunc(imp_is_builtin),
+        "is_frozen" => ctx.new_rustfunc(imp_is_frozen),
     });
 
     module
