@@ -39,7 +39,7 @@ impl PyValue for PyTuple {
 
 impl PyTuple {
     pub fn fast_getitem(&self, idx: usize) -> PyObjectRef {
-        self.elements.borrow()[idx].clone()
+        self.elements[idx].clone()
     }
 }
 
