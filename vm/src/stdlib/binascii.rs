@@ -1,7 +1,10 @@
 use crate::function::PyFuncArgs;
 use crate::obj::objbytes;
+use crate::obj::objint;
 use crate::pyobject::{PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
+use crc::{crc32, Hasher32};
+use num_traits::ToPrimitive;
 
 fn hex_nibble(n: u8) -> u8 {
     match n {
@@ -56,6 +59,26 @@ fn binascii_unhexlify(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(unhex))
 }
 
+fn binascii_crc32(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(data, Some(vm.ctx.bytes_type()))],
+        optional = [(value, None)]
+    );
+
+    let bytes = objbytes::get_value(data);
+    let mut crc = match value {
+        None => 0u32,
+        Some(value) => objint::get_value(&value).to_u32().unwrap(),
+    };
+
+    let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc);
+    digest.write(&bytes);
+
+    Ok(vm.ctx.new_int(digest.sum32()))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -64,5 +87,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "b2a_hex" => ctx.new_rustfunc(binascii_hexlify),
         "unhexlify" => ctx.new_rustfunc(binascii_unhexlify),
         "a2b_hex" => ctx.new_rustfunc(binascii_unhexlify),
+        "crc32" => ctx.new_rustfunc(binascii_crc32),
     })
 }
