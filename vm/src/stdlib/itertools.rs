@@ -3,14 +3,16 @@ use std::cmp::Ordering;
 use std::ops::{AddAssign, SubAssign};
 
 use num_bigint::BigInt;
+use num_traits::ToPrimitive;
 
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objbool;
+use crate::obj::objint;
 use crate::obj::objint::{PyInt, PyIntRef};
 use crate::obj::objiter::{call_next, get_iter, new_stop_iteration};
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{IdProtocol, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 #[pyclass(name = "chain")]
@@ -284,6 +286,133 @@ impl PyItertoolsTakewhile {
     }
 }
 
+#[pyclass(name = "islice")]
+#[derive(Debug)]
+struct PyItertoolsIslice {
+    iterable: PyObjectRef,
+    cur: RefCell<usize>,
+    next: RefCell<usize>,
+    stop: Option<usize>,
+    step: usize,
+}
+
+impl PyValue for PyItertoolsIslice {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("itertools", "islice")
+    }
+}
+
+fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
+    let is_int = objtype::isinstance(&obj, &vm.ctx.int_type());
+    if is_int {
+        objint::get_value(&obj).to_usize()
+    } else {
+        None
+    }
+}
+
+#[pyimpl]
+impl PyItertoolsIslice {
+    #[pymethod(name = "__new__")]
+    fn new(_cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let (iter, start, stop, step) = match args.args.len() {
+            0 | 1 => {
+                return Err(vm.new_type_error(format!(
+                    "islice expected at least 2 arguments, got {}",
+                    args.args.len()
+                )));
+            }
+
+            2 => {
+                let (iter, stop): (PyObjectRef, PyObjectRef) = args.bind(vm)?;
+
+                (iter, 0usize, stop, 1usize)
+            }
+            _ => {
+                let (iter, start, stop, step): (
+                    PyObjectRef,
+                    PyObjectRef,
+                    PyObjectRef,
+                    PyObjectRef,
+                ) = args.bind(vm)?;
+
+                let start = if !start.is(&vm.get_none()) {
+                    pyobject_to_opt_usize(start, &vm).ok_or_else(|| {
+                        vm.new_value_error(
+                            "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.".to_string(),
+                        )
+                    })?
+                } else {
+                    0usize
+                };
+
+                let step = if !step.is(&vm.get_none()) {
+                    pyobject_to_opt_usize(step, &vm).ok_or_else(|| {
+                        vm.new_value_error(
+                            "Step for islice() must be a positive integer or None.".to_string(),
+                        )
+                    })?
+                } else {
+                    1usize
+                };
+
+                (iter, start, stop, step)
+            }
+        };
+
+        let stop = if !stop.is(&vm.get_none()) {
+            Some(pyobject_to_opt_usize(stop, &vm).ok_or_else(|| {
+                vm.new_value_error(
+                    "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
+                        .to_string(),
+                )
+            })?)
+        } else {
+            None
+        };
+
+        let iter = get_iter(vm, &iter)?;
+
+        Ok(PyItertoolsIslice {
+            iterable: iter,
+            cur: RefCell::new(0),
+            next: RefCell::new(start),
+            stop: stop,
+            step: step,
+        }
+        .into_ref(vm)
+        .into_object())
+    }
+
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        while *self.cur.borrow() < *self.next.borrow() {
+            call_next(vm, &self.iterable)?;
+            *self.cur.borrow_mut() += 1;
+        }
+
+        if let Some(stop) = self.stop {
+            if *self.cur.borrow() >= stop {
+                return Err(new_stop_iteration(vm));
+            }
+        }
+
+        let obj = call_next(vm, &self.iterable)?;
+        *self.cur.borrow_mut() += 1;
+
+        // TODO is this overflow check required? attempts to copy CPython.
+        let (next, ovf) = (*self.next.borrow()).overflowing_add(self.step);
+        *self.next.borrow_mut() = if ovf { self.stop.unwrap() } else { next };
+
+        Ok(obj)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -300,11 +429,14 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let takewhile = ctx.new_class("takewhile", ctx.object());
     PyItertoolsTakewhile::extend_class(ctx, &takewhile);
 
+    let islice = PyItertoolsIslice::make_class(ctx);
+
     py_module!(vm, "itertools", {
         "chain" => chain,
         "count" => count,
         "repeat" => repeat,
         "starmap" => starmap,
         "takewhile" => takewhile,
+        "islice" => islice,
     })
 }

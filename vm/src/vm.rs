@@ -16,6 +16,7 @@ use crate::builtins;
 use crate::bytecode;
 use crate::error::CompileError;
 use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
+use crate::frozen;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
@@ -53,6 +54,7 @@ pub struct VirtualMachine {
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyObjectRef>>,
+    pub frozen: RefCell<HashMap<String, &'static str>>,
 }
 
 impl VirtualMachine {
@@ -65,6 +67,7 @@ impl VirtualMachine {
         let sysmod = ctx.new_module("sys", ctx.new_dict());
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
+        let frozen = RefCell::new(frozen::get_module_inits());
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -73,6 +76,7 @@ impl VirtualMachine {
             frames: RefCell::new(vec![]),
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
+            frozen,
         };
 
         builtins::make_module(&vm, builtins.clone());

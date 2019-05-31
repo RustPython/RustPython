@@ -37,6 +37,12 @@ impl PyValue for PyTuple {
     }
 }
 
+impl PyTuple {
+    pub fn fast_getitem(&self, idx: usize) -> PyObjectRef {
+        self.elements[idx].clone()
+    }
+}
+
 pub type PyTupleRef = PyRef<PyTuple>;
 
 impl PyTupleRef {
