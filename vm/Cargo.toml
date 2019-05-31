@@ -30,6 +30,7 @@ lexical = "2.0.0"
 itertools = "^0.8.0"
 hexf = "0.1.0"
 indexmap = "1.0.2"
+crc = "^1.0.0"
 
 # TODO: release and publish to crates.io
 [dependencies.unicode-casing]
