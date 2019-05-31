@@ -171,14 +171,13 @@ impl VirtualMachine {
         self.invoke(exc_type.into_object(), args)
     }
 
+    /// Create Python instance of `exc_type` with message
     pub fn new_exception(&self, exc_type: PyClassRef, msg: String) -> PyObjectRef {
         // TODO: exc_type may be user-defined exception, so we should return PyResult
         // TODO: maybe there is a clearer way to create an instance:
         info!("New exception created: {}", msg);
         let pymsg = self.new_str(msg);
         let args: Vec<PyObjectRef> = vec![pymsg];
-
-        // Call function:
         self.invoke(exc_type.into_object(), args).unwrap()
     }
 
@@ -402,13 +401,13 @@ impl VirtualMachine {
         scope: &Scope,
         defaults: &Option<PyTupleRef>,
         kw_only_defaults: &Option<PyDictRef>,
-        args: PyFuncArgs,
+        func_args: PyFuncArgs,
     ) -> PyResult {
-        let scope = scope.child_scope(&self.ctx);
+        let scope = scope.new_child_scope(&self.ctx);
         self.fill_locals_from_args(
             &code.code,
             &scope.get_locals(),
-            args,
+            func_args,
             defaults,
             kw_only_defaults,
         )?;
@@ -432,8 +431,8 @@ impl VirtualMachine {
     ) -> PyResult {
         if let Some(PyFunction { code, scope, .. }) = &function.payload() {
             let scope = scope
-                .child_scope_with_locals(cells)
-                .child_scope_with_locals(locals);
+                .new_child_scope_with_locals(cells)
+                .new_child_scope_with_locals(locals);
             let frame = Frame::new(code.clone(), scope).into_ref(self);
             return self.run_frame_full(frame);
         }
@@ -447,11 +446,11 @@ impl VirtualMachine {
         &self,
         code_object: &bytecode::CodeObject,
         locals: &PyDictRef,
-        args: PyFuncArgs,
+        func_args: PyFuncArgs,
         defaults: &Option<PyTupleRef>,
         kw_only_defaults: &Option<PyDictRef>,
     ) -> PyResult<()> {
-        let nargs = args.args.len();
+        let nargs = func_args.args.len();
         let nexpected_args = code_object.arg_names.len();
 
         // This parses the arguments from args and kwargs into
@@ -469,7 +468,7 @@ impl VirtualMachine {
         // Copy positional arguments into local variables
         for i in 0..n {
             let arg_name = &code_object.arg_names[i];
-            let arg = &args.args[i];
+            let arg = &func_args.args[i];
             locals.set_item(arg_name, arg.clone(), self)?;
         }
 
@@ -478,7 +477,7 @@ impl VirtualMachine {
             bytecode::Varargs::Named(ref vararg_name) => {
                 let mut last_args = vec![];
                 for i in n..nargs {
-                    let arg = &args.args[i];
+                    let arg = &func_args.args[i];
                     last_args.push(arg.clone());
                 }
                 let vararg_value = self.ctx.new_tuple(last_args);
@@ -508,7 +507,7 @@ impl VirtualMachine {
         };
 
         // Handle keyword arguments
-        for (name, value) in args.kwargs {
+        for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
             if code_object.arg_names.contains(&name) || code_object.kwonlyarg_names.contains(&name)
             {
