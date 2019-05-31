@@ -68,7 +68,7 @@ fn binascii_crc32(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     );
 
     let bytes = objbytes::get_value(data);
-    let mut crc = match value {
+    let crc = match value {
         None => 0u32,
         Some(value) => objint::get_value(&value).to_u32().unwrap(),
     };

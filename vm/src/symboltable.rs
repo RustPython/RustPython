@@ -16,7 +16,8 @@ pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTa
     let mut builder = SymbolTableBuilder::new();
     builder.enter_scope();
     builder.scan_program(program)?;
-    assert!(builder.scopes.len() == 1);
+    assert_eq!(builder.scopes.len(), 1);
+
     let symbol_table = builder.scopes.pop().unwrap();
     analyze_symbol_table(&symbol_table, None)?;
     Ok(symbol_table)
@@ -28,7 +29,8 @@ pub fn statements_to_symbol_table(
     let mut builder = SymbolTableBuilder::new();
     builder.enter_scope();
     builder.scan_statements(statements)?;
-    assert!(builder.scopes.len() == 1);
+    assert_eq!(builder.scopes.len(), 1);
+
     let symbol_table = builder.scopes.pop().unwrap();
     analyze_symbol_table(&symbol_table, None)?;
     Ok(symbol_table)
@@ -42,8 +44,7 @@ pub enum SymbolRole {
     Assigned,
 }
 
-/// Symbolscope captures all symbols in the current scope, and
-/// has a list of subscopes in this scope.
+/// Captures all symbols in the current scope, and has a list of subscopes in this scope.
 pub struct SymbolScope {
     /// A set of symbols present on this scope level.
     pub symbols: HashMap<String, SymbolRole>,
@@ -101,7 +102,6 @@ fn analyze_symbol_table(
     symbol_scope: &SymbolScope,
     parent_symbol_scope: Option<&SymbolScope>,
 ) -> SymbolTableResult {
-    // println!("Analyzing {:?}, parent={:?} symbols={:?}", symbol_scope,  parent_symbol_scope, symbol_scope.symbols);
     // Analyze sub scopes:
     for sub_scope in &symbol_scope.sub_scopes {
         analyze_symbol_table(&sub_scope, Some(symbol_scope))?;
@@ -157,7 +157,6 @@ impl SymbolTableBuilder {
     }
 
     pub fn enter_scope(&mut self) {
-        // Create new scope and push into scope stack.
         let scope = SymbolScope::new();
         self.scopes.push(scope);
     }
@@ -494,7 +493,7 @@ impl SymbolTableBuilder {
     }
 
     fn enter_function(&mut self, args: &ast::Parameters) -> SymbolTableResult {
-        // Evaulate eventual default parameters:
+        // Evaluate eventual default parameters:
         self.scan_expressions(&args.defaults)?;
         for kw_default in &args.kw_defaults {
             if let Some(expression) = kw_default {
@@ -545,9 +544,8 @@ impl SymbolTableBuilder {
         let scope_depth = self.scopes.len();
         let current_scope = self.scopes.last_mut().unwrap();
         let location = Default::default();
-        if let Some(_old_role) = current_scope.symbols.get(name) {
+        if current_scope.symbols.contains_key(name) {
             // Role already set..
-            // debug!("TODO: {:?}", old_role);
             match role {
                 SymbolRole::Global => {
                     return Err(SymbolTableError {

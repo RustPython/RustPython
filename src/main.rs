@@ -159,7 +159,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope) -> Result<(), Com
                 Ok(value) => {
                     // Save non-None values as "_"
 
-                    use rustpython_vm::pyobject::{IdProtocol, IntoPyObject, ItemProtocol};
+                    use rustpython_vm::pyobject::{IdProtocol, IntoPyObject};
 
                     if !value.is(&vm.get_none()) {
                         let key = objstr::PyString::from("_").into_pyobject(vm);

@@ -124,15 +124,15 @@ impl Scope {
         self.locals.iter().next().cloned()
     }
 
-    pub fn child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
+    pub fn new_child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
         Scope {
             locals: self.locals.clone().insert(locals),
             globals: self.globals.clone(),
         }
     }
 
-    pub fn child_scope(&self, ctx: &PyContext) -> Scope {
-        self.child_scope_with_locals(ctx.new_dict())
+    pub fn new_child_scope(&self, ctx: &PyContext) -> Scope {
+        self.new_child_scope_with_locals(ctx.new_dict())
     }
 }
 
@@ -651,22 +651,22 @@ impl Frame {
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.scope.clone();
-                let obj = vm
+                let func_obj = vm
                     .ctx
                     .new_function(code_obj, scope, defaults, kw_only_defaults);
 
                 let name = qualified_name.value.split('.').next_back().unwrap();
-                vm.set_attr(&obj, "__name__", vm.new_str(name.to_string()))?;
-                vm.set_attr(&obj, "__qualname__", qualified_name)?;
+                vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
+                vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
                 let module = self
                     .scope
                     .globals
                     .get_item_option("__name__", vm)?
                     .unwrap_or_else(|| vm.get_none());
-                vm.set_attr(&obj, "__module__", module)?;
-                vm.set_attr(&obj, "__annotations__", annotations)?;
+                vm.set_attr(&func_obj, "__module__", module)?;
+                vm.set_attr(&func_obj, "__annotations__", annotations)?;
 
-                self.push_value(obj);
+                self.push_value(func_obj);
                 Ok(None)
             }
             bytecode::Instruction::CallFunction { typ } => {
@@ -1318,14 +1318,14 @@ impl Frame {
             || objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type)
         {
             Ok(exception)
-        } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
-            if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
-                let exception = vm.new_empty_exception(exception)?;
+        } else if let Ok(exc_type) = PyClassRef::try_from_object(vm, exception) {
+            if objtype::issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
+                let exception = vm.new_empty_exception(exc_type)?;
                 Ok(exception)
             } else {
                 let msg = format!(
                     "Can only raise BaseException derived types, not {}",
-                    exception
+                    exc_type
                 );
                 Err(vm.new_type_error(msg))
             }
