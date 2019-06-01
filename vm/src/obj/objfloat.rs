@@ -541,7 +541,7 @@ pub fn ufrexp(value: f64) -> (f64, i32) {
     } else {
         let bits = value.to_bits();
         let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022;
-        let mantissa_bits = bits & (0x000fffffffffffff) | (1022 << 52);
+        let mantissa_bits = bits & (0x000f_ffff_ffff_ffff) | (1022 << 52);
         (f64::from_bits(mantissa_bits), exponent)
     }
 }

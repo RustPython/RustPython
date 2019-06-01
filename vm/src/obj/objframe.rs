@@ -18,6 +18,7 @@ pub fn init(context: &PyContext) {
 }
 
 impl FrameRef {
+    #[allow(clippy::new_ret_no_self)]
     fn new(_class: FrameRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create frame object".to_string()))
     }

@@ -173,8 +173,7 @@ impl NameProtocol for Scope {
     fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
         self.locals
             .iter()
-            .skip(1)
-            .next()
+            .nth(1)
             .expect("no outer scope for non-local")
             .set_item(name, value, vm)
             .unwrap();

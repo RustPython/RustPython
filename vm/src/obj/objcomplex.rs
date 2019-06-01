@@ -126,12 +126,12 @@ impl PyComplex {
 
     #[pymethod(name = "__float__")]
     fn float(&self, vm: &VirtualMachine) -> PyResult {
-        return Err(vm.new_type_error(String::from("Can't convert complex to float")));
+        Err(vm.new_type_error(String::from("Can't convert complex to float")))
     }
 
     #[pymethod(name = "__int__")]
     fn int(&self, vm: &VirtualMachine) -> PyResult {
-        return Err(vm.new_type_error(String::from("Can't convert complex to int")));
+        Err(vm.new_type_error(String::from("Can't convert complex to int")))
     }
 
     #[pymethod(name = "__mul__")]

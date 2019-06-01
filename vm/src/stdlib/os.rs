@@ -259,6 +259,7 @@ impl DirEntryRef {
         self.entry.path().to_str().unwrap().to_string()
     }
 
+    #[allow(clippy::match_bool)]
     fn perform_on_metadata(
         self,
         follow_symlinks: FollowSymlinks,
@@ -434,6 +435,7 @@ fn to_seconds_from_nanos(secs: i64, nanos: i64) -> f64 {
 #[cfg(unix)]
 macro_rules! os_unix_stat_inner {
     ( $path:expr, $follow_symlinks:expr, $vm:expr ) => {{
+        #[allow(clippy::match_bool)]
         fn get_stats(path: &str, follow_symlinks: bool) -> io::Result<StatResult> {
             let meta = match follow_symlinks {
                 true => fs::metadata(path)?,
@@ -685,12 +687,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         where
             F: IntoPyNativeFunc<T, R>,
         {
+            let func_obj = vm.ctx.new_rustfunc(func);
             Self {
-                name: name,
-                func_obj: vm.ctx.new_rustfunc(func),
-                fd: fd,
-                dir_fd: dir_fd,
-                follow_symlinks: follow_symlinks,
+                name,
+                func_obj,
+                fd,
+                dir_fd,
+                follow_symlinks,
             }
         }
     }

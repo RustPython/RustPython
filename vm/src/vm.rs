@@ -951,7 +951,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn push_exception(&self, exc: PyObjectRef) -> () {
+    pub fn push_exception(&self, exc: PyObjectRef) {
         self.exceptions.borrow_mut().push(exc)
     }
 

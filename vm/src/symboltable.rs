@@ -115,6 +115,7 @@ fn analyze_symbol_table(
     Ok(())
 }
 
+#[allow(clippy::single_match)]
 fn analyze_symbol(
     symbol_name: &str,
     symbol_role: &SymbolRole,
@@ -298,13 +299,15 @@ impl SymbolTableBuilder {
             ast::Statement::Import { import_parts } => {
                 for part in import_parts {
                     if let Some(alias) = &part.alias {
+                        // `import mymodule as myalias`
+                        // `from mymodule import myimportname as myalias`
                         self.register_name(alias, SymbolRole::Assigned)?;
+                    } else if let Some(symbol) = &part.symbol {
+                        // `from mymodule import myimport`
+                        self.register_name(symbol, SymbolRole::Assigned)?;
                     } else {
-                        if let Some(symbol) = &part.symbol {
-                            self.register_name(symbol, SymbolRole::Assigned)?;
-                        } else {
-                            self.register_name(&part.module, SymbolRole::Assigned)?;
-                        }
+                        // `import module`
+                        self.register_name(&part.module, SymbolRole::Assigned)?;
                     }
                 }
             }
@@ -540,6 +543,7 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
+    #[allow(clippy::single_match)]
     fn register_name(&mut self, name: &str, role: SymbolRole) -> SymbolTableResult {
         let scope_depth = self.scopes.len();
         let current_scope = self.scopes.last_mut().unwrap();

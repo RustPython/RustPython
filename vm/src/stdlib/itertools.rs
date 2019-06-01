@@ -31,6 +31,7 @@ impl PyValue for PyItertoolsChain {
 #[pyimpl]
 impl PyItertoolsChain {
     #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
     fn new(_cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(PyItertoolsChain {
             iterables: args.args,
@@ -88,6 +89,7 @@ impl PyValue for PyItertoolsCount {
 #[pyimpl]
 impl PyItertoolsCount {
     #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
         start: OptionalArg<PyIntRef>,
@@ -105,7 +107,7 @@ impl PyItertoolsCount {
 
         Ok(PyItertoolsCount {
             cur: RefCell::new(start),
-            step: step,
+            step,
         }
         .into_ref(vm)
         .into_object())
@@ -140,6 +142,7 @@ impl PyValue for PyItertoolsRepeat {
 #[pyimpl]
 impl PyItertoolsRepeat {
     #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
         object: PyObjectRef,
@@ -153,7 +156,7 @@ impl PyItertoolsRepeat {
 
         Ok(PyItertoolsRepeat {
             object: object.clone(),
-            times: times,
+            times,
         }
         .into_ref(vm)
         .into_object())
@@ -198,6 +201,7 @@ impl PyValue for PyItertoolsStarmap {
 #[pyimpl]
 impl PyItertoolsStarmap {
     #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
         function: PyObjectRef,
@@ -206,12 +210,9 @@ impl PyItertoolsStarmap {
     ) -> PyResult {
         let iter = get_iter(vm, &iterable)?;
 
-        Ok(PyItertoolsStarmap {
-            function: function,
-            iter: iter,
-        }
-        .into_ref(vm)
-        .into_object())
+        Ok(PyItertoolsStarmap { function, iter }
+            .into_ref(vm)
+            .into_object())
     }
 
     #[pymethod(name = "__next__")]
@@ -244,6 +245,7 @@ impl PyValue for PyItertoolsTakewhile {
 #[pyimpl]
 impl PyItertoolsTakewhile {
     #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
     fn new(
         _cls: PyClassRef,
         predicate: PyObjectRef,
@@ -253,7 +255,7 @@ impl PyItertoolsTakewhile {
         let iter = get_iter(vm, &iterable)?;
 
         Ok(PyItertoolsTakewhile {
-            predicate: predicate,
+            predicate,
             iterable: iter,
             stop_flag: RefCell::new(false),
         }
@@ -314,6 +316,7 @@ fn pyobject_to_opt_usize(obj: PyObjectRef, vm: &VirtualMachine) -> Option<usize>
 #[pyimpl]
 impl PyItertoolsIslice {
     #[pymethod(name = "__new__")]
+    #[allow(clippy::new_ret_no_self)]
     fn new(_cls: PyClassRef, args: PyFuncArgs, vm: &VirtualMachine) -> PyResult {
         let (iter, start, stop, step) = match args.args.len() {
             0 | 1 => {
@@ -377,8 +380,8 @@ impl PyItertoolsIslice {
             iterable: iter,
             cur: RefCell::new(0),
             next: RefCell::new(start),
-            stop: stop,
-            step: step,
+            stop,
+            step,
         }
         .into_ref(vm)
         .into_object())

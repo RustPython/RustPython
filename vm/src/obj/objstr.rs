@@ -863,7 +863,7 @@ impl PyString {
             None => false,
         };
         // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(|c| UnicodeXID::is_xid_continue(c))
+        is_identifier_start && chars.all(UnicodeXID::is_xid_continue)
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
@@ -876,18 +876,18 @@ impl PyString {
             match table.get_item(c as u32, vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
-                        translated.extend(text.value.chars());
-                    } else if let Some(_) = value.payload::<PyNone>() {
-                        // Do Nothing
+                        translated.push_str(&text.value);
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         match bigint.as_bigint().to_u32().and_then(std::char::from_u32) {
                             Some(ch) => translated.push(ch as char),
                             None => {
-                                return Err(vm.new_value_error(format!(
-                                    "character mapping must be in range(0x110000)"
-                                )));
+                                return Err(vm.new_value_error(
+                                    "character mapping must be in range(0x110000)".to_owned(),
+                                ));
                             }
                         }
+                    } else if let Some(_) = value.payload::<PyNone>() {
+                        // Do Nothing
                     } else {
                         return Err(vm.new_type_error(
                             "character mapping must return integer, None or str".to_owned(),
