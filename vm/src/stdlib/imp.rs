@@ -1,3 +1,4 @@
+use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
 use crate::obj::objstr::PyStringRef;
 use crate::pyobject::{ItemProtocol, PyObjectRef, PyResult};
@@ -46,6 +47,11 @@ fn imp_create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn imp_exec_builtin(_mod: PyModuleRef, _vm: &VirtualMachine) -> i32 {
+    // TOOD: Should we do something here?
+    0
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let module = py_module!(vm, "_imp", {
@@ -56,6 +62,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "is_builtin" => ctx.new_rustfunc(imp_is_builtin),
         "is_frozen" => ctx.new_rustfunc(imp_is_frozen),
         "create_builtin" => ctx.new_rustfunc(imp_create_builtin),
+        "exec_builtin" => ctx.new_rustfunc(imp_exec_builtin),
     });
 
     module

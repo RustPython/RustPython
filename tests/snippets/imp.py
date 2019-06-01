@@ -19,3 +19,5 @@ assert imp_time.sleep == import_time.sleep
 
 B = FakeSpec("not existing module")
 assert _imp.create_builtin(B) == None
+
+_imp.exec_builtin(imp_time) == 0
