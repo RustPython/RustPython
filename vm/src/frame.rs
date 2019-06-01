@@ -243,7 +243,7 @@ pub enum ExecutionResult {
     Yield(PyObjectRef),
 }
 
-// A valid execution result, or an exception
+/// A valid execution result, or an exception
 pub type FrameResult = Result<Option<ExecutionResult>, PyObjectRef>;
 
 impl Frame {
@@ -285,9 +285,11 @@ impl Frame {
                 Ok(Some(value)) => {
                     break Ok(value);
                 }
+                // Instruction raised an exception
                 Err(exception) => {
-                    // unwind block stack on exception and find any handlers.
-                    // Add an entry in the traceback:
+                    // 1. Extract traceback from exception's '__traceback__' attr.
+                    // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
+                    // 3. Unwind block stack till appropriate handler is found.
                     assert!(objtype::isinstance(
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
@@ -296,13 +298,12 @@ impl Frame {
                         .get_attribute(exception.clone(), "__traceback__")
                         .unwrap();
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
-                    let pos = vm.ctx.new_tuple(vec![
+                    let raise_location = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
                         vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
-                    objlist::PyListRef::try_from_object(vm, traceback)?.append(pos, vm);
-                    // exception.__trace
+                    objlist::PyListRef::try_from_object(vm, traceback)?.append(raise_location, vm);
                     match self.unwind_exception(vm, exception) {
                         None => {}
                         Some(exception) => {
@@ -333,7 +334,7 @@ impl Frame {
         ins2
     }
 
-    // Execute a single instruction:
+    /// Execute a single instruction.
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
         {
@@ -565,9 +566,7 @@ impl Frame {
                 } = &block.typ
                 {
                     debug_assert!(end1 == end2);
-
-                    // call exit now with no exception:
-                    self.with_exit(vm, &context_manager, None)?;
+                    self.call_context_manager_exit_no_exception(vm, &context_manager)?;
                 } else {
                     unreachable!("Block stack is incorrect, expected a with block");
                 }
@@ -949,7 +948,7 @@ impl Frame {
                 BlockType::With {
                     context_manager, ..
                 } => {
-                    match self.with_exit(vm, &context_manager, None) {
+                    match self.call_context_manager_exit_no_exception(vm, &context_manager) {
                         Ok(..) => {}
                         Err(exc) => {
                             // __exit__ went wrong,
@@ -976,7 +975,7 @@ impl Frame {
                 }
                 BlockType::With {
                     context_manager, ..
-                } => match self.with_exit(vm, &context_manager, None) {
+                } => match self.call_context_manager_exit_no_exception(vm, &context_manager) {
                     Ok(..) => {}
                     Err(exc) => {
                         panic!("Exception in with __exit__ {:?}", exc);
@@ -1006,12 +1005,12 @@ impl Frame {
                     end,
                     context_manager,
                 } => {
-                    match self.with_exit(vm, &context_manager, Some(exc.clone())) {
-                        Ok(exit_action) => {
-                            match objbool::boolval(vm, exit_action) {
-                                Ok(handle_exception) => {
-                                    if handle_exception {
-                                        // We handle the exception, so return!
+                    match self.call_context_manager_exit(vm, &context_manager, exc.clone()) {
+                        Ok(exit_result_obj) => {
+                            match objbool::boolval(vm, exit_result_obj) {
+                                // If __exit__ method returned True, suppress the exception and continue execution.
+                                Ok(suppress_exception) => {
+                                    if suppress_exception {
                                         self.jump(end);
                                         return None;
                                     } else {
@@ -1022,7 +1021,6 @@ impl Frame {
                                     return Some(exit_exc);
                                 }
                             }
-                            // if objtype::isinstance
                         }
                         Err(exit_exc) => {
                             // TODO: what about original exception?
@@ -1031,36 +1029,39 @@ impl Frame {
                     }
                 }
                 BlockType::Loop { .. } => {}
-                // Exception was already poped on Raised.
+                // Exception was already popped on Raised.
                 BlockType::ExceptHandler => {}
             }
         }
         Some(exc)
     }
 
-    fn with_exit(
+    fn call_context_manager_exit_no_exception(
         &self,
         vm: &VirtualMachine,
         context_manager: &PyObjectRef,
-        exc: Option<PyObjectRef>,
     ) -> PyResult {
-        // Assume top of stack is __exit__ method:
         // TODO: do we want to put the exit call on the stack?
-        // let exit_method = self.pop_value();
-        // let args = PyFuncArgs::default();
-        // TODO: what happens when we got an error during handling exception?
-        let args = if let Some(exc) = exc {
-            let exc_type = exc.class().into_object();
-            let exc_val = exc.clone();
-            let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
-            vec![exc_type, exc_val, exc_tb]
-        } else {
-            let exc_type = vm.ctx.none();
-            let exc_val = vm.ctx.none();
-            let exc_tb = vm.ctx.none();
-            vec![exc_type, exc_val, exc_tb]
-        };
-        vm.call_method(context_manager, "__exit__", args)
+        // TODO: what happens when we got an error during execution of __exit__?
+        vm.call_method(
+            context_manager,
+            "__exit__",
+            vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()],
+        )
+    }
+
+    fn call_context_manager_exit(
+        &self,
+        vm: &VirtualMachine,
+        context_manager: &PyObjectRef,
+        exc: PyObjectRef,
+    ) -> PyResult {
+        // TODO: do we want to put the exit call on the stack?
+        // TODO: what happens when we got an error during execution of __exit__?
+        let exc_type = exc.class().into_object();
+        let exc_val = exc.clone();
+        let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+        vm.call_method(context_manager, "__exit__", vec![exc_type, exc_val, exc_tb])
     }
 
     fn store_name(
@@ -1131,7 +1132,7 @@ impl Frame {
 
     fn jump(&self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
-        trace!("program counter from {:?} to {:?}", self.lasti, target_pc);
+        trace!("jump from {:?} to {:?}", self.lasti, target_pc);
         *self.lasti.borrow_mut() = target_pc;
     }
 
