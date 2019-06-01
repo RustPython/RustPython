@@ -72,6 +72,11 @@ fn imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn imp_is_frozen_package(_name: PyStringRef, _vm: &VirtualMachine) -> bool {
+    // TODO: Support frozen package.
+    false
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let module = py_module!(vm, "_imp", {
@@ -85,6 +90,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "exec_builtin" => ctx.new_rustfunc(imp_exec_builtin),
         "get_frozen_object" => ctx.new_rustfunc(imp_get_frozen_object),
         "init_frozen" => ctx.new_rustfunc(imp_init_frozen),
+        "is_frozen_package" => ctx.new_rustfunc(imp_is_frozen_package),
     });
 
     module
