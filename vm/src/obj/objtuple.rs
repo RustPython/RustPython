@@ -27,7 +27,7 @@ impl fmt::Debug for PyTuple {
 
 impl From<Vec<PyObjectRef>> for PyTuple {
     fn from(elements: Vec<PyObjectRef>) -> Self {
-        PyTuple { elements: elements }
+        PyTuple { elements }
     }
 }
 

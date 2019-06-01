@@ -193,7 +193,7 @@ impl<T: Clone> Dict<T> {
         Box::new(
             self.entries
                 .iter()
-                .filter_map(|v| v.as_ref().map_or(None, |v| Some(v.key.clone()))),
+                .filter_map(|v| v.as_ref().and_then(|v| Some(v.key.clone()))),
         )
     }
 

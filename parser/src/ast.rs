@@ -44,6 +44,7 @@ pub struct Located<T> {
 pub type LocatedStatement = Located<Statement>;
 
 /// Abstract syntax tree nodes for python statements.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 pub enum Statement {
     Break,

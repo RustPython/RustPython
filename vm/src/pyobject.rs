@@ -1238,6 +1238,7 @@ impl<T> PyObject<T>
 where
     T: Sized + PyObjectPayload,
 {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject { typ, dict, payload }.into_ref()
     }

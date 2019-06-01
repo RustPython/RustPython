@@ -112,8 +112,9 @@ impl_try_from_object_int!(
     (u64, to_u64),
 );
 
+#[allow(clippy::collapsible_if)]
 fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
-    Ok(if int2.value.is_negative() {
+    let result = if int2.value.is_negative() {
         let v1 = int1.float(vm)?;
         let v2 = int2.float(vm)?;
         vm.ctx.new_float(v1.pow(v2))
@@ -133,7 +134,8 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
             // practically, exp over u64 is not possible to calculate anyway
             vm.ctx.not_implemented()
         }
-    })
+    };
+    Ok(result)
 }
 
 #[pyimpl]
@@ -494,6 +496,7 @@ impl PyInt {
     }
 
     #[pymethod]
+    #[allow(clippy::match_bool)]
     fn from_bytes(
         bytes: PyByteInner,
         byteorder: PyStringRef,
@@ -529,6 +532,7 @@ impl PyInt {
         Ok(x)
     }
     #[pymethod]
+    #[allow(clippy::match_bool)]
     fn to_bytes(
         &self,
         length: PyIntRef,
@@ -547,7 +551,7 @@ impl PyInt {
                 );
             }
         }
-        if value.sign() == Sign::Minus && signed == false {
+        if value.sign() == Sign::Minus && !signed {
             return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_string()));
         }
         let byte_len;

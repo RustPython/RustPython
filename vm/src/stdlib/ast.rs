@@ -457,7 +457,7 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
 fn map_ast<T>(
     f: fn(vm: &VirtualMachine, &T) -> PyResult<AstNodeRef>,
     vm: &VirtualMachine,
-    items: &Vec<T>,
+    items: &[T],
 ) -> PyResult<PyObjectRef> {
     let list: PyResult<Vec<PyObjectRef>> =
         items.iter().map(|x| Ok(f(vm, x)?.into_object())).collect();

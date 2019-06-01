@@ -340,7 +340,7 @@ impl PyByteArrayRef {
         let pos = bytes
             .iter()
             .position(|b| *b == x)
-            .ok_or(vm.new_value_error("value not found in bytearray".to_string()))?;
+            .ok_or_else(|| vm.new_value_error("value not found in bytearray".to_string()))?;
 
         bytes.remove(pos);
 

@@ -9,11 +9,11 @@ pub type PyHash = i64;
 pub type PyUHash = u64;
 
 /// Prime multiplier used in string and various other hashes.
-pub const MULTIPLIER: PyHash = 1000003; // 0xf4243
+pub const MULTIPLIER: PyHash = 1_000_003; // 0xf4243
 /// Numeric hashes are based on reduction modulo the prime 2**_BITS - 1
 pub const BITS: usize = 61;
 pub const MODULUS: PyUHash = (1 << BITS) - 1;
-pub const INF: PyHash = 314159;
+pub const INF: PyHash = 314_159;
 pub const NAN: PyHash = 0;
 pub const IMAG: PyHash = MULTIPLIER;
 
@@ -42,7 +42,7 @@ pub fn hash_float(value: f64) -> PyHash {
     let mut x: PyUHash = 0;
     while m != 0.0 {
         x = ((x << 28) & MODULUS) | x >> (BITS - 28);
-        m *= 268435456.0; // 2**28
+        m *= 268_435_456.0; // 2**28
         e -= 28;
         let y = m as PyUHash; // pull out integer part
         m -= y as f64;

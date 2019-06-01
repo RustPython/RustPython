@@ -218,7 +218,7 @@ impl SocketRef {
         }
     }
 
-    fn listen(self, _num: PyIntRef, _vm: &VirtualMachine) -> () {}
+    fn listen(self, _num: PyIntRef, _vm: &VirtualMachine) {}
 
     fn accept(self, vm: &VirtualMachine) -> PyResult {
         let ret = match self.con.borrow_mut().as_mut() {
@@ -310,7 +310,7 @@ impl SocketRef {
         }
     }
 
-    fn close(self, _vm: &VirtualMachine) -> () {
+    fn close(self, _vm: &VirtualMachine) {
         self.con.borrow_mut().take();
     }
 
