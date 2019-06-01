@@ -23,3 +23,6 @@ assert _imp.create_builtin(B) == None
 _imp.exec_builtin(imp_time) == 0
 
 _imp.get_frozen_object("__hello__")
+
+hello = _imp.init_frozen("__hello__")
+assert hello.initialized == True

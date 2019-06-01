@@ -1,4 +1,5 @@
 use crate::compile;
+use crate::import::import_file;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
@@ -63,6 +64,14 @@ fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyC
     }
 }
 
+fn imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+    if let Some(frozen) = vm.frozen.borrow().get(name.as_str()) {
+        import_file(vm, name.as_str(), "frozen".to_string(), frozen.to_string())
+    } else {
+        Err(vm.new_import_error(format!("No such frozen object named {}", name.as_str())))
+    }
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
     let module = py_module!(vm, "_imp", {
@@ -75,6 +84,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "create_builtin" => ctx.new_rustfunc(imp_create_builtin),
         "exec_builtin" => ctx.new_rustfunc(imp_exec_builtin),
         "get_frozen_object" => ctx.new_rustfunc(imp_get_frozen_object),
+        "init_frozen" => ctx.new_rustfunc(imp_init_frozen),
     });
 
     module
