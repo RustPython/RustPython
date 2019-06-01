@@ -21,3 +21,5 @@ B = FakeSpec("not existing module")
 assert _imp.create_builtin(B) == None
 
 _imp.exec_builtin(imp_time) == 0
+
+_imp.get_frozen_object("__hello__")
