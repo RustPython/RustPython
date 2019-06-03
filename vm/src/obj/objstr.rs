@@ -869,9 +869,13 @@ impl PyString {
     // https://docs.python.org/3/library/stdtypes.html#str.translate
     #[pymethod]
     fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+        vm.get_method_or_type_error(
+            table.clone(),
+            "__getitem__",
+            format!("'{}' object is not subscriptable", table.class().name),
+        )?;
+
         let mut translated = String::new();
-        // It throws a type error if it is not subscribtable
-        vm.get_method(table.clone(), "__getitem__")?;
         for c in self.value.chars() {
             match table.get_item(c as u32, vm) {
                 Ok(value) => {

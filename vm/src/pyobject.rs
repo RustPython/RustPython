@@ -1134,12 +1134,18 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if let Ok(method) = vm.get_method(obj.clone(), "__iter__") {
+        if let Some(method_or_err) = vm.get_method(obj.clone(), "__iter__") {
+            let method = method_or_err?;
             Ok(PyIterable {
                 method,
                 _item: std::marker::PhantomData,
             })
-        } else if vm.get_method(obj.clone(), "__getitem__").is_ok() {
+        } else {
+            vm.get_method_or_type_error(
+                obj.clone(),
+                "__getitem__",
+                format!("'{}' object is not iterable", obj.class().name),
+            )?;
             Self::try_from_object(
                 vm,
                 objiter::PySequenceIterator {
@@ -1149,8 +1155,6 @@ where
                 .into_ref(vm)
                 .into_object(),
             )
-        } else {
-            Err(vm.new_type_error(format!("'{}' object is not iterable", obj.class().name)))
         }
     }
 }

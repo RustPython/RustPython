@@ -31,10 +31,12 @@ use crate::vm::VirtualMachine;
 use crate::stdlib::io::io_open;
 
 fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    match vm.get_method(x.clone(), "__abs__") {
-        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![], vec![])),
-        Err(..) => Err(vm.new_type_error("bad operand for abs".to_string())),
-    }
+    let method = vm.get_method_or_type_error(
+        x.clone(),
+        "__abs__",
+        format!("bad operand type for abs(): '{}'", x.class().name),
+    )?;
+    vm.invoke(method, PyFuncArgs::new(vec![], vec![]))
 }
 
 fn builtin_all(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
@@ -367,15 +369,12 @@ fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    let len_method_name = "__len__";
-    match vm.get_method(obj.clone(), len_method_name) {
-        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
-        Err(..) => Err(vm.new_type_error(format!(
-            "object of type '{}' has no method {:?}",
-            obj.class().name,
-            len_method_name
-        ))),
-    }
+    let method = vm.get_method_or_type_error(
+        obj.clone(),
+        "__len__",
+        format!("object of type '{}' has no len()", obj.class().name),
+    )?;
+    vm.invoke(method, PyFuncArgs::default())
 }
 
 fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
@@ -671,15 +670,14 @@ fn builtin_repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStringRef> 
 fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
-    match vm.get_method(obj.clone(), "__reversed__") {
-        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
-        // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
-        Err(..) => {
-            Err(vm.new_type_error(format!("'{}' object is not reversible", obj.class().name)))
-        }
-    }
+    // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
+    let method = vm.get_method_or_type_error(
+        obj.clone(),
+        "__reversed__",
+        format!("argument to reversed() must be a sequence"),
+    )?;
+    vm.invoke(method, PyFuncArgs::default())
 }
-// builtin_reversed
 
 fn builtin_round(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
