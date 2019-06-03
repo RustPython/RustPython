@@ -87,6 +87,7 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, o
 
 /// For attributes we do not use a dict, but a hashmap. This is probably
 /// faster, unordered, and only supports strings as keys.
+/// TODO: class attributes should maintain insertion order (use IndexMap here)
 pub type PyAttributes = HashMap<String, PyObjectRef>;
 
 impl fmt::Display for PyObject<dyn PyObjectPayload> {
@@ -833,6 +834,7 @@ impl<T: PyValue> PyRef<T> {
     pub fn as_object(&self) -> &PyObjectRef {
         &self.obj
     }
+
     pub fn into_object(self) -> PyObjectRef {
         self.obj
     }

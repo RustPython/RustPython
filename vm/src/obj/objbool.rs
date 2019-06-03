@@ -19,6 +19,7 @@ impl TryFromObject for bool {
     }
 }
 
+/// Convert Python bool into Rust bool.
 pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
     Ok(if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
         let bool_res = vm.invoke(f, PyFuncArgs::default())?;

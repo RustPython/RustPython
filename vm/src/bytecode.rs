@@ -17,6 +17,7 @@ use std::fmt;
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodeObject {
     pub instructions: Vec<Instruction>,
+    /// Jump targets.
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<ast::Location>,
     pub arg_names: Vec<String>, // Names of positional arguments
