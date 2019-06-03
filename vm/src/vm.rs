@@ -166,7 +166,7 @@ impl VirtualMachine {
     }
 
     pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
-        info!("New exception created: no msg");
+        info!("New exception created: {}", exc_type.name);
         let args = PyFuncArgs::default();
         self.invoke(exc_type.into_object(), args)
     }
@@ -175,7 +175,7 @@ impl VirtualMachine {
     pub fn new_exception(&self, exc_type: PyClassRef, msg: String) -> PyObjectRef {
         // TODO: exc_type may be user-defined exception, so we should return PyResult
         // TODO: maybe there is a clearer way to create an instance:
-        info!("New exception created: {}", msg);
+        info!("New exception created: {}('{}')", exc_type.name, msg);
         let pymsg = self.new_str(msg);
         let args: Vec<PyObjectRef> = vec![pymsg];
         self.invoke(exc_type.into_object(), args).unwrap()
