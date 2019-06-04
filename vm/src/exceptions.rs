@@ -12,7 +12,8 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let msg = if args.args.len() > 1 {
         args.args[1].clone()
     } else {
-        vm.new_str("No msg".to_string())
+        let empty_string = String::default();
+        vm.new_str(empty_string)
     };
     let traceback = vm.ctx.new_list(Vec::new());
     vm.set_attr(&zelf, "msg", msg)?;
@@ -132,8 +133,11 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         panic!("Error message must be set");
     };
-    let s = format!("{}: {}", exc.class().name, msg);
-    Ok(vm.new_str(s))
+    let mut exc_repr = exc.class().name.clone();
+    if !msg.is_empty() {
+        &exc_repr.push_str(&format!(": {}", msg));
+    }
+    Ok(vm.new_str(exc_repr))
 }
 
 #[derive(Debug)]
