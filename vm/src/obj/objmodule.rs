@@ -23,10 +23,15 @@ impl PyModuleRef {
             panic!("Modules should definitely have a dict.");
         }
     }
+
+    fn name(self: PyModuleRef, _vm: &VirtualMachine) -> String {
+        self.name.clone()
+    }
 }
 
 pub fn init(context: &PyContext) {
     extend_class!(&context, &context.module_type, {
         "__dir__" => context.new_rustfunc(PyModuleRef::dir),
+        "__name__" => context.new_rustfunc(PyModuleRef::name)
     });
 }
