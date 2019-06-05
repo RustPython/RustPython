@@ -54,6 +54,9 @@ fn main() {
     // Construct vm:
     let vm = VirtualMachine::new();
 
+    let res = import::init_importlib(&vm);
+    handle_exception(&vm, res);
+
     // Figure out if a -c option was given:
     let result = if let Some(command) = matches.value_of("c") {
         run_command(&vm, command.to_string())
