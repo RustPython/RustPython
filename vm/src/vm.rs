@@ -255,6 +255,11 @@ impl VirtualMachine {
         syntax_error
     }
 
+    pub fn new_import_error(&self, msg: String) -> PyObjectRef {
+        let import_error = self.ctx.exceptions.import_error.clone();
+        self.new_exception(import_error, msg)
+    }
+
     pub fn new_scope_with_builtins(&self) -> Scope {
         Scope::with_builtins(None, self.ctx.new_dict(), self)
     }
