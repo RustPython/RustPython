@@ -471,7 +471,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getvalue" => ctx.new_rustfunc(bytes_io_getvalue)
     });
 
-    py_module!(vm, "io", {
+    py_module!(vm, "_io", {
         "open" => ctx.new_rustfunc(io_open),
         "IOBase" => io_base,
         "RawIOBase" => raw_io_base,
