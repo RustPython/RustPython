@@ -1,4 +1,3 @@
-pub const IMPORTLIB_BOOTSTRAP: &str = r#"
 """Core implementation of import.
 
 This module is NOT meant to be directly imported! It has been designed such
@@ -1172,4 +1171,3 @@ def _install_external_importers():
     import _frozen_importlib_external
     _bootstrap_external = _frozen_importlib_external
     _frozen_importlib_external._install(sys.modules[__name__])
-"#;

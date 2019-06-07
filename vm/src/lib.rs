@@ -48,7 +48,6 @@ pub mod frame;
 mod frozen;
 pub mod function;
 pub mod import;
-mod importlib;
 pub mod obj;
 mod pyhash;
 pub mod pyobject;
