@@ -4,13 +4,11 @@
 
 use std::char;
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 use num_bigint::Sign;
 use num_traits::{Signed, Zero};
 
 use crate::compile;
-use crate::import::import_module;
 use crate::obj::objbool;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
