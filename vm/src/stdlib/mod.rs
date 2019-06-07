@@ -16,6 +16,7 @@ mod string;
 mod thread;
 mod time_module;
 mod tokenize;
+mod warnings;
 mod weakref;
 use std::collections::HashMap;
 
@@ -55,6 +56,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     modules.insert("tokenize".to_string(), Box::new(tokenize::make_module));
     modules.insert("_weakref".to_string(), Box::new(weakref::make_module));
     modules.insert("_imp".to_string(), Box::new(imp::make_module));
+    modules.insert("_warnings".to_string(), Box::new(warnings::make_module));
 
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
