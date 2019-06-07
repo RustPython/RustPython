@@ -1141,11 +1141,9 @@ where
                 _item: std::marker::PhantomData,
             })
         } else {
-            vm.get_method_or_type_error(
-                obj.clone(),
-                "__getitem__",
-                format!("'{}' object is not iterable", obj.class().name),
-            )?;
+            vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
+                format!("'{}' object is not iterable", obj.class().name)
+            })?;
             Self::try_from_object(
                 vm,
                 objiter::PySequenceIterator {

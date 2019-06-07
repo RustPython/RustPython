@@ -31,11 +31,9 @@ use crate::vm::VirtualMachine;
 use crate::stdlib::io::io_open;
 
 fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    let method = vm.get_method_or_type_error(
-        x.clone(),
-        "__abs__",
-        format!("bad operand type for abs(): '{}'", x.class().name),
-    )?;
+    let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
+        format!("bad operand type for abs(): '{}'", x.class().name)
+    })?;
     vm.invoke(method, PyFuncArgs::new(vec![], vec![]))
 }
 
@@ -369,11 +367,9 @@ fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    let method = vm.get_method_or_type_error(
-        obj.clone(),
-        "__len__",
-        format!("object of type '{}' has no len()", obj.class().name),
-    )?;
+    let method = vm.get_method_or_type_error(obj.clone(), "__len__", || {
+        format!("object of type '{}' has no len()", obj.class().name)
+    })?;
     vm.invoke(method, PyFuncArgs::default())
 }
 
@@ -671,11 +667,9 @@ fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
     // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
-    let method = vm.get_method_or_type_error(
-        obj.clone(),
-        "__reversed__",
-        format!("argument to reversed() must be a sequence"),
-    )?;
+    let method = vm.get_method_or_type_error(obj.clone(), "__reversed__", || {
+        format!("argument to reversed() must be a sequence")
+    })?;
     vm.invoke(method, PyFuncArgs::default())
 }
 

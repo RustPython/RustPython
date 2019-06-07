@@ -173,15 +173,13 @@ fn math_lgamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -> PyResult {
-    let method = vm.get_method_or_type_error(
-        value.clone(),
-        func_name,
+    let method = vm.get_method_or_type_error(value.clone(), func_name, || {
         format!(
             "type '{}' doesn't define '{}' method",
             value.class().name,
             func_name,
-        ),
-    )?;
+        )
+    })?;
     vm.invoke(method, vec![])
 }
 

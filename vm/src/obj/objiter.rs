@@ -22,11 +22,9 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
         let method = method_or_err?;
         vm.invoke(method, vec![])
     } else {
-        vm.get_method_or_type_error(
-            iter_target.clone(),
-            "__getitem__",
-            format!("Cannot iterate over {}", iter_target.class().name),
-        )?;
+        vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
+            format!("Cannot iterate over {}", iter_target.class().name)
+        })?;
         let obj_iterator = PySequenceIterator {
             position: Cell::new(0),
             obj: iter_target.clone(),

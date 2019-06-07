@@ -624,16 +624,19 @@ impl VirtualMachine {
 
     // get_method should be used for internal access to magic methods (by-passing
     // the full getattribute look-up.
-    pub fn get_method_or_type_error(
+    pub fn get_method_or_type_error<F>(
         &self,
         obj: PyObjectRef,
         method_name: &str,
-        err_msg: String,
-    ) -> PyResult {
+        err_msg: F,
+    ) -> PyResult
+    where
+        F: FnOnce() -> String,
+    {
         let cls = obj.class();
         match objtype::class_get_attr(&cls, method_name) {
             Some(method) => self.call_get_descriptor(method, obj.clone()),
-            None => Err(self.new_type_error(err_msg)),
+            None => Err(self.new_type_error(err_msg())),
         }
     }
 

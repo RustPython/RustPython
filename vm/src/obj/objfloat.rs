@@ -557,14 +557,12 @@ pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
     } else {
-        let method = vm.get_method_or_type_error(
-            obj.clone(),
-            "__float__",
+        let method = vm.get_method_or_type_error(obj.clone(), "__float__", || {
             format!(
                 "float() argument must be a string or a number, not '{}'",
                 obj.class().name
-            ),
-        )?;
+            )
+        })?;
         let result = vm.invoke(method, vec![])?;
         Ok(get_value(&result))
     }
