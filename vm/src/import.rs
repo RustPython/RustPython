@@ -80,7 +80,10 @@ pub fn import_file(
 
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
-    attrs.set_item("__file__", vm.new_str(file_path), vm)?;
+    if file_path != "frozen".to_string() {
+        // TODO: Should be removed after precompiling frozen modules.
+        attrs.set_item("__file__", vm.new_str(file_path), vm)?;
+    }
     let module = vm.ctx.new_module(module_name, attrs.clone());
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
