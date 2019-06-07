@@ -243,6 +243,7 @@ settrace() -- set the global debug tracing function
       "warnoptions" => ctx.new_list(vec![]),
       "platform" => ctx.new_str(platform),
       "meta_path" => ctx.new_list(vec![]),
+      "path_hooks" => ctx.new_list(vec![]),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
