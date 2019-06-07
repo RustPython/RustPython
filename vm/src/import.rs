@@ -23,15 +23,20 @@ pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
     Ok(vm.get_none())
 }
 
-fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
+pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     if let Some(frozen) = vm.frozen.borrow().get(module_name) {
-        import_file(vm, module_name, "frozen".to_string(), frozen.to_string())
+        import_file(
+            vm,
+            module_name,
+            format!("frozen {}", module_name),
+            frozen.to_string(),
+        )
     } else {
         Err(vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
     }
 }
 
-fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
+pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
     if let Some(make_module_func) = vm.stdlib_inits.borrow().get(module_name) {
         let module = make_module_func(vm);
@@ -85,7 +90,7 @@ pub fn import_file(
 
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
-    if file_path != "frozen".to_string() {
+    if !file_path.starts_with("frozen") {
         // TODO: Should be removed after precompiling frozen modules.
         attrs.set_item("__file__", vm.new_str(file_path), vm)?;
     }
