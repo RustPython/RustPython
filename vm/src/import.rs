@@ -14,8 +14,10 @@ use crate::vm::VirtualMachine;
 pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
     let importlib = import_frozen(vm, "_frozen_importlib")?;
     let impmod = import_builtin(vm, "_imp")?;
-    let install = vm.get_attribute(importlib, "_install")?;
-    vm.invoke(install, vec![vm.sys_module.clone(), impmod])
+    let install = vm.get_attribute(importlib.clone(), "_install")?;
+    vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
+    let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
+    vm.invoke(install_external, vec![])
 }
 
 fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
