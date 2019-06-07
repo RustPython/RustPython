@@ -19,7 +19,7 @@ fn warnings_warn(args: WarnArgs, _vm: &VirtualMachine) {
         OptionalArg::Present(l) => l,
         OptionalArg::Missing => 1,
     };
-    println!(
+    eprintln!(
         "Warning: {} , category: {:?}, level: {}",
         args.message.as_str(),
         args.category,
