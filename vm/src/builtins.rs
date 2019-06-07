@@ -732,27 +732,7 @@ fn builtin_sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) ->
 
 // Should be renamed to builtin___import__?
 fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(name, Some(vm.ctx.str_type()))],
-        optional = [
-            (_globals, Some(vm.ctx.dict_type())),
-            (_locals, Some(vm.ctx.dict_type()))
-        ]
-    );
-    let current_path = {
-        match vm.current_frame() {
-            Some(frame) => {
-                let mut source_pathbuf = PathBuf::from(&frame.code.source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::new(),
-        }
-    };
-
-    import_module(vm, current_path, &objstr::get_value(name))
+    vm.invoke(vm.import_func.borrow().clone(), args)
 }
 
 // builtin_vars

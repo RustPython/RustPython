@@ -16,8 +16,11 @@ pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
     let impmod = import_builtin(vm, "_imp")?;
     let install = vm.get_attribute(importlib.clone(), "_install")?;
     vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
-    let install_external = vm.get_attribute(importlib, "_install_external_importers")?;
-    vm.invoke(install_external, vec![])
+    vm.import_func
+        .replace(vm.get_attribute(importlib.clone(), "__import__")?);
+    let install_external = vm.get_attribute(importlib.clone(), "_install_external_importers")?;
+    vm.invoke(install_external, vec![])?;
+    Ok(vm.get_none())
 }
 
 fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {

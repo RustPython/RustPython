@@ -55,6 +55,7 @@ pub struct VirtualMachine {
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyObjectRef>>,
     pub frozen: RefCell<HashMap<String, &'static str>>,
+    pub import_func: RefCell<PyObjectRef>,
 }
 
 impl VirtualMachine {
@@ -68,6 +69,7 @@ impl VirtualMachine {
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
+        let import_func = RefCell::new(ctx.none());
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -77,6 +79,7 @@ impl VirtualMachine {
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
             frozen,
+            import_func,
         };
 
         builtins::make_module(&vm, builtins.clone());
