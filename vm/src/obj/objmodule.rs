@@ -11,6 +11,8 @@ pub struct PyModule {
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
+    const HAVE_DICT: bool = true;
+
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.module_type()
     }
