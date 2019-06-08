@@ -649,6 +649,64 @@ where
         self.location.column = 1;
     }
 
+    /// Given we are at the start of a line, count the number of spaces and/or tabs until the first character.
+    fn determine_indentation(&mut self) -> Result<IndentationLevel, LexicalError> {
+        // Determine indentation:
+        let mut spaces: usize = 0;
+        let mut tabs: usize = 0;
+        loop {
+            match self.chr0 {
+                Some(' ') => {
+                    /*
+                    if tabs != 0 {
+                        // Don't allow spaces after tabs as part of indentation.
+                        // This is technically stricter than python3 but spaces after
+                        // tabs is even more insane than mixing spaces and tabs.
+                        return Some(Err(LexicalError {
+                            error: LexicalErrorType::OtherError("Spaces not allowed as part of indentation after tabs".to_string()),
+                            location: self.get_pos(),
+                        }));
+                    }
+                    */
+                    self.next_char();
+                    spaces += 1;
+                }
+                Some('\t') => {
+                    if spaces != 0 {
+                        // Don't allow tabs after spaces as part of indentation.
+                        // This is technically stricter than python3 but spaces before
+                        // tabs is even more insane than mixing spaces and tabs.
+                        return Err(LexicalError {
+                            error: LexicalErrorType::OtherError(
+                                "Tabs not allowed as part of indentation after spaces".to_string(),
+                            ),
+                            location: self.get_pos(),
+                        });
+                    }
+                    self.next_char();
+                    tabs += 1;
+                }
+                Some('#') => {
+                    self.lex_comment();
+                    spaces = 0;
+                    tabs = 0;
+                }
+                Some('\n') => {
+                    // Empty line!
+                    self.next_char();
+                    self.new_line();
+                    spaces = 0;
+                    tabs = 0;
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        Ok(IndentationLevel { spaces, tabs })
+    }
+
     fn inner_next(&mut self) -> LexResult {
         if !self.pending.is_empty() {
             return self.pending.remove(0);
@@ -659,61 +717,7 @@ where
             if self.at_begin_of_line {
                 self.at_begin_of_line = false;
 
-                // Determine indentation:
-                let mut spaces: usize = 0;
-                let mut tabs: usize = 0;
-                loop {
-                    match self.chr0 {
-                        Some(' ') => {
-                            /*
-                            if tabs != 0 {
-                                // Don't allow spaces after tabs as part of indentation.
-                                // This is technically stricter than python3 but spaces after
-                                // tabs is even more insane than mixing spaces and tabs.
-                                return Some(Err(LexicalError {
-                                    error: LexicalErrorType::OtherError("Spaces not allowed as part of indentation after tabs".to_string()),
-                                    location: self.get_pos(),
-                                }));
-                            }
-                            */
-                            self.next_char();
-                            spaces += 1;
-                        }
-                        Some('\t') => {
-                            if spaces != 0 {
-                                // Don't allow tabs after spaces as part of indentation.
-                                // This is technically stricter than python3 but spaces before
-                                // tabs is even more insane than mixing spaces and tabs.
-                                return Err(LexicalError {
-                                    error: LexicalErrorType::OtherError(
-                                        "Tabs not allowed as part of indentation after spaces"
-                                            .to_string(),
-                                    ),
-                                    location: self.get_pos(),
-                                });
-                            }
-                            self.next_char();
-                            tabs += 1;
-                        }
-                        Some('#') => {
-                            self.lex_comment();
-                            self.at_begin_of_line = true;
-                            continue 'top_loop;
-                        }
-                        Some('\n') => {
-                            // Empty line!
-                            self.next_char();
-                            self.at_begin_of_line = true;
-                            self.new_line();
-                            continue 'top_loop;
-                        }
-                        _ => {
-                            break;
-                        }
-                    }
-                }
-
-                let indentation_level = IndentationLevel { spaces, tabs };
+                let indentation_level = self.determine_indentation()?;
 
                 if self.nesting == 0 {
                     // Determine indent or dedent:
