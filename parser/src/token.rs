@@ -23,7 +23,6 @@ pub enum Tok {
     Lsqb,
     Rsqb,
     Colon,
-    Walrus, // ':='
     Comma,
     Semi,
     Plus,

@@ -1045,14 +1045,7 @@ where
                             return result;
                         }
                         ':' => {
-                            let tok_start = self.get_pos();
-                            if let Some('=') = self.chr0 {
-                                self.next_char();
-                                let tok_end = self.get_pos();
-                                return Ok((tok_start, Tok::Walrus, tok_end));
-                            } else {
-                                return self.eat_single_char(Tok::Colon);
-                            }
+                            return self.eat_single_char(Tok::Colon);
                         }
                         ';' => {
                             return self.eat_single_char(Tok::Semi);
