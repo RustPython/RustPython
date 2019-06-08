@@ -26,7 +26,7 @@ use crate::vm::VirtualMachine;
 pub mod io;
 #[cfg(not(target_arch = "wasm32"))]
 mod os;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "android")))]
 mod pwd;
 
 use crate::pyobject::PyObjectRef;
@@ -67,7 +67,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
     }
 
     // Unix-only
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "android")))]
     {
         modules.insert("pwd".to_string(), Box::new(pwd::make_module));
     }

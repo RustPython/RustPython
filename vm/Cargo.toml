@@ -38,5 +38,5 @@ bincode = "1.1.4"
 git = "https://github.com/OddCoincidence/unicode-casing"
 rev = "90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb"
 
-[target.'cfg(unix)'.dependencies]
+[target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
 pwd = "1"
