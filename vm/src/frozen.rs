@@ -6,26 +6,11 @@ print(\"Hello world!\")
 
 const IMPORTLIB_BOOTSTRAP: &'static str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/",
-    "..",
-    "/",
-    "Lib",
-    "/",
-    "importlib",
-    "/",
-    "_bootstrap.py"
+    "/../Lib/importlib/_bootstrap.py"
 ));
-
 const IMPORTLIB_BOOTSTRAP_EXTERNAL: &'static str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/",
-    "..",
-    "/",
-    "Lib",
-    "/",
-    "importlib",
-    "/",
-    "_bootstrap_external.py"
+    "/../Lib/importlib/_bootstrap_external.py"
 ));
 
 pub fn get_module_inits() -> HashMap<String, &'static str> {
