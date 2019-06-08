@@ -1,9 +1,8 @@
 assert not callable(1)
 def f(): pass
-# TODO uncomment when callable types get unified __call__ (or equivalent)
-#assert callable(f)
-#assert callable(len)
-#assert callable(lambda: 1)
+assert callable(f)
+assert callable(len)
+assert callable(lambda: 1)
 assert callable(int)
 
 class C:
@@ -13,7 +12,7 @@ class C:
     def f(self): pass
 assert callable(C)
 assert not callable(C())
-#assert callable(C().f)
+assert callable(C().f)
 
 class C:
     def __call__(self): pass

@@ -1,3 +1,6 @@
+__name__ = "class"
+
+
 class Foo:
     def __init__(self, x):
         assert x == 5
@@ -14,7 +17,12 @@ foo = Foo(5)
 assert foo.y == Foo.y
 assert foo.x == 5
 assert foo.square() == 25
-
+assert Foo.__name__ == "Foo"
+assert Foo.__qualname__ == "Foo"
+assert Foo.__module__ == "class"
+assert Foo.square.__name__ == "square"
+assert Foo.square.__qualname__ == "Foo.square"
+assert Foo.square.__module__ == "class"
 
 class Bar:
     """ W00t """
@@ -37,8 +45,7 @@ class Bar:
         assert x == 3
 
 
-# TODO:
-# assert Bar.__doc__ == " W00t "
+assert Bar.__doc__ == " W00t "
 
 bar = Bar(42)
 
@@ -117,3 +124,34 @@ assert isinstance(a, super)
 assert type(a) is super
 assert a.conjugate() == 1
 
+
+class T1:
+    "test1"
+
+assert T1.__doc__ == "test1"
+
+class T2:
+    '''test2'''
+
+assert T2.__doc__ == "test2"
+
+class T3:
+    """
+    test3
+    """
+
+assert T3.__doc__ == "\n    test3\n    "
+
+class T4:
+
+    """test4"""
+
+    def t1(self):
+        """t1"""
+        pass
+
+assert T4.__doc__ == "test4"
+assert T4.t1.__doc__ == "t1"
+
+cm = classmethod(lambda cls: cls)
+assert cm.__func__(int) is int

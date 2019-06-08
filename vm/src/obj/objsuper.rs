@@ -12,7 +12,7 @@ use crate::obj::objfunction::PyMethod;
 use crate::obj::objstr;
 use crate::obj::objtype::{PyClass, PyClassRef};
 use crate::pyobject::{
-    DictProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+    ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
@@ -112,10 +112,9 @@ fn super_new(
 
     // Check type argument:
     if !objtype::isinstance(py_type.as_object(), &vm.get_type()) {
-        let type_name = objtype::get_type_name(py_type.as_object().type_ref());
         return Err(vm.new_type_error(format!(
             "super() argument 1 must be type, not {}",
-            type_name
+            py_type.class().name
         )));
     }
 
@@ -123,13 +122,15 @@ fn super_new(
     let py_obj = if let OptionalArg::Present(obj) = py_obj {
         obj.clone()
     } else {
-        let frame = vm.current_frame();
+        let frame = vm.current_frame().expect("no current frame for super()");
         if let Some(first_arg) = frame.code.arg_names.get(0) {
-            match vm.get_locals().get_item(first_arg) {
+            match vm.get_locals().get_item_option(first_arg, vm)? {
                 Some(obj) => obj.clone(),
                 _ => {
-                    return Err(vm
-                        .new_type_error(format!("super arguement {} was not supplied", first_arg)));
+                    return Err(vm.new_type_error(format!(
+                        "super arguement {} was not supplied",
+                        first_arg
+                    )));
                 }
             }
         } else {

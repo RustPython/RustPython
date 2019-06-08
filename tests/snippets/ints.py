@@ -1,4 +1,4 @@
-from testutils import assert_raises
+from testutils import assert_raises, assertRaises
 
 # int to int comparisons
 
@@ -37,6 +37,9 @@ assert (2).__mul__(1) == 2
 assert (2).__rmul__(1) == 2
 assert (2).__truediv__(1) == 2.0
 assert (2).__rtruediv__(1) == 0.5
+assert (2).__pow__(3) == 8
+assert (10).__pow__(-1) == 0.1
+assert (2).__rpow__(3) == 9
 
 # real/imag attributes
 assert (1).real == 1
@@ -58,3 +61,71 @@ assert (2).__mul__(1.0) == NotImplemented
 assert (2).__rmul__(1.0) == NotImplemented
 assert (2).__truediv__(1.0) == NotImplemented
 assert (2).__rtruediv__(1.0) == NotImplemented
+assert (2).__pow__(3.0) == NotImplemented
+assert (2).__rpow__(3.0) == NotImplemented
+
+assert 10 // 4 == 2
+assert -10 // 4 == -3
+assert 10 // -4 == -3
+assert -10 // -4 == 2
+
+assert int() == 0
+assert int("101", 2) == 5
+assert int("101", base=2) == 5
+assert int(1) == 1
+
+assert int.from_bytes(b'\x00\x10', 'big') == 16
+assert int.from_bytes(b'\x00\x10', 'little') == 4096
+assert int.from_bytes(b'\xfc\x00', 'big', signed=True) == -1024
+assert int.from_bytes(b'\xfc\x00', 'big', signed=False) == 64512
+
+assert (1024).to_bytes(4, 'big') == b'\x00\x00\x04\x00'
+assert (1024).to_bytes(2, 'little', signed=True) == b'\x00\x04'
+assert (-1024).to_bytes(4, 'big', signed=True) == b'\xff\xff\xfc\x00'
+assert (-1024).to_bytes(4, 'little', signed=True) == b'\x00\xfc\xff\xff'
+assert (2147483647).to_bytes(8, 'big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
+assert (-2147483648).to_bytes(8, 'little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
+
+with assertRaises(TypeError):
+    int(base=2)
+
+with assertRaises(TypeError):
+    int(1, base=2)
+
+with assertRaises(TypeError):
+    # check that first parameter is truly positional only
+    int(val_options=1)
+
+class A(object):
+    def __int__(self):
+        return 10
+
+assert int(A()) == 10
+
+class B(object):
+    pass
+
+b = B()
+b.__int__ = lambda: 20
+
+with assertRaises(TypeError):
+    assert int(b) == 20
+
+class C(object):
+    def __int__(self):
+        return 'str'
+
+with assertRaises(TypeError):
+    int(C())
+
+class I(int):
+    def __int__(self):
+        return 3
+
+assert int(I(1)) == 3
+
+class F(float):
+    def __int__(self):
+        return 3
+
+assert int(F(1.2)) == 3

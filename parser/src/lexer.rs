@@ -1,12 +1,18 @@
 //! This module takes care of lexing python source text. This means source
 //! code is translated into separate tokens.
 
+extern crate unic_emoji_char;
+extern crate unicode_xid;
+
 pub use super::token::Tok;
 use num_bigint::BigInt;
 use num_traits::Num;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
+use unic_emoji_char::is_emoji_presentation;
+use unicode_xid::UnicodeXID;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct IndentationLevel {
@@ -45,20 +51,28 @@ pub struct Lexer<T: Iterator<Item = char>> {
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
     indentation_stack: Vec<IndentationLevel>,
-    pending: Vec<Spanned<Tok>>,
+    pending: Vec<LexResult>,
     chr0: Option<char>,
     chr1: Option<char>,
     location: Location,
+    keywords: HashMap<String, Tok>,
 }
 
 #[derive(Debug)]
-pub enum LexicalError {
+pub struct LexicalError {
+    pub error: LexicalErrorType,
+    pub location: Location,
+}
+
+#[derive(Debug)]
+pub enum LexicalErrorType {
     StringError,
     NestingError,
     UnrecognizedToken { tok: char },
+    OtherError(String),
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
     row: usize,
     column: usize,
@@ -90,6 +104,8 @@ pub fn get_keywords() -> HashMap<String, Tok> {
     keywords.insert(String::from("and"), Tok::And);
     keywords.insert(String::from("as"), Tok::As);
     keywords.insert(String::from("assert"), Tok::Assert);
+    keywords.insert(String::from("async"), Tok::Async);
+    keywords.insert(String::from("await"), Tok::Await);
     keywords.insert(String::from("break"), Tok::Break);
     keywords.insert(String::from("class"), Tok::Class);
     keywords.insert(String::from("continue"), Tok::Continue);
@@ -120,9 +136,10 @@ pub fn get_keywords() -> HashMap<String, Tok> {
     keywords
 }
 
-pub type Spanned<Tok> = Result<(Location, Tok, Location), LexicalError>;
+pub type Spanned = (Location, Tok, Location);
+pub type LexResult = Result<Spanned, LexicalError>;
 
-pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = Spanned<Tok>> + 'a {
+pub fn make_tokenizer<'a>(source: &'a str) -> impl Iterator<Item = LexResult> + 'a {
     let nlh = NewlineHandler::new(source.chars());
     let lch = LineContinationHandler::new(nlh);
     Lexer::new(lch)
@@ -254,6 +271,7 @@ where
             chr0: None,
             location: Location::new(0, 0),
             chr1: None,
+            keywords: get_keywords(),
         };
         lxr.next_char();
         lxr.next_char();
@@ -264,7 +282,7 @@ where
     }
 
     // Lexer helper functions:
-    fn lex_identifier(&mut self) -> Spanned<Tok> {
+    fn lex_identifier(&mut self) -> LexResult {
         let mut name = String::new();
         let start_pos = self.get_pos();
 
@@ -300,21 +318,19 @@ where
             }
         }
 
-        while self.is_char() {
+        while self.is_identifier_continuation() {
             name.push(self.next_char().unwrap());
         }
         let end_pos = self.get_pos();
 
-        let mut keywords = get_keywords();
-
-        if keywords.contains_key(&name) {
-            Ok((start_pos, keywords.remove(&name).unwrap(), end_pos))
+        if self.keywords.contains_key(&name) {
+            Ok((start_pos, self.keywords[&name].clone(), end_pos))
         } else {
             Ok((start_pos, Tok::Name { name }, end_pos))
         }
     }
 
-    fn lex_number(&mut self) -> Spanned<Tok> {
+    fn lex_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
         if self.chr0 == Some('0') {
             if self.chr1 == Some('x') || self.chr1 == Some('X') {
@@ -340,12 +356,12 @@ where
         }
     }
 
-    fn lex_number_radix(&mut self, start_pos: Location, radix: u32) -> Spanned<Tok> {
+    fn lex_number_radix(&mut self, start_pos: Location, radix: u32) -> LexResult {
         let mut value_text = String::new();
 
         loop {
-            if self.is_number(radix) {
-                value_text.push(self.next_char().unwrap());
+            if let Some(c) = self.take_number(radix) {
+                value_text.push(c);
             } else if self.chr0 == Some('_') {
                 self.next_char();
             } else {
@@ -354,18 +370,21 @@ where
         }
 
         let end_pos = self.get_pos();
-        let value = BigInt::from_str_radix(&value_text, radix).unwrap();
+        let value = BigInt::from_str_radix(&value_text, radix).map_err(|e| LexicalError {
+            error: LexicalErrorType::OtherError(format!("{:?}", e)),
+            location: start_pos.clone(),
+        })?;
         Ok((start_pos, Tok::Int { value }, end_pos))
     }
 
-    fn lex_normal_number(&mut self) -> Spanned<Tok> {
+    fn lex_normal_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
 
         let mut value_text = String::new();
 
         // Normal number:
-        while self.is_number(10) {
-            value_text.push(self.next_char().unwrap());
+        while let Some(c) = self.take_number(10) {
+            value_text.push(c);
         }
 
         // If float:
@@ -373,8 +392,8 @@ where
             // Take '.':
             if self.chr0 == Some('.') {
                 value_text.push(self.next_char().unwrap());
-                while self.is_number(10) {
-                    value_text.push(self.next_char().unwrap());
+                while let Some(c) = self.take_number(10) {
+                    value_text.push(c);
                 }
             }
 
@@ -387,8 +406,8 @@ where
                     value_text.push(self.next_char().unwrap());
                 }
 
-                while self.is_number(10) {
-                    value_text.push(self.next_char().unwrap());
+                while let Some(c) = self.take_number(10) {
+                    value_text.push(c);
                 }
             }
 
@@ -443,7 +462,7 @@ where
         is_raw: bool,
         _is_unicode: bool,
         is_fstring: bool,
-    ) -> Spanned<Tok> {
+    ) -> LexResult {
         let quote_char = self.next_char().unwrap();
         let mut string_content = String::new();
         let start_pos = self.get_pos();
@@ -461,8 +480,19 @@ where
         loop {
             match self.next_char() {
                 Some('\\') => {
-                    if is_raw {
+                    if self.chr0 == Some(quote_char) {
+                        string_content.push(quote_char);
+                        self.next_char();
+                    } else if is_raw {
                         string_content.push('\\');
+                        if let Some(c) = self.next_char() {
+                            string_content.push(c)
+                        } else {
+                            return Err(LexicalError {
+                                error: LexicalErrorType::StringError,
+                                location: self.get_pos(),
+                            });
+                        }
                     } else {
                         match self.next_char() {
                             Some('\\') => {
@@ -489,7 +519,10 @@ where
                                 string_content.push(c);
                             }
                             None => {
-                                return Err(LexicalError::StringError);
+                                return Err(LexicalError {
+                                    error: LexicalErrorType::StringError,
+                                    location: self.get_pos(),
+                                });
                             }
                         }
                     }
@@ -512,7 +545,10 @@ where
                     } else {
                         if c == '\n' {
                             if !triple_quoted {
-                                return Err(LexicalError::StringError);
+                                return Err(LexicalError {
+                                    error: LexicalErrorType::StringError,
+                                    location: self.get_pos(),
+                                });
                             }
                             self.new_line();
                         }
@@ -520,15 +556,25 @@ where
                     }
                 }
                 None => {
-                    return Err(LexicalError::StringError);
+                    return Err(LexicalError {
+                        error: LexicalErrorType::StringError,
+                        location: self.get_pos(),
+                    });
                 }
             }
         }
         let end_pos = self.get_pos();
 
         let tok = if is_bytes {
-            Tok::Bytes {
-                value: string_content.as_bytes().to_vec(),
+            if string_content.is_ascii() {
+                Tok::Bytes {
+                    value: lex_byte(string_content)?,
+                }
+            } else {
+                return Err(LexicalError {
+                    error: LexicalErrorType::StringError,
+                    location: self.get_pos(),
+                });
             }
         } else {
             Tok::String {
@@ -540,15 +586,26 @@ where
         Ok((start_pos, tok, end_pos))
     }
 
-    fn is_char(&self) -> bool {
-        match self.chr0 {
-            Some('a'..='z') | Some('A'..='Z') | Some('_') | Some('0'..='9') => true,
-            _ => false,
+    fn is_identifier_start(&self, c: char) -> bool {
+        match c {
+            '_' => true,
+            c => UnicodeXID::is_xid_start(c),
         }
     }
 
-    fn is_number(&self, radix: u32) -> bool {
-        match radix {
+    fn is_identifier_continuation(&self) -> bool {
+        if let Some(c) = self.chr0 {
+            match c {
+                '_' | '0'..='9' => true,
+                c => UnicodeXID::is_xid_continue(c),
+            }
+        } else {
+            false
+        }
+    }
+
+    fn take_number(&mut self, radix: u32) -> Option<char> {
+        let take_char = match radix {
             2 => match self.chr0 {
                 Some('0'..='1') => true,
                 _ => false,
@@ -566,6 +623,12 @@ where
                 _ => false,
             },
             x => unimplemented!("Radix not implemented: {}", x),
+        };
+
+        if take_char {
+            Some(self.next_char().unwrap())
+        } else {
+            None
         }
     }
 
@@ -587,7 +650,7 @@ where
         self.location.column = 1;
     }
 
-    fn inner_next(&mut self) -> Option<Spanned<Tok>> {
+    fn inner_next(&mut self) -> Option<LexResult> {
         if !self.pending.is_empty() {
             return Some(self.pending.remove(0));
         }
@@ -603,6 +666,17 @@ where
                 loop {
                     match self.chr0 {
                         Some(' ') => {
+                            /*
+                            if tabs != 0 {
+                                // Don't allow spaces after tabs as part of indentation.
+                                // This is technically stricter than python3 but spaces after
+                                // tabs is even more insane than mixing spaces and tabs.
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::OtherError("Spaces not allowed as part of indentation after tabs".to_string()),
+                                    location: self.get_pos(),
+                                }));
+                            }
+                            */
                             self.next_char();
                             spaces += 1;
                         }
@@ -611,7 +685,13 @@ where
                                 // Don't allow tabs after spaces as part of indentation.
                                 // This is technically stricter than python3 but spaces before
                                 // tabs is even more insane than mixing spaces and tabs.
-                                panic!("Tabs not allowed as part of indentation after spaces");
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::OtherError(
+                                        "Tabs not allowed as part of indentation after spaces"
+                                            .to_string(),
+                                    ),
+                                    location: self.get_pos(),
+                                }));
                             }
                             self.next_char();
                             tabs += 1;
@@ -666,7 +746,10 @@ where
                                         self.pending.push(Ok((tok_start, Tok::Dedent, tok_end)));
                                     }
                                     None => {
-                                        panic!("inconsistent use of tabs and spaces in indentation")
+                                        return Some(Err(LexicalError {
+                                            error: LexicalErrorType::OtherError("inconsistent use of tabs and spaces in indentation".to_string()),
+                                            location: self.get_pos(),
+                                        }));
                                     }
                                     _ => {
                                         break;
@@ -676,362 +759,430 @@ where
 
                             if indentation_level != *self.indentation_stack.last().unwrap() {
                                 // TODO: handle wrong indentations
-                                panic!("Non matching indentation levels!");
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::OtherError(
+                                        "Non matching indentation levels!".to_string(),
+                                    ),
+                                    location: self.get_pos(),
+                                }));
                             }
 
                             return Some(self.pending.remove(0));
                         }
-                        None => panic!("inconsistent use of tabs and spaces in indentation"),
+                        None => {
+                            return Some(Err(LexicalError {
+                                error: LexicalErrorType::OtherError(
+                                    "inconsistent use of tabs and spaces in indentation"
+                                        .to_string(),
+                                ),
+                                location: self.get_pos(),
+                            }));
+                        }
                     }
                 }
             }
 
-            match self.chr0 {
-                Some('0'..='9') => return Some(self.lex_number()),
-                Some('_') | Some('a'..='z') | Some('A'..='Z') => {
+            // Check if we have some character:
+            if let Some(c) = self.chr0 {
+                // First check identifier:
+                if self.is_identifier_start(c) {
                     return Some(self.lex_identifier());
-                }
-                Some('#') => {
-                    self.lex_comment();
-                    continue;
-                }
-                Some('"') => {
-                    return Some(self.lex_string(false, false, false, false));
-                }
-                Some('\'') => {
-                    return Some(self.lex_string(false, false, false, false));
-                }
-                Some('=') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::EqEqual, tok_end)));
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Equal, tok_end)));
-                        }
-                    }
-                }
-                Some('+') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::PlusEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Plus, tok_end)));
-                    }
-                }
-                Some('*') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::StarEqual, tok_end)));
-                        }
-                        Some('*') => {
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleStarEqual, tok_end)));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleStar, tok_end)));
-                                }
-                            }
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Star, tok_end)));
-                        }
-                    }
-                }
-                Some('/') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::SlashEqual, tok_end)));
-                        }
-                        Some('/') => {
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleSlashEqual, tok_end)));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::DoubleSlash, tok_end)));
-                                }
-                            }
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Slash, tok_end)));
-                        }
-                    }
-                }
-                Some('%') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::PercentEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Percent, tok_end)));
-                    }
-                }
-                Some('|') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::VbarEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Vbar, tok_end)));
-                    }
-                }
-                Some('^') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::CircumflexEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::CircumFlex, tok_end)));
-                    }
-                }
-                Some('&') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::AmperEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Amper, tok_end)));
-                    }
-                }
-                Some('-') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::MinusEqual, tok_end)));
-                        }
-                        Some('>') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Rarrow, tok_end)));
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Minus, tok_end)));
-                        }
-                    }
-                }
-                Some('@') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let Some('=') = self.chr0 {
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::AtEqual, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::At, tok_end)));
-                    }
-                }
-                Some('!') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::NotEqual, tok_end)));
-                        }
-                        _ => panic!("Invalid token '!'"),
-                    }
-                }
-                Some('~') => {
-                    return Some(self.eat_single_char(Tok::Tilde));
-                }
-                Some('(') => {
-                    let result = self.eat_single_char(Tok::Lpar);
-                    self.nesting += 1;
-                    return Some(result);
-                }
-                Some(')') => {
-                    let result = self.eat_single_char(Tok::Rpar);
-                    if self.nesting == 0 {
-                        return Some(Err(LexicalError::NestingError));
-                    }
-                    self.nesting -= 1;
-                    return Some(result);
-                }
-                Some('[') => {
-                    let result = self.eat_single_char(Tok::Lsqb);
-                    self.nesting += 1;
-                    return Some(result);
-                }
-                Some(']') => {
-                    let result = self.eat_single_char(Tok::Rsqb);
-                    if self.nesting == 0 {
-                        return Some(Err(LexicalError::NestingError));
-                    }
-                    self.nesting -= 1;
-                    return Some(result);
-                }
-                Some('{') => {
-                    let result = self.eat_single_char(Tok::Lbrace);
-                    self.nesting += 1;
-                    return Some(result);
-                }
-                Some('}') => {
-                    let result = self.eat_single_char(Tok::Rbrace);
-                    if self.nesting == 0 {
-                        return Some(Err(LexicalError::NestingError));
-                    }
-                    self.nesting -= 1;
-                    return Some(result);
-                }
-                Some(':') => {
-                    return Some(self.eat_single_char(Tok::Colon));
-                }
-                Some(';') => {
-                    return Some(self.eat_single_char(Tok::Semi));
-                }
-                Some('<') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('<') => {
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::LeftShiftEqual, tok_end)));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::LeftShift, tok_end)));
-                                }
-                            }
-                        }
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::LessEqual, tok_end)));
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Less, tok_end)));
-                        }
-                    }
-                }
-                Some('>') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    match self.chr0 {
-                        Some('>') => {
-                            self.next_char();
-                            match self.chr0 {
-                                Some('=') => {
-                                    self.next_char();
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::RightShiftEqual, tok_end)));
-                                }
-                                _ => {
-                                    let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::RightShift, tok_end)));
-                                }
-                            }
-                        }
-                        Some('=') => {
-                            self.next_char();
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::GreaterEqual, tok_end)));
-                        }
-                        _ => {
-                            let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Greater, tok_end)));
-                        }
-                    }
-                }
-                Some(',') => {
+                } else if is_emoji_presentation(c) {
                     let tok_start = self.get_pos();
                     self.next_char();
                     let tok_end = self.get_pos();
-                    return Some(Ok((tok_start, Tok::Comma, tok_end)));
-                }
-                Some('.') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
-                        self.next_char();
-                        self.next_char();
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Ellipsis, tok_end)));
-                    } else {
-                        let tok_end = self.get_pos();
-                        return Some(Ok((tok_start, Tok::Dot, tok_end)));
-                    }
-                }
-                Some('\n') => {
-                    let tok_start = self.get_pos();
-                    self.next_char();
-                    let tok_end = self.get_pos();
-                    self.new_line();
+                    return Some(Ok((
+                        tok_start,
+                        Tok::Name {
+                            name: c.to_string(),
+                        },
+                        tok_end,
+                    )));
+                } else {
+                    match c {
+                        '0'..='9' => return Some(self.lex_number()),
+                        '#' => {
+                            self.lex_comment();
+                            continue;
+                        }
+                        '"' => {
+                            return Some(self.lex_string(false, false, false, false));
+                        }
+                        '\'' => {
+                            return Some(self.lex_string(false, false, false, false));
+                        }
+                        '=' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::EqEqual, tok_end)));
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Equal, tok_end)));
+                                }
+                            }
+                        }
+                        '+' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::PlusEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Plus, tok_end)));
+                            }
+                        }
+                        '*' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::StarEqual, tok_end)));
+                                }
+                                Some('*') => {
+                                    self.next_char();
+                                    match self.chr0 {
+                                        Some('=') => {
+                                            self.next_char();
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::DoubleStarEqual,
+                                                tok_end,
+                                            )));
+                                        }
+                                        _ => {
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((tok_start, Tok::DoubleStar, tok_end)));
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Star, tok_end)));
+                                }
+                            }
+                        }
+                        '/' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::SlashEqual, tok_end)));
+                                }
+                                Some('/') => {
+                                    self.next_char();
+                                    match self.chr0 {
+                                        Some('=') => {
+                                            self.next_char();
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::DoubleSlashEqual,
+                                                tok_end,
+                                            )));
+                                        }
+                                        _ => {
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::DoubleSlash,
+                                                tok_end,
+                                            )));
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Slash, tok_end)));
+                                }
+                            }
+                        }
+                        '%' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::PercentEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Percent, tok_end)));
+                            }
+                        }
+                        '|' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::VbarEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Vbar, tok_end)));
+                            }
+                        }
+                        '^' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::CircumflexEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::CircumFlex, tok_end)));
+                            }
+                        }
+                        '&' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::AmperEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::Amper, tok_end)));
+                            }
+                        }
+                        '-' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::MinusEqual, tok_end)));
+                                }
+                                Some('>') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Rarrow, tok_end)));
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Minus, tok_end)));
+                                }
+                            }
+                        }
+                        '@' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::AtEqual, tok_end)));
+                            } else {
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::At, tok_end)));
+                            }
+                        }
+                        '!' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            if let Some('=') = self.chr0 {
+                                self.next_char();
+                                let tok_end = self.get_pos();
+                                return Some(Ok((tok_start, Tok::NotEqual, tok_end)));
+                            } else {
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::UnrecognizedToken { tok: '!' },
+                                    location: tok_start,
+                                }));
+                            }
+                        }
+                        '~' => {
+                            return Some(self.eat_single_char(Tok::Tilde));
+                        }
+                        '(' => {
+                            let result = self.eat_single_char(Tok::Lpar);
+                            self.nesting += 1;
+                            return Some(result);
+                        }
+                        ')' => {
+                            let result = self.eat_single_char(Tok::Rpar);
+                            if self.nesting == 0 {
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::NestingError,
+                                    location: self.get_pos(),
+                                }));
+                            }
+                            self.nesting -= 1;
+                            return Some(result);
+                        }
+                        '[' => {
+                            let result = self.eat_single_char(Tok::Lsqb);
+                            self.nesting += 1;
+                            return Some(result);
+                        }
+                        ']' => {
+                            let result = self.eat_single_char(Tok::Rsqb);
+                            if self.nesting == 0 {
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::NestingError,
+                                    location: self.get_pos(),
+                                }));
+                            }
+                            self.nesting -= 1;
+                            return Some(result);
+                        }
+                        '{' => {
+                            let result = self.eat_single_char(Tok::Lbrace);
+                            self.nesting += 1;
+                            return Some(result);
+                        }
+                        '}' => {
+                            let result = self.eat_single_char(Tok::Rbrace);
+                            if self.nesting == 0 {
+                                return Some(Err(LexicalError {
+                                    error: LexicalErrorType::NestingError,
+                                    location: self.get_pos(),
+                                }));
+                            }
+                            self.nesting -= 1;
+                            return Some(result);
+                        }
+                        ':' => {
+                            return Some(self.eat_single_char(Tok::Colon));
+                        }
+                        ';' => {
+                            return Some(self.eat_single_char(Tok::Semi));
+                        }
+                        '<' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('<') => {
+                                    self.next_char();
+                                    match self.chr0 {
+                                        Some('=') => {
+                                            self.next_char();
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::LeftShiftEqual,
+                                                tok_end,
+                                            )));
+                                        }
+                                        _ => {
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((tok_start, Tok::LeftShift, tok_end)));
+                                        }
+                                    }
+                                }
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::LessEqual, tok_end)));
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Less, tok_end)));
+                                }
+                            }
+                        }
+                        '>' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            match self.chr0 {
+                                Some('>') => {
+                                    self.next_char();
+                                    match self.chr0 {
+                                        Some('=') => {
+                                            self.next_char();
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((
+                                                tok_start,
+                                                Tok::RightShiftEqual,
+                                                tok_end,
+                                            )));
+                                        }
+                                        _ => {
+                                            let tok_end = self.get_pos();
+                                            return Some(Ok((tok_start, Tok::RightShift, tok_end)));
+                                        }
+                                    }
+                                }
+                                Some('=') => {
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::GreaterEqual, tok_end)));
+                                }
+                                _ => {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Greater, tok_end)));
+                                }
+                            }
+                        }
+                        ',' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            let tok_end = self.get_pos();
+                            return Some(Ok((tok_start, Tok::Comma, tok_end)));
+                        }
+                        '.' => {
+                            if let Some('0'..='9') = self.chr1 {
+                                return Some(self.lex_number());
+                            } else {
+                                let tok_start = self.get_pos();
+                                self.next_char();
+                                if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
+                                    self.next_char();
+                                    self.next_char();
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Ellipsis, tok_end)));
+                                } else {
+                                    let tok_end = self.get_pos();
+                                    return Some(Ok((tok_start, Tok::Dot, tok_end)));
+                                }
+                            }
+                        }
+                        '\n' => {
+                            let tok_start = self.get_pos();
+                            self.next_char();
+                            let tok_end = self.get_pos();
+                            self.new_line();
 
-                    // Depending on the nesting level, we emit newline or not:
-                    if self.nesting == 0 {
-                        self.at_begin_of_line = true;
-                        return Some(Ok((tok_start, Tok::Newline, tok_end)));
-                    } else {
-                        continue;
+                            // Depending on the nesting level, we emit newline or not:
+                            if self.nesting == 0 {
+                                self.at_begin_of_line = true;
+                                return Some(Ok((tok_start, Tok::Newline, tok_end)));
+                            } else {
+                                continue;
+                            }
+                        }
+                        ' ' => {
+                            // Skip whitespaces
+                            self.next_char();
+                            continue;
+                        }
+                        _ => {
+                            let c = self.next_char();
+                            return Some(Err(LexicalError {
+                                error: LexicalErrorType::UnrecognizedToken { tok: c.unwrap() },
+                                location: self.get_pos(),
+                            }));
+                        } // Ignore all the rest..
                     }
                 }
-                Some(' ') => {
-                    // Skip whitespaces
-                    self.next_char();
-                    continue;
-                }
-                None => return None,
-                _ => {
-                    let c = self.next_char();
-                    return Some(Err(LexicalError::UnrecognizedToken { tok: c.unwrap() }));
-                } // Ignore all the rest..
+            } else {
+                return None;
             }
         }
     }
 
-    fn eat_single_char(&mut self, ty: Tok) -> Spanned<Tok> {
+    fn eat_single_char(&mut self, ty: Tok) -> LexResult {
         let tok_start = self.get_pos();
         self.next_char();
         let tok_end = self.get_pos();
@@ -1048,7 +1199,7 @@ impl<T> Iterator for Lexer<T>
 where
     T: Iterator<Item = char>,
 {
-    type Item = Spanned<Tok>;
+    type Item = LexResult;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Idea: create some sort of hash map for single char tokens:
@@ -1063,6 +1214,57 @@ where
         );
         token
     }
+}
+
+fn lex_byte(s: String) -> Result<Vec<u8>, LexicalError> {
+    let mut res = vec![];
+    let mut escape = false; //flag if previous was \
+    let mut hex_on = false; // hex mode on or off
+    let mut hex_value = String::new();
+
+    for c in s.chars() {
+        if hex_on {
+            if c.is_ascii_hexdigit() {
+                if hex_value.is_empty() {
+                    hex_value.push(c);
+                    continue;
+                } else {
+                    hex_value.push(c);
+                    res.push(u8::from_str_radix(&hex_value, 16).unwrap());
+                    hex_on = false;
+                    hex_value.clear();
+                }
+            } else {
+                return Err(LexicalError {
+                    error: LexicalErrorType::StringError,
+                    location: Default::default(),
+                });
+            }
+        } else {
+            match (c, escape) {
+                ('\\', true) => res.push(b'\\'),
+                ('\\', false) => {
+                    escape = true;
+                    continue;
+                }
+                ('x', true) => hex_on = true,
+                ('x', false) => res.push(b'x'),
+                ('t', true) => res.push(b'\t'),
+                ('t', false) => res.push(b't'),
+                ('n', true) => res.push(b'\n'),
+                ('n', false) => res.push(b'n'),
+                ('r', true) => res.push(b'\r'),
+                ('r', false) => res.push(b'r'),
+                (x, true) => {
+                    res.push(b'\\');
+                    res.push(x as u8);
+                }
+                (x, false) => res.push(x as u8),
+            }
+            escape = false;
+        }
+    }
+    Ok(res)
 }
 
 #[cfg(test)]
@@ -1389,7 +1591,7 @@ mod tests {
 
     #[test]
     fn test_string() {
-        let source = String::from(r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g'"#);
+        let source = String::from(r#""double" 'single' 'can\'t' "\\\"" '\t\r\n' '\g' r'raw\''"#);
         let tokens = lex_source(&source);
         assert_eq!(
             tokens,
@@ -1416,6 +1618,10 @@ mod tests {
                 },
                 Tok::String {
                     value: String::from("\\g"),
+                    is_fstring: false,
+                },
+                Tok::String {
+                    value: String::from("raw\'"),
                     is_fstring: false,
                 },
             ]
@@ -1447,5 +1653,29 @@ mod tests {
         test_string_continuation_windows_eol: WINDOWS_EOL,
         test_string_continuation_mac_eol: MAC_EOL,
         test_string_continuation_unix_eol: UNIX_EOL,
+    }
+
+    #[test]
+    fn test_byte() {
+        // single quote
+        let all = r##"b'\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff'"##;
+        let source = String::from(all);
+        let tokens = lex_source(&source);
+        let res = (0..=255).collect::<Vec<u8>>();
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
+
+        // double quote
+        let all = r##"b"\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\xa0\xa1\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xab\xac\xad\xae\xaf\xb0\xb1\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xbb\xbc\xbd\xbe\xbf\xc0\xc1\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xcb\xcc\xcd\xce\xcf\xd0\xd1\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xdb\xdc\xdd\xde\xdf\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xfb\xfc\xfd\xfe\xff""##;
+        let source = String::from(all);
+        let tokens = lex_source(&source);
+        let res = (0..=255).collect::<Vec<u8>>();
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
+
+        // backslash doesnt escape
+        let all = r##"b"omkmok\Xaa""##;
+        let source = String::from(all);
+        let tokens = lex_source(&source);
+        let res = vec![111, 109, 107, 109, 111, 107, 92, 88, 97, 97];
+        assert_eq!(tokens, vec![Tok::Bytes { value: res }]);
     }
 }

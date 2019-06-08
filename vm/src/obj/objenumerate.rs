@@ -4,14 +4,15 @@ use std::ops::AddAssign;
 use num_bigint::BigInt;
 use num_traits::Zero;
 
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::function::OptionalArg;
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objint::PyIntRef;
 use super::objiter;
 use super::objtype::PyClassRef;
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyEnumerate {
     counter: RefCell<BigInt>,
@@ -32,7 +33,7 @@ fn enumerate_new(
     vm: &VirtualMachine,
 ) -> PyResult<PyEnumerateRef> {
     let counter = match start {
-        OptionalArg::Present(start) => start.value.clone(),
+        OptionalArg::Present(start) => start.as_bigint().clone(),
         OptionalArg::Missing => BigInt::zero(),
     };
 
@@ -44,18 +45,12 @@ fn enumerate_new(
     .into_ref_with_type(vm, cls)
 }
 
-fn enumerate_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(enumerate, Some(vm.ctx.enumerate_type()))]
-    );
-
-    if let Some(PyEnumerate {
-        ref counter,
-        ref iterator,
-    }) = enumerate.payload()
-    {
+#[pyimpl]
+impl PyEnumerate {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        let iterator = &self.iterator;
+        let counter = &self.counter;
         let next_obj = objiter::call_next(vm, iterator)?;
         let result = vm
             .ctx
@@ -64,16 +59,17 @@ fn enumerate_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         AddAssign::add_assign(&mut counter.borrow_mut() as &mut BigInt, 1);
 
         Ok(result)
-    } else {
-        panic!("enumerate doesn't have correct payload");
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
 pub fn init(context: &PyContext) {
-    let enumerate_type = &context.enumerate_type;
-    objiter::iter_type_init(context, enumerate_type);
-    extend_class!(context, enumerate_type, {
+    PyEnumerate::extend_class(context, &context.enumerate_type);
+    extend_class!(context, &context.enumerate_type, {
         "__new__" => context.new_rustfunc(enumerate_new),
-        "__next__" => context.new_rustfunc(enumerate_next)
     });
 }

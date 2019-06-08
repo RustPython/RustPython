@@ -7,10 +7,16 @@ from testutils import assert_raises
 a = 1.2
 b = 1.3
 c = 1.2
+z = 2
+ov = 10 ** 1000
+
+assert -a == -1.2
+
 assert a < b
 assert not b < a
 assert a <= b
 assert a <= c
+assert a < z
 
 assert b > a
 assert not a > b
@@ -18,13 +24,39 @@ assert not a > c
 assert b >= a
 assert c >= a
 assert not a >= b
+assert z > a
 
 assert a + b == 2.5
 assert a - c == 0
 assert a / c == 1
+assert a % c == 0
+assert a + z == 3.2
+assert z + a == 3.2
+assert a - z == -0.8
+assert z - a == 0.8
+assert a / z == 0.6
+assert 6 / a == 5.0
+assert 2.0 % z == 0.0
+assert z % 2.0 == 0.0
+assert_raises(OverflowError, lambda: a + ov)
+assert_raises(OverflowError, lambda: a - ov)
+assert_raises(OverflowError, lambda: a * ov)
+assert_raises(OverflowError, lambda: a / ov)
+assert_raises(OverflowError, lambda: a // ov)
+assert_raises(OverflowError, lambda: a % ov)
+assert_raises(OverflowError, lambda: a ** ov)
+assert_raises(OverflowError, lambda: ov + a)
+assert_raises(OverflowError, lambda: ov - a)
+assert_raises(OverflowError, lambda: ov * a)
+assert_raises(OverflowError, lambda: ov / a)
+assert_raises(OverflowError, lambda: ov // a)
+assert_raises(OverflowError, lambda: ov % a)
+# assert_raises(OverflowError, lambda: ov ** a)
 
 assert a < 5
 assert a <= 5
+assert a < 5.5
+assert a <= 5.5
 try:
     assert a < 'a'
 except TypeError:
@@ -66,6 +98,21 @@ assert float(b'2.99e-23') == 2.99e-23
 assert_raises(ValueError, lambda: float('foo'))
 assert_raises(OverflowError, lambda: float(2**10000))
 
+# check eq and hash for small numbers
+
+assert 1.0 == 1
+assert 1.0 == True
+assert 0.0 == 0
+assert 0.0 == False
+assert hash(1.0) == hash(1)
+assert hash(1.0) == hash(True)
+assert hash(0.0) == hash(0)
+assert hash(0.0) == hash(False)
+assert hash(1.0) != hash(1.0000000001)
+
+assert 5.0 in {3, 4, 5}
+assert {-1: 2}[-1.0] == 2
+
 # check that magic methods are implemented for ints and floats
 
 assert 1.0.__add__(1.0) == 2.0
@@ -74,6 +121,8 @@ assert 2.0.__sub__(1.0) == 1.0
 assert 2.0.__rmul__(1.0) == 2.0
 assert 1.0.__truediv__(2.0) == 0.5
 assert 1.0.__rtruediv__(2.0) == 2.0
+assert 2.5.__divmod__(2.0) == (1.0, 0.5)
+assert 2.0.__rdivmod__(2.5) == (1.0, 0.5)
 
 assert 1.0.__add__(1) == 2.0
 assert 1.0.__radd__(1) == 2.0
@@ -83,8 +132,41 @@ assert 1.0.__truediv__(2) == 0.5
 assert 1.0.__rtruediv__(2) == 2.0
 assert 2.0.__mul__(1) == 2.0
 assert 2.0.__rsub__(1) == -1.0
+assert 2.0.__mod__(2) == 0.0
+assert 2.0.__rmod__(2) == 0.0
+assert_raises(ZeroDivisionError, lambda: 2.0 / 0)
+assert_raises(ZeroDivisionError, lambda: 2.0 // 0)
+assert_raises(ZeroDivisionError, lambda: 2.0 % 0)
+assert_raises(ZeroDivisionError, lambda: divmod(2.0, 0))
+assert_raises(ZeroDivisionError, lambda: 2 / 0.0)
+assert_raises(ZeroDivisionError, lambda: 2 // 0.0)
+assert_raises(ZeroDivisionError, lambda: 2 % 0.0)
+# assert_raises(ZeroDivisionError, lambda: divmod(2, 0.0))
+
+assert 1.2.__int__() == 1
+assert 1.2.__float__() == 1.2
+assert 1.2.__trunc__() == 1
+assert int(1.2) == 1
+assert float(1.2) == 1.2
+assert math.trunc(1.2) == 1
+assert_raises(OverflowError, float('inf').__trunc__)
+assert_raises(ValueError, float('nan').__trunc__)
+assert 0.5.__round__() == 0.0
+assert 1.5.__round__() == 2.0
+assert 0.5.__round__(0) == 0.0
+assert 1.5.__round__(0) == 2.0
+assert 0.5.__round__(None) == 0.0
+assert 1.5.__round__(None) == 2.0
+assert_raises(OverflowError, float('inf').__round__)
+assert_raises(ValueError, float('nan').__round__)
+
+assert 1.2 ** 2 == 1.44
+assert_raises(OverflowError, lambda: 1.2 ** (10 ** 1000))
+assert 3 ** 2.0 == 9.0
 
 assert (1.7).real == 1.7
+assert (1.7).imag == 0.0
+assert (1.7).conjugate() == 1.7
 assert (1.3).is_integer() == False
 assert (1.0).is_integer()    == True
 
@@ -106,3 +188,29 @@ assert_raises(OverflowError, float('inf').as_integer_ratio)
 assert_raises(OverflowError, float('-inf').as_integer_ratio)
 assert_raises(ValueError, float('nan').as_integer_ratio)
 
+assert str(1.0) == '1.0'
+assert str(0.0) == '0.0'
+assert str(1.123456789) == '1.123456789'
+
+# Test special case for lexer, float starts with a dot:
+a = .5
+assert a == 0.5
+
+assert float.fromhex('0x0.0p+0') == 0.0
+assert float.fromhex('-0x0.0p+0') == -0.0
+assert float.fromhex('0x1.000000p+0') == 1.0
+assert float.fromhex('-0x1.800000p+0') == -1.5
+assert float.fromhex('inf') == float('inf')
+assert math.isnan(float.fromhex('nan'))
+
+assert (0.0).hex() == '0x0.0p+0'
+assert (-0.0).hex() == '-0x0.0p+0'
+assert (1.0).hex() == '0x1.0000000000000p+0'
+assert (-1.5).hex() == '-0x1.8000000000000p+0'
+assert float('inf').hex() == 'inf'
+assert float('-inf').hex() == '-inf'
+assert float('nan').hex() == 'nan'
+
+#for _ in range(10000):
+#    f = random.random() * random.randint(0, 0x10000000000000000)
+#    assert f == float.fromhex(f.hex())

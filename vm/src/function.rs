@@ -1,12 +1,17 @@
 use std::collections::HashMap;
+use std::mem;
 use std::ops::RangeInclusive;
 
-use crate::obj::objtype;
-use crate::pyobject::{IntoPyObject, PyObjectRef, PyResult, TryFromObject, TypeProtocol};
+use indexmap::IndexMap;
+
+use crate::obj::objtuple::PyTuple;
+use crate::obj::objtype::{isinstance, PyClassRef};
+use crate::pyobject::{
+    IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
+};
 use crate::vm::VirtualMachine;
 
 use self::OptionalArg::*;
-use crate::obj::objtype::PyClassRef;
 
 /// The `PyFuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
@@ -14,7 +19,8 @@ use crate::obj::objtype::PyClassRef;
 #[derive(Debug, Default, Clone)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
-    pub kwargs: Vec<(String, PyObjectRef)>,
+    // sorted map, according to https://www.python.org/dev/peps/pep-0468/
+    pub kwargs: IndexMap<String, PyObjectRef>,
 }
 
 /// Conversion from vector of python objects to function arguments.
@@ -22,7 +28,7 @@ impl From<Vec<PyObjectRef>> for PyFuncArgs {
     fn from(args: Vec<PyObjectRef>) -> Self {
         PyFuncArgs {
             args,
-            kwargs: vec![],
+            kwargs: IndexMap::new(),
         }
     }
 }
@@ -31,7 +37,7 @@ impl From<PyObjectRef> for PyFuncArgs {
     fn from(arg: PyObjectRef) -> Self {
         PyFuncArgs {
             args: vec![arg],
-            kwargs: vec![],
+            kwargs: IndexMap::new(),
         }
     }
 }
@@ -47,11 +53,20 @@ impl From<(&Args, &KwArgs)> for PyFuncArgs {
     }
 }
 
+impl FromArgs for PyFuncArgs {
+    fn from_args(_vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
+        Ok(mem::replace(args, Default::default()))
+    }
+}
+
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
-        let mut kwargs = vec![];
-        for name in kwarg_names.iter().rev() {
-            kwargs.push((name.clone(), args.pop().unwrap()));
+        // last `kwarg_names.len()` elements of args in order of appearance in the call signature
+        let kwarg_values = args.drain((args.len() - kwarg_names.len())..);
+
+        let mut kwargs = IndexMap::new();
+        for (name, value) in kwarg_names.iter().zip(kwarg_values) {
+            kwargs.insert(name.clone(), value);
         }
         PyFuncArgs { args, kwargs }
     }
@@ -70,21 +85,14 @@ impl PyFuncArgs {
     }
 
     pub fn get_kwarg(&self, key: &str, default: PyObjectRef) -> PyObjectRef {
-        for (arg_name, arg_value) in self.kwargs.iter() {
-            if arg_name == key {
-                return arg_value.clone();
-            }
-        }
-        default.clone()
+        self.kwargs
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| default.clone())
     }
 
     pub fn get_optional_kwarg(&self, key: &str) -> Option<PyObjectRef> {
-        for (arg_name, arg_value) in self.kwargs.iter() {
-            if arg_name == key {
-                return Some(arg_value.clone());
-            }
-        }
-        None
+        self.kwargs.get(key).cloned()
     }
 
     pub fn get_optional_kwarg_with_type(
@@ -95,11 +103,11 @@ impl PyFuncArgs {
     ) -> Result<Option<PyObjectRef>, PyObjectRef> {
         match self.get_optional_kwarg(key) {
             Some(kwarg) => {
-                if objtype::isinstance(&kwarg, &ty) {
+                if isinstance(&kwarg, &ty) {
                     Ok(Some(kwarg))
                 } else {
                     let expected_ty_name = vm.to_pystr(&ty)?;
-                    let actual_ty_name = vm.to_pystr(&kwarg.typ())?;
+                    let actual_ty_name = vm.to_pystr(&kwarg.class())?;
                     Err(vm.new_type_error(format!(
                         "argument of type {} is required for named parameter `{}` (got: {})",
                         expected_ty_name, key, actual_ty_name
@@ -110,7 +118,7 @@ impl PyFuncArgs {
         }
     }
 
-    pub fn next_positional(&mut self) -> Option<PyObjectRef> {
+    pub fn take_positional(&mut self) -> Option<PyObjectRef> {
         if self.args.is_empty() {
             None
         } else {
@@ -118,20 +126,17 @@ impl PyFuncArgs {
         }
     }
 
-    pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
-        // TODO: change kwarg representation so this scan isn't necessary
-        if let Some(index) = self
-            .kwargs
-            .iter()
-            .position(|(arg_name, _)| arg_name == name)
-        {
-            Some(self.kwargs.remove(index).1)
-        } else {
-            None
-        }
+    pub fn take_positional_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
+        self.take_positional().or_else(|| self.take_keyword(name))
     }
 
-    pub fn remaining_keyword<'a>(&'a mut self) -> impl Iterator<Item = (String, PyObjectRef)> + 'a {
+    pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
+        self.kwargs.remove(name)
+    }
+
+    pub fn remaining_keywords<'a>(
+        &'a mut self,
+    ) -> impl Iterator<Item = (String, PyObjectRef)> + 'a {
         self.kwargs.drain(..)
     }
 
@@ -164,6 +169,9 @@ impl PyFuncArgs {
             Err(ArgumentError::InvalidKeywordArgument(name)) => {
                 return Err(vm.new_type_error(format!("{} is an invalid keyword argument", name)));
             }
+            Err(ArgumentError::RequiredKeywordArgument(name)) => {
+                return Err(vm.new_type_error(format!("Required keyqord only argument {}", name)));
+            }
             Err(ArgumentError::Exception(ex)) => {
                 return Err(ex);
             }
@@ -176,7 +184,10 @@ impl PyFuncArgs {
                 given_args,
             )))
         } else if !self.kwargs.is_empty() {
-            Err(vm.new_type_error(format!("Unexpected keyword argument {}", self.kwargs[0].0)))
+            Err(vm.new_type_error(format!(
+                "Unexpected keyword argument {}",
+                self.kwargs.keys().next().unwrap()
+            )))
         } else {
             Ok(bound)
         }
@@ -192,6 +203,8 @@ pub enum ArgumentError {
     TooManyArgs,
     /// The function doesn't accept a keyword argument with the given name.
     InvalidKeywordArgument(String),
+    /// The function require a keyword argument with the given name, but one wasn't provided
+    RequiredKeywordArgument(String),
     /// An exception was raised while binding arguments to the function
     /// parameters.
     Exception(PyObjectRef),
@@ -234,16 +247,31 @@ pub trait FromArgs: Sized {
 /// an appropriate FromArgs implementation must be created.
 pub struct KwArgs<T = PyObjectRef>(HashMap<String, T>);
 
+impl<T> KwArgs<T> {
+    pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
+        self.0.remove(name)
+    }
+}
+
 impl<T> FromArgs for KwArgs<T>
 where
     T: TryFromObject,
 {
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = HashMap::new();
-        for (name, value) in args.remaining_keyword() {
+        for (name, value) in args.remaining_keywords() {
             kwargs.insert(name, T::try_from_object(vm, value)?);
         }
         Ok(KwArgs(kwargs))
+    }
+}
+
+impl<T> IntoIterator for KwArgs<T> {
+    type Item = (String, T);
+    type IntoIter = std::collections::hash_map::IntoIter<String, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 
@@ -255,7 +283,15 @@ where
 ///
 /// `Args` optionally accepts a generic type parameter to allow type checks
 /// or conversions of each argument.
+#[derive(Clone)]
 pub struct Args<T = PyObjectRef>(Vec<T>);
+
+impl<T: PyValue> Args<PyRef<T>> {
+    pub fn into_tuple(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx
+            .new_tuple(self.0.into_iter().map(PyRef::into_object).collect())
+    }
+}
 
 impl<T> FromArgs for Args<T>
 where
@@ -263,7 +299,7 @@ where
 {
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut varargs = Vec::new();
-        while let Some(value) = args.next_positional() {
+        while let Some(value) = args.take_positional() {
             varargs.push(T::try_from_object(vm, value)?);
         }
         Ok(Args(varargs))
@@ -288,7 +324,7 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.next_positional() {
+        if let Some(value) = args.take_positional() {
             Ok(T::try_from_object(vm, value)?)
         } else {
             Err(ArgumentError::TooFewArgs)
@@ -299,12 +335,14 @@ where
 /// An argument that may or may not be provided by the caller.
 ///
 /// This style of argument is not possible in pure Python.
-pub enum OptionalArg<T> {
+#[derive(Debug)]
+pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
 }
 
 impl<T> OptionalArg<T> {
+    #[inline]
     pub fn is_present(&self) -> bool {
         match self {
             Present(_) => true,
@@ -312,10 +350,39 @@ impl<T> OptionalArg<T> {
         }
     }
 
+    #[inline]
     pub fn into_option(self) -> Option<T> {
         match self {
             Present(value) => Some(value),
             Missing => None,
+        }
+    }
+
+    pub fn unwrap_or(self, default: T) -> T {
+        match self {
+            Present(value) => value,
+            Missing => default,
+        }
+    }
+
+    pub fn unwrap_or_else<F>(self, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        match self {
+            Present(value) => value,
+            Missing => f(),
+        }
+    }
+
+    pub fn map_or_else<U, D, F>(self, default: D, f: F) -> U
+    where
+        D: FnOnce() -> U,
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Present(value) => f(value),
+            Missing => default(),
         }
     }
 }
@@ -329,7 +396,7 @@ where
     }
 
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
-        if let Some(value) = args.next_positional() {
+        if let Some(value) = args.take_positional() {
             Ok(Present(T::try_from_object(vm, value)?))
         } else {
             Ok(Missing)
@@ -383,6 +450,7 @@ tuple_from_py_func_args!(A, B);
 tuple_from_py_func_args!(A, B, C);
 tuple_from_py_func_args!(A, B, C, D);
 tuple_from_py_func_args!(A, B, C, D, E);
+tuple_from_py_func_args!(A, B, C, D, E, F);
 
 /// A built-in Python function.
 pub type PyNativeFunc = Box<dyn Fn(&VirtualMachine, PyFuncArgs) -> PyResult + 'static>;
@@ -414,11 +482,8 @@ where
     }
 }
 
-impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
-    fn into_func(self) -> PyNativeFunc {
-        self
-    }
-}
+pub struct OwnedParam<T>(std::marker::PhantomData<T>);
+pub struct RefParam<T>(std::marker::PhantomData<T>);
 
 // This is the "magic" that allows rust functions of varying signatures to
 // generate native python functions.
@@ -426,11 +491,10 @@ impl IntoPyNativeFunc<PyFuncArgs, PyResult> for PyNativeFunc {
 // Note that this could be done without a macro - it is simply to avoid repetition.
 macro_rules! into_py_native_func_tuple {
     ($(($n:tt, $T:ident)),*) => {
-        impl<F, $($T,)* R> IntoPyNativeFunc<($($T,)*), R> for F
+        impl<F, $($T,)* R> IntoPyNativeFunc<($(OwnedParam<$T>,)*), R> for F
         where
             F: Fn($($T,)* &VirtualMachine) -> R + 'static,
             $($T: FromArgs,)*
-            ($($T,)*): FromArgs,
             R: IntoPyObject,
         {
             fn into_func(self) -> PyNativeFunc {
@@ -438,6 +502,22 @@ macro_rules! into_py_native_func_tuple {
                     let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
                     (self)($($n,)* vm).into_pyobject(vm)
+                })
+            }
+        }
+
+        impl<F, S, $($T,)* R> IntoPyNativeFunc<(RefParam<S>, $(OwnedParam<$T>,)*), R> for F
+        where
+            F: Fn(&S, $($T,)* &VirtualMachine) -> R + 'static,
+            S: PyValue,
+            $($T: FromArgs,)*
+            R: IntoPyObject,
+        {
+            fn into_func(self) -> PyNativeFunc {
+                Box::new(move |vm, args| {
+                    let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+
+                    (self)(&zelf, $($n,)* vm).into_pyobject(vm)
                 })
             }
         }
@@ -450,3 +530,28 @@ into_py_native_func_tuple!((a, A), (b, B));
 into_py_native_func_tuple!((a, A), (b, B), (c, C));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
+
+/// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
+/// test that any of the values contained within the tuples satisfies the predicate. Type parameter
+/// T specifies the type that is expected, if the input value is not of that type or a tuple of
+/// values of that type, then a TypeError is raised.
+pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
+    obj: PyObjectRef,
+    predicate: F,
+    message: fn(&PyObjectRef) -> String,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    match_class!(obj,
+        obj @ T => predicate(obj),
+        tuple @ PyTuple => {
+            for obj in tuple.elements.iter() {
+                let inner_val = PyRef::<T>::try_from_object(vm, obj.clone())?;
+                if predicate(inner_val)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        },
+        obj => Err(vm.new_type_error(message(&obj)))
+    )
+}

@@ -9,17 +9,20 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-use super::objdict;
+use super::objdict::PyDictRef;
 use super::objlist::PyList;
+use super::objmappingproxy::PyMappingProxy;
 use super::objproperty::PropertyBuilder;
 use super::objstr::PyStringRef;
 use super::objtuple::PyTuple;
-use crate::obj::objdict::PyDictRef;
+use super::objweakref::PyWeak;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyClass {
     pub name: String,
     pub mro: Vec<PyClassRef>,
+    pub subclasses: RefCell<Vec<PyWeak>>,
+    pub attributes: RefCell<PyAttributes>,
 }
 
 impl fmt::Display for PyClass {
@@ -33,12 +36,6 @@ pub type PyClassRef = PyRef<PyClass>;
 impl PyValue for PyClass {
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.type_type()
-    }
-}
-
-impl TypeProtocol for PyClassRef {
-    fn type_ref(&self) -> &PyObjectRef {
-        &self.as_object().type_ref()
     }
 }
 
@@ -103,21 +100,25 @@ impl PyClassRef {
         issubclass(&subclass, &self)
     }
 
+    fn name(self, _vm: &VirtualMachine) -> String {
+        self.name.clone()
+    }
+
     fn repr(self, _vm: &VirtualMachine) -> String {
         format!("<class '{}'>", self.name)
     }
 
-    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
-        vm.new_dict()
+    fn prepare(_name: PyStringRef, _bases: PyObjectRef, vm: &VirtualMachine) -> PyDictRef {
+        vm.ctx.new_dict()
     }
 
     fn getattribute(self, name_ref: PyStringRef, vm: &VirtualMachine) -> PyResult {
         let name = &name_ref.value;
         trace!("type.__getattribute__({:?}, {:?})", self, name);
-        let mcl = self.type_pyref();
+        let mcl = self.class();
 
         if let Some(attr) = class_get_attr(&mcl, &name) {
-            let attr_class = attr.type_pyref();
+            let attr_class = attr.class();
             if class_has_attr(&attr_class, "__set__") {
                 if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
                     return vm.invoke(
@@ -129,7 +130,7 @@ impl PyClassRef {
         }
 
         if let Some(attr) = class_get_attr(&self, &name) {
-            let attr_class = attr.type_pyref();
+            let attr_class = attr.class();
             if let Some(descriptor) = class_get_attr(&attr_class, "__get__") {
                 let none = vm.get_none();
                 return vm.invoke(descriptor, vec![attr, none, self.into_object()]);
@@ -146,6 +147,43 @@ impl PyClassRef {
             Err(vm.new_attribute_error(format!("{} has no attribute '{}'", self, name)))
         }
     }
+
+    fn set_attr(
+        self,
+        attr_name: PyStringRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if let Some(attr) = class_get_attr(&self.class(), &attr_name.value) {
+            if let Some(descriptor) = class_get_attr(&attr.class(), "__set__") {
+                vm.invoke(descriptor, vec![attr, self.into_object(), value])?;
+                return Ok(());
+            }
+        }
+
+        self.attributes
+            .borrow_mut()
+            .insert(attr_name.to_string(), value);
+        Ok(())
+    }
+
+    // This is used for class initialisation where the vm is not yet available.
+    pub fn set_str_attr<V: Into<PyObjectRef>>(&self, attr_name: &str, value: V) {
+        self.attributes
+            .borrow_mut()
+            .insert(attr_name.to_string(), value.into());
+    }
+
+    fn subclasses(self, _vm: &VirtualMachine) -> PyList {
+        let mut subclasses = self.subclasses.borrow_mut();
+        subclasses.retain(|x| x.upgrade().is_some());
+        PyList::from(
+            subclasses
+                .iter()
+                .map(|x| x.upgrade().unwrap())
+                .collect::<Vec<_>>(),
+        )
+    }
 }
 
 /*
@@ -159,14 +197,23 @@ pub fn init(ctx: &PyContext) {
 
     extend_class!(&ctx, &ctx.type_type, {
         "__call__" => ctx.new_rustfunc(type_call),
+        "__dict__" =>
+        PropertyBuilder::new(ctx)
+                .add_getter(type_dict)
+                .add_setter(type_dict_setter)
+                .create(),
         "__new__" => ctx.new_rustfunc(type_new),
         "__mro__" =>
             PropertyBuilder::new(ctx)
                 .add_getter(PyClassRef::mro)
                 .add_setter(PyClassRef::set_mro)
                 .create(),
+        "__name__" => ctx.new_property(PyClassRef::name),
         "__repr__" => ctx.new_rustfunc(PyClassRef::repr),
         "__prepare__" => ctx.new_rustfunc(PyClassRef::prepare),
+        "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
+        "__setattr__" => ctx.new_rustfunc(PyClassRef::set_attr),
+        "__subclasses__" => ctx.new_rustfunc(PyClassRef::subclasses),
         "__getattribute__" => ctx.new_rustfunc(PyClassRef::getattribute),
         "__instancecheck__" => ctx.new_rustfunc(PyClassRef::instance_check),
         "__subclasscheck__" => ctx.new_rustfunc(PyClassRef::subclass_check),
@@ -182,7 +229,7 @@ fn _mro(cls: &PyClassRef) -> Vec<PyClassRef> {
 /// Determines if `obj` actually an instance of `cls`, this doesn't call __instancecheck__, so only
 /// use this if `cls` is known to have not overridden the base __instancecheck__ magic method.
 pub fn isinstance(obj: &PyObjectRef, cls: &PyClassRef) -> bool {
-    issubclass(&obj.type_pyref(), &cls)
+    issubclass(&obj.class(), &cls)
 }
 
 /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
@@ -193,23 +240,15 @@ pub fn issubclass(subclass: &PyClassRef, cls: &PyClassRef) -> bool {
     subclass.is(cls) || mro.iter().any(|c| c.is(cls.as_object()))
 }
 
-pub fn get_type_name(typ: &PyObjectRef) -> String {
-    if let Some(PyClass { name, .. }) = &typ.payload::<PyClass>() {
-        name.clone()
-    } else {
-        panic!("Cannot get type_name of non-type type {:?}", typ);
-    }
-}
-
 pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     debug!("type.__new__ {:?}", args);
     if args.args.len() == 2 {
-        Ok(args.args[1].typ())
+        Ok(args.args[1].class().into_object())
     } else if args.args.len() == 4 {
         let (typ, name, bases, dict) = args.bind(vm)?;
-        type_new_class(vm, typ, name, bases, dict).map(|x| x.into_object())
+        type_new_class(vm, typ, name, bases, dict).map(PyRef::into_object)
     } else {
-        Err(vm.new_type_error(format!(": type_new: {:?}", args)))
+        Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()))
     }
 }
 
@@ -222,12 +261,7 @@ pub fn type_new_class(
 ) -> PyResult<PyClassRef> {
     let mut bases: Vec<PyClassRef> = bases.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
     bases.push(vm.ctx.object());
-    new(
-        typ.clone(),
-        &name.value,
-        bases,
-        objdict::py_dict_to_attributes(dict.as_object()),
-    )
+    new(typ.clone(), &name.value, bases, dict.to_attributes())
 }
 
 pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMachine) -> PyResult {
@@ -245,32 +279,23 @@ pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMach
     Ok(obj)
 }
 
-// Very private helper function for class_get_attr
-fn class_get_attr_in_dict(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
-    if let Some(ref dict) = class.as_object().dict {
-        dict.borrow().get(attr_name).cloned()
-    } else {
-        panic!("Only classes should be in MRO!");
-    }
+fn type_dict(class: PyClassRef, _vm: &VirtualMachine) -> PyMappingProxy {
+    PyMappingProxy::new(class)
 }
 
-// Very private helper function for class_has_attr
-fn class_has_attr_in_dict(class: &PyClassRef, attr_name: &str) -> bool {
-    if let Some(ref dict) = class.as_object().dict {
-        dict.borrow().contains_key(attr_name)
-    } else {
-        panic!("All classes are expected to have dicts!");
-    }
+fn type_dict_setter(_instance: PyClassRef, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    Err(vm.new_not_implemented_error(
+        "Setting __dict__ attribute on a type isn't yet implemented".to_string(),
+    ))
 }
 
-// This is the internal get_attr implementation for fast lookup on a class.
-pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
-    let mro = &zelf.mro;
-    if let Some(item) = class_get_attr_in_dict(zelf, attr_name) {
+/// This is the internal get_attr implementation for fast lookup on a class.
+pub fn class_get_attr(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
+    if let Some(item) = class.attributes.borrow().get(attr_name).cloned() {
         return Some(item);
     }
-    for class in mro {
-        if let Some(item) = class_get_attr_in_dict(class, attr_name) {
+    for class in &class.mro {
+        if let Some(item) = class.attributes.borrow().get(attr_name).cloned() {
             return Some(item);
         }
     }
@@ -278,12 +303,12 @@ pub fn class_get_attr(zelf: &PyClassRef, attr_name: &str) -> Option<PyObjectRef>
 }
 
 // This is the internal has_attr implementation for fast lookup on a class.
-pub fn class_has_attr(zelf: &PyClassRef, attr_name: &str) -> bool {
-    class_has_attr_in_dict(zelf, attr_name)
-        || zelf
+pub fn class_has_attr(class: &PyClassRef, attr_name: &str) -> bool {
+    class.attributes.borrow().contains_key(attr_name)
+        || class
             .mro
             .iter()
-            .any(|d| class_has_attr_in_dict(d, attr_name))
+            .any(|c| c.attributes.borrow().contains_key(attr_name))
 }
 
 pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
@@ -294,10 +319,8 @@ pub fn get_attributes(cls: PyClassRef) -> PyAttributes {
     base_classes.reverse();
 
     for bc in base_classes {
-        if let Some(ref dict) = &bc.as_object().dict {
-            for (name, value) in dict.borrow().iter() {
-                attributes.insert(name.to_string(), value.clone());
-            }
+        for (name, value) in bc.attributes.borrow().iter() {
+            attributes.insert(name.to_string(), value.clone());
         }
     }
 
@@ -352,17 +375,25 @@ pub fn new(
     bases: Vec<PyClassRef>,
     dict: HashMap<String, PyObjectRef>,
 ) -> PyResult<PyClassRef> {
-    let mros = bases.into_iter().map(|x| _mro(&x)).collect();
+    let mros = bases.iter().map(|x| _mro(&x)).collect();
     let mro = linearise_mro(mros).unwrap();
     let new_type = PyObject {
         payload: PyClass {
             name: String::from(name),
             mro,
+            subclasses: RefCell::new(vec![]),
+            attributes: RefCell::new(dict),
         },
-        dict: Some(RefCell::new(dict)),
+        dict: None,
         typ,
     }
     .into_ref();
+    for base in bases {
+        base.subclasses
+            .borrow_mut()
+            .push(PyWeak::downgrade(&new_type));
+    }
+
     Ok(new_type.downcast().unwrap())
 }
 

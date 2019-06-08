@@ -34,6 +34,7 @@ impl PyValue for PyCode {
 }
 
 impl PyCodeRef {
+    #[allow(clippy::new_ret_no_self)]
     fn new(_cls: PyClassRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create code object".to_string()))
     }
@@ -80,8 +81,7 @@ impl PyCodeRef {
 }
 
 pub fn init(context: &PyContext) {
-    let code_type = context.code_type.as_object();
-    extend_class!(context, code_type, {
+    extend_class!(context, &context.code_type, {
         "__new__" => context.new_rustfunc(PyCodeRef::new),
         "__repr__" => context.new_rustfunc(PyCodeRef::repr),
 

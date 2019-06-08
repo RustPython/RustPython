@@ -2,30 +2,29 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use num_bigint::BigInt;
-
 use rustpython_parser::ast;
 
 use crate::builtins;
 use crate::bytecode;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
-use crate::obj::objbuiltinfunc::PyBuiltinFunction;
 use crate::obj::objcode::PyCodeRef;
-use crate::obj::objdict;
-use crate::obj::objdict::PyDict;
-use crate::obj::objint::PyInt;
+use crate::obj::objdict::{PyDict, PyDictRef};
 use crate::obj::objiter;
 use crate::obj::objlist;
 use crate::obj::objslice::PySlice;
 use crate::obj::objstr;
+use crate::obj::objstr::PyString;
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{
-    DictProtocol, IdProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    IdProtocol, ItemProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
+use itertools::Itertools;
 
 /*
  * So a scope is a linked list of scopes.
@@ -80,8 +79,8 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
 #[derive(Clone)]
 pub struct Scope {
-    locals: RcList<PyObjectRef>,
-    pub globals: PyObjectRef,
+    locals: RcList<PyDictRef>,
+    pub globals: PyDictRef,
 }
 
 impl fmt::Debug for Scope {
@@ -92,7 +91,7 @@ impl fmt::Debug for Scope {
 }
 
 impl Scope {
-    pub fn new(locals: Option<PyObjectRef>, globals: PyObjectRef) -> Scope {
+    pub fn new(locals: Option<PyDictRef>, globals: PyDictRef) -> Scope {
         let locals = match locals {
             Some(dict) => RcList::new().insert(dict),
             None => RcList::new(),
@@ -100,66 +99,100 @@ impl Scope {
         Scope { locals, globals }
     }
 
-    pub fn get_locals(&self) -> PyObjectRef {
+    pub fn with_builtins(
+        locals: Option<PyDictRef>,
+        globals: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> Scope {
+        if !globals.contains_key("__builtins__", vm) {
+            globals
+                .clone()
+                .set_item("__builtins__", vm.builtins.clone(), vm)
+                .unwrap();
+        }
+        Scope::new(locals, globals)
+    }
+
+    pub fn get_locals(&self) -> PyDictRef {
         match self.locals.iter().next() {
             Some(dict) => dict.clone(),
             None => self.globals.clone(),
         }
     }
 
-    pub fn get_only_locals(&self) -> Option<PyObjectRef> {
+    pub fn get_only_locals(&self) -> Option<PyDictRef> {
         self.locals.iter().next().cloned()
     }
 
-    pub fn child_scope_with_locals(&self, locals: PyObjectRef) -> Scope {
+    pub fn new_child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
         Scope {
             locals: self.locals.clone().insert(locals),
             globals: self.globals.clone(),
         }
     }
 
-    pub fn child_scope(&self, ctx: &PyContext) -> Scope {
-        self.child_scope_with_locals(ctx.new_dict())
+    pub fn new_child_scope(&self, ctx: &PyContext) -> Scope {
+        self.new_child_scope_with_locals(ctx.new_dict())
     }
 }
 
 pub trait NameProtocol {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
-    fn delete_name(&self, vm: &VirtualMachine, name: &str);
+    fn delete_name(&self, vm: &VirtualMachine, name: &str) -> PyResult;
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
+    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
+    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
 }
 
 impl NameProtocol for Scope {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter() {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
 
-        if let Some(value) = self.globals.get_item(name) {
+        if let Some(value) = self.globals.get_item_option(name, vm).unwrap() {
             return Some(value);
         }
 
-        vm.builtins.get_item(name)
+        vm.get_attribute(vm.builtins.clone(), name).ok()
     }
 
-    fn load_cell(&self, _vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+    fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
         for dict in self.locals.iter().skip(1) {
-            if let Some(value) = dict.get_item(name) {
+            if let Some(value) = dict.get_item_option(name, vm).unwrap() {
                 return Some(value);
             }
         }
         None
     }
 
-    fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
-        self.get_locals().set_item(&vm.ctx, key, value)
+    fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+        self.locals
+            .iter()
+            .nth(1)
+            .expect("no outer scope for non-local")
+            .set_item(name, value, vm)
+            .unwrap();
     }
 
-    fn delete_name(&self, _vm: &VirtualMachine, key: &str) {
-        self.get_locals().del_item(key)
+    fn store_name(&self, vm: &VirtualMachine, key: &str, value: PyObjectRef) {
+        self.get_locals().set_item(key, value, vm).unwrap();
+    }
+
+    fn delete_name(&self, vm: &VirtualMachine, key: &str) -> PyResult {
+        self.get_locals().del_item(key, vm)
+    }
+
+    fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
+        self.globals.get_item_option(name, vm).unwrap()
+    }
+
+    fn store_global(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
+        self.globals.set_item(name, value, vm).unwrap();
     }
 }
 
@@ -184,6 +217,7 @@ enum BlockType {
         end: bytecode::Label,
         context_manager: PyObjectRef,
     },
+    ExceptHandler,
 }
 
 pub type FrameRef = PyRef<Frame>;
@@ -209,7 +243,7 @@ pub enum ExecutionResult {
     Yield(PyObjectRef),
 }
 
-// A valid execution result, or an exception
+/// A valid execution result, or an exception
 pub type FrameResult = Result<Option<ExecutionResult>, PyObjectRef>;
 
 impl Frame {
@@ -251,9 +285,11 @@ impl Frame {
                 Ok(Some(value)) => {
                     break Ok(value);
                 }
+                // Instruction raised an exception
                 Err(exception) => {
-                    // unwind block stack on exception and find any handlers.
-                    // Add an entry in the traceback:
+                    // 1. Extract traceback from exception's '__traceback__' attr.
+                    // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
+                    // 3. Unwind block stack till appropriate handler is found.
                     assert!(objtype::isinstance(
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
@@ -262,13 +298,12 @@ impl Frame {
                         .get_attribute(exception.clone(), "__traceback__")
                         .unwrap();
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
-                    let pos = vm.ctx.new_tuple(vec![
+                    let raise_location = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
                         vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
-                    objlist::PyListRef::try_from_object(vm, traceback)?.append(pos, vm);
-                    // exception.__trace
+                    objlist::PyListRef::try_from_object(vm, traceback)?.append(raise_location, vm);
                     match self.unwind_exception(vm, exception) {
                         None => {}
                         Some(exception) => {
@@ -282,13 +317,24 @@ impl Frame {
         }
     }
 
+    pub fn throw(
+        &self,
+        vm: &VirtualMachine,
+        exception: PyObjectRef,
+    ) -> Result<ExecutionResult, PyObjectRef> {
+        match self.unwind_exception(vm, exception) {
+            None => self.run(vm),
+            Some(exception) => Err(exception),
+        }
+    }
+
     pub fn fetch_instruction(&self) -> &bytecode::Instruction {
         let ins2 = &self.code.instructions[*self.lasti.borrow()];
         *self.lasti.borrow_mut() += 1;
         ins2
     }
 
-    // Execute a single instruction:
+    /// Execute a single instruction.
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
         {
@@ -314,8 +360,14 @@ impl Frame {
                 ref symbol,
             } => self.import(vm, name, symbol),
             bytecode::Instruction::ImportStar { ref name } => self.import_star(vm, name),
-            bytecode::Instruction::LoadName { ref name } => self.load_name(vm, name),
-            bytecode::Instruction::StoreName { ref name } => self.store_name(vm, name),
+            bytecode::Instruction::LoadName {
+                ref name,
+                ref scope,
+            } => self.load_name(vm, name, scope),
+            bytecode::Instruction::StoreName {
+                ref name,
+                ref scope,
+            } => self.store_name(vm, name, scope),
             bytecode::Instruction::DeleteName { ref name } => self.delete_name(vm, name),
             bytecode::Instruction::StoreSubscript => self.execute_store_subscript(vm),
             bytecode::Instruction::DeleteSubscript => self.execute_delete_subscript(vm),
@@ -387,44 +439,41 @@ impl Frame {
             }
             bytecode::Instruction::BuildMap { size, unpack } => {
                 let map_obj = vm.ctx.new_dict();
-                for _x in 0..*size {
-                    let obj = self.pop_value();
-                    if *unpack {
+                if *unpack {
+                    for obj in self.pop_multiple(*size) {
                         // Take all key-value pairs from the dict:
-                        let dict_elements = objdict::get_key_value_pairs(&obj);
-                        for (key, value) in dict_elements.iter() {
-                            objdict::set_item(&map_obj, vm, key, value);
+                        let dict: PyDictRef =
+                            obj.downcast().expect("Need a dictionary to build a map.");
+                        for (key, value) in dict {
+                            map_obj.set_item(key, value, vm).unwrap();
                         }
-                    } else {
-                        let key = self.pop_value();
-                        objdict::set_item(&map_obj, vm, &key, &obj);
+                    }
+                } else {
+                    for (key, value) in self.pop_multiple(2 * size).into_iter().tuples() {
+                        map_obj.set_item(key, value, vm).unwrap();
                     }
                 }
-                self.push_value(map_obj);
+
+                self.push_value(map_obj.into_object());
                 Ok(None)
             }
             bytecode::Instruction::BuildSlice { size } => {
                 assert!(*size == 2 || *size == 3);
-                let elements = self.pop_multiple(*size);
 
-                let mut out: Vec<Option<BigInt>> = elements
-                    .into_iter()
-                    .map(|x| {
-                        if x.is(&vm.ctx.none()) {
-                            None
-                        } else if let Some(i) = x.payload::<PyInt>() {
-                            Some(i.value.clone())
-                        } else {
-                            panic!("Expect Int or None as BUILD_SLICE arguments")
-                        }
-                    })
-                    .collect();
+                let step = if *size == 3 {
+                    Some(self.pop_value())
+                } else {
+                    None
+                };
+                let stop = self.pop_value();
+                let start = self.pop_value();
 
-                let start = out[0].take();
-                let stop = out[1].take();
-                let step = if out.len() == 3 { out[2].take() } else { None };
-
-                let obj = PySlice { start, stop, step }.into_ref(vm);
+                let obj = PySlice {
+                    start: Some(start),
+                    stop,
+                    step,
+                }
+                .into_ref(vm);
                 self.push_value(obj.into_object());
                 Ok(None)
             }
@@ -517,9 +566,7 @@ impl Frame {
                 } = &block.typ
                 {
                     debug_assert!(end1 == end2);
-
-                    // call exit now with no exception:
-                    self.with_exit(vm, &context_manager, None)?;
+                    self.call_context_manager_exit_no_exception(vm, &context_manager)?;
                 } else {
                     unreachable!("Block stack is incorrect, expected a with block");
                 }
@@ -563,7 +610,10 @@ impl Frame {
                 }
             }
             bytecode::Instruction::MakeFunction { flags } => {
-                let _qualified_name = self.pop_value();
+                let qualified_name = self
+                    .pop_value()
+                    .downcast::<PyString>()
+                    .expect("qualified name to be a string");
                 let code_obj = self
                     .pop_value()
                     .downcast()
@@ -572,23 +622,49 @@ impl Frame {
                 let annotations = if flags.contains(bytecode::FunctionOpArg::HAS_ANNOTATIONS) {
                     self.pop_value()
                 } else {
-                    vm.new_dict()
+                    vm.ctx.new_dict().into_object()
                 };
 
+                let kw_only_defaults =
+                    if flags.contains(bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS) {
+                        Some(
+                            self.pop_value().downcast::<PyDict>().expect(
+                                "Stack value for keyword only defaults expected to be a dict",
+                            ),
+                        )
+                    } else {
+                        None
+                    };
+
                 let defaults = if flags.contains(bytecode::FunctionOpArg::HAS_DEFAULTS) {
-                    self.pop_value()
+                    Some(
+                        self.pop_value()
+                            .downcast::<PyTuple>()
+                            .expect("Stack value for defaults expected to be a tuple"),
+                    )
                 } else {
-                    vm.get_none()
+                    None
                 };
 
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.scope.clone();
-                let obj = vm.ctx.new_function(code_obj, scope, defaults);
+                let func_obj = vm
+                    .ctx
+                    .new_function(code_obj, scope, defaults, kw_only_defaults);
 
-                vm.ctx.set_attr(&obj, "__annotations__", annotations);
+                let name = qualified_name.value.split('.').next_back().unwrap();
+                vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
+                vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
+                let module = self
+                    .scope
+                    .globals
+                    .get_item_option("__name__", vm)?
+                    .unwrap_or_else(|| vm.get_none());
+                vm.set_attr(&func_obj, "__module__", module)?;
+                vm.set_attr(&func_obj, "__annotations__", annotations)?;
 
-                self.push_value(obj);
+                self.push_value(func_obj);
                 Ok(None)
             }
             bytecode::Instruction::CallFunction { typ } => {
@@ -597,7 +673,7 @@ impl Frame {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
                             args,
-                            kwargs: vec![],
+                            kwargs: IndexMap::new(),
                         }
                     }
                     bytecode::CallType::Keyword(count) => {
@@ -613,14 +689,14 @@ impl Frame {
                     }
                     bytecode::CallType::Ex(has_kwargs) => {
                         let kwargs = if *has_kwargs {
-                            let kw_dict = self.pop_value();
-                            let dict_elements = objdict::get_elements(&kw_dict).clone();
-                            dict_elements
+                            let kw_dict: PyDictRef =
+                                self.pop_value().downcast().expect("Kwargs must be a dict.");
+                            kw_dict
                                 .into_iter()
-                                .map(|elem| (elem.0, (elem.1).1))
+                                .map(|elem| (objstr::get_value(&elem.0), elem.1))
                                 .collect()
                         } else {
-                            vec![]
+                            IndexMap::new()
                         };
                         let args = self.pop_value();
                         let args = vm.extract_elements(&args)?;
@@ -657,31 +733,38 @@ impl Frame {
             }
 
             bytecode::Instruction::Raise { argc } => {
+                let cause = match argc {
+                    2 => self.get_exception(vm, true)?,
+                    _ => vm.get_none(),
+                };
                 let exception = match argc {
-                    1 => self.pop_value(),
-                    0 | 2 | 3 => panic!("Not implemented!"),
+                    0 => match vm.pop_exception() {
+                        Some(exc) => exc,
+                        None => {
+                            return Err(vm.new_exception(
+                                vm.ctx.exceptions.runtime_error.clone(),
+                                "No active exception to reraise".to_string(),
+                            ));
+                        }
+                    },
+                    1 | 2 => self.get_exception(vm, false)?,
+                    3 => panic!("Not implemented!"),
                     _ => panic!("Invalid parameter for RAISE_VARARGS, must be between 0 to 3"),
                 };
-                if objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type) {
-                    info!("Exception raised: {:?}", exception);
-                    Err(exception)
-                } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
-                    if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
-                        let exception = vm.new_empty_exception(exception)?;
-                        info!("Exception raised: {:?}", exception);
-                        Err(exception)
-                    } else {
-                        let msg = format!(
-                            "Can only raise BaseException derived types, not {}",
-                            exception
-                        );
-                        let type_error_type = vm.ctx.exceptions.type_error.clone();
-                        let type_error = vm.new_exception(type_error_type, msg);
-                        Err(type_error)
-                    }
-                } else {
-                    Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
-                }
+                let context = match argc {
+                    0 => vm.get_none(), // We have already got the exception,
+                    _ => match vm.pop_exception() {
+                        Some(exc) => exc,
+                        None => vm.get_none(),
+                    },
+                };
+                info!(
+                    "Exception raised: {:?} with cause: {:?} and context: {:?}",
+                    exception, cause, context
+                );
+                vm.set_attr(&exception, vm.new_str("__cause__".to_string()), cause)?;
+                vm.set_attr(&exception, vm.new_str("__context__".to_string()), context)?;
+                Err(exception)
             }
 
             bytecode::Instruction::Break => {
@@ -719,9 +802,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::LoadBuildClass => {
-                let rustfunc =
-                    PyBuiltinFunction::new(Box::new(builtins::builtin_build_class_)).into_ref(vm);
-                self.push_value(rustfunc.into_object());
+                self.push_value(vm.ctx.new_rustfunc(builtins::builtin_build_class_));
                 Ok(None)
             }
             bytecode::Instruction::UnpackSequence { size } => {
@@ -793,6 +874,15 @@ impl Frame {
                 self.push_value(formatted);
                 Ok(None)
             }
+            bytecode::Instruction::PopException {} => {
+                let block = self.pop_block().unwrap(); // this asserts that the block is_some.
+                if let BlockType::ExceptHandler = block.typ {
+                    assert!(vm.pop_exception().is_some());
+                    Ok(None)
+                } else {
+                    panic!("Block type must be ExceptHandler here.")
+                }
+            }
         }
     }
 
@@ -839,8 +929,10 @@ impl Frame {
         let module = vm.import(module)?;
 
         // Grab all the names from the module and put them in the context
-        for (k, v) in module.get_key_value_pairs().iter() {
-            self.scope.store_name(&vm, &objstr::get_value(k), v.clone());
+        if let Some(dict) = &module.dict {
+            for (k, v) in dict {
+                self.scope.store_name(&vm, &objstr::get_value(&k), v);
+            }
         }
         Ok(None)
     }
@@ -856,13 +948,16 @@ impl Frame {
                 BlockType::With {
                     context_manager, ..
                 } => {
-                    match self.with_exit(vm, &context_manager, None) {
+                    match self.call_context_manager_exit_no_exception(vm, &context_manager) {
                         Ok(..) => {}
                         Err(exc) => {
                             // __exit__ went wrong,
                             return Some(exc);
                         }
                     }
+                }
+                BlockType::ExceptHandler => {
+                    vm.pop_exception();
                 }
             }
         }
@@ -880,12 +975,15 @@ impl Frame {
                 }
                 BlockType::With {
                     context_manager, ..
-                } => match self.with_exit(vm, &context_manager, None) {
+                } => match self.call_context_manager_exit_no_exception(vm, &context_manager) {
                     Ok(..) => {}
                     Err(exc) => {
                         panic!("Exception in with __exit__ {:?}", exc);
                     }
                 },
+                BlockType::ExceptHandler => {
+                    vm.pop_exception();
+                }
             }
 
             self.pop_block();
@@ -897,7 +995,9 @@ impl Frame {
         while let Some(block) = self.pop_block() {
             match block.typ {
                 BlockType::TryExcept { handler } => {
-                    self.push_value(exc);
+                    self.push_block(BlockType::ExceptHandler {});
+                    self.push_value(exc.clone());
+                    vm.push_exception(exc);
                     self.jump(handler);
                     return None;
                 }
@@ -905,12 +1005,12 @@ impl Frame {
                     end,
                     context_manager,
                 } => {
-                    match self.with_exit(vm, &context_manager, Some(exc.clone())) {
-                        Ok(exit_action) => {
-                            match objbool::boolval(vm, exit_action) {
-                                Ok(handle_exception) => {
-                                    if handle_exception {
-                                        // We handle the exception, so return!
+                    match self.call_context_manager_exit(vm, &context_manager, exc.clone()) {
+                        Ok(exit_result_obj) => {
+                            match objbool::boolval(vm, exit_result_obj) {
+                                // If __exit__ method returned True, suppress the exception and continue execution.
+                                Ok(suppress_exception) => {
+                                    if suppress_exception {
                                         self.jump(end);
                                         return None;
                                     } else {
@@ -921,7 +1021,6 @@ impl Frame {
                                     return Some(exit_exc);
                                 }
                             }
-                            // if objtype::isinstance
                         }
                         Err(exit_exc) => {
                             // TODO: what about original exception?
@@ -930,84 +1029,110 @@ impl Frame {
                     }
                 }
                 BlockType::Loop { .. } => {}
+                // Exception was already popped on Raised.
+                BlockType::ExceptHandler => {}
             }
         }
         Some(exc)
     }
 
-    fn with_exit(
+    fn call_context_manager_exit_no_exception(
         &self,
         vm: &VirtualMachine,
         context_manager: &PyObjectRef,
-        exc: Option<PyObjectRef>,
     ) -> PyResult {
-        // Assume top of stack is __exit__ method:
         // TODO: do we want to put the exit call on the stack?
-        // let exit_method = self.pop_value();
-        // let args = PyFuncArgs::default();
-        // TODO: what happens when we got an error during handling exception?
-        let args = if let Some(exc) = exc {
-            let exc_type = exc.typ();
-            let exc_val = exc.clone();
-            let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
-            vec![exc_type, exc_val, exc_tb]
-        } else {
-            let exc_type = vm.ctx.none();
-            let exc_val = vm.ctx.none();
-            let exc_tb = vm.ctx.none();
-            vec![exc_type, exc_val, exc_tb]
-        };
-        vm.call_method(context_manager, "__exit__", args)
+        // TODO: what happens when we got an error during execution of __exit__?
+        vm.call_method(
+            context_manager,
+            "__exit__",
+            vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()],
+        )
     }
 
-    fn store_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
+    fn call_context_manager_exit(
+        &self,
+        vm: &VirtualMachine,
+        context_manager: &PyObjectRef,
+        exc: PyObjectRef,
+    ) -> PyResult {
+        // TODO: do we want to put the exit call on the stack?
+        // TODO: what happens when we got an error during execution of __exit__?
+        let exc_type = exc.class().into_object();
+        let exc_val = exc.clone();
+        let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+        vm.call_method(context_manager, "__exit__", vec![exc_type, exc_val, exc_tb])
+    }
+
+    fn store_name(
+        &self,
+        vm: &VirtualMachine,
+        name: &str,
+        name_scope: &bytecode::NameScope,
+    ) -> FrameResult {
         let obj = self.pop_value();
-        self.scope.store_name(&vm, name, obj);
+        match name_scope {
+            bytecode::NameScope::Global => {
+                self.scope.store_global(vm, name, obj);
+            }
+            bytecode::NameScope::NonLocal => {
+                self.scope.store_cell(vm, name, obj);
+            }
+            bytecode::NameScope::Local => {
+                self.scope.store_name(vm, name, obj);
+            }
+        }
         Ok(None)
     }
 
     fn delete_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
-        self.scope.delete_name(vm, name);
-        Ok(None)
-    }
-
-    fn load_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
-        match self.scope.load_name(&vm, name) {
-            Some(value) => {
-                self.push_value(value);
-                Ok(None)
-            }
-            None => {
-                let name_error_type = vm.ctx.exceptions.name_error.clone();
-                let msg = format!("name '{}' is not defined", name);
-                let name_error = vm.new_exception(name_error_type, msg);
-                Err(name_error)
-            }
+        match self.scope.delete_name(vm, name) {
+            Ok(_) => Ok(None),
+            Err(_) => Err(vm.new_name_error(format!("name '{}' is not defined", name))),
         }
     }
 
-    fn subscript(&self, vm: &VirtualMachine, a: PyObjectRef, b: PyObjectRef) -> PyResult {
-        vm.call_method(&a, "__getitem__", vec![b])
+    fn load_name(
+        &self,
+        vm: &VirtualMachine,
+        name: &str,
+        name_scope: &bytecode::NameScope,
+    ) -> FrameResult {
+        let optional_value = match name_scope {
+            bytecode::NameScope::Global => self.scope.load_global(vm, name),
+            bytecode::NameScope::NonLocal => self.scope.load_cell(vm, name),
+            bytecode::NameScope::Local => self.scope.load_name(&vm, name),
+        };
+
+        let value = match optional_value {
+            Some(value) => value,
+            None => {
+                return Err(vm.new_name_error(format!("name '{}' is not defined", name)));
+            }
+        };
+
+        self.push_value(value);
+        Ok(None)
     }
 
     fn execute_store_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
         let value = self.pop_value();
-        vm.call_method(&obj, "__setitem__", vec![idx, value])?;
+        obj.set_item(idx, value, vm)?;
         Ok(None)
     }
 
     fn execute_delete_subscript(&self, vm: &VirtualMachine) -> FrameResult {
         let idx = self.pop_value();
         let obj = self.pop_value();
-        vm.call_method(&obj, "__delitem__", vec![idx])?;
+        obj.del_item(idx, vm)?;
         Ok(None)
     }
 
     fn jump(&self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
-        trace!("program counter from {:?} to {:?}", self.lasti, target_pc);
+        trace!("jump from {:?} to {:?}", self.lasti, target_pc);
         *self.lasti.borrow_mut() = target_pc;
     }
 
@@ -1036,7 +1161,7 @@ impl Frame {
             bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
             // TODO: Subscript should probably have its own op
             bytecode::BinaryOperator::Subscript if inplace => unreachable!(),
-            bytecode::BinaryOperator::Subscript => self.subscript(vm, a_ref, b_ref),
+            bytecode::BinaryOperator::Subscript => a_ref.get_item(b_ref, vm),
             bytecode::BinaryOperator::Modulo if inplace => vm._imod(a_ref, b_ref),
             bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
             bytecode::BinaryOperator::Lshift if inplace => vm._ilshift(a_ref, b_ref),
@@ -1074,36 +1199,14 @@ impl Frame {
         a.get_id()
     }
 
-    // https://docs.python.org/3/reference/expressions.html#membership-test-operations
-    fn _membership(
-        &self,
-        vm: &VirtualMachine,
-        needle: PyObjectRef,
-        haystack: &PyObjectRef,
-    ) -> PyResult {
-        vm.call_method(&haystack, "__contains__", vec![needle])
-        // TODO: implement __iter__ and __getitem__ cases when __contains__ is
-        // not implemented.
-    }
-
     fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
-        match self._membership(vm, needle, &haystack) {
-            Ok(found) => Ok(found),
-            Err(_) => Err(vm.new_type_error(format!(
-                "{} has no __contains__ method",
-                objtype::get_type_name(&haystack.typ())
-            ))),
-        }
+        let found = vm._membership(haystack.clone(), needle)?;
+        Ok(vm.ctx.new_bool(objbool::boolval(vm, found)?))
     }
 
     fn _not_in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: PyObjectRef) -> PyResult {
-        match self._membership(vm, needle, &haystack) {
-            Ok(found) => Ok(vm.ctx.new_bool(!objbool::get_value(&found))),
-            Err(_) => Err(vm.new_type_error(format!(
-                "{} has no __contains__ method",
-                objtype::get_type_name(&haystack.typ())
-            ))),
-        }
+        let found = vm._membership(haystack.clone(), needle)?;
+        Ok(vm.ctx.new_bool(!objbool::boolval(vm, found)?))
     }
 
     fn _is(&self, a: PyObjectRef, b: PyObjectRef) -> bool {
@@ -1208,6 +1311,28 @@ impl Frame {
         let stack = self.stack.borrow_mut();
         stack[stack.len() - depth - 1].clone()
     }
+
+    fn get_exception(&self, vm: &VirtualMachine, none_allowed: bool) -> PyResult {
+        let exception = self.pop_value();
+        if none_allowed && vm.get_none().is(&exception)
+            || objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type)
+        {
+            Ok(exception)
+        } else if let Ok(exc_type) = PyClassRef::try_from_object(vm, exception) {
+            if objtype::issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
+                let exception = vm.new_empty_exception(exc_type)?;
+                Ok(exception)
+            } else {
+                let msg = format!(
+                    "Can only raise BaseException derived types, not {}",
+                    exc_type
+                );
+                Err(vm.new_type_error(msg))
+            }
+        } else {
+            Err(vm.new_type_error("exceptions must derive from BaseException".to_string()))
+        }
+    }
 }
 
 impl fmt::Debug for Frame {
@@ -1230,13 +1355,11 @@ impl fmt::Debug for Frame {
             .iter()
             .map(|elem| format!("\n  > {:?}", elem))
             .collect::<String>();
-        let local_str = match self.scope.get_locals().payload::<PyDict>() {
-            Some(dict) => objdict::get_key_value_pairs_from_content(&dict.entries.borrow())
-                .iter()
-                .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
-                .collect::<String>(),
-            None => panic!("locals unexpectedly not wrapping a dict!",),
-        };
+        let dict = self.scope.get_locals();
+        let local_str = dict
+            .into_iter()
+            .map(|elem| format!("\n  {:?} = {:?}", elem.0, elem.1))
+            .collect::<String>();
         write!(
             f,
             "Frame Object {{ \n Stack:{}\n Blocks:{}\n Locals:{}\n}}",

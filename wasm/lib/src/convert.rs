@@ -4,11 +4,11 @@ use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_vm::function::PyFuncArgs;
 use rustpython_vm::obj::{objbytes, objint, objsequence, objtype};
-use rustpython_vm::pyobject::{DictProtocol, PyObjectRef, PyResult, PyValue};
+use rustpython_vm::pyobject::{ItemProtocol, PyObjectRef, PyResult, PyValue};
 use rustpython_vm::VirtualMachine;
 
 use crate::browser_module;
-use crate::vm_class::{AccessibleVM, WASMVirtualMachine};
+use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
     macro_rules! map_exceptions {
@@ -40,10 +40,10 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
     });
     if let Ok(tb) = vm.get_attribute(py_err.clone(), "__traceback__") {
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let elements = objsequence::get_elements(&tb).to_vec();
+            let elements = objsequence::get_elements_list(&tb).to_vec();
             if let Some(top) = elements.get(0) {
                 if objtype::isinstance(&top, &vm.ctx.tuple_type()) {
-                    let element = objsequence::get_elements(&top);
+                    let element = objsequence::get_elements_list(&top);
 
                     if let Some(lineno) = objint::to_int(vm, &element[1], 10)
                         .ok()
@@ -81,11 +81,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                             return Err(err);
                         }
                     };
-                    let acc_vm = AccessibleVM::from(wasm_vm.clone());
-                    let stored_vm = acc_vm
-                        .upgrade()
-                        .expect("acc. VM to be invalid when WASM vm is valid");
-                    let vm = &stored_vm.vm;
+                    let vm = &stored_vm_from_wasm(&wasm_vm).vm;
                     let mut py_func_args = PyFuncArgs::default();
                     if let Some(ref args) = args {
                         for arg in args.values() {
@@ -97,7 +93,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                             let (key, val) = pair?;
                             py_func_args
                                 .kwargs
-                                .push((js_sys::JsString::from(key).into(), js_to_py(vm, val)));
+                                .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
                         }
                     }
                     let result = vm.invoke(py_obj.clone(), py_func_args);
@@ -115,9 +111,9 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         }
     }
     // the browser module might not be injected
-    if let Ok(promise_type) = browser_module::import_promise_type(vm) {
-        if objtype::isinstance(&py_obj, &promise_type) {
-            return browser_module::get_promise_value(&py_obj).into();
+    if vm.try_class("browser", "Promise").is_ok() {
+        if let Some(py_prom) = py_obj.payload::<browser_module::PyPromise>() {
+            return py_prom.value().into();
         }
     }
 
@@ -125,12 +121,14 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
         || objtype::isinstance(&py_obj, &vm.ctx.bytearray_type())
     {
         let bytes = objbytes::get_value(&py_obj);
-        let arr = Uint8Array::new_with_length(bytes.len() as u32);
-        for (i, byte) in bytes.iter().enumerate() {
-            Reflect::set(&arr, &(i as u32).into(), &(*byte).into())
-                .expect("setting Uint8Array value failed");
+        unsafe {
+            // `Uint8Array::view` is an `unsafe fn` because it provides
+            // a direct view into the WASM linear memory; if you were to allocate
+            // something with Rust that view would probably become invalid. It's safe
+            // because we then copy the array using `Uint8Array::slice`.
+            let view = Uint8Array::view(&bytes);
+            view.slice(0, bytes.len() as u32).into()
         }
-        arr.into()
     } else {
         match vm.serialize(&py_obj) {
             Ok(json) => js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED),
@@ -159,7 +157,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     if js_val.is_object() {
         if let Some(promise) = js_val.dyn_ref::<Promise>() {
             // the browser module might not be injected
-            if let Ok(_) = browser_module::import_promise_type(vm) {
+            if vm.try_class("browser", "Promise").is_ok() {
                 return browser_module::PyPromise::new(promise.clone())
                     .into_ref(vm)
                     .into_object();
@@ -182,18 +180,18 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                     .cloned()
                     .unwrap_or_else(|| js_val.unchecked_ref::<Uint8Array>().buffer()),
             );
-            let mut vec = Vec::with_capacity(u8_array.length() as usize);
-            // TODO: use Uint8Array::copy_to once updating js_sys doesn't break everything
-            u8_array.for_each(&mut |byte, _, _| vec.push(byte));
+            let mut vec = vec![0; u8_array.length() as usize];
+            u8_array.copy_to(&mut vec);
             vm.ctx.new_bytes(vec)
         } else {
-            let dict = vm.new_dict();
+            let dict = vm.ctx.new_dict();
             for pair in object_entries(&Object::from(js_val)) {
                 let (key, val) = pair.expect("iteration over object to not fail");
                 let py_val = js_to_py(vm, val);
-                dict.set_item(&vm.ctx, &String::from(js_sys::JsString::from(key)), py_val);
+                dict.set_item(&String::from(js_sys::JsString::from(key)), py_val, vm)
+                    .unwrap();
             }
-            dict
+            dict.into_object()
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);

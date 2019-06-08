@@ -1,9 +1,7 @@
 /*
  * I/O core tools.
  */
-
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -20,9 +18,7 @@ use crate::obj::objbytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::obj::objtype::PyClassRef;
-use crate::pyobject::{
-    BufferProtocol, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol,
-};
+use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 fn compute_c_flag(mode: &str) -> u16 {
@@ -97,9 +93,12 @@ fn io_base_cm_exit(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+// TODO Check if closed, then if so raise ValueError
+fn io_base_flush(_zelf: PyObjectRef, _vm: &VirtualMachine) {}
+
 fn buffered_io_base_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(buffered, None), (raw, None)]);
-    vm.ctx.set_attr(buffered, "raw", raw.clone());
+    vm.set_attr(buffered, "raw", raw.clone())?;
     Ok(vm.get_none())
 }
 
@@ -123,7 +122,7 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
         //Copy bytes from the buffer vector into the results vector
         if let Some(bytes) = buffer.payload::<PyByteArray>() {
-            result.extend_from_slice(&bytes.value.borrow());
+            result.extend_from_slice(&bytes.inner.borrow().elements);
         };
 
         let py_len = vm.call_method(&buffer, "__len__", PyFuncArgs::default())?;
@@ -148,10 +147,10 @@ fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             let args = vec![name.clone(), vm.ctx.new_int(os_mode)];
             let file_no = os::os_open(vm, PyFuncArgs::new(args, vec![]))?;
 
-            vm.ctx.set_attr(file_io, "name", name.clone());
-            vm.ctx.set_attr(file_io, "fileno", file_no);
-            vm.ctx.set_attr(file_io, "closefd", vm.new_bool(false));
-            vm.ctx.set_attr(file_io, "closed", vm.new_bool(false));
+            vm.set_attr(file_io, "name", name.clone())?;
+            vm.set_attr(file_io, "fileno", file_no)?;
+            vm.set_attr(file_io, "closefd", vm.new_bool(false))?;
+            vm.set_attr(file_io, "closed", vm.new_bool(false))?;
 
             Ok(vm.get_none())
         }
@@ -206,16 +205,16 @@ fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     if let Some(bytes) = obj.payload::<PyByteArray>() {
         //TODO: Implement for MemoryView
 
-        let mut value_mut = bytes.value.borrow_mut();
+        let value_mut = &mut bytes.inner.borrow_mut().elements;
         value_mut.clear();
-        match f.read_to_end(&mut value_mut) {
+        match f.read_to_end(value_mut) {
             Ok(_) => {}
             Err(_) => return Err(vm.new_value_error("Error reading from Take".to_string())),
         }
     };
 
     let updated = os::raw_file_number(f.into_inner());
-    vm.ctx.set_attr(file_io, "fileno", vm.ctx.new_int(updated));
+    vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
     Ok(vm.get_none())
 }
 
@@ -236,12 +235,12 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
     match obj.payload::<PyByteArray>() {
         Some(bytes) => {
-            let value_mut = bytes.value.borrow();
+            let value_mut = &mut bytes.inner.borrow_mut().elements;
             match handle.write(&value_mut[..]) {
                 Ok(len) => {
                     //reset raw fd on the FileIO object
                     let updated = os::raw_file_number(handle);
-                    vm.ctx.set_attr(file_io, "fileno", vm.ctx.new_int(updated));
+                    vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
 
                     //return number of bytes written
                     Ok(vm.ctx.new_int(len))
@@ -273,7 +272,7 @@ fn text_io_wrapper_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(text_io_wrapper, None), (buffer, None)]
     );
 
-    vm.ctx.set_attr(text_io_wrapper, "buffer", buffer.clone());
+    vm.set_attr(text_io_wrapper, "buffer", buffer.clone())?;
     Ok(vm.get_none())
 }
 
@@ -293,6 +292,63 @@ fn text_io_base_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn split_mode_string(mode_string: String) -> Result<(String, String), String> {
+    let mut mode: char = '\0';
+    let mut typ: char = '\0';
+    let mut plus_is_set = false;
+
+    for ch in mode_string.chars() {
+        match ch {
+            '+' => {
+                if plus_is_set {
+                    return Err(format!("invalid mode: '{}'", mode_string));
+                }
+                plus_is_set = true;
+            }
+            't' | 'b' => {
+                if typ != '\0' {
+                    if typ == ch {
+                        // no duplicates allowed
+                        return Err(format!("invalid mode: '{}'", mode_string));
+                    } else {
+                        return Err("can't have text and binary mode at once".to_string());
+                    }
+                }
+                typ = ch;
+            }
+            'a' | 'r' | 'w' => {
+                if mode != '\0' {
+                    if mode == ch {
+                        // no duplicates allowed
+                        return Err(format!("invalid mode: '{}'", mode_string));
+                    } else {
+                        return Err(
+                            "must have exactly one of create/read/write/append mode".to_string()
+                        );
+                    }
+                }
+                mode = ch;
+            }
+            _ => return Err(format!("invalid mode: '{}'", mode_string)),
+        }
+    }
+
+    if mode == '\0' {
+        return Err(
+            "Must have exactly one of create/read/write/append mode and at most one plus"
+                .to_string(),
+        );
+    }
+    let mut mode = mode.to_string();
+    if plus_is_set {
+        mode.push('+');
+    }
+    if typ == '\0' {
+        typ = 't';
+    }
+    Ok((mode, typ.to_string()))
+}
+
 pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -300,80 +356,74 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(file, Some(vm.ctx.str_type()))],
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
-
-    let module = import::import_module(vm, PathBuf::default(), "io").unwrap();
-
-    //mode is optional: 'rt' is the default mode (open from reading text)
-    let rust_mode = mode.map_or("rt".to_string(), |m| objstr::get_value(m));
-
-    let mut raw_modes = HashSet::new();
-
-    //add raw modes
-    raw_modes.insert("a".to_string());
-    raw_modes.insert("r".to_string());
-    raw_modes.insert("x".to_string());
-    raw_modes.insert("w".to_string());
-
-    //This is not a terribly elegant way to separate the file mode from
-    //the "type" flag - this should be improved. The intention here is to
-    //match a valid flag for the file_io_init call:
-    //https://docs.python.org/3/library/io.html#io.FileIO
-    let modes: Vec<char> = rust_mode
-        .chars()
-        .filter(|a| raw_modes.contains(&a.to_string()))
-        .collect();
-
-    if modes.is_empty() || modes.len() > 1 {
-        return Err(vm.new_value_error("Invalid Mode".to_string()));
-    }
-
-    //Class objects (potentially) consumed by io.open
-    //RawIO: FileIO
-    //Buffered: BufferedWriter, BufferedReader
-    //Text: TextIOWrapper
-    let file_io_class = vm.get_attribute(module.clone(), "FileIO").unwrap();
-    let buffered_writer_class = vm.get_attribute(module.clone(), "BufferedWriter").unwrap();
-    let buffered_reader_class = vm.get_attribute(module.clone(), "BufferedReader").unwrap();
-    let text_io_wrapper_class = vm.get_attribute(module, "TextIOWrapper").unwrap();
-
-    //Construct a FileIO (subclass of RawIOBase)
-    //This is subsequently consumed by a Buffered Class.
-    let file_args = vec![file.clone(), vm.ctx.new_str(modes[0].to_string())];
-    let file_io = vm.invoke(file_io_class, file_args)?;
-
-    //Create Buffered class to consume FileIO. The type of buffered class depends on
-    //the operation in the mode.
-    //There are 3 possible classes here, each inheriting from the RawBaseIO
-    // creating || writing || appending => BufferedWriter
-    let buffered = if rust_mode.contains('w') {
-        vm.invoke(buffered_writer_class, vec![file_io.clone()])
-    // reading => BufferedReader
-    } else {
-        vm.invoke(buffered_reader_class, vec![file_io.clone()])
-        //TODO: updating => PyBufferedRandom
+    // mode is optional: 'rt' is the default mode (open from reading text)
+    let mode_string = mode.map_or("rt".to_string(), |m| objstr::get_value(m));
+    let (mode, typ) = match split_mode_string(mode_string) {
+        Ok((mode, typ)) => (mode, typ),
+        Err(error_message) => {
+            return Err(vm.new_value_error(error_message));
+        }
     };
 
-    if rust_mode.contains('t') {
-        //If the mode is text this buffer type is consumed on construction of
-        //a TextIOWrapper which is subsequently returned.
-        vm.invoke(text_io_wrapper_class, vec![buffered.unwrap()])
-    } else {
+    let io_module = import::import_module(vm, PathBuf::default(), "io").unwrap();
+
+    // Construct a FileIO (subclass of RawIOBase)
+    // This is subsequently consumed by a Buffered Class.
+    let file_io_class = vm.get_attribute(io_module.clone(), "FileIO").unwrap();
+    let file_io_obj = vm.invoke(
+        file_io_class,
+        vec![file.clone(), vm.ctx.new_str(mode.clone())],
+    )?;
+
+    // Create Buffered class to consume FileIO. The type of buffered class depends on
+    // the operation in the mode.
+    // There are 3 possible classes here, each inheriting from the RawBaseIO
+    // creating || writing || appending => BufferedWriter
+    let buffered = match mode.chars().next().unwrap() {
+        'w' => {
+            let buffered_writer_class = vm
+                .get_attribute(io_module.clone(), "BufferedWriter")
+                .unwrap();
+            vm.invoke(buffered_writer_class, vec![file_io_obj.clone()])
+        }
+        'r' => {
+            let buffered_reader_class = vm
+                .get_attribute(io_module.clone(), "BufferedReader")
+                .unwrap();
+            vm.invoke(buffered_reader_class, vec![file_io_obj.clone()])
+        }
+        //TODO: updating => PyBufferedRandom
+        _ => unimplemented!("'a' mode is not yet implemented"),
+    };
+
+    let io_obj = match typ.chars().next().unwrap() {
+        // If the mode is text this buffer type is consumed on construction of
+        // a TextIOWrapper which is subsequently returned.
+        't' => {
+            let text_io_wrapper_class = vm.get_attribute(io_module, "TextIOWrapper").unwrap();
+            vm.invoke(text_io_wrapper_class, vec![buffered.unwrap()])
+        }
         // If the mode is binary this Buffered class is returned directly at
         // this point.
-        //For Buffered class construct "raw" IO class e.g. FileIO and pass this into corresponding field
-        buffered
-    }
+        // For Buffered class construct "raw" IO class e.g. FileIO and pass this into corresponding field
+        'b' => buffered,
+        _ => unreachable!(),
+    };
+    io_obj
 }
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     //IOBase the abstract base class of the IO Module
     let io_base = py_class!(ctx, "IOBase", ctx.object(), {
         "__enter__" => ctx.new_rustfunc(io_base_cm_enter),
-        "__exit__" => ctx.new_rustfunc(io_base_cm_exit)
+        "__exit__" => ctx.new_rustfunc(io_base_cm_exit),
+        "flush" => ctx.new_rustfunc(io_base_flush)
     });
 
     // IOBase Subclasses
-    let raw_io_base = py_class!(ctx, "RawIOBase", ctx.object(), {});
+    let raw_io_base = py_class!(ctx, "RawIOBase", io_base.clone(), {});
 
     let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {
         "__init__" => ctx.new_rustfunc(buffered_io_base_init)
@@ -421,7 +471,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "getvalue" => ctx.new_rustfunc(bytes_io_getvalue)
     });
 
-    py_module!(ctx, "io", {
+    py_module!(vm, "io", {
         "open" => ctx.new_rustfunc(io_open),
         "IOBase" => io_base,
         "RawIOBase" => raw_io_base,
@@ -434,4 +484,91 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
         "StringIO" => string_io,
         "BytesIO" => bytes_io,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_mode_split_into(mode_string: &str, expected_mode: &str, expected_typ: &str) {
+        let (mode, typ) = split_mode_string(mode_string.to_string()).unwrap();
+        assert_eq!(mode, expected_mode);
+        assert_eq!(typ, expected_typ);
+    }
+
+    #[test]
+    fn test_split_mode_valid_cases() {
+        assert_mode_split_into("r", "r", "t");
+        assert_mode_split_into("rb", "r", "b");
+        assert_mode_split_into("rt", "r", "t");
+        assert_mode_split_into("r+t", "r+", "t");
+        assert_mode_split_into("w+t", "w+", "t");
+        assert_mode_split_into("r+b", "r+", "b");
+        assert_mode_split_into("w+b", "w+", "b");
+    }
+
+    #[test]
+    fn test_invalid_mode() {
+        assert_eq!(
+            split_mode_string("rbsss".to_string()),
+            Err("invalid mode: 'rbsss'".to_string())
+        );
+        assert_eq!(
+            split_mode_string("rrb".to_string()),
+            Err("invalid mode: 'rrb'".to_string())
+        );
+        assert_eq!(
+            split_mode_string("rbb".to_string()),
+            Err("invalid mode: 'rbb'".to_string())
+        );
+    }
+
+    #[test]
+    fn test_mode_not_specified() {
+        assert_eq!(
+            split_mode_string("".to_string()),
+            Err(
+                "Must have exactly one of create/read/write/append mode and at most one plus"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            split_mode_string("b".to_string()),
+            Err(
+                "Must have exactly one of create/read/write/append mode and at most one plus"
+                    .to_string()
+            )
+        );
+        assert_eq!(
+            split_mode_string("t".to_string()),
+            Err(
+                "Must have exactly one of create/read/write/append mode and at most one plus"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_text_and_binary_at_once() {
+        assert_eq!(
+            split_mode_string("rbt".to_string()),
+            Err("can't have text and binary mode at once".to_string())
+        );
+    }
+
+    #[test]
+    fn test_exactly_one_mode() {
+        assert_eq!(
+            split_mode_string("rwb".to_string()),
+            Err("must have exactly one of create/read/write/append mode".to_string())
+        );
+    }
+
+    #[test]
+    fn test_at_most_one_plus() {
+        assert_eq!(
+            split_mode_string("a++".to_string()),
+            Err("invalid mode: 'a++'".to_string())
+        );
+    }
 }

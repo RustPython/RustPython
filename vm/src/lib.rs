@@ -20,17 +20,14 @@ extern crate lexical;
 #[macro_use]
 extern crate log;
 // extern crate env_logger;
-extern crate num_bigint;
-extern crate num_complex;
-extern crate num_integer;
-extern crate num_traits;
-extern crate serde;
-extern crate serde_json;
-extern crate statrs;
 
 extern crate rustpython_parser;
 #[macro_use]
 extern crate rustpython_derive;
+
+extern crate self as rustpython_vm;
+
+pub use rustpython_derive::*;
 
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
@@ -42,16 +39,20 @@ pub mod macros;
 mod builtins;
 pub mod bytecode;
 pub mod compile;
+mod dictdatatype;
 pub mod error;
 pub mod eval;
 mod exceptions;
 pub mod format;
 pub mod frame;
+mod frozen;
 pub mod function;
 pub mod import;
 pub mod obj;
+mod pyhash;
 pub mod pyobject;
 pub mod stdlib;
+mod symboltable;
 mod sysmodule;
 mod traceback;
 pub mod util;

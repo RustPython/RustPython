@@ -6,13 +6,13 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct PyNone;
 pub type PyNoneRef = PyRef<PyNone>;
 
 impl PyValue for PyNone {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.ctx.none().type_pyref()
+        vm.ctx.none().class()
     }
 }
 
@@ -44,7 +44,7 @@ impl PyNoneRef {
 
     fn get_attribute(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
         trace!("None.__getattribute__({:?}, {:?})", self, name);
-        let cls = self.typ();
+        let cls = self.class();
 
         // Properties use a comparision with None to determine if they are either invoked by am
         // instance binding or a class binding. But if the object itself is None then this detection
@@ -69,7 +69,7 @@ impl PyNoneRef {
         }
 
         if let Some(attr) = class_get_attr(&cls, &name.value) {
-            let attr_class = attr.type_pyref();
+            let attr_class = attr.class();
             if class_has_attr(&attr_class, "__set__") {
                 if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
                     return call_descriptor(
@@ -88,7 +88,7 @@ impl PyNoneRef {
         //     Ok(obj_attr)
         // } else
         if let Some(attr) = class_get_attr(&cls, &name.value) {
-            let attr_class = attr.type_pyref();
+            let attr_class = attr.class();
             if let Some(get_func) = class_get_attr(&attr_class, "__get__") {
                 call_descriptor(attr, get_func, self.into_object(), cls.into_object(), vm)
             } else {
@@ -107,7 +107,7 @@ fn none_new(_: PyClassRef, vm: &VirtualMachine) -> PyNoneRef {
 }
 
 pub fn init(context: &PyContext) {
-    extend_class!(context, &context.none.typ(), {
+    extend_class!(context, &context.none.class(), {
         "__new__" => context.new_rustfunc(none_new),
         "__repr__" => context.new_rustfunc(PyNoneRef::repr),
         "__bool__" => context.new_rustfunc(PyNoneRef::bool),

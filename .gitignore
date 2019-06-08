@@ -9,3 +9,4 @@ __pycache__
 .vscode
 wasm-pack.log
 .idea/
+tests/snippets/resources

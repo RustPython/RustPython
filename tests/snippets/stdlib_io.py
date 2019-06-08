@@ -8,3 +8,9 @@ result = bb.read()
 assert len(result) <= 8*1024
 assert len(result) >= 0
 assert isinstance(result, bytes)
+
+with FileIO('README.md') as fio:
+	res = fio.read()
+	assert len(result) <= 8*1024
+	assert len(result) >= 0
+	assert isinstance(result, bytes)

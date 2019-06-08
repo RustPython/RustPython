@@ -6,19 +6,22 @@
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
 use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
-use crate::error::CompileError;
+use crate::error::{CompileError, CompileErrorType};
 use crate::obj::objcode;
 use crate::obj::objcode::PyCodeRef;
 use crate::pyobject::PyValue;
+use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolRole, SymbolScope};
 use crate::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
 struct Compiler {
     code_object_stack: Vec<CodeObject>,
+    scope_stack: Vec<SymbolScope>,
     nxt_label: usize,
     source_path: Option<String>,
     current_source_location: ast::Location,
+    current_qualified_path: Option<String>,
     in_loop: bool,
     in_function_def: bool,
 }
@@ -36,16 +39,19 @@ pub fn compile(
 
     match mode {
         Mode::Exec => {
-            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
-            compiler.compile_program(&ast)
+            let ast = parser::parse_program(source)?;
+            let symbol_table = make_symbol_table(&ast)?;
+            compiler.compile_program(&ast, symbol_table)
         }
         Mode::Eval => {
-            let statement = parser::parse_statement(source).map_err(CompileError::Parse)?;
-            compiler.compile_statement_eval(&statement)
+            let statement = parser::parse_statement(source)?;
+            let symbol_table = statements_to_symbol_table(&statement)?;
+            compiler.compile_statement_eval(&statement, symbol_table)
         }
         Mode::Single => {
-            let ast = parser::parse_program(source).map_err(CompileError::Parse)?;
-            compiler.compile_program_single(&ast)
+            let ast = parser::parse_program(source)?;
+            let symbol_table = make_symbol_table(&ast)?;
+            compiler.compile_program_single(&ast, symbol_table)
         }
     }?;
 
@@ -72,9 +78,11 @@ impl Compiler {
     fn new() -> Self {
         Compiler {
             code_object_stack: Vec::new(),
+            scope_stack: Vec::new(),
             nxt_label: 0,
             source_path: None,
             current_source_location: ast::Location::default(),
+            current_qualified_path: None,
             in_loop: false,
             in_function_def: false,
         }
@@ -94,11 +102,17 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
+        // self.scope_stack.pop().unwrap();
         self.code_object_stack.pop().unwrap()
     }
 
-    fn compile_program(&mut self, program: &ast::Program) -> Result<(), CompileError> {
+    fn compile_program(
+        &mut self,
+        program: &ast::Program,
+        symbol_scope: SymbolScope,
+    ) -> Result<(), CompileError> {
         let size_before = self.code_object_stack.len();
+        self.scope_stack.push(symbol_scope);
         self.compile_statements(&program.statements)?;
         assert!(self.code_object_stack.len() == size_before);
 
@@ -110,34 +124,63 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_program_single(&mut self, program: &ast::Program) -> Result<(), CompileError> {
-        for statement in &program.statements {
+    fn compile_program_single(
+        &mut self,
+        program: &ast::Program,
+        symbol_scope: SymbolScope,
+    ) -> Result<(), CompileError> {
+        self.scope_stack.push(symbol_scope);
+
+        let mut emitted_return = false;
+
+        for (i, statement) in program.statements.iter().enumerate() {
+            let is_last = i == program.statements.len() - 1;
+
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
-                self.emit(Instruction::PrintExpr);
+
+                if is_last {
+                    self.emit(Instruction::Duplicate);
+                    self.emit(Instruction::PrintExpr);
+                    self.emit(Instruction::ReturnValue);
+                    emitted_return = true;
+                } else {
+                    self.emit(Instruction::PrintExpr);
+                }
             } else {
                 self.compile_statement(&statement)?;
             }
         }
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::None,
-        });
-        self.emit(Instruction::ReturnValue);
+
+        if !emitted_return {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::None,
+            });
+            self.emit(Instruction::ReturnValue);
+        }
+
         Ok(())
     }
 
     // Compile statement in eval mode:
     fn compile_statement_eval(
         &mut self,
-        statement: &ast::LocatedStatement,
+        statements: &[ast::LocatedStatement],
+        symbol_table: SymbolScope,
     ) -> Result<(), CompileError> {
-        if let ast::Statement::Expression { ref expression } = statement.node {
-            self.compile_expression(expression)?;
-            self.emit(Instruction::ReturnValue);
-            Ok(())
-        } else {
-            Err(CompileError::ExpectExpr)
+        self.scope_stack.push(symbol_table);
+        for statement in statements {
+            if let ast::Statement::Expression { ref expression } = statement.node {
+                self.compile_expression(expression)?;
+            } else {
+                return Err(CompileError {
+                    error: CompileErrorType::ExpectExpr,
+                    location: statement.location.clone(),
+                });
+            }
         }
+        self.emit(Instruction::ReturnValue);
+        Ok(())
     }
 
     fn compile_statements(
@@ -148,6 +191,31 @@ impl Compiler {
             self.compile_statement(statement)?
         }
         Ok(())
+    }
+
+    fn scope_for_name(&self, name: &str) -> bytecode::NameScope {
+        let role = self.lookup_name(name);
+        match role {
+            SymbolRole::Global => bytecode::NameScope::Global,
+            SymbolRole::Nonlocal => bytecode::NameScope::NonLocal,
+            _ => bytecode::NameScope::Local,
+        }
+    }
+
+    fn load_name(&mut self, name: &str) {
+        let scope = self.scope_for_name(name);
+        self.emit(Instruction::LoadName {
+            name: name.to_string(),
+            scope,
+        });
+    }
+
+    fn store_name(&mut self, name: &str) {
+        let scope = self.scope_for_name(name);
+        self.emit(Instruction::StoreName {
+            name: name.to_string(),
+            scope,
+        });
     }
 
     fn compile_statement(&mut self, statement: &ast::LocatedStatement) -> Result<(), CompileError> {
@@ -173,15 +241,14 @@ impl Compiler {
                                 name: module.clone(),
                                 symbol: symbol.clone(),
                             });
-                            self.emit(Instruction::StoreName {
-                                name: match alias {
-                                    Some(alias) => alias.clone(),
-                                    None => match symbol {
-                                        Some(symbol) => symbol.clone(),
-                                        None => module.clone(),
-                                    },
+                            let name = match alias {
+                                Some(alias) => alias.clone(),
+                                None => match symbol {
+                                    Some(symbol) => symbol.clone(),
+                                    None => module.clone(),
                                 },
-                            });
+                            };
+                            self.store_name(&name);
                         }
                     }
                 }
@@ -192,11 +259,8 @@ impl Compiler {
                 // Pop result of stack, since we not use it:
                 self.emit(Instruction::Pop);
             }
-            ast::Statement::Global { names } => {
-                unimplemented!("global {:?}", names);
-            }
-            ast::Statement::Nonlocal { names } => {
-                unimplemented!("nonlocal {:?}", names);
+            ast::Statement::Global { .. } | ast::Statement::Nonlocal { .. } => {
+                // Handled during symbol table construction.
             }
             ast::Statement::If { test, body, orelse } => {
                 let end_label = self.new_label();
@@ -275,6 +339,9 @@ impl Compiler {
                 body,
                 orelse,
             } => self.compile_for(target, iter, body, orelse)?,
+            ast::Statement::AsyncFor { .. } => {
+                unimplemented!("async for");
+            }
             ast::Statement::Raise { exception, cause } => match exception {
                 Some(value) => {
                     self.compile_expression(value)?;
@@ -305,6 +372,9 @@ impl Compiler {
                 decorator_list,
                 returns,
             } => self.compile_function_def(name, args, body, decorator_list, returns)?,
+            ast::Statement::AsyncFunctionDef { .. } => {
+                unimplemented!("async def");
+            }
             ast::Statement::ClassDef {
                 name,
                 body,
@@ -319,6 +389,7 @@ impl Compiler {
                 self.compile_test(test, Some(end_label), None, EvalContext::Statement)?;
                 self.emit(Instruction::LoadName {
                     name: String::from("AssertionError"),
+                    scope: bytecode::NameScope::Local,
                 });
                 match msg {
                     Some(e) => {
@@ -338,34 +409,32 @@ impl Compiler {
             }
             ast::Statement::Break => {
                 if !self.in_loop {
-                    return Err(CompileError::InvalidBreak);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidBreak,
+                        location: statement.location.clone(),
+                    });
                 }
                 self.emit(Instruction::Break);
             }
             ast::Statement::Continue => {
                 if !self.in_loop {
-                    return Err(CompileError::InvalidContinue);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidContinue,
+                        location: statement.location.clone(),
+                    });
                 }
                 self.emit(Instruction::Continue);
             }
             ast::Statement::Return { value } => {
                 if !self.in_function_def {
-                    return Err(CompileError::InvalidReturn);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidReturn,
+                        location: statement.location.clone(),
+                    });
                 }
                 match value {
-                    Some(e) => {
-                        let size = e.len();
-                        for v in e {
-                            self.compile_expression(v)?;
-                        }
-
-                        // If we have more than 1 return value, make it a tuple:
-                        if size > 1 {
-                            self.emit(Instruction::BuildTuple {
-                                size,
-                                unpack: false,
-                            });
-                        }
+                    Some(v) => {
+                        self.compile_expression(v)?;
                     }
                     None => {
                         self.emit(Instruction::LoadConst {
@@ -396,31 +465,44 @@ impl Compiler {
             }
             ast::Statement::Delete { targets } => {
                 for target in targets {
-                    match target {
-                        ast::Expression::Identifier { name } => {
-                            self.emit(Instruction::DeleteName {
-                                name: name.to_string(),
-                            });
-                        }
-                        ast::Expression::Attribute { value, name } => {
-                            self.compile_expression(value)?;
-                            self.emit(Instruction::DeleteAttr {
-                                name: name.to_string(),
-                            });
-                        }
-                        ast::Expression::Subscript { a, b } => {
-                            self.compile_expression(a)?;
-                            self.compile_expression(b)?;
-                            self.emit(Instruction::DeleteSubscript);
-                        }
-                        _ => {
-                            return Err(CompileError::Delete(target.name()));
-                        }
-                    }
+                    self.compile_delete(target)?;
                 }
             }
             ast::Statement::Pass => {
                 self.emit(Instruction::Pass);
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_delete(&mut self, expression: &ast::Expression) -> Result<(), CompileError> {
+        match expression {
+            ast::Expression::Identifier { name } => {
+                self.emit(Instruction::DeleteName {
+                    name: name.to_string(),
+                });
+            }
+            ast::Expression::Attribute { value, name } => {
+                self.compile_expression(value)?;
+                self.emit(Instruction::DeleteAttr {
+                    name: name.to_string(),
+                });
+            }
+            ast::Expression::Subscript { a, b } => {
+                self.compile_expression(a)?;
+                self.compile_expression(b)?;
+                self.emit(Instruction::DeleteSubscript);
+            }
+            ast::Expression::Tuple { elements } => {
+                for element in elements {
+                    self.compile_delete(element)?;
+                }
+            }
+            _ => {
+                return Err(CompileError {
+                    error: CompileErrorType::Delete(expression.name()),
+                    location: self.current_source_location.clone(),
+                });
             }
         }
         Ok(())
@@ -431,8 +513,8 @@ impl Compiler {
         name: &str,
         args: &ast::Parameters,
     ) -> Result<bytecode::FunctionOpArg, CompileError> {
-        let have_kwargs = !args.defaults.is_empty();
-        if have_kwargs {
+        let have_defaults = !args.defaults.is_empty();
+        if have_defaults {
             // Construct a tuple:
             let size = args.defaults.len();
             for element in &args.defaults {
@@ -440,6 +522,25 @@ impl Compiler {
             }
             self.emit(Instruction::BuildTuple {
                 size,
+                unpack: false,
+            });
+        }
+
+        let mut num_kw_only_defaults = 0;
+        for (kw, default) in args.kwonlyargs.iter().zip(&args.kw_defaults) {
+            if let Some(default) = default {
+                self.emit(Instruction::LoadConst {
+                    value: bytecode::Constant::String {
+                        value: kw.arg.clone(),
+                    },
+                });
+                self.compile_expression(default)?;
+                num_kw_only_defaults += 1;
+            }
+        }
+        if num_kw_only_defaults > 0 {
+            self.emit(Instruction::BuildMap {
+                size: num_kw_only_defaults,
                 unpack: false,
             });
         }
@@ -454,10 +555,14 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
+        self.enter_scope();
 
         let mut flags = bytecode::FunctionOpArg::empty();
-        if have_kwargs {
+        if have_defaults {
             flags |= bytecode::FunctionOpArg::HAS_DEFAULTS;
+        }
+        if num_kw_only_defaults > 0 {
+            flags |= bytecode::FunctionOpArg::HAS_KW_ONLY_DEFAULTS;
         }
 
         Ok(flags)
@@ -514,6 +619,7 @@ impl Compiler {
                 // Check exception type:
                 self.emit(Instruction::LoadName {
                     name: String::from("isinstance"),
+                    scope: bytecode::NameScope::Local,
                 });
                 self.emit(Instruction::Rotate { amount: 2 });
                 self.compile_expression(exc_type)?;
@@ -528,9 +634,7 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = &handler.name {
-                    self.emit(Instruction::StoreName {
-                        name: alias.clone(),
-                    });
+                    self.store_name(alias);
                 } else {
                     // Drop exception from top of stack:
                     self.emit(Instruction::Pop);
@@ -543,6 +647,7 @@ impl Compiler {
 
             // Handler code:
             self.compile_statements(&handler.body)?;
+            self.emit(Instruction::PopException);
             self.emit(Instruction::Jump {
                 target: finally_label,
             });
@@ -563,7 +668,7 @@ impl Compiler {
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
         }
-        self.emit(Instruction::Raise { argc: 1 });
+        self.emit(Instruction::Raise { argc: 0 });
 
         // We successfully ran the try block:
         // else:
@@ -577,7 +682,6 @@ impl Compiler {
         if let Some(statements) = finalbody {
             self.compile_statements(statements)?;
         }
-
         // unimplemented!();
         Ok(())
     }
@@ -596,8 +700,18 @@ impl Compiler {
         let was_in_function_def = self.in_function_def;
         self.in_loop = false;
         self.in_function_def = true;
+
+        let old_qualified_path = self.current_qualified_path.clone();
+        let qualified_name = self.create_qualified_name(name, "");
+        self.current_qualified_path = Some(self.create_qualified_name(name, ".<locals>"));
+
+        self.prepare_decorators(decorator_list)?;
+
         let mut flags = self.enter_function(name, args)?;
-        self.compile_statements(body)?;
+
+        let (new_body, doc_str) = get_doc(body);
+
+        self.compile_statements(new_body)?;
 
         // Emit None at end:
         self.emit(Instruction::LoadConst {
@@ -605,8 +719,7 @@ impl Compiler {
         });
         self.emit(Instruction::ReturnValue);
         let code = self.pop_code_object();
-
-        self.prepare_decorators(decorator_list)?;
+        self.leave_scope();
 
         // Prepare type annotations:
         let mut num_annotations = 0;
@@ -651,17 +764,18 @@ impl Compiler {
         });
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
-                value: name.to_string(),
+                value: qualified_name,
             },
         });
 
         // Turn code object into function object:
         self.emit(Instruction::MakeFunction { flags });
+        self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
-        self.emit(Instruction::StoreName {
-            name: name.to_string(),
-        });
+        self.store_name(name);
+
+        self.current_qualified_path = old_qualified_path;
         self.in_loop = was_in_loop;
         self.in_function_def = was_in_function_def;
         Ok(())
@@ -677,6 +791,11 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         let was_in_loop = self.in_loop;
         self.in_loop = false;
+
+        let old_qualified_path = self.current_qualified_path.clone();
+        let qualified_name = self.create_qualified_name(name, "");
+        self.current_qualified_path = Some(qualified_name.clone());
+
         self.prepare_decorators(decorator_list)?;
         self.emit(Instruction::LoadBuildClass);
         let line_number = self.get_source_line_number();
@@ -689,13 +808,27 @@ impl Compiler {
             line_number,
             name.to_string(),
         ));
-        self.compile_statements(body)?;
+        self.enter_scope();
+
+        let (new_body, doc_str) = get_doc(body);
+
+        self.emit(Instruction::LoadName {
+            name: "__name__".to_string(),
+            scope: bytecode::NameScope::Local,
+        });
+        self.emit(Instruction::StoreName {
+            name: "__module__".to_string(),
+            scope: bytecode::NameScope::Local,
+        });
+        self.compile_statements(new_body)?;
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::None,
         });
         self.emit(Instruction::ReturnValue);
 
         let code = self.pop_code_object();
+        self.leave_scope();
+
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::Code {
                 code: Box::new(code),
@@ -714,7 +847,7 @@ impl Compiler {
 
         self.emit(Instruction::LoadConst {
             value: bytecode::Constant::String {
-                value: name.to_string(),
+                value: qualified_name,
             },
         });
 
@@ -750,19 +883,38 @@ impl Compiler {
             });
         }
 
+        self.store_docstring(doc_str);
         self.apply_decorators(decorator_list);
 
-        self.emit(Instruction::StoreName {
-            name: name.to_string(),
-        });
+        self.store_name(name);
+        self.current_qualified_path = old_qualified_path;
         self.in_loop = was_in_loop;
         Ok(())
+    }
+
+    fn store_docstring(&mut self, doc_str: Option<String>) {
+        if let Some(doc_string) = doc_str {
+            // Duplicate top of stack (the function or class object)
+            self.emit(Instruction::Duplicate);
+
+            // Doc string value:
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::String {
+                    value: doc_string.to_string(),
+                },
+            });
+
+            self.emit(Instruction::Rotate { amount: 2 });
+            self.emit(Instruction::StoreAttr {
+                name: "__doc__".to_string(),
+            });
+        }
     }
 
     fn compile_for(
         &mut self,
         target: &ast::Expression,
-        iter: &[ast::Expression],
+        iter: &ast::Expression,
         body: &[ast::LocatedStatement],
         orelse: &Option<Vec<ast::LocatedStatement>>,
     ) -> Result<(), CompileError> {
@@ -776,9 +928,7 @@ impl Compiler {
         });
 
         // The thing iterated:
-        for i in iter {
-            self.compile_expression(i)?;
-        }
+        self.compile_expression(iter)?;
 
         // Retrieve Iterator
         self.emit(Instruction::GetIter);
@@ -806,12 +956,83 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_chained_comparison(
+        &mut self,
+        vals: &[ast::Expression],
+        ops: &[ast::Comparison],
+    ) -> Result<(), CompileError> {
+        assert!(!ops.is_empty());
+        assert_eq!(vals.len(), ops.len() + 1);
+
+        let to_operator = |op: &ast::Comparison| match op {
+            ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
+            ast::Comparison::NotEqual => bytecode::ComparisonOperator::NotEqual,
+            ast::Comparison::Less => bytecode::ComparisonOperator::Less,
+            ast::Comparison::LessOrEqual => bytecode::ComparisonOperator::LessOrEqual,
+            ast::Comparison::Greater => bytecode::ComparisonOperator::Greater,
+            ast::Comparison::GreaterOrEqual => bytecode::ComparisonOperator::GreaterOrEqual,
+            ast::Comparison::In => bytecode::ComparisonOperator::In,
+            ast::Comparison::NotIn => bytecode::ComparisonOperator::NotIn,
+            ast::Comparison::Is => bytecode::ComparisonOperator::Is,
+            ast::Comparison::IsNot => bytecode::ComparisonOperator::IsNot,
+        };
+
+        // a == b == c == d
+        // compile into (pseudocode):
+        // result = a == b
+        // if result:
+        //   result = b == c
+        //   if result:
+        //     result = c == d
+
+        // initialize lhs outside of loop
+        self.compile_expression(&vals[0])?;
+
+        let break_label = self.new_label();
+        let last_label = self.new_label();
+
+        // for all comparisons except the last (as the last one doesn't need a conditional jump)
+        let ops_slice = &ops[0..ops.len()];
+        let vals_slice = &vals[1..ops.len()];
+        for (op, val) in ops_slice.iter().zip(vals_slice.iter()) {
+            self.compile_expression(val)?;
+            // store rhs for the next comparison in chain
+            self.emit(Instruction::Duplicate);
+            self.emit(Instruction::Rotate { amount: 3 });
+
+            self.emit(Instruction::CompareOperation {
+                op: to_operator(op),
+            });
+
+            // if comparison result is false, we break with this value; if true, try the next one.
+            // (CPython compresses these three opcodes into JUMP_IF_FALSE_OR_POP)
+            self.emit(Instruction::Duplicate);
+            self.emit(Instruction::JumpIfFalse {
+                target: break_label,
+            });
+            self.emit(Instruction::Pop);
+        }
+
+        // handle the last comparison
+        self.compile_expression(vals.last().unwrap())?;
+        self.emit(Instruction::CompareOperation {
+            op: to_operator(ops.last().unwrap()),
+        });
+        self.emit(Instruction::Jump { target: last_label });
+
+        // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
+        self.set_label(break_label);
+        self.emit(Instruction::Rotate { amount: 2 });
+        self.emit(Instruction::Pop);
+
+        self.set_label(last_label);
+        Ok(())
+    }
+
     fn compile_store(&mut self, target: &ast::Expression) -> Result<(), CompileError> {
         match target {
             ast::Expression::Identifier { name } => {
-                self.emit(Instruction::StoreName {
-                    name: name.to_string(),
-                });
+                self.store_name(name);
             }
             ast::Expression::Subscript { a, b } => {
                 self.compile_expression(a)?;
@@ -824,14 +1045,17 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Expression::Tuple { elements } => {
+            ast::Expression::List { elements } | ast::Expression::Tuple { elements } => {
                 let mut seen_star = false;
 
                 // Scan for star args:
                 for (i, element) in elements.iter().enumerate() {
                     if let ast::Expression::Starred { .. } = element {
                         if seen_star {
-                            return Err(CompileError::StarArgs);
+                            return Err(CompileError {
+                                error: CompileErrorType::StarArgs,
+                                location: self.current_source_location.clone(),
+                            });
                         } else {
                             seen_star = true;
                             self.emit(Instruction::UnpackEx {
@@ -857,7 +1081,10 @@ impl Compiler {
                 }
             }
             _ => {
-                return Err(CompileError::Assign(target.name()));
+                return Err(CompileError {
+                    error: CompileErrorType::Assign(target.name()),
+                    location: self.current_source_location.clone(),
+                });
             }
         }
 
@@ -988,24 +1215,8 @@ impl Compiler {
                     name: name.to_string(),
                 });
             }
-            ast::Expression::Compare { a, op, b } => {
-                self.compile_expression(a)?;
-                self.compile_expression(b)?;
-
-                let i = match op {
-                    ast::Comparison::Equal => bytecode::ComparisonOperator::Equal,
-                    ast::Comparison::NotEqual => bytecode::ComparisonOperator::NotEqual,
-                    ast::Comparison::Less => bytecode::ComparisonOperator::Less,
-                    ast::Comparison::LessOrEqual => bytecode::ComparisonOperator::LessOrEqual,
-                    ast::Comparison::Greater => bytecode::ComparisonOperator::Greater,
-                    ast::Comparison::GreaterOrEqual => bytecode::ComparisonOperator::GreaterOrEqual,
-                    ast::Comparison::In => bytecode::ComparisonOperator::In,
-                    ast::Comparison::NotIn => bytecode::ComparisonOperator::NotIn,
-                    ast::Comparison::Is => bytecode::ComparisonOperator::Is,
-                    ast::Comparison::IsNot => bytecode::ComparisonOperator::IsNot,
-                };
-                let i = Instruction::CompareOperation { op: i };
-                self.emit(i);
+            ast::Expression::Compare { vals, ops } => {
+                self.compile_chained_comparison(vals, ops)?;
             }
             ast::Expression::Number { value } => {
                 let const_value = match value {
@@ -1045,13 +1256,25 @@ impl Compiler {
             }
             ast::Expression::Dict { elements } => {
                 let size = elements.len();
+                let has_double_star = elements.iter().any(|e| e.0.is_none());
                 for (key, value) in elements {
-                    self.compile_expression(key)?;
-                    self.compile_expression(value)?;
+                    if let Some(key) = key {
+                        self.compile_expression(key)?;
+                        self.compile_expression(value)?;
+                        if has_double_star {
+                            self.emit(Instruction::BuildMap {
+                                size: 1,
+                                unpack: false,
+                            });
+                        }
+                    } else {
+                        // dict unpacking
+                        self.compile_expression(value)?;
+                    }
                 }
                 self.emit(Instruction::BuildMap {
                     size,
-                    unpack: false,
+                    unpack: has_double_star,
                 });
             }
             ast::Expression::Slice { elements } => {
@@ -1063,7 +1286,10 @@ impl Compiler {
             }
             ast::Expression::Yield { value } => {
                 if !self.in_function_def {
-                    return Err(CompileError::InvalidYield);
+                    return Err(CompileError {
+                        error: CompileErrorType::InvalidYield,
+                        location: self.current_source_location.clone(),
+                    });
                 }
                 self.mark_generator();
                 match value {
@@ -1073,6 +1299,9 @@ impl Compiler {
                     }),
                 };
                 self.emit(Instruction::YieldValue);
+            }
+            ast::Expression::Await { .. } => {
+                unimplemented!("await");
             }
             ast::Expression::YieldFrom { value } => {
                 self.mark_generator();
@@ -1114,9 +1343,7 @@ impl Compiler {
                 });
             }
             ast::Expression::Identifier { name } => {
-                self.emit(Instruction::LoadName {
-                    name: name.to_string(),
-                });
+                self.load_name(name);
             }
             ast::Expression::Lambda { args, body } => {
                 let name = "<lambda>".to_string();
@@ -1125,6 +1352,7 @@ impl Compiler {
                 self.compile_expression(body)?;
                 self.emit(Instruction::ReturnValue);
                 let code = self.pop_code_object();
+                self.leave_scope();
                 self.emit(Instruction::LoadConst {
                     value: bytecode::Constant::Code {
                         code: Box::new(code),
@@ -1332,6 +1560,7 @@ impl Compiler {
                 // Load iterator onto stack (passed as first argument):
                 self.emit(Instruction::LoadName {
                     name: String::from(".0"),
+                    scope: bytecode::NameScope::Local,
                 });
             } else {
                 // Evaluate iterated item:
@@ -1471,6 +1700,26 @@ impl Compiler {
         Ok(())
     }
 
+    // Scope helpers:
+    fn enter_scope(&mut self) {
+        // println!("Enter scope {:?}", self.scope_stack);
+        // Enter first subscope!
+        let scope = self.scope_stack.last_mut().unwrap().sub_scopes.remove(0);
+        self.scope_stack.push(scope);
+    }
+
+    fn leave_scope(&mut self) {
+        // println!("Leave scope {:?}", self.scope_stack);
+        let scope = self.scope_stack.pop().unwrap();
+        assert!(scope.sub_scopes.is_empty());
+    }
+
+    fn lookup_name(&self, name: &str) -> &SymbolRole {
+        // println!("Looking up {:?}", name);
+        let scope = self.scope_stack.last().unwrap();
+        scope.lookup(name).unwrap()
+    }
+
     // Low level helper functions:
     fn emit(&mut self, instruction: Instruction) {
         let location = self.current_source_location.clone();
@@ -1506,9 +1755,32 @@ impl Compiler {
         self.current_source_location.get_row()
     }
 
+    fn create_qualified_name(&self, name: &str, suffix: &str) -> String {
+        if let Some(ref qualified_path) = self.current_qualified_path {
+            format!("{}.{}{}", qualified_path, name, suffix)
+        } else {
+            format!("{}{}", name, suffix)
+        }
+    }
+
     fn mark_generator(&mut self) {
         self.current_code_object().is_generator = true;
     }
+}
+
+fn get_doc(body: &[ast::LocatedStatement]) -> (&[ast::LocatedStatement], Option<String>) {
+    if let Some(val) = body.get(0) {
+        if let ast::Statement::Expression { ref expression } = val.node {
+            if let ast::Expression::String { ref value } = expression {
+                if let ast::StringGroup::Constant { ref value } = value {
+                    if let Some((_, body_rest)) = body.split_first() {
+                        return (body_rest, Some(value.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    (body, None)
 }
 
 #[cfg(test)]
@@ -1517,6 +1789,7 @@ mod tests {
     use crate::bytecode::CodeObject;
     use crate::bytecode::Constant::*;
     use crate::bytecode::Instruction::*;
+    use crate::symboltable::make_symbol_table;
     use rustpython_parser::parser;
 
     fn compile_exec(source: &str) -> CodeObject {
@@ -1524,7 +1797,8 @@ mod tests {
         compiler.source_path = Some("source_path".to_string());
         compiler.push_new_code_object("<module>".to_string());
         let ast = parser::parse_program(&source.to_string()).unwrap();
-        compiler.compile_program(&ast).unwrap();
+        let symbol_scope = make_symbol_table(&ast).unwrap();
+        compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()
     }
 

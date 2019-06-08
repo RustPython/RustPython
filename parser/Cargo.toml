@@ -6,12 +6,14 @@ build = "build.rs"
 edition = "2018"
 
 [build-dependencies]
-lalrpop="0.15.1"
+lalrpop="0.16.3"
 
 [dependencies]
-lalrpop-util="0.15.1"
+lalrpop-util="0.16.3"
 log="0.4.1"
 regex="0.2.2"
 num-bigint = "0.2"
 num-traits = "0.2"
-
+unicode-xid = "0.1.0"
+unic-emoji-char = "0.9.0"
+serde = { version = "1.0.66", features = ["derive"] }

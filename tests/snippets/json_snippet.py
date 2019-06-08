@@ -25,8 +25,7 @@ assert '[[1]]' == json.dumps(((1,),))
 assert [1, "string", 1.0, True] == json.loads(json.dumps((1, "string", 1.0, True)))
 
 assert '{}' == json.dumps({})
-# TODO: uncomment once dict comparison is implemented
-# round_trip_test({'a': 'b'})
+round_trip_test({'a': 'b'})
 
 assert 1 == json.loads("1")
 assert -1 == json.loads("-1")

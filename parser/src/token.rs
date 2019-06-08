@@ -3,7 +3,7 @@
 use num_bigint::BigInt;
 
 /// Python source code can be tokenized in a sequence of these tokens.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Tok {
     Name { name: String },
     Int { value: BigInt },
@@ -72,6 +72,8 @@ pub enum Tok {
     And,
     As,
     Assert,
+    Async,
+    Await,
     Break,
     Class,
     Continue,

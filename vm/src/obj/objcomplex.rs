@@ -1,14 +1,20 @@
 use num_complex::Complex64;
-use num_traits::ToPrimitive;
+use num_traits::Zero;
 
-use crate::function::{OptionalArg, PyFuncArgs};
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::function::OptionalArg;
+use crate::pyhash;
+use crate::pyobject::{
+    IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
+};
 use crate::vm::VirtualMachine;
 
-use super::objfloat;
-use super::objint;
+use super::objfloat::{self, PyFloat};
 use super::objtype::{self, PyClassRef};
 
+/// Create a complex number from a real part and an optional imaginary part.
+///
+/// This is equivalent to (real + imag*1j) where imag defaults to 0.
+#[pyclass(name = "complex")]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct PyComplex {
     value: Complex64,
@@ -21,6 +27,12 @@ impl PyValue for PyComplex {
     }
 }
 
+impl IntoPyObject for Complex64 {
+    fn into_pyobject(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_complex(self))
+    }
+}
+
 impl From<Complex64> for PyComplex {
     fn from(value: Complex64) -> Self {
         PyComplex { value }
@@ -28,153 +40,221 @@ impl From<Complex64> for PyComplex {
 }
 
 pub fn init(context: &PyContext) {
-    let complex_type = &context.complex_type;
-
-    let complex_doc =
-        "Create a complex number from a real part and an optional imaginary part.\n\n\
-         This is equivalent to (real + imag*1j) where imag defaults to 0.";
-
-    extend_class!(context, complex_type, {
-        "__abs__" => context.new_rustfunc(complex_abs),
-        "__add__" => context.new_rustfunc(complex_add),
-        "__doc__" => context.new_str(complex_doc.to_string()),
-        "__eq__" => context.new_rustfunc(complex_eq),
-        "__neg__" => context.new_rustfunc(complex_neg),
-        "__new__" => context.new_rustfunc(complex_new),
-        "__radd__" => context.new_rustfunc(complex_radd),
-        "__repr__" => context.new_rustfunc(complex_repr),
-        "conjugate" => context.new_rustfunc(complex_conjugate),
-        "imag" => context.new_property(complex_imag),
-        "real" => context.new_property(complex_real)
-    });
+    PyComplex::extend_class(context, &context.complex_type);
 }
 
 pub fn get_value(obj: &PyObjectRef) -> Complex64 {
     obj.payload::<PyComplex>().unwrap().value
 }
 
-fn complex_new(
-    cls: PyClassRef,
-    real: OptionalArg<PyObjectRef>,
-    imag: OptionalArg<PyObjectRef>,
-    vm: &VirtualMachine,
-) -> PyResult<PyComplexRef> {
-    let real = match real {
-        OptionalArg::Missing => 0.0,
-        OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
-    };
-
-    let imag = match imag {
-        OptionalArg::Missing => 0.0,
-        OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
-    };
-
-    let value = Complex64::new(real, imag);
-    PyComplex { value }.into_ref_with_type(vm, cls)
-}
-
-fn complex_real(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    let Complex64 { re, .. } = get_value(zelf);
-    Ok(vm.ctx.new_float(re))
-}
-
-fn complex_imag(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    let Complex64 { im, .. } = get_value(zelf);
-    Ok(vm.ctx.new_float(im))
-}
-
-fn complex_abs(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-
-    let Complex64 { re, im } = get_value(zelf);
-    Ok(vm.ctx.new_float(re.hypot(im)))
-}
-
-fn complex_add(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(i, Some(vm.ctx.complex_type())), (i2, None)]
-    );
-
-    let v1 = get_value(i);
-    if objtype::isinstance(i2, &vm.ctx.complex_type()) {
-        Ok(vm.ctx.new_complex(v1 + get_value(i2)))
-    } else if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_complex(Complex64::new(
-            v1.re + objint::get_value(i2).to_f64().unwrap(),
-            v1.im,
-        )))
+fn try_complex(value: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Complex64>> {
+    Ok(if objtype::isinstance(&value, &vm.ctx.complex_type()) {
+        Some(get_value(&value))
+    } else if let Some(float) = objfloat::try_float(value, vm)? {
+        Some(Complex64::new(float, 0.0))
     } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i, i2)))
+        None
+    })
+}
+
+#[pyimpl]
+impl PyComplex {
+    #[pyproperty(name = "real")]
+    fn real(&self, _vm: &VirtualMachine) -> PyFloat {
+        self.value.re.into()
     }
-}
 
-fn complex_radd(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(i, Some(vm.ctx.complex_type())), (i2, None)]
-    );
-
-    let v1 = get_value(i);
-
-    if objtype::isinstance(i2, &vm.ctx.int_type()) {
-        Ok(vm.ctx.new_complex(Complex64::new(
-            v1.re + objint::get_value(i2).to_f64().unwrap(),
-            v1.im,
-        )))
-    } else {
-        Err(vm.new_type_error(format!("Cannot add {} and {}", i, i2)))
+    #[pyproperty(name = "imag")]
+    fn imag(&self, _vm: &VirtualMachine) -> PyFloat {
+        self.value.im.into()
     }
-}
 
-fn complex_conjugate(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(i, Some(vm.ctx.complex_type()))]);
+    #[pymethod(name = "__abs__")]
+    fn abs(&self, _vm: &VirtualMachine) -> PyFloat {
+        let Complex64 { im, re } = self.value;
+        re.hypot(im).into()
+    }
 
-    let v1 = get_value(i);
-    Ok(vm.ctx.new_complex(v1.conj()))
-}
+    #[pymethod(name = "__add__")]
+    fn add(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value + other).into_pyobject(vm),
+        )
+    }
 
-fn complex_eq(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(zelf, Some(vm.ctx.complex_type())), (other, None)]
-    );
+    #[pymethod(name = "__radd__")]
+    fn radd(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.add(other, vm)
+    }
 
-    let z = get_value(zelf);
+    #[pymethod(name = "__sub__")]
+    fn sub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value - other).into_pyobject(vm),
+        )
+    }
 
-    let result = if objtype::isinstance(other, &vm.ctx.complex_type()) {
-        z == get_value(other)
-    } else if objtype::isinstance(other, &vm.ctx.int_type()) {
-        match objint::get_value(other).to_f64() {
-            Some(f) => z.im == 0.0f64 && z.re == f,
-            None => false,
+    #[pymethod(name = "__rsub__")]
+    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (other - self.value).into_pyobject(vm),
+        )
+    }
+
+    #[pymethod(name = "conjugate")]
+    fn conjugate(&self, _vm: &VirtualMachine) -> Complex64 {
+        self.value.conj()
+    }
+
+    #[pymethod(name = "__eq__")]
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        let result = if objtype::isinstance(&other, &vm.ctx.complex_type()) {
+            self.value == get_value(&other)
+        } else {
+            match objfloat::try_float(&other, vm) {
+                Ok(Some(other)) => self.value.im == 0.0f64 && self.value.re == other,
+                Err(_) => false,
+                Ok(None) => return vm.ctx.not_implemented(),
+            }
+        };
+
+        vm.ctx.new_bool(result)
+    }
+
+    #[pymethod(name = "__float__")]
+    fn float(&self, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error(String::from("Can't convert complex to float")))
+    }
+
+    #[pymethod(name = "__int__")]
+    fn int(&self, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error(String::from("Can't convert complex to int")))
+    }
+
+    #[pymethod(name = "__mul__")]
+    fn mul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value * other).into_pyobject(vm),
+        )
+    }
+
+    #[pymethod(name = "__rmul__")]
+    fn rmul(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.mul(other, vm)
+    }
+
+    #[pymethod(name = "__truediv__")]
+    fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value / other).into_pyobject(vm),
+        )
+    }
+
+    #[pymethod(name = "__rtruediv__")]
+    fn rtruediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (other / self.value).into_pyobject(vm),
+        )
+    }
+
+    #[pymethod(name = "__mod__")]
+    fn mod_(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("can't mod complex numbers.".to_string()))
+    }
+
+    #[pymethod(name = "__rmod__")]
+    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.mod_(other, vm)
+    }
+
+    #[pymethod(name = "__floordiv__")]
+    fn floordiv(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("can't take floor of complex number.".to_string()))
+    }
+
+    #[pymethod(name = "__rfloordiv__")]
+    fn rfloordiv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.floordiv(other, vm)
+    }
+
+    #[pymethod(name = "__divmod__")]
+    fn divmod(&self, _other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_type_error("can't take floor or mod of complex number.".to_string()))
+    }
+
+    #[pymethod(name = "__rdivmod__")]
+    fn rdivmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.divmod(other, vm)
+    }
+
+    #[pymethod(name = "__neg__")]
+    fn neg(&self, _vm: &VirtualMachine) -> Complex64 {
+        -self.value
+    }
+
+    #[pymethod(name = "__repr__")]
+    fn repr(&self, _vm: &VirtualMachine) -> String {
+        let Complex64 { re, im } = self.value;
+        if re == 0.0 {
+            format!("{}j", im)
+        } else {
+            format!("({}+{}j)", re, im)
         }
-    } else if objtype::isinstance(other, &vm.ctx.float_type()) {
-        z.im == 0.0 && z.re == objfloat::get_value(other)
-    } else {
-        return Ok(vm.ctx.not_implemented());
-    };
+    }
 
-    Ok(vm.ctx.new_bool(result))
-}
+    #[pymethod(name = "__pow__")]
+    fn pow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (self.value.powc(other)).into_pyobject(vm),
+        )
+    }
 
-fn complex_neg(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zelf, Some(vm.ctx.complex_type()))]);
-    Ok(vm.ctx.new_complex(-get_value(zelf)))
-}
+    #[pymethod(name = "__rpow__")]
+    fn rpow(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_complex(&other, vm)?.map_or_else(
+            || Ok(vm.ctx.not_implemented()),
+            |other| (other.powc(self.value)).into_pyobject(vm),
+        )
+    }
 
-fn complex_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(obj, Some(vm.ctx.complex_type()))]);
-    let v = get_value(obj);
-    let repr = if v.re == 0. {
-        format!("{}j", v.im)
-    } else {
-        format!("({}+{}j)", v.re, v.im)
-    };
-    Ok(vm.new_str(repr))
+    #[pymethod(name = "__bool__")]
+    fn bool(&self, _vm: &VirtualMachine) -> bool {
+        !Complex64::is_zero(&self.value)
+    }
+
+    #[pymethod(name = "__new__")]
+    fn complex_new(
+        cls: PyClassRef,
+        real: OptionalArg<PyObjectRef>,
+        imag: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComplexRef> {
+        let real = match real {
+            OptionalArg::Missing => 0.0,
+            OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
+        };
+
+        let imag = match imag {
+            OptionalArg::Missing => 0.0,
+            OptionalArg::Present(ref value) => objfloat::make_float(vm, value)?,
+        };
+
+        let value = Complex64::new(real, imag);
+        PyComplex { value }.into_ref_with_type(vm, cls)
+    }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        let re_hash = pyhash::hash_float(self.value.re);
+        let im_hash = pyhash::hash_float(self.value.im);
+
+        re_hash + im_hash * pyhash::IMAG
+    }
 }

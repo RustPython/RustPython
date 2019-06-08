@@ -3,9 +3,12 @@
  *
  */
 
-use crate::pyobject::{PyContext, PyObjectRef};
+use crate::pyobject::PyObjectRef;
+use crate::vm::VirtualMachine;
 
-pub fn make_module(ctx: &PyContext) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
+
     let ascii_lowercase = "abcdefghijklmnopqrstuvwxyz".to_string();
     let ascii_uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".to_string();
     let ascii_letters = format!("{}{}", ascii_lowercase, ascii_uppercase);
@@ -19,7 +22,7 @@ pub fn make_module(ctx: &PyContext) -> PyObjectRef {
     */
 
     // Constants:
-    py_module!(ctx, "string", {
+    py_module!(vm, "string", {
         "ascii_letters" => ctx.new_str(ascii_letters),
         "ascii_lowercase" => ctx.new_str(ascii_lowercase),
         "ascii_uppercase" => ctx.new_str(ascii_uppercase),

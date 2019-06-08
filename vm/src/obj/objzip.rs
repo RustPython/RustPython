@@ -1,5 +1,5 @@
-use crate::function::{Args, PyFuncArgs};
-use crate::pyobject::{PyContext, PyObjectRef, PyRef, PyResult, PyValue, TypeProtocol};
+use crate::function::Args;
+use crate::pyobject::{PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
 use super::objiter;
@@ -7,6 +7,7 @@ use crate::obj::objtype::PyClassRef;
 
 pub type PyZipRef = PyRef<PyZip>;
 
+#[pyclass]
 #[derive(Debug)]
 pub struct PyZip {
     iterators: Vec<PyObjectRef>,
@@ -26,30 +27,32 @@ fn zip_new(cls: PyClassRef, iterables: Args, vm: &VirtualMachine) -> PyResult<Py
     PyZip { iterators }.into_ref_with_type(vm, cls)
 }
 
-fn zip_next(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(zip, Some(vm.ctx.zip_type()))]);
-
-    if let Some(PyZip { ref iterators }) = zip.payload() {
-        if iterators.is_empty() {
+#[pyimpl]
+impl PyZip {
+    #[pymethod(name = "__next__")]
+    fn next(&self, vm: &VirtualMachine) -> PyResult {
+        if self.iterators.is_empty() {
             Err(objiter::new_stop_iteration(vm))
         } else {
-            let next_objs = iterators
+            let next_objs = self
+                .iterators
                 .iter()
                 .map(|iterator| objiter::call_next(vm, iterator))
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(vm.ctx.new_tuple(next_objs))
         }
-    } else {
-        panic!("zip doesn't have correct payload");
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        zelf
     }
 }
 
 pub fn init(context: &PyContext) {
-    let zip_type = &context.zip_type;
-    objiter::iter_type_init(context, zip_type);
-    extend_class!(context, zip_type, {
+    PyZip::extend_class(context, &context.zip_type);
+    extend_class!(context, &context.zip_type, {
         "__new__" => context.new_rustfunc(zip_new),
-        "__next__" => context.new_rustfunc(zip_next)
     });
 }
