@@ -467,6 +467,17 @@ impl FormatString {
             String::new()
         };
 
+        // On parts[0] can still be the preconversor (!r, !s, !a)
+        let parts: Vec<&str> = arg_part .splitn(2, '!').collect();
+        // before the bang is a keyword or arg index, after the comma is maybe a conversor spec.
+        let arg_part = parts[0];
+
+        let preconversor_spec = if parts.len() > 1 {
+            parts[1].to_string()
+        } else {
+            String::new()
+        };
+
         if arg_part.is_empty() {
             return Ok(FormatPart::AutoSpec(format_spec));
         }

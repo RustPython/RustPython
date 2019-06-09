@@ -186,6 +186,9 @@ assert "{} {}".format(1,2) == "1 2"
 assert "{0} {1}".format(2,3) == "2 3"
 assert "--{:s>4}--".format(1) == "--sss1--"
 assert "{keyword} {0}".format(1, keyword=2) == "2 1"
+assert "repr() shows quotes: {!r}; str() doesn't: {!s}".format(
+    'test1', 'test2'
+) == "repr() shows quotes: 'test1'; str() doesn't: test2", 'Output: {!r}, {!s}'.format('test1', 'test2')
 
 assert 'a' < 'b'
 assert 'a' <= 'b'
