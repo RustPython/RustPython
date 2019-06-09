@@ -10,7 +10,7 @@ use unicode_casing::CharExt;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_xid::UnicodeXID;
 
-use crate::format::{FormatParseError, FormatPart, FormatString};
+use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatString};
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyhash;
 use crate::pyobject::{
@@ -1026,7 +1026,15 @@ fn count_char(s: &str, c: char) -> usize {
 }
 
 fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &str) -> PyResult {
-    let returned_type = vm.ctx.new_str(format_spec.to_string());
+    let (preconversor, new_format_spec) = FormatPreconversor::parse_and_consume(format_spec);
+    let argument = match preconversor {
+        Some(FormatPreconversor::Str) => vm.call_method(&argument, "__str__", vec![])?,
+        Some(FormatPreconversor::Repr) => vm.call_method(&argument, "__repr__", vec![])?,
+        Some(FormatPreconversor::Ascii) => vm.call_method(&argument, "__repr__", vec![])?,
+        None => argument,
+    };
+    let returned_type = vm.ctx.new_str(new_format_spec.to_string());
+
     let result = vm.call_method(&argument, "__format__", vec![returned_type])?;
     if !objtype::isinstance(&result, &vm.ctx.str_type()) {
         let result_type = result.class();

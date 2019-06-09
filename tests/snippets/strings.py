@@ -182,13 +182,27 @@ assert not '😂'.isidentifier()
 assert not '123'.isidentifier()
 
 # String Formatting
-assert "{} {}".format(1,2) == "1 2"
-assert "{0} {1}".format(2,3) == "2 3"
+assert "{} {}".format(1, 2) == "1 2"
+assert "{0} {1}".format(2, 3) == "2 3"
 assert "--{:s>4}--".format(1) == "--sss1--"
 assert "{keyword} {0}".format(1, keyword=2) == "2 1"
 assert "repr() shows quotes: {!r}; str() doesn't: {!s}".format(
     'test1', 'test2'
 ) == "repr() shows quotes: 'test1'; str() doesn't: test2", 'Output: {!r}, {!s}'.format('test1', 'test2')
+
+
+class Foo:
+    def __str__(self):
+        return 'str(Foo)'
+
+    def __repr__(self):
+        return 'repr(Foo)'
+
+
+f = Foo()
+assert "{} {!s} {!r} {!a}".format(f, f, f, f) == 'str(Foo) str(Foo) repr(Foo) repr(Foo)'
+assert "{foo} {foo!s} {foo!r} {foo!a}".format(foo=f) == 'str(Foo) str(Foo) repr(Foo) repr(Foo)'
+# assert '{} {!r} {:10} {!r:10} {foo!r:10} {foo!r} {foo}'.format('txt1', 'txt2', 'txt3', 'txt4', 'txt5', foo='bar')
 
 assert 'a' < 'b'
 assert 'a' <= 'b'

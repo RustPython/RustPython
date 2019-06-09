@@ -11,12 +11,37 @@ pub enum FormatPreconversor {
 }
 
 impl FormatPreconversor {
-    fn from_char(c: char) -> Option<FormatPreconversor> {
+    pub fn from_char(c: char) -> Option<FormatPreconversor> {
         match c {
             's' => Some(FormatPreconversor::Str),
             'r' => Some(FormatPreconversor::Repr),
             'a' => Some(FormatPreconversor::Ascii),
             _ => None,
+        }
+    }
+
+    pub fn from_str(text: &str) -> Option<FormatPreconversor> {
+        let mut chars = text.chars();
+        if chars.next() != Some('!') {
+            return None;
+        }
+
+        match chars.next() {
+            None => None, // Should fail instead?
+            Some(c) => FormatPreconversor::from_char(c),
+        }
+    }
+
+    pub fn parse_and_consume(text: &str) -> (Option<FormatPreconversor>, &str) {
+        let preconversor = FormatPreconversor::from_str(text);
+        match preconversor {
+            None => (None, text),
+            Some(_) => {
+                let mut chars = text.chars();
+                chars.next(); // Consume the bang
+                chars.next(); // Consume one r,s,a char
+                (preconversor, chars.as_str())
+            }
         }
     }
 }
@@ -95,20 +120,7 @@ fn get_num_digits(text: &str) -> usize {
 }
 
 fn parse_preconversor(text: &str) -> (Option<FormatPreconversor>, &str) {
-    let mut chars = text.chars();
-    if chars.next() != Some('!') {
-        return (None, text);
-    }
-
-    match chars.next() {
-        None => (None, text), // Should fail instead?
-        Some(c) => {
-            match FormatPreconversor::from_char(c) {
-                Some(preconversor) => (Some(preconversor), chars.as_str()),
-                None => (None, text), // Should fail instead?
-            }
-        },
-    }
+    FormatPreconversor::parse_and_consume(text)
 }
 
 fn parse_align(text: &str) -> (Option<FormatAlign>, &str) {
@@ -506,7 +518,7 @@ impl FormatString {
         };
 
         // On parts[0] can still be the preconversor (!r, !s, !a)
-        let parts: Vec<&str> = arg_part .splitn(2, '!').collect();
+        let parts: Vec<&str> = arg_part.splitn(2, '!').collect();
         // before the bang is a keyword or arg index, after the comma is maybe a conversor spec.
         let arg_part = parts[0];
 
