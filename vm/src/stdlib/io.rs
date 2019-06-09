@@ -11,12 +11,12 @@ use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 use super::os;
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::import;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
 use crate::obj::objint;
-use crate::obj::objstr;
+use crate::obj::objstr::{get_value, PyStringRef};
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -45,7 +45,7 @@ impl PyValue for PyStringIO {
 }
 
 impl PyStringIORef {
-    fn write(self, data: objstr::PyStringRef, _vm: &VirtualMachine) {
+    fn write(self, data: PyStringRef, _vm: &VirtualMachine) {
         let data = data.value.clone();
         self.data.borrow_mut().push_str(&data);
     }
@@ -61,9 +61,18 @@ impl PyStringIORef {
     }
 }
 
-fn string_io_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyStringIORef> {
+fn string_io_new(
+    cls: PyClassRef,
+    object: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyStringIORef> {
+    let raw_string = match object {
+        OptionalArg::Present(ref input) => get_value(input),
+        OptionalArg::Missing => String::new(),
+    };
+
     PyStringIO {
-        data: RefCell::new(String::default()),
+        data: RefCell::new(raw_string),
     }
     .into_ref_with_type(vm, cls)
 }
@@ -98,9 +107,18 @@ impl PyBytesIORef {
     }
 }
 
-fn bytes_io_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyBytesIORef> {
+fn bytes_io_new(
+    cls: PyClassRef,
+    object: OptionalArg<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<PyBytesIORef> {
+    let raw_bytes = match object {
+        OptionalArg::Present(ref input) => objbytes::get_value(input).to_vec(),
+        OptionalArg::Missing => vec![],
+    };
+
     PyBytesIO {
-        data: RefCell::new(Vec::new()),
+        data: RefCell::new(raw_bytes),
     }
     .into_ref_with_type(vm, cls)
 }
@@ -172,7 +190,7 @@ fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
-    let rust_mode = mode.map_or("r".to_string(), |m| objstr::get_value(m));
+    let rust_mode = mode.map_or("r".to_string(), |m| get_value(m));
 
     match compute_c_flag(&rust_mode).to_bigint() {
         Some(os_mode) => {
@@ -193,7 +211,7 @@ fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 fn file_io_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(file_io, None)]);
     let py_name = vm.get_attribute(file_io.clone(), "name")?;
-    let f = match File::open(objstr::get_value(&py_name)) {
+    let f = match File::open(get_value(&py_name)) {
         Ok(v) => Ok(v),
         Err(_) => Err(vm.new_type_error("Error opening file".to_string())),
     };
@@ -389,7 +407,7 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
     // mode is optional: 'rt' is the default mode (open from reading text)
-    let mode_string = mode.map_or("rt".to_string(), |m| objstr::get_value(m));
+    let mode_string = mode.map_or("rt".to_string(), |m| get_value(m));
     let (mode, typ) = match split_mode_string(mode_string) {
         Ok((mode, typ)) => (mode, typ),
         Err(error_message) => {
