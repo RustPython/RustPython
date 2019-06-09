@@ -838,6 +838,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
+        "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.clone(),
 
         // Warnings
         "Warning" => ctx.exceptions.warning.clone(),
