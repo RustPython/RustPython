@@ -129,6 +129,10 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
         std::process::exit(1);
     };
 
+    let dir = file_path.parent().unwrap().to_str().unwrap().to_string();
+    let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
+    vm.call_method(&sys_path, "insert", vec![vm.new_int(0), vm.new_str(dir)])?;
+
     match util::read_file(&file_path) {
         Ok(source) => _run_string(vm, &source, file_path.to_str().unwrap().to_string()),
         Err(err) => {
