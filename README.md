@@ -197,7 +197,7 @@ crate and webpack.
 
 # Code style
 
-The code style used is the default rustfmt codestyle. Please format your code accordingly.
+The code style used is the default [rustfmt](https://github.com/rust-lang/rustfmt) codestyle. Please format your code accordingly.
 
 # Community
 

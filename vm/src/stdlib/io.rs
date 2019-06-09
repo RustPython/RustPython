@@ -53,6 +53,12 @@ impl PyStringIORef {
     fn getvalue(self, _vm: &VirtualMachine) -> String {
         self.data.borrow().clone()
     }
+
+    fn read(self, _vm: &VirtualMachine) -> String {
+        let data = self.data.borrow().clone();
+        self.data.borrow_mut().clear();
+        data
+    }
 }
 
 fn string_io_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyStringIORef> {
@@ -62,15 +68,41 @@ fn string_io_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyStringIORef
     .into_ref_with_type(vm, cls)
 }
 
-fn bytes_io_init(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    // TODO
-    Ok(vm.get_none())
+#[derive(Debug, Default, Clone)]
+struct PyBytesIO {
+    data: RefCell<Vec<u8>>,
 }
 
-fn bytes_io_getvalue(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    // TODO
-    Ok(vm.get_none())
+type PyBytesIORef = PyRef<PyBytesIO>;
+
+impl PyValue for PyBytesIO {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("io", "BytesIO")
+    }
+}
+
+impl PyBytesIORef {
+    fn write(self, data: objbytes::PyBytesRef, _vm: &VirtualMachine) {
+        let data = data.get_value();
+        self.data.borrow_mut().extend(data);
+    }
+
+    fn getvalue(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.data.borrow().clone()))
+    }
+
+    fn read(self, vm: &VirtualMachine) -> PyResult {
+        let data = self.data.borrow().clone();
+        self.data.borrow_mut().clear();
+        Ok(vm.ctx.new_bytes(data))
+    }
+}
+
+fn bytes_io_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyBytesIORef> {
+    PyBytesIO {
+        data: RefCell::new(Vec::new()),
+    }
+    .into_ref_with_type(vm, cls)
 }
 
 fn io_base_cm_enter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -420,9 +452,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     // IOBase Subclasses
     let raw_io_base = py_class!(ctx, "RawIOBase", io_base.clone(), {});
 
-    let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {
-        "__init__" => ctx.new_rustfunc(buffered_io_base_init)
-    });
+    let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {});
 
     //TextIO Base has no public constructor
     let text_io_base = py_class!(ctx, "TextIOBase", io_base.clone(), {
@@ -441,10 +471,18 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     // BufferedIOBase Subclasses
     let buffered_reader = py_class!(ctx, "BufferedReader", buffered_io_base.clone(), {
+        //workaround till the buffered classes can be fixed up to be more
+        //consistent with the python model
+        //For more info see: https://github.com/RustPython/RustPython/issues/547
+        "__init__" => ctx.new_rustfunc(buffered_io_base_init),
         "read" => ctx.new_rustfunc(buffered_reader_read)
     });
 
     let buffered_writer = py_class!(ctx, "BufferedWriter", buffered_io_base.clone(), {
+        //workaround till the buffered classes can be fixed up to be more
+        //consistent with the python model
+        //For more info see: https://github.com/RustPython/RustPython/issues/547
+        "__init__" => ctx.new_rustfunc(buffered_io_base_init),
         "write" => ctx.new_rustfunc(buffered_writer_write)
     });
 
@@ -456,14 +494,17 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     //StringIO: in-memory text
     let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
         "__new__" => ctx.new_rustfunc(string_io_new),
+        "read" => ctx.new_rustfunc(PyStringIORef::read),
         "write" => ctx.new_rustfunc(PyStringIORef::write),
         "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue)
     });
 
     //BytesIO: in-memory bytes
     let bytes_io = py_class!(ctx, "BytesIO", buffered_io_base.clone(), {
-        "__init__" => ctx.new_rustfunc(bytes_io_init),
-        "getvalue" => ctx.new_rustfunc(bytes_io_getvalue)
+        "__new__" => ctx.new_rustfunc(bytes_io_new),
+        "read" => ctx.new_rustfunc(PyBytesIORef::read),
+        "write" => ctx.new_rustfunc(PyBytesIORef::write),
+        "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue)
     });
 
     py_module!(vm, "io", {
