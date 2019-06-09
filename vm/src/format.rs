@@ -4,6 +4,24 @@ use std::cmp;
 use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+pub enum FormatPreconversor {
+    Str,
+    Repr,
+    Ascii,
+}
+
+impl FormatPreconversor {
+    fn from_char(c: char) -> Option<FormatPreconversor> {
+        match c {
+            's' => Some(FormatPreconversor::Str),
+            'r' => Some(FormatPreconversor::Repr),
+            'a' => Some(FormatPreconversor::Ascii),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum FormatAlign {
     Left,
     Right,
@@ -56,6 +74,7 @@ pub enum FormatType {
 
 #[derive(Debug, PartialEq)]
 pub struct FormatSpec {
+    preconversor: Option<FormatPreconversor>,
     fill: Option<char>,
     align: Option<FormatAlign>,
     sign: Option<FormatSign>,
@@ -73,6 +92,23 @@ fn get_num_digits(text: &str) -> usize {
         }
     }
     text.len()
+}
+
+fn parse_preconversor(text: &str) -> (Option<FormatPreconversor>, &str) {
+    let mut chars = text.chars();
+    if chars.next() != Some('!') {
+        return (None, text);
+    }
+
+    match chars.next() {
+        None => (None, text), // Should fail instead?
+        Some(c) => {
+            match FormatPreconversor::from_char(c) {
+                Some(preconversor) => (Some(preconversor), chars.as_str()),
+                None => (None, text), // Should fail instead?
+            }
+        },
+    }
 }
 
 fn parse_align(text: &str) -> (Option<FormatAlign>, &str) {
@@ -186,7 +222,8 @@ fn parse_format_type(text: &str) -> (Option<FormatType>, &str) {
 }
 
 fn parse_format_spec(text: &str) -> FormatSpec {
-    let (fill, align, after_align) = parse_fill_and_align(text);
+    let (preconversor, after_preconversor) = parse_preconversor(text);
+    let (fill, align, after_align) = parse_fill_and_align(after_preconversor);
     let (sign, after_sign) = parse_sign(after_align);
     let (alternate_form, after_alternate_form) = parse_alternate_form(after_sign);
     let after_zero = parse_zero(after_alternate_form);
@@ -196,6 +233,7 @@ fn parse_format_spec(text: &str) -> FormatSpec {
     let (format_type, _) = parse_format_type(after_precision);
 
     FormatSpec {
+        preconversor,
         fill,
         align,
         sign,
@@ -473,10 +511,11 @@ impl FormatString {
         let arg_part = parts[0];
 
         let preconversor_spec = if parts.len() > 1 {
-            parts[1].to_string()
+            "!".to_string() + parts[1]
         } else {
             String::new()
         };
+        let format_spec = preconversor_spec + &format_spec;
 
         if arg_part.is_empty() {
             return Ok(FormatPart::AutoSpec(format_spec));
