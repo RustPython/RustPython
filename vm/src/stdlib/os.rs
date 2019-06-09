@@ -234,7 +234,7 @@ type DirEntryRef = PyRef<DirEntry>;
 
 impl PyValue for DirEntry {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("os", "DirEntry")
+        vm.class("_os", "DirEntry")
     }
 }
 
@@ -316,7 +316,7 @@ struct ScandirIterator {
 
 impl PyValue for ScandirIterator {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("os", "ScandirIter")
+        vm.class("_os", "ScandirIter")
     }
 }
 
@@ -366,7 +366,7 @@ struct StatResult {
 
 impl PyValue for StatResult {
     fn class(vm: &VirtualMachine) -> PyClassRef {
-        vm.class("os", "stat_result")
+        vm.class("_os", "stat_result")
     }
 }
 
