@@ -245,6 +245,7 @@ settrace() -- set the global debug tracing function
       "meta_path" => ctx.new_list(vec![]),
       "path_hooks" => ctx.new_list(vec![]),
       "path_importer_cache" => ctx.new_dict(),
+      "pycache_prefix" => vm.get_none(),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();
