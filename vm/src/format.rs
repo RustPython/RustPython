@@ -613,6 +613,7 @@ mod tests {
     #[test]
     fn test_width_only() {
         let expected = FormatSpec {
+            preconversor: None,
             fill: None,
             align: None,
             sign: None,
@@ -628,6 +629,7 @@ mod tests {
     #[test]
     fn test_fill_and_width() {
         let expected = FormatSpec {
+            preconversor: None,
             fill: Some('<'),
             align: Some(FormatAlign::Right),
             sign: None,
@@ -643,6 +645,7 @@ mod tests {
     #[test]
     fn test_all() {
         let expected = FormatSpec {
+            preconversor: None,
             fill: Some('<'),
             align: Some(FormatAlign::Right),
             sign: Some(FormatSign::Minus),
