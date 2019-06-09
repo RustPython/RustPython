@@ -79,6 +79,10 @@ fn re_compile(pattern: PyStringRef, vm: &VirtualMachine) -> PyResult<Regex> {
     make_regex(vm, &pattern.value)
 }
 
+fn re_escape(pattern: PyStringRef, _vm: &VirtualMachine) -> String {
+    regex::escape(&pattern.value)
+}
+
 impl PyRegexRef {
     fn match_(self, text: PyStringRef, vm: &VirtualMachine) -> PyResult {
         do_match(vm, &self, &text.value)
@@ -113,6 +117,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     py_module!(vm, "re", {
         "compile" => ctx.new_rustfunc(re_compile),
+        "escape" => ctx.new_rustfunc(re_escape),
         "Match" => match_type,
         "match" => ctx.new_rustfunc(re_match),
         "Pattern" => pattern_type,

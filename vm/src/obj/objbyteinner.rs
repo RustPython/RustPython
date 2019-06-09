@@ -2,6 +2,7 @@ use crate::obj::objint::PyIntRef;
 use crate::obj::objnone::PyNoneRef;
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objtuple::PyTupleRef;
+use crate::pyhash;
 use crate::pyobject::Either;
 use crate::pyobject::PyRef;
 use crate::pyobject::PyValue;
@@ -12,17 +13,12 @@ use core::ops::Range;
 use num_bigint::BigInt;
 
 use crate::function::OptionalArg;
-
-use crate::vm::VirtualMachine;
-
 use crate::pyobject::{PyResult, TypeProtocol};
-
-use crate::obj::objstr::{PyString, PyStringRef};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use crate::vm::VirtualMachine;
 
 use super::objint;
 use super::objsequence::{is_valid_slice_arg, PySliceableSequence};
+use super::objstr::{PyString, PyStringRef};
 
 use crate::obj::objint::PyInt;
 use num_integer::Integer;
@@ -78,24 +74,33 @@ pub struct ByteInnerNewOptions {
     encoding: OptionalArg<PyStringRef>,
 }
 
+//same algorithm as cpython
+pub fn normalize_encoding(encoding: &str) -> String {
+    let mut res = String::new();
+    let mut punct = false;
+
+    for c in encoding.chars() {
+        if c.is_alphanumeric() || c == '.' {
+            if punct && !res.is_empty() {
+                res.push('_')
+            }
+            res.push(c.to_ascii_lowercase());
+            punct = false;
+        } else {
+            punct = true;
+        }
+    }
+    res
+}
+
 impl ByteInnerNewOptions {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<PyByteInner> {
         // First handle bytes(string, encoding[, errors])
         if let OptionalArg::Present(enc) = self.encoding {
             if let OptionalArg::Present(eval) = self.val_option {
                 if let Ok(input) = eval.downcast::<PyString>() {
-                    let encoding = enc.as_str();
-                    if encoding.to_lowercase() == "utf8" || encoding.to_lowercase() == "utf-8"
-                    // TODO: different encoding
-                    {
-                        return Ok(PyByteInner {
-                            elements: input.value.as_bytes().to_vec(),
-                        });
-                    } else {
-                        return Err(
-                            vm.new_value_error(format!("unknown encoding: {}", encoding)), //should be lookup error
-                        );
-                    }
+                    let inner = PyByteInner::from_string(&input.value, enc.as_str(), vm)?;
+                    return Ok(inner);
                 } else {
                     return Err(vm.new_type_error("encoding without a string argument".to_string()));
                 }
@@ -315,6 +320,20 @@ impl ByteInnerSplitlinesOptions {
 }
 
 impl PyByteInner {
+    pub fn from_string(value: &str, encoding: &str, vm: &VirtualMachine) -> PyResult<Self> {
+        let normalized = normalize_encoding(encoding);
+        if normalized == "utf_8" || normalized == "utf8" || normalized == "u8" {
+            Ok(PyByteInner {
+                elements: value.as_bytes().to_vec(),
+            })
+        } else {
+            // TODO: different encoding
+            Err(
+                vm.new_value_error(format!("unknown encoding: {}", encoding)), // should be lookup error
+            )
+        }
+    }
+
     pub fn repr(&self) -> PyResult<String> {
         let mut res = String::with_capacity(self.elements.len());
         for i in self.elements.iter() {
@@ -379,10 +398,8 @@ impl PyByteInner {
         }
     }
 
-    pub fn hash(&self) -> usize {
-        let mut hasher = DefaultHasher::new();
-        self.elements.hash(&mut hasher);
-        hasher.finish() as usize
+    pub fn hash(&self) -> pyhash::PyHash {
+        pyhash::hash_value(&self.elements)
     }
 
     pub fn add(&self, other: PyByteInner) -> Vec<u8> {
@@ -429,6 +446,70 @@ impl PyByteInner {
             Either::B(slice) => Ok(vm
                 .ctx
                 .new_bytes(self.elements.get_slice_items(vm, slice.as_object())?)),
+        }
+    }
+
+    fn setindex(&mut self, int: PyIntRef, object: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        if let Some(idx) = self.elements.get_pos(int.as_bigint().to_i32().unwrap()) {
+            let result = match_class!(object,
+            i @ PyInt => {
+                if let Some(value) = i.as_bigint().to_u8() {
+                    Ok(value)
+                }else{
+                    Err(vm.new_value_error("byte must be in range(0, 256)".to_string()))
+                }
+            },
+            _ => {Err(vm.new_type_error("an integer is required".to_string()))}
+            );
+            let value = result?;
+            self.elements[idx] = value;
+            Ok(vm.new_int(value))
+        } else {
+            Err(vm.new_index_error("index out of range".to_string()))
+        }
+    }
+
+    fn setslice(
+        &mut self,
+        slice: PySliceRef,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let sec = match PyIterable::try_from_object(vm, object.clone()) {
+            Ok(sec) => {
+                let items: Result<Vec<PyObjectRef>, _> = sec.iter(vm)?.collect();
+                Ok(items?
+                    .into_iter()
+                    .map(|obj| u8::try_from_object(vm, obj))
+                    .collect::<PyResult<Vec<_>>>()?)
+            }
+            _ => match_class!(object,
+                        i @ PyMemoryView => {
+                            Ok(i.get_obj_value().unwrap())
+                        },
+                        _ => Err(vm.new_index_error(
+                        "can assign only bytes, buffers, or iterables of ints in range(0, 256)"
+                            .to_string()))),
+        };
+        let items = sec?;
+        let range = self
+            .elements
+            .get_slice_range(&slice.start_index(vm)?, &slice.stop_index(vm)?);
+        self.elements.splice(range, items);
+        Ok(vm
+            .ctx
+            .new_bytes(self.elements.get_slice_items(vm, slice.as_object())?))
+    }
+
+    pub fn setitem(
+        &mut self,
+        needle: Either<PyIntRef, PySliceRef>,
+        object: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match needle {
+            Either::A(int) => self.setindex(int, object, vm),
+            Either::B(slice) => self.setslice(slice, object, vm),
         }
     }
 
@@ -692,7 +773,7 @@ impl PyByteInner {
             Either::A(byte) => byte.elements,
             Either::B(tuple) => {
                 let mut flatten = vec![];
-                for v in objsequence::get_elements(tuple.as_object()).to_vec() {
+                for v in objsequence::get_elements_tuple(tuple.as_object()).to_vec() {
                     flatten.extend(PyByteInner::try_from_object(vm, v)?.elements)
                 }
                 flatten

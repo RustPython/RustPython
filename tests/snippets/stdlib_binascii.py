@@ -33,3 +33,7 @@ with assertRaises(ValueError):
 
 with assertRaises(ValueError):
     uh(b"nn")  # Non-hexadecimal digit found
+
+assert binascii.crc32(b"hello world") == 222957957
+assert binascii.crc32(b"hello world", 555555) == 1216827162
+assert binascii.crc32(b"goodbye interesting world",777777) == 1885538403

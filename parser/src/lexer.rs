@@ -7,6 +7,7 @@ extern crate unicode_xid;
 pub use super::token::Tok;
 use num_bigint::BigInt;
 use num_traits::Num;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -71,7 +72,7 @@ pub enum LexicalErrorType {
     OtherError(String),
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
     row: usize,
     column: usize,

@@ -135,7 +135,7 @@ impl PyByteArrayRef {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(self, vm: &VirtualMachine) -> PyResult {
+    fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type: bytearray".to_string()))
     }
 
@@ -164,6 +164,16 @@ impl PyByteArrayRef {
     #[pymethod(name = "__getitem__")]
     fn getitem(self, needle: Either<PyIntRef, PySliceRef>, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow().getitem(needle, vm)
+    }
+
+    #[pymethod(name = "__setitem__")]
+    fn setitem(
+        self,
+        needle: Either<PyIntRef, PySliceRef>,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.inner.borrow_mut().setitem(needle, value, vm)
     }
 
     #[pymethod(name = "isalnum")]
@@ -330,7 +340,7 @@ impl PyByteArrayRef {
         let pos = bytes
             .iter()
             .position(|b| *b == x)
-            .ok_or(vm.new_value_error("value not found in bytearray".to_string()))?;
+            .ok_or_else(|| vm.new_value_error("value not found in bytearray".to_string()))?;
 
         bytes.remove(pos);
 

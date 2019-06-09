@@ -6,8 +6,8 @@ edition = "2018"
 
 [dependencies]
 bitflags = "1.0.4"
-num-complex = "0.2"
-num-bigint = "0.2.1"
+num-complex = { version = "0.2", features = ["serde"] }
+num-bigint = { version = "0.2.1", features = ["serde"] }
 num-traits = "0.2"
 num-integer = "0.1.39"
 num-rational = "0.2.1"
@@ -15,8 +15,7 @@ rand = "0.5"
 log = "0.3"
 rustpython_derive = {path = "../derive"}
 rustpython_parser = {path = "../parser"}
-serde = "1.0.66"
-serde_derive = "1.0.66"
+serde = { version = "1.0.66", features = ["derive"] }
 serde_json = "1.0.26"
 byteorder = "1.2.6"
 regex = "1"
@@ -28,8 +27,16 @@ unicode-xid = "0.1.0"
 lazy_static = "^1.0.1"
 lexical = "2.0.0"
 itertools = "^0.8.0"
+hexf = "0.1.0"
+indexmap = "1.0.2"
+crc = "^1.0.0"
+bincode = "1.1.4"
+
 
 # TODO: release and publish to crates.io
 [dependencies.unicode-casing]
 git = "https://github.com/OddCoincidence/unicode-casing"
 rev = "90d6d1f02b9cc04ffb55a5f1c3fa1455a84231fb"
+
+[target.'cfg(all(unix, not(target_os = "android")))'.dependencies]
+pwd = "1"

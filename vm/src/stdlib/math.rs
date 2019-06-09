@@ -209,6 +209,23 @@ fn math_floor(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 }
 
+fn math_frexp(value: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    objfloat::try_float(&value, vm)?.map_or_else(
+        || Err(vm.new_type_error(format!("must be real number, not {}", value.class()))),
+        |value| {
+            let (m, e) = if value.is_finite() {
+                let (m, e) = objfloat::ufrexp(value);
+                (m * value.signum(), e)
+            } else {
+                (value, 0)
+            };
+            Ok(vm
+                .ctx
+                .new_tuple(vec![vm.ctx.new_float(m), vm.ctx.new_int(e)]))
+        },
+    )
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -255,6 +272,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "erfc" => ctx.new_rustfunc(math_erfc),
         "gamma" => ctx.new_rustfunc(math_gamma),
         "lgamma" => ctx.new_rustfunc(math_lgamma),
+
+        "frexp" => ctx.new_rustfunc(math_frexp),
 
         // Rounding functions:
         "trunc" => ctx.new_rustfunc(math_trunc),

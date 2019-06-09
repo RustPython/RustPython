@@ -4,13 +4,16 @@ use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{create_type, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
 use crate::vm::VirtualMachine;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let zelf = args.args[0].clone();
     let msg = if args.args.len() > 1 {
         args.args[1].clone()
     } else {
-        vm.new_str("No msg".to_string())
+        let empty_string = String::default();
+        vm.new_str(empty_string)
     };
     let traceback = vm.ctx.new_list(Vec::new());
     vm.set_attr(&zelf, "msg", msg)?;
@@ -18,7 +21,7 @@ fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
-// print excption chain
+/// Print exception chain
 pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
     let mut had_cause = false;
     if let Ok(cause) = vm.get_attribute(exc.clone(), "__cause__") {
@@ -39,41 +42,71 @@ pub fn print_exception(vm: &VirtualMachine, exc: &PyObjectRef) {
     print_exception_inner(vm, exc)
 }
 
-// Print exception including traceback:
+fn print_source_line(filename: String, lineno: usize) {
+    // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/master/Python/traceback.c#L393
+    // TODO: support different encodings
+    let file = match File::open(filename) {
+        Ok(file) => file,
+        Err(_) => {
+            return;
+        }
+    };
+    let file = BufReader::new(file);
+
+    for (i, line) in file.lines().enumerate() {
+        if i + 1 == lineno {
+            if let Ok(line) = line {
+                // Indented with 4 spaces
+                println!("    {}", line.trim_start());
+            }
+            return;
+        }
+    }
+}
+
+/// Print exception occurrence location from traceback element
+fn print_traceback_entry(vm: &VirtualMachine, tb_entry: &PyObjectRef) {
+    if objtype::isinstance(&tb_entry, &vm.ctx.tuple_type()) {
+        let location_attrs = objsequence::get_elements_tuple(&tb_entry);
+        let filename = if let Ok(x) = vm.to_str(&location_attrs[0]) {
+            x.value.clone()
+        } else {
+            "<error>".to_string()
+        };
+
+        let lineno = if let Ok(x) = vm.to_str(&location_attrs[1]) {
+            x.value.clone()
+        } else {
+            "<error>".to_string()
+        };
+
+        let obj_name = if let Ok(x) = vm.to_str(&location_attrs[2]) {
+            x.value.clone()
+        } else {
+            "<error>".to_string()
+        };
+
+        println!(
+            r##"  File "{}", line {}, in {}"##,
+            filename, lineno, obj_name
+        );
+        print_source_line(filename, lineno.parse().unwrap());
+    } else {
+        println!("  File ??");
+        return;
+    }
+}
+
+/// Print exception with traceback
 pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
     if let Ok(tb) = vm.get_attribute(exc.clone(), "__traceback__") {
         println!("Traceback (most recent call last):");
         if objtype::isinstance(&tb, &vm.ctx.list_type()) {
-            let mut elements = objsequence::get_elements(&tb).to_vec();
-            elements.reverse();
-            for element in elements.iter() {
-                if objtype::isinstance(&element, &vm.ctx.tuple_type()) {
-                    let element = objsequence::get_elements(&element);
-                    let filename = if let Ok(x) = vm.to_str(&element[0]) {
-                        x.value.clone()
-                    } else {
-                        "<error>".to_string()
-                    };
+            let mut tb_entries = objsequence::get_elements_list(&tb).to_vec();
+            tb_entries.reverse();
 
-                    let lineno = if let Ok(x) = vm.to_str(&element[1]) {
-                        x.value.clone()
-                    } else {
-                        "<error>".to_string()
-                    };
-
-                    let obj_name = if let Ok(x) = vm.to_str(&element[2]) {
-                        x.value.clone()
-                    } else {
-                        "<error>".to_string()
-                    };
-
-                    println!(
-                        r##"  File "{}", line {}, in {}"##,
-                        filename, lineno, obj_name
-                    );
-                } else {
-                    println!("  File ??");
-                }
+            for exc_location in tb_entries.iter() {
+                print_traceback_entry(vm, exc_location);
             }
         }
     } else {
@@ -100,8 +133,11 @@ fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     } else {
         panic!("Error message must be set");
     };
-    let s = format!("{}: {}", exc.class().name, msg);
-    Ok(vm.new_str(s))
+    let mut exc_repr = exc.class().name.clone();
+    if !msg.is_empty() {
+        &exc_repr.push_str(&format!(": {}", msg));
+    }
+    Ok(vm.new_str(exc_repr))
 }
 
 #[derive(Debug)]

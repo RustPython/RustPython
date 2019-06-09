@@ -49,6 +49,10 @@ else:
 	assert os.altsep == None
 	assert os.pathsep == ":"
 
+assert os.fspath("Testing") == "Testing"
+assert os.fspath(b"Testing") == b"Testing"
+assert_raises(TypeError, lambda: os.fspath([1,2,3]))
+
 class TestWithTempDir():
 	def __enter__(self):
 		if os.name == "nt":
@@ -217,3 +221,8 @@ with TestWithTempDir() as tmpdir:
 		os.chdir(tmpdir)
 		assert os.getcwd() == tmpdir
 		os.path.exists(FILE_NAME)
+
+# supports
+assert isinstance(os.supports_fd, set)
+assert isinstance(os.supports_dir_fd, set)
+assert isinstance(os.supports_follow_symlinks, set)

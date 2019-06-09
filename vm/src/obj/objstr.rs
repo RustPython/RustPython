@@ -1,7 +1,6 @@
 extern crate unicode_xid;
 
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::str::FromStr;
 use std::string::ToString;
@@ -13,12 +12,14 @@ use unicode_xid::UnicodeXID;
 
 use crate::format::{FormatParseError, FormatPart, FormatString};
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef,
     PyResult, PyValue, TryFromObject, TryIntoRef, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
+use super::objbytes::PyBytes;
 use super::objdict::PyDict;
 use super::objint::{self, PyInt};
 use super::objnone::PyNone;
@@ -172,10 +173,8 @@ impl PyString {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> usize {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.value.hash(&mut hasher);
-        hasher.finish() as usize
+    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        pyhash::hash_value(&self.value)
     }
 
     #[pymethod(name = "__len__")]
@@ -185,22 +184,17 @@ impl PyString {
 
     #[pymethod(name = "__mul__")]
     fn mul(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        if objtype::isinstance(&val, &vm.ctx.int_type()) {
-            let value = &self.value;
-            let multiplier = objint::get_value(&val).to_i32().unwrap();
-            let capacity = if multiplier > 0 {
-                multiplier.to_usize().unwrap() * value.len()
-            } else {
-                0
-            };
-            let mut result = String::with_capacity(capacity);
-            for _x in 0..multiplier {
-                result.push_str(value.as_str());
-            }
-            Ok(result)
-        } else {
-            Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)))
+        if !objtype::isinstance(&val, &vm.ctx.int_type()) {
+            return Err(vm.new_type_error(format!("Cannot multiply {} and {}", self, val)));
         }
+        objint::get_value(&val)
+            .to_isize()
+            .map(|multiplier| multiplier.max(0))
+            .and_then(|multiplier| multiplier.to_usize())
+            .map(|multiplier| self.value.repeat(multiplier))
+            .ok_or_else(|| {
+                vm.new_overflow_error("cannot fit 'int' into an index-sized integer".to_string())
+            })
     }
 
     #[pymethod(name = "__rmul__")]
@@ -303,10 +297,13 @@ impl PyString {
         let num_splits = num
             .into_option()
             .unwrap_or_else(|| value.split(pattern).count());
-        let elements = value
+        let mut elements: Vec<_> = value
             .rsplitn(num_splits + 1, pattern)
             .map(|o| vm.ctx.new_str(o.to_string()))
             .collect();
+        // Unlike Python rsplit, Rust rsplitn returns an iterator that
+        // starts from the end of the string.
+        elements.reverse();
         vm.ctx.new_list(elements)
     }
 
@@ -866,7 +863,7 @@ impl PyString {
             None => false,
         };
         // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(|c| UnicodeXID::is_xid_continue(c))
+        is_identifier_start && chars.all(UnicodeXID::is_xid_continue)
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
@@ -879,18 +876,18 @@ impl PyString {
             match table.get_item(c as u32, vm) {
                 Ok(value) => {
                     if let Some(text) = value.payload::<PyString>() {
-                        translated.extend(text.value.chars());
-                    } else if let Some(_) = value.payload::<PyNone>() {
-                        // Do Nothing
+                        translated.push_str(&text.value);
                     } else if let Some(bigint) = value.payload::<PyInt>() {
                         match bigint.as_bigint().to_u32().and_then(std::char::from_u32) {
                             Some(ch) => translated.push(ch as char),
                             None => {
-                                return Err(vm.new_value_error(format!(
-                                    "character mapping must be in range(0x110000)"
-                                )));
+                                return Err(vm.new_value_error(
+                                    "character mapping must be in range(0x110000)".to_owned(),
+                                ));
                             }
                         }
+                    } else if let Some(_) = value.payload::<PyNone>() {
+                        // Do Nothing
                     } else {
                         return Err(vm.new_type_error(
                             "character mapping must return integer, None or str".to_owned(),
@@ -960,6 +957,31 @@ impl PyString {
                 )),
             }
         }
+    }
+
+    #[pymethod]
+    fn encode(
+        &self,
+        encoding: OptionalArg<PyObjectRef>,
+        _errors: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let encoding = encoding.map_or_else(
+            || Ok("utf-8".to_string()),
+            |v| {
+                if objtype::isinstance(&v, &vm.ctx.str_type()) {
+                    Ok(get_value(&v))
+                } else {
+                    Err(vm.new_type_error(format!(
+                        "encode() argument 1 must be str, not {}",
+                        v.class().name
+                    )))
+                }
+            },
+        )?;
+
+        let encoded = PyBytes::from_string(&self.value, &encoding, vm)?;
+        Ok(encoded.into_pyobject(vm)?)
     }
 }
 

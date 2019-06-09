@@ -111,15 +111,13 @@ fn builtin_delattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> 
     vm.del_attr(&obj, attr.into_object())
 }
 
-fn builtin_dir(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    if args.args.is_empty() {
-        Ok(vm.get_locals().into_object())
-    } else {
-        let obj = args.args.into_iter().next().unwrap();
-        let seq = vm.call_method(&obj, "__dir__", vec![])?;
-        let sorted = builtin_sorted(vm, PyFuncArgs::new(vec![seq], vec![]))?;
-        Ok(sorted)
-    }
+fn builtin_dir(obj: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    let seq = match obj {
+        OptionalArg::Present(obj) => vm.call_method(&obj, "__dir__", vec![])?,
+        OptionalArg::Missing => vm.call_method(&vm.get_locals().into_object(), "keys", vec![])?,
+    };
+    let sorted = builtin_sorted(vm, PyFuncArgs::new(vec![seq], vec![]))?;
+    Ok(sorted)
 }
 
 fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -136,6 +134,7 @@ fn builtin_divmod(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 /// Implements `eval`.
 /// See also: https://docs.python.org/3/library/functions.html#eval
 fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    // TODO: support any mapping for `locals`
     arg_check!(
         vm,
         args,
@@ -303,8 +302,7 @@ fn builtin_hasattr(obj: PyObjectRef, attr: PyStringRef, vm: &VirtualMachine) -> 
 
 fn builtin_hash(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-
-    vm.call_method(obj, "__hash__", vec![])
+    vm._hash(obj).and_then(|v| Ok(vm.new_int(v)))
 }
 
 // builtin_help
@@ -614,6 +612,16 @@ impl Printer for std::io::StdoutLock<'_> {
     }
 }
 
+pub fn builtin_exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+    if let OptionalArg::Present(exit_code_obj) = exit_code_arg {
+        match i32::try_from_object(&vm, exit_code_obj.clone()) {
+            Ok(code) => std::process::exit(code),
+            _ => println!("{}", vm.to_str(&exit_code_obj)?.as_str()),
+        }
+    }
+    std::process::exit(0);
+}
+
 pub fn builtin_print(objects: Args, options: PrintOptions, vm: &VirtualMachine) -> PyResult<()> {
     let stdout = io::stdout();
 
@@ -824,6 +832,8 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "tuple" => ctx.tuple_type(),
         "type" => ctx.type_type(),
         "zip" => ctx.zip_type(),
+        "exit" => ctx.new_rustfunc(builtin_exit),
+        "quit" => ctx.new_rustfunc(builtin_exit),
         "__import__" => ctx.new_rustfunc(builtin_import),
 
         // Constants

@@ -264,15 +264,11 @@ impl PyDictRef {
 
     fn popitem(self, vm: &VirtualMachine) -> PyResult {
         let mut entries = self.entries.borrow_mut();
-        let (key, value) = match entries.next_entry(&mut 0) {
-            Some((key, value)) => (key.clone(), value.clone()),
-            None => {
-                return Err(vm.new_key_error("popitem(): dictionary is empty".to_string()));
-            }
-        };
-
-        entries.delete(vm, &key)?;
-        Ok(vm.ctx.new_tuple(vec![key, value]))
+        if let Some((key, value)) = entries.pop_front() {
+            Ok(vm.ctx.new_tuple(vec![key, value]))
+        } else {
+            Err(vm.new_key_error("popitem(): dictionary is empty".to_string()))
+        }
     }
 
     /// Take a python dictionary and convert it to attributes.
@@ -298,7 +294,7 @@ impl PyDictRef {
         Ok(PyDict { entries }.into_ref(vm))
     }
 
-    fn hash(self, vm: &VirtualMachine) -> PyResult {
+    fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type".to_string()))
     }
 

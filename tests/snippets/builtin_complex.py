@@ -86,6 +86,14 @@ assert bool(complex(0, 0)) is False
 assert bool(complex(0, 1)) is True
 assert bool(complex(1, 0)) is True
 
+# __hash__
+
+assert hash(complex(1)) == hash(float(1)) == hash(int(1))
+assert hash(complex(-1)) == hash(float(-1)) == hash(int(-1))
+assert hash(complex(3.14)) == hash(float(3.14))
+assert hash(complex(-float('inf'))) == hash(-float('inf'))
+assert hash(1j) != hash(1)
+
 # numbers.Complex
 
 a = complex(3, 4)

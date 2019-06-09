@@ -8,14 +8,16 @@
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_parser::ast;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodeObject {
     pub instructions: Vec<Instruction>,
+    /// Jump targets.
     pub label_map: HashMap<Label, usize>,
     pub locations: Vec<ast::Location>,
     pub arg_names: Vec<String>, // Names of positional arguments
@@ -29,6 +31,7 @@ pub struct CodeObject {
 }
 
 bitflags! {
+    #[derive(Serialize, Deserialize)]
     pub struct FunctionOpArg: u8 {
         const HAS_DEFAULTS = 0x01;
         const HAS_KW_ONLY_DEFAULTS = 0x02;
@@ -38,7 +41,7 @@ bitflags! {
 
 pub type Label = usize;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum NameScope {
     Local,
     NonLocal,
@@ -46,7 +49,7 @@ pub enum NameScope {
 }
 
 /// A Single bytecode instruction.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Instruction {
     Import {
         name: String,
@@ -187,14 +190,14 @@ pub enum Instruction {
 
 use self::Instruction::*;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CallType {
     Positional(usize),
     Keyword(usize),
     Ex(bool),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Constant {
     Integer { value: BigInt },
     Float { value: f64 },
@@ -208,7 +211,7 @@ pub enum Constant {
     Ellipsis,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ComparisonOperator {
     Greater,
     GreaterOrEqual,
@@ -222,7 +225,7 @@ pub enum ComparisonOperator {
     IsNot,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BinaryOperator {
     Power,
     Multiply,
@@ -240,7 +243,7 @@ pub enum BinaryOperator {
     Or,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum UnaryOperator {
     Not,
     Invert,
@@ -248,7 +251,7 @@ pub enum UnaryOperator {
     Plus,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Varargs {
     None,
     Unnamed,
