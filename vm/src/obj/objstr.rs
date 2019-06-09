@@ -1,3 +1,4 @@
+extern crate unicode_categories;
 extern crate unicode_xid;
 
 use std::fmt;
@@ -26,6 +27,8 @@ use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySlice;
 use super::objtype::{self, PyClassRef};
+
+use unicode_categories::UnicodeCategories;
 
 /// str(object='') -> str
 /// str(bytes_or_buffer[, encoding[, errors]]) -> str
@@ -517,6 +520,29 @@ impl PyString {
             Some(num) => self.value.replacen(&old.value, &new.value, num),
             None => self.value.replace(&old.value, &new.value),
         }
+    }
+
+    /// Return true if all characters in the string are printable or the string is empty,
+    /// false otherwise.  Nonprintable characters are those characters defined in the
+    /// Unicode character database as `Other` or `Separator`,
+    /// excepting the ASCII space (0x20) which is considered printable.
+    ///
+    /// All characters except those characters defined in the Unicode character
+    /// database as following categories are considered printable.
+    ///   * Cc (Other, Control)
+    ///   * Cf (Other, Format)
+    ///   * Cs (Other, Surrogate)
+    ///   * Co (Other, Private Use)
+    ///   * Cn (Other, Not Assigned)
+    ///   * Zl Separator, Line ('\u2028', LINE SEPARATOR)
+    ///   * Zp Separator, Paragraph ('\u2029', PARAGRAPH SEPARATOR)
+    ///   * Zs (Separator, Space) other than ASCII space('\x20').
+    #[pymethod]
+    fn isprintable(&self, _vm: &VirtualMachine) -> bool {
+        self.value.chars().all(|c| match c {
+            '\u{0020}' => true,
+            _ => !(c.is_other_control() | c.is_separator()),
+        })
     }
 
     // cpython's isspace ignores whitespace, including \t and \n, etc, unless the whole string is empty

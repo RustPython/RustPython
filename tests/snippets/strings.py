@@ -216,3 +216,10 @@ for s, b in zip(ss, bs):
 for s, b, e in zip(ss, bs, ['u8', 'U8', 'utf-8', 'UTF-8', 'utf_8']):
     assert s.encode(e) == b
     # assert s.encode(encoding=e) == b
+
+# str.isisprintable
+assert "".isprintable()
+assert " ".isprintable()
+assert "abcdefg".isprintable()
+assert not "abcdefg\n".isprintable()
+assert "ʹ".isprintable()
