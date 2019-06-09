@@ -4,12 +4,14 @@
 
 use std::char;
 use std::io::{self, Write};
+use std::str;
 
 use num_bigint::Sign;
 use num_traits::{Signed, Zero};
 
 use crate::compile;
 use crate::obj::objbool;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{self, PyIntRef};
@@ -20,7 +22,7 @@ use crate::obj::objtype::{self, PyClassRef};
 use crate::frame::Scope;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
+    Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -78,13 +80,19 @@ fn builtin_chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
 }
 
 fn builtin_compile(
-    source: PyStringRef,
+    source: Either<PyStringRef, PyBytesRef>,
     filename: PyStringRef,
     mode: PyStringRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyCodeRef> {
+    // TODO: compile::compile should probably get bytes
+    let source = match source {
+        Either::A(string) => string.value.to_string(),
+        Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
+    };
+
     // TODO: fix this newline bug:
-    let source = format!("{}\n", &source.value);
+    let source = format!("{}\n", source);
 
     let mode = {
         let mode = &mode.value;
