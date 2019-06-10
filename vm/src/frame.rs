@@ -908,7 +908,11 @@ impl Frame {
     }
 
     fn import(&self, vm: &VirtualMachine, module: &str, symbol: &Option<String>) -> FrameResult {
-        let module = vm.import(module)?;
+        let from_list = match symbol {
+            Some(symbol) => vm.ctx.new_tuple(vec![vm.ctx.new_str(symbol.to_string())]),
+            None => vm.ctx.new_tuple(vec![]),
+        };
+        let module = vm.import(module, &from_list)?;
 
         // If we're importing a symbol, look it up and use it, otherwise construct a module and return
         // that
@@ -926,7 +930,7 @@ impl Frame {
     }
 
     fn import_star(&self, vm: &VirtualMachine, module: &str) -> FrameResult {
-        let module = vm.import(module)?;
+        let module = vm.import(module, &vm.ctx.new_tuple(vec![]))?;
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {

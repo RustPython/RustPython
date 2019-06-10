@@ -137,7 +137,7 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyClassRef> {
         let class = self
-            .get_attribute(self.import(module)?, class)?
+            .get_attribute(self.import(module, &self.ctx.new_tuple(vec![]))?, class)?
             .downcast()
             .expect("not a class");
         Ok(class)
@@ -145,7 +145,7 @@ impl VirtualMachine {
 
     pub fn class(&self, module: &str, class: &str) -> PyClassRef {
         let module = self
-            .import(module)
+            .import(module, &self.ctx.new_tuple(vec![]))
             .unwrap_or_else(|_| panic!("unable to import {}", module));
         let class = self
             .get_attribute(module.clone(), class)
@@ -303,9 +303,17 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, repr)
     }
 
-    pub fn import(&self, module: &str) -> PyResult {
+    pub fn import(&self, module: &str, from_list: &PyObjectRef) -> PyResult {
         match self.get_attribute(self.builtins.clone(), "__import__") {
-            Ok(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
+            Ok(func) => self.invoke(
+                func,
+                vec![
+                    self.ctx.new_str(module.to_string()),
+                    self.get_none(),
+                    self.get_none(),
+                    from_list.clone(),
+                ],
+            ),
             Err(_) => Err(self.new_exception(
                 self.ctx.exceptions.import_error.clone(),
                 "__import__ not found".to_string(),
