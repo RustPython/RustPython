@@ -1565,7 +1565,7 @@ def _setup(_bootstrap_module):
         setattr(self_module, builtin_name, builtin_module)
 
     # Directly load the os module (needed during bootstrap).
-    os_details = ('_os', ['/']), ('_os', ['\\', '/'])  # Changed by palaviv to fit RustPython!!!
+    os_details = ('_os', ['/']), ('_os', ['\\', '/'])  # XXX Changed to fit RustPython!!!
     for builtin_os, path_separators in os_details:
         # Assumption made in _path_join()
         assert all(len(sep) == 1 for sep in path_separators)
