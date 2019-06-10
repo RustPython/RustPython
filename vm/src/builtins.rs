@@ -79,14 +79,26 @@ fn builtin_chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
     }
 }
 
-fn builtin_compile(
+#[derive(FromArgs)]
+#[allow(dead_code)]
+struct CompileArgs {
+    #[pyarg(positional_only, optional = false)]
     source: Either<PyStringRef, PyBytesRef>,
+    #[pyarg(positional_only, optional = false)]
     filename: PyStringRef,
+    #[pyarg(positional_only, optional = false)]
     mode: PyStringRef,
-    vm: &VirtualMachine,
-) -> PyResult<PyCodeRef> {
+    #[pyarg(positional_or_keyword, optional = true)]
+    flags: OptionalArg<PyIntRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    dont_inherit: OptionalArg<bool>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    optimize: OptionalArg<PyIntRef>,
+}
+
+fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
     // TODO: compile::compile should probably get bytes
-    let source = match source {
+    let source = match args.source {
         Either::A(string) => string.value.to_string(),
         Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
     };
@@ -95,7 +107,7 @@ fn builtin_compile(
     let source = format!("{}\n", source);
 
     let mode = {
-        let mode = &mode.value;
+        let mode = &args.mode.value;
         if mode == "exec" {
             compile::Mode::Exec
         } else if mode == "eval" {
@@ -109,7 +121,7 @@ fn builtin_compile(
         }
     };
 
-    compile::compile(vm, &source, &mode, filename.value.to_string())
+    compile::compile(vm, &source, &mode, args.filename.value.to_string())
         .map_err(|err| vm.new_syntax_error(&err))
 }
 
