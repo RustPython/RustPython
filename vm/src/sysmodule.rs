@@ -224,6 +224,7 @@ settrace() -- set the global debug tracing function
     module_names.sort();
     let modules = ctx.new_dict();
     extend_module!(vm, module, {
+      "__name__" => ctx.new_str(String::from("sys")),
       "argv" => argv(ctx),
       "builtin_module_names" => ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm).unwrap()).collect()),
       "flags" => flags,
