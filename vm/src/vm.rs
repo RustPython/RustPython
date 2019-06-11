@@ -304,20 +304,27 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef) -> PyResult {
-        match self.get_attribute(self.builtins.clone(), "__import__") {
-            Ok(func) => self.invoke(
-                func,
-                vec![
-                    self.ctx.new_str(module.to_string()),
-                    self.get_none(),
-                    self.get_none(),
-                    from_list.clone(),
-                ],
-            ),
-            Err(_) => Err(self.new_exception(
-                self.ctx.exceptions.import_error.clone(),
-                "__import__ not found".to_string(),
-            )),
+        let sys_modules = self
+            .get_attribute(self.sys_module.clone(), "modules")
+            .unwrap();
+        if let Ok(module) = sys_modules.get_item(module.to_string(), self) {
+            Ok(module)
+        } else {
+            match self.get_attribute(self.builtins.clone(), "__import__") {
+                Ok(func) => self.invoke(
+                    func,
+                    vec![
+                        self.ctx.new_str(module.to_string()),
+                        self.get_none(),
+                        self.get_none(),
+                        from_list.clone(),
+                    ],
+                ),
+                Err(_) => Err(self.new_exception(
+                    self.ctx.exceptions.import_error.clone(),
+                    "__import__ not found".to_string(),
+                )),
+            }
         }
     }
 
