@@ -650,9 +650,67 @@ where
         self.location.column = 1;
     }
 
-    fn inner_next(&mut self) -> Option<LexResult> {
+    /// Given we are at the start of a line, count the number of spaces and/or tabs until the first character.
+    fn determine_indentation(&mut self) -> Result<IndentationLevel, LexicalError> {
+        // Determine indentation:
+        let mut spaces: usize = 0;
+        let mut tabs: usize = 0;
+        loop {
+            match self.chr0 {
+                Some(' ') => {
+                    /*
+                    if tabs != 0 {
+                        // Don't allow spaces after tabs as part of indentation.
+                        // This is technically stricter than python3 but spaces after
+                        // tabs is even more insane than mixing spaces and tabs.
+                        return Some(Err(LexicalError {
+                            error: LexicalErrorType::OtherError("Spaces not allowed as part of indentation after tabs".to_string()),
+                            location: self.get_pos(),
+                        }));
+                    }
+                    */
+                    self.next_char();
+                    spaces += 1;
+                }
+                Some('\t') => {
+                    if spaces != 0 {
+                        // Don't allow tabs after spaces as part of indentation.
+                        // This is technically stricter than python3 but spaces before
+                        // tabs is even more insane than mixing spaces and tabs.
+                        return Err(LexicalError {
+                            error: LexicalErrorType::OtherError(
+                                "Tabs not allowed as part of indentation after spaces".to_string(),
+                            ),
+                            location: self.get_pos(),
+                        });
+                    }
+                    self.next_char();
+                    tabs += 1;
+                }
+                Some('#') => {
+                    self.lex_comment();
+                    spaces = 0;
+                    tabs = 0;
+                }
+                Some('\n') => {
+                    // Empty line!
+                    self.next_char();
+                    self.new_line();
+                    spaces = 0;
+                    tabs = 0;
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        Ok(IndentationLevel { spaces, tabs })
+    }
+
+    fn inner_next(&mut self) -> LexResult {
         if !self.pending.is_empty() {
-            return Some(self.pending.remove(0));
+            return self.pending.remove(0);
         }
 
         'top_loop: loop {
@@ -660,61 +718,7 @@ where
             if self.at_begin_of_line {
                 self.at_begin_of_line = false;
 
-                // Determine indentation:
-                let mut spaces: usize = 0;
-                let mut tabs: usize = 0;
-                loop {
-                    match self.chr0 {
-                        Some(' ') => {
-                            /*
-                            if tabs != 0 {
-                                // Don't allow spaces after tabs as part of indentation.
-                                // This is technically stricter than python3 but spaces after
-                                // tabs is even more insane than mixing spaces and tabs.
-                                return Some(Err(LexicalError {
-                                    error: LexicalErrorType::OtherError("Spaces not allowed as part of indentation after tabs".to_string()),
-                                    location: self.get_pos(),
-                                }));
-                            }
-                            */
-                            self.next_char();
-                            spaces += 1;
-                        }
-                        Some('\t') => {
-                            if spaces != 0 {
-                                // Don't allow tabs after spaces as part of indentation.
-                                // This is technically stricter than python3 but spaces before
-                                // tabs is even more insane than mixing spaces and tabs.
-                                return Some(Err(LexicalError {
-                                    error: LexicalErrorType::OtherError(
-                                        "Tabs not allowed as part of indentation after spaces"
-                                            .to_string(),
-                                    ),
-                                    location: self.get_pos(),
-                                }));
-                            }
-                            self.next_char();
-                            tabs += 1;
-                        }
-                        Some('#') => {
-                            self.lex_comment();
-                            self.at_begin_of_line = true;
-                            continue 'top_loop;
-                        }
-                        Some('\n') => {
-                            // Empty line!
-                            self.next_char();
-                            self.at_begin_of_line = true;
-                            self.new_line();
-                            continue 'top_loop;
-                        }
-                        _ => {
-                            break;
-                        }
-                    }
-                }
-
-                let indentation_level = IndentationLevel { spaces, tabs };
+                let indentation_level = self.determine_indentation()?;
 
                 if self.nesting == 0 {
                     // Determine indent or dedent:
@@ -729,7 +733,7 @@ where
                             self.indentation_stack.push(indentation_level);
                             let tok_start = self.get_pos();
                             let tok_end = tok_start.clone();
-                            return Some(Ok((tok_start, Tok::Indent, tok_end)));
+                            return Ok((tok_start, Tok::Indent, tok_end));
                         }
                         Some(Ordering::Less) => {
                             // One or more dedentations
@@ -746,10 +750,10 @@ where
                                         self.pending.push(Ok((tok_start, Tok::Dedent, tok_end)));
                                     }
                                     None => {
-                                        return Some(Err(LexicalError {
+                                        return Err(LexicalError {
                                             error: LexicalErrorType::OtherError("inconsistent use of tabs and spaces in indentation".to_string()),
                                             location: self.get_pos(),
-                                        }));
+                                        });
                                     }
                                     _ => {
                                         break;
@@ -759,24 +763,24 @@ where
 
                             if indentation_level != *self.indentation_stack.last().unwrap() {
                                 // TODO: handle wrong indentations
-                                return Some(Err(LexicalError {
+                                return Err(LexicalError {
                                     error: LexicalErrorType::OtherError(
                                         "Non matching indentation levels!".to_string(),
                                     ),
                                     location: self.get_pos(),
-                                }));
+                                });
                             }
 
-                            return Some(self.pending.remove(0));
+                            return self.pending.remove(0);
                         }
                         None => {
-                            return Some(Err(LexicalError {
+                            return Err(LexicalError {
                                 error: LexicalErrorType::OtherError(
                                     "inconsistent use of tabs and spaces in indentation"
                                         .to_string(),
                                 ),
                                 location: self.get_pos(),
-                            }));
+                            });
                         }
                     }
                 }
@@ -786,30 +790,30 @@ where
             if let Some(c) = self.chr0 {
                 // First check identifier:
                 if self.is_identifier_start(c) {
-                    return Some(self.lex_identifier());
+                    return self.lex_identifier();
                 } else if is_emoji_presentation(c) {
                     let tok_start = self.get_pos();
                     self.next_char();
                     let tok_end = self.get_pos();
-                    return Some(Ok((
+                    return Ok((
                         tok_start,
                         Tok::Name {
                             name: c.to_string(),
                         },
                         tok_end,
-                    )));
+                    ));
                 } else {
                     match c {
-                        '0'..='9' => return Some(self.lex_number()),
+                        '0'..='9' => return self.lex_number(),
                         '#' => {
                             self.lex_comment();
                             continue;
                         }
                         '"' => {
-                            return Some(self.lex_string(false, false, false, false));
+                            return self.lex_string(false, false, false, false);
                         }
                         '\'' => {
-                            return Some(self.lex_string(false, false, false, false));
+                            return self.lex_string(false, false, false, false);
                         }
                         '=' => {
                             let tok_start = self.get_pos();
@@ -818,11 +822,11 @@ where
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::EqEqual, tok_end)));
+                                    return Ok((tok_start, Tok::EqEqual, tok_end));
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Equal, tok_end)));
+                                    return Ok((tok_start, Tok::Equal, tok_end));
                                 }
                             }
                         }
@@ -832,10 +836,10 @@ where
                             if let Some('=') = self.chr0 {
                                 self.next_char();
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::PlusEqual, tok_end)));
+                                return Ok((tok_start, Tok::PlusEqual, tok_end));
                             } else {
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::Plus, tok_end)));
+                                return Ok((tok_start, Tok::Plus, tok_end));
                             }
                         }
                         '*' => {
@@ -845,7 +849,7 @@ where
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::StarEqual, tok_end)));
+                                    return Ok((tok_start, Tok::StarEqual, tok_end));
                                 }
                                 Some('*') => {
                                     self.next_char();
@@ -853,21 +857,17 @@ where
                                         Some('=') => {
                                             self.next_char();
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((
-                                                tok_start,
-                                                Tok::DoubleStarEqual,
-                                                tok_end,
-                                            )));
+                                            return Ok((tok_start, Tok::DoubleStarEqual, tok_end));
                                         }
                                         _ => {
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((tok_start, Tok::DoubleStar, tok_end)));
+                                            return Ok((tok_start, Tok::DoubleStar, tok_end));
                                         }
                                     }
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Star, tok_end)));
+                                    return Ok((tok_start, Tok::Star, tok_end));
                                 }
                             }
                         }
@@ -878,7 +878,7 @@ where
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::SlashEqual, tok_end)));
+                                    return Ok((tok_start, Tok::SlashEqual, tok_end));
                                 }
                                 Some('/') => {
                                     self.next_char();
@@ -886,25 +886,17 @@ where
                                         Some('=') => {
                                             self.next_char();
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((
-                                                tok_start,
-                                                Tok::DoubleSlashEqual,
-                                                tok_end,
-                                            )));
+                                            return Ok((tok_start, Tok::DoubleSlashEqual, tok_end));
                                         }
                                         _ => {
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((
-                                                tok_start,
-                                                Tok::DoubleSlash,
-                                                tok_end,
-                                            )));
+                                            return Ok((tok_start, Tok::DoubleSlash, tok_end));
                                         }
                                     }
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Slash, tok_end)));
+                                    return Ok((tok_start, Tok::Slash, tok_end));
                                 }
                             }
                         }
@@ -914,10 +906,10 @@ where
                             if let Some('=') = self.chr0 {
                                 self.next_char();
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::PercentEqual, tok_end)));
+                                return Ok((tok_start, Tok::PercentEqual, tok_end));
                             } else {
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::Percent, tok_end)));
+                                return Ok((tok_start, Tok::Percent, tok_end));
                             }
                         }
                         '|' => {
@@ -926,10 +918,10 @@ where
                             if let Some('=') = self.chr0 {
                                 self.next_char();
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::VbarEqual, tok_end)));
+                                return Ok((tok_start, Tok::VbarEqual, tok_end));
                             } else {
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::Vbar, tok_end)));
+                                return Ok((tok_start, Tok::Vbar, tok_end));
                             }
                         }
                         '^' => {
@@ -938,10 +930,10 @@ where
                             if let Some('=') = self.chr0 {
                                 self.next_char();
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::CircumflexEqual, tok_end)));
+                                return Ok((tok_start, Tok::CircumflexEqual, tok_end));
                             } else {
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::CircumFlex, tok_end)));
+                                return Ok((tok_start, Tok::CircumFlex, tok_end));
                             }
                         }
                         '&' => {
@@ -950,10 +942,10 @@ where
                             if let Some('=') = self.chr0 {
                                 self.next_char();
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::AmperEqual, tok_end)));
+                                return Ok((tok_start, Tok::AmperEqual, tok_end));
                             } else {
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::Amper, tok_end)));
+                                return Ok((tok_start, Tok::Amper, tok_end));
                             }
                         }
                         '-' => {
@@ -963,16 +955,16 @@ where
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::MinusEqual, tok_end)));
+                                    return Ok((tok_start, Tok::MinusEqual, tok_end));
                                 }
                                 Some('>') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Rarrow, tok_end)));
+                                    return Ok((tok_start, Tok::Rarrow, tok_end));
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Minus, tok_end)));
+                                    return Ok((tok_start, Tok::Minus, tok_end));
                                 }
                             }
                         }
@@ -982,10 +974,10 @@ where
                             if let Some('=') = self.chr0 {
                                 self.next_char();
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::AtEqual, tok_end)));
+                                return Ok((tok_start, Tok::AtEqual, tok_end));
                             } else {
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::At, tok_end)));
+                                return Ok((tok_start, Tok::At, tok_end));
                             }
                         }
                         '!' => {
@@ -994,70 +986,70 @@ where
                             if let Some('=') = self.chr0 {
                                 self.next_char();
                                 let tok_end = self.get_pos();
-                                return Some(Ok((tok_start, Tok::NotEqual, tok_end)));
+                                return Ok((tok_start, Tok::NotEqual, tok_end));
                             } else {
-                                return Some(Err(LexicalError {
+                                return Err(LexicalError {
                                     error: LexicalErrorType::UnrecognizedToken { tok: '!' },
                                     location: tok_start,
-                                }));
+                                });
                             }
                         }
                         '~' => {
-                            return Some(self.eat_single_char(Tok::Tilde));
+                            return self.eat_single_char(Tok::Tilde);
                         }
                         '(' => {
                             let result = self.eat_single_char(Tok::Lpar);
                             self.nesting += 1;
-                            return Some(result);
+                            return result;
                         }
                         ')' => {
                             let result = self.eat_single_char(Tok::Rpar);
                             if self.nesting == 0 {
-                                return Some(Err(LexicalError {
+                                return Err(LexicalError {
                                     error: LexicalErrorType::NestingError,
                                     location: self.get_pos(),
-                                }));
+                                });
                             }
                             self.nesting -= 1;
-                            return Some(result);
+                            return result;
                         }
                         '[' => {
                             let result = self.eat_single_char(Tok::Lsqb);
                             self.nesting += 1;
-                            return Some(result);
+                            return result;
                         }
                         ']' => {
                             let result = self.eat_single_char(Tok::Rsqb);
                             if self.nesting == 0 {
-                                return Some(Err(LexicalError {
+                                return Err(LexicalError {
                                     error: LexicalErrorType::NestingError,
                                     location: self.get_pos(),
-                                }));
+                                });
                             }
                             self.nesting -= 1;
-                            return Some(result);
+                            return result;
                         }
                         '{' => {
                             let result = self.eat_single_char(Tok::Lbrace);
                             self.nesting += 1;
-                            return Some(result);
+                            return result;
                         }
                         '}' => {
                             let result = self.eat_single_char(Tok::Rbrace);
                             if self.nesting == 0 {
-                                return Some(Err(LexicalError {
+                                return Err(LexicalError {
                                     error: LexicalErrorType::NestingError,
                                     location: self.get_pos(),
-                                }));
+                                });
                             }
                             self.nesting -= 1;
-                            return Some(result);
+                            return result;
                         }
                         ':' => {
-                            return Some(self.eat_single_char(Tok::Colon));
+                            return self.eat_single_char(Tok::Colon);
                         }
                         ';' => {
-                            return Some(self.eat_single_char(Tok::Semi));
+                            return self.eat_single_char(Tok::Semi);
                         }
                         '<' => {
                             let tok_start = self.get_pos();
@@ -1069,26 +1061,22 @@ where
                                         Some('=') => {
                                             self.next_char();
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((
-                                                tok_start,
-                                                Tok::LeftShiftEqual,
-                                                tok_end,
-                                            )));
+                                            return Ok((tok_start, Tok::LeftShiftEqual, tok_end));
                                         }
                                         _ => {
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((tok_start, Tok::LeftShift, tok_end)));
+                                            return Ok((tok_start, Tok::LeftShift, tok_end));
                                         }
                                     }
                                 }
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::LessEqual, tok_end)));
+                                    return Ok((tok_start, Tok::LessEqual, tok_end));
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Less, tok_end)));
+                                    return Ok((tok_start, Tok::Less, tok_end));
                                 }
                             }
                         }
@@ -1102,26 +1090,22 @@ where
                                         Some('=') => {
                                             self.next_char();
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((
-                                                tok_start,
-                                                Tok::RightShiftEqual,
-                                                tok_end,
-                                            )));
+                                            return Ok((tok_start, Tok::RightShiftEqual, tok_end));
                                         }
                                         _ => {
                                             let tok_end = self.get_pos();
-                                            return Some(Ok((tok_start, Tok::RightShift, tok_end)));
+                                            return Ok((tok_start, Tok::RightShift, tok_end));
                                         }
                                     }
                                 }
                                 Some('=') => {
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::GreaterEqual, tok_end)));
+                                    return Ok((tok_start, Tok::GreaterEqual, tok_end));
                                 }
                                 _ => {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Greater, tok_end)));
+                                    return Ok((tok_start, Tok::Greater, tok_end));
                                 }
                             }
                         }
@@ -1129,11 +1113,11 @@ where
                             let tok_start = self.get_pos();
                             self.next_char();
                             let tok_end = self.get_pos();
-                            return Some(Ok((tok_start, Tok::Comma, tok_end)));
+                            return Ok((tok_start, Tok::Comma, tok_end));
                         }
                         '.' => {
                             if let Some('0'..='9') = self.chr1 {
-                                return Some(self.lex_number());
+                                return self.lex_number();
                             } else {
                                 let tok_start = self.get_pos();
                                 self.next_char();
@@ -1141,10 +1125,10 @@ where
                                     self.next_char();
                                     self.next_char();
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Ellipsis, tok_end)));
+                                    return Ok((tok_start, Tok::Ellipsis, tok_end));
                                 } else {
                                     let tok_end = self.get_pos();
-                                    return Some(Ok((tok_start, Tok::Dot, tok_end)));
+                                    return Ok((tok_start, Tok::Dot, tok_end));
                                 }
                             }
                         }
@@ -1157,7 +1141,7 @@ where
                             // Depending on the nesting level, we emit newline or not:
                             if self.nesting == 0 {
                                 self.at_begin_of_line = true;
-                                return Some(Ok((tok_start, Tok::Newline, tok_end)));
+                                return Ok((tok_start, Tok::Newline, tok_end));
                             } else {
                                 continue;
                             }
@@ -1169,15 +1153,16 @@ where
                         }
                         _ => {
                             let c = self.next_char();
-                            return Some(Err(LexicalError {
+                            return Err(LexicalError {
                                 error: LexicalErrorType::UnrecognizedToken { tok: c.unwrap() },
                                 location: self.get_pos(),
-                            }));
+                            });
                         } // Ignore all the rest..
                     }
                 }
             } else {
-                return None;
+                let tok_pos = self.get_pos();
+                return Ok((tok_pos.clone(), Tok::EndOfFile, tok_pos));
             }
         }
     }
@@ -1212,7 +1197,11 @@ where
             self.nesting,
             self.indentation_stack
         );
-        token
+
+        match token {
+            Ok((_, Tok::EndOfFile, _)) => None,
+            r => Some(r),
+        }
     }
 }
 
