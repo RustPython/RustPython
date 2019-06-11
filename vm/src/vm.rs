@@ -166,7 +166,7 @@ impl VirtualMachine {
     }
 
     pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
-        info!("New exception created: no msg");
+        info!("New exception created: {}", exc_type.name);
         let args = PyFuncArgs::default();
         self.invoke(exc_type.into_object(), args)
     }
@@ -175,7 +175,7 @@ impl VirtualMachine {
     pub fn new_exception(&self, exc_type: PyClassRef, msg: String) -> PyObjectRef {
         // TODO: exc_type may be user-defined exception, so we should return PyResult
         // TODO: maybe there is a clearer way to create an instance:
-        info!("New exception created: {}", msg);
+        info!("New exception created: {}('{}')", exc_type.name, msg);
         let pymsg = self.new_str(msg);
         let args: Vec<PyObjectRef> = vec![pymsg];
         self.invoke(exc_type.into_object(), args).unwrap()
@@ -629,12 +629,27 @@ impl VirtualMachine {
 
     // get_method should be used for internal access to magic methods (by-passing
     // the full getattribute look-up.
-    pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> PyResult {
+    pub fn get_method_or_type_error<F>(
+        &self,
+        obj: PyObjectRef,
+        method_name: &str,
+        err_msg: F,
+    ) -> PyResult
+    where
+        F: FnOnce() -> String,
+    {
         let cls = obj.class();
         match objtype::class_get_attr(&cls, method_name) {
             Some(method) => self.call_get_descriptor(method, obj.clone()),
-            None => Err(self.new_type_error(format!("{} has no method {:?}", obj, method_name))),
+            None => Err(self.new_type_error(err_msg())),
         }
+    }
+
+    /// May return exception, if `__get__` descriptor raises one
+    pub fn get_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
+        let cls = obj.class();
+        let method = objtype::class_get_attr(&cls, method_name)?;
+        Some(self.call_get_descriptor(method, obj.clone()))
     }
 
     /// Calls a method on `obj` passing `arg`, if the method exists.
@@ -651,13 +666,13 @@ impl VirtualMachine {
     where
         F: Fn(&VirtualMachine, PyObjectRef, PyObjectRef) -> PyResult,
     {
-        if let Ok(method) = self.get_method(obj.clone(), method) {
+        if let Some(method_or_err) = self.get_method(obj.clone(), method) {
+            let method = method_or_err?;
             let result = self.invoke(method, vec![arg.clone()])?;
             if !result.is(&self.ctx.not_implemented()) {
                 return Ok(result);
             }
         }
-
         unsupported(self, obj, arg)
     }
 
@@ -949,7 +964,8 @@ impl VirtualMachine {
     }
 
     pub fn _membership(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
-        if let Ok(method) = self.get_method(haystack.clone(), "__contains__") {
+        if let Some(method_or_err) = self.get_method(haystack.clone(), "__contains__") {
+            let method = method_or_err?;
             self.invoke(method, vec![needle])
         } else {
             self._membership_iter_search(haystack, needle)

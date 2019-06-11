@@ -206,11 +206,10 @@ impl PyDictRef {
         if let Some(value) = self.entries.borrow().get(vm, &key)? {
             return Ok(value);
         }
-
-        if let Ok(method) = vm.get_method(self.clone().into_object(), "__missing__") {
+        if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
+            let method = method_or_err?;
             return vm.invoke(method, vec![key]);
         }
-
         Err(vm.new_key_error(format!("Key not found: {}", vm.to_pystr(&key)?)))
     }
 

@@ -262,7 +262,7 @@ impl PyFloat {
                 Err(_) => {
                     let arg_repr = vm.to_pystr(&arg)?;
                     return Err(vm.new_value_error(format!(
-                        "could not convert string to float: {}",
+                        "could not convert string to float: '{}'",
                         arg_repr
                     )));
                 }
@@ -273,7 +273,7 @@ impl PyFloat {
                 Err(_) => {
                     let arg_repr = vm.to_pystr(&arg)?;
                     return Err(vm.new_value_error(format!(
-                        "could not convert string to float: {}",
+                        "could not convert string to float: '{}'",
                         arg_repr
                     )));
                 }
@@ -556,11 +556,15 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
 pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
-    } else if let Ok(method) = vm.get_method(obj.clone(), "__float__") {
-        let res = vm.invoke(method, vec![])?;
-        Ok(get_value(&res))
     } else {
-        Err(vm.new_type_error(format!("Cannot cast {} to float", obj)))
+        let method = vm.get_method_or_type_error(obj.clone(), "__float__", || {
+            format!(
+                "float() argument must be a string or a number, not '{}'",
+                obj.class().name
+            )
+        })?;
+        let result = vm.invoke(method, vec![])?;
+        Ok(get_value(&result))
     }
 }
 

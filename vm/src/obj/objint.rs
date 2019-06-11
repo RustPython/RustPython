@@ -657,18 +657,14 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
                 )))
         },
         obj => {
-            if let Ok(f) = vm.get_method(obj.clone(), "__int__") {
-                let int_res = vm.invoke(f, PyFuncArgs::default())?;
-                match int_res.payload::<PyInt>() {
-                    Some(i) => Ok(i.as_bigint().clone()),
-                    None => Err(vm.new_type_error(format!(
-                        "TypeError: __int__ returned non-int (type '{}')", int_res.class().name))),
-                }
-            } else {
-                Err(vm.new_type_error(format!(
-                    "int() argument must be a string or a number, not '{}'",
-                    obj.class().name
-                )))
+            let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
+                format!("int() argument must be a string or a number, not '{}'", obj.class().name)
+            })?;
+            let result = vm.invoke(method, PyFuncArgs::default())?;
+            match result.payload::<PyInt>() {
+                Some(int_obj) => Ok(int_obj.as_bigint().clone()),
+                None => Err(vm.new_type_error(format!(
+                    "TypeError: __int__ returned non-int (type '{}')", result.class().name))),
             }
         }
     )

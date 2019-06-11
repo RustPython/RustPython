@@ -18,18 +18,18 @@ use super::objtype::PyClassRef;
  * function 'iter' is called.
  */
 pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
-    if let Ok(method) = vm.get_method(iter_target.clone(), "__iter__") {
+    if let Some(method_or_err) = vm.get_method(iter_target.clone(), "__iter__") {
+        let method = method_or_err?;
         vm.invoke(method, vec![])
-    } else if vm.get_method(iter_target.clone(), "__getitem__").is_ok() {
-        Ok(PySequenceIterator {
+    } else {
+        vm.get_method_or_type_error(iter_target.clone(), "__getitem__", || {
+            format!("Cannot iterate over {}", iter_target.class().name)
+        })?;
+        let obj_iterator = PySequenceIterator {
             position: Cell::new(0),
             obj: iter_target.clone(),
-        }
-        .into_ref(vm)
-        .into_object())
-    } else {
-        let message = format!("Cannot iterate over {}", iter_target.class().name);
-        return Err(vm.new_type_error(message));
+        };
+        Ok(obj_iterator.into_ref(vm).into_object())
     }
 }
 

@@ -173,15 +173,14 @@ fn math_lgamma(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn try_magic_method(func_name: &str, vm: &VirtualMachine, value: &PyObjectRef) -> PyResult {
-    if let Ok(method) = vm.get_method(value.clone(), func_name) {
-        vm.invoke(method, vec![])
-    } else {
-        Err(vm.new_type_error(format!(
-            "TypeError: type {} doesn't define {} method",
+    let method = vm.get_method_or_type_error(value.clone(), func_name, || {
+        format!(
+            "type '{}' doesn't define '{}' method",
             value.class().name,
             func_name,
-        )))
-    }
+        )
+    })?;
+    vm.invoke(method, vec![])
 }
 
 fn math_trunc(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
