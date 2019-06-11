@@ -45,6 +45,10 @@ impl PyTuple {
 
 pub type PyTupleRef = PyRef<PyTuple>;
 
+pub fn get_value(obj: &PyObjectRef) -> Vec<PyObjectRef> {
+    obj.payload::<PyTuple>().unwrap().elements.clone()
+}
+
 impl PyTupleRef {
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.tuple_type()) {
