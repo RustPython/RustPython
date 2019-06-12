@@ -55,6 +55,7 @@ pub struct VirtualMachine {
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyObjectRef>>,
     pub frozen: RefCell<HashMap<String, &'static str>>,
+    pub import_func: RefCell<PyObjectRef>,
 }
 
 impl VirtualMachine {
@@ -68,6 +69,7 @@ impl VirtualMachine {
 
         let stdlib_inits = RefCell::new(stdlib::get_module_inits());
         let frozen = RefCell::new(frozen::get_module_inits());
+        let import_func = RefCell::new(ctx.none());
         let vm = VirtualMachine {
             builtins: builtins.clone(),
             sys_module: sysmod.clone(),
@@ -77,6 +79,7 @@ impl VirtualMachine {
             wasm_id: None,
             exceptions: RefCell::new(vec![]),
             frozen,
+            import_func,
         };
 
         builtins::make_module(&vm, builtins.clone());
@@ -134,7 +137,7 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyClassRef> {
         let class = self
-            .get_attribute(self.import(module)?, class)?
+            .get_attribute(self.import(module, &self.ctx.new_tuple(vec![]))?, class)?
             .downcast()
             .expect("not a class");
         Ok(class)
@@ -142,7 +145,7 @@ impl VirtualMachine {
 
     pub fn class(&self, module: &str, class: &str) -> PyClassRef {
         let module = self
-            .import(module)
+            .import(module, &self.ctx.new_tuple(vec![]))
             .unwrap_or_else(|_| panic!("unable to import {}", module));
         let class = self
             .get_attribute(module.clone(), class)
@@ -300,13 +303,28 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, repr)
     }
 
-    pub fn import(&self, module: &str) -> PyResult {
-        match self.get_attribute(self.builtins.clone(), "__import__") {
-            Ok(func) => self.invoke(func, vec![self.ctx.new_str(module.to_string())]),
-            Err(_) => Err(self.new_exception(
-                self.ctx.exceptions.import_error.clone(),
-                "__import__ not found".to_string(),
-            )),
+    pub fn import(&self, module: &str, from_list: &PyObjectRef) -> PyResult {
+        let sys_modules = self
+            .get_attribute(self.sys_module.clone(), "modules")
+            .unwrap();
+        if let Ok(module) = sys_modules.get_item(module.to_string(), self) {
+            Ok(module)
+        } else {
+            match self.get_attribute(self.builtins.clone(), "__import__") {
+                Ok(func) => self.invoke(
+                    func,
+                    vec![
+                        self.ctx.new_str(module.to_string()),
+                        self.get_none(),
+                        self.get_none(),
+                        from_list.clone(),
+                    ],
+                ),
+                Err(_) => Err(self.new_exception(
+                    self.ctx.exceptions.import_error.clone(),
+                    "__import__ not found".to_string(),
+                )),
+            }
         }
     }
 

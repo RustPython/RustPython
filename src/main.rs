@@ -54,6 +54,9 @@ fn main() {
     // Construct vm:
     let vm = VirtualMachine::new();
 
+    let res = import::init_importlib(&vm);
+    handle_exception(&vm, res);
+
     // Figure out if a -c option was given:
     let result = if let Some(command) = matches.value_of("c") {
         run_command(&vm, command.to_string())
@@ -125,6 +128,10 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
         );
         std::process::exit(1);
     };
+
+    let dir = file_path.parent().unwrap().to_str().unwrap().to_string();
+    let sys_path = vm.get_attribute(vm.sys_module.clone(), "path").unwrap();
+    vm.call_method(&sys_path, "insert", vec![vm.new_int(0), vm.new_str(dir)])?;
 
     match util::read_file(&file_path) {
         Ok(source) => _run_string(vm, &source, file_path.to_str().unwrap().to_string()),

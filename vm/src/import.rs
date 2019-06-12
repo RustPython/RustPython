@@ -11,6 +11,42 @@ use crate::pyobject::{ItemProtocol, PyResult};
 use crate::util;
 use crate::vm::VirtualMachine;
 
+pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
+    let importlib = import_frozen(vm, "_frozen_importlib")?;
+    let impmod = import_builtin(vm, "_imp")?;
+    let install = vm.get_attribute(importlib.clone(), "_install")?;
+    vm.invoke(install, vec![vm.sys_module.clone(), impmod])?;
+    vm.import_func
+        .replace(vm.get_attribute(importlib.clone(), "__import__")?);
+    let install_external = vm.get_attribute(importlib.clone(), "_install_external_importers")?;
+    vm.invoke(install_external, vec![])?;
+    Ok(vm.get_none())
+}
+
+pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
+    if let Some(frozen) = vm.frozen.borrow().get(module_name) {
+        import_file(
+            vm,
+            module_name,
+            format!("frozen {}", module_name),
+            frozen.to_string(),
+        )
+    } else {
+        Err(vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
+    }
+}
+
+pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
+    if let Some(make_module_func) = vm.stdlib_inits.borrow().get(module_name) {
+        let module = make_module_func(vm);
+        sys_modules.set_item(module_name, module.clone(), vm)?;
+        Ok(module)
+    } else {
+        Err(vm.new_import_error(format!("Cannot import bultin module {}", module_name)))
+    }
+}
+
 pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
     // Cached modules:
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
@@ -18,12 +54,10 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
     // First, see if we already loaded the module:
     if let Ok(module) = sys_modules.get_item(module_name.to_string(), vm) {
         Ok(module)
-    } else if let Some(frozen) = vm.frozen.borrow().get(module_name) {
-        import_file(vm, module_name, "frozen".to_string(), frozen.to_string())
-    } else if let Some(make_module_func) = vm.stdlib_inits.borrow().get(module_name) {
-        let module = make_module_func(vm);
-        sys_modules.set_item(module_name, module.clone(), vm)?;
-        Ok(module)
+    } else if vm.frozen.borrow().contains_key(module_name) {
+        import_frozen(vm, module_name)
+    } else if vm.stdlib_inits.borrow().contains_key(module_name) {
+        import_builtin(vm, module_name)
     } else {
         let notfound_error = vm.context().exceptions.module_not_found_error.clone();
         let import_error = vm.context().exceptions.import_error.clone();
@@ -56,7 +90,10 @@ pub fn import_file(
 
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
-    attrs.set_item("__file__", vm.new_str(file_path), vm)?;
+    if !file_path.starts_with("frozen") {
+        // TODO: Should be removed after precompiling frozen modules.
+        attrs.set_item("__file__", vm.new_str(file_path), vm)?;
+    }
     let module = vm.ctx.new_module(module_name, attrs.clone());
 
     // Store module in cache to prevent infinite loop with mutual importing libs:

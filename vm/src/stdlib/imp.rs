@@ -1,5 +1,5 @@
 use crate::compile;
-use crate::import::import_file;
+use crate::import;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objmodule::PyModuleRef;
 use crate::obj::objstr;
@@ -56,20 +56,22 @@ fn imp_exec_builtin(_mod: PyModuleRef, _vm: &VirtualMachine) -> i32 {
 }
 
 fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
-    if let Some(frozen) = vm.frozen.borrow().get(name.as_str()) {
-        compile::compile(vm, frozen, &compile::Mode::Exec, "frozen".to_string())
-            .map_err(|err| vm.new_syntax_error(&err))
+    let name_str = name.as_str();
+    if let Some(frozen) = vm.frozen.borrow().get(name_str) {
+        compile::compile(
+            vm,
+            frozen,
+            &compile::Mode::Exec,
+            format!("frozen {}", name_str),
+        )
+        .map_err(|err| vm.new_syntax_error(&err))
     } else {
         Err(vm.new_import_error(format!("No such frozen object named {}", name.as_str())))
     }
 }
 
 fn imp_init_frozen(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    if let Some(frozen) = vm.frozen.borrow().get(name.as_str()) {
-        import_file(vm, name.as_str(), "frozen".to_string(), frozen.to_string())
-    } else {
-        Err(vm.new_import_error(format!("No such frozen object named {}", name.as_str())))
-    }
+    import::import_frozen(vm, name.as_str())
 }
 
 fn imp_is_frozen_package(_name: PyStringRef, _vm: &VirtualMachine) -> bool {
