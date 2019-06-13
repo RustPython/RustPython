@@ -250,29 +250,51 @@ impl Compiler {
             ast::Statement::Import { import_parts } => {
                 for ast::SingleImport {
                     module,
-                    symbol,
+                    symbols,
                     alias,
                 } in import_parts
                 {
-                    match symbol {
-                        Some(name) if name == "*" => {
-                            self.emit(Instruction::ImportStar {
-                                name: module.clone(),
-                            });
-                        }
-                        _ => {
+                    if let Some(alias) = alias {
+                        self.emit(Instruction::Import {
+                            name: module.clone(),
+                            symbols: vec![],
+                        });
+                        self.store_name(&alias);
+                    } else {
+                        if symbols.is_empty() {
                             self.emit(Instruction::Import {
                                 name: module.clone(),
-                                symbol: symbol.clone(),
+                                symbols: vec![],
                             });
-                            let name = match alias {
-                                Some(alias) => alias.clone(),
-                                None => match symbol {
-                                    Some(symbol) => symbol.clone(),
-                                    None => module.clone(),
-                                },
-                            };
-                            self.store_name(&name);
+                            self.store_name(&module.clone());
+                        } else {
+                            let mut import_star = false;
+                            let mut symbols_strings = vec![];
+                            let mut names = vec![];
+                            for ast::ImportSymbol { symbol, alias } in symbols {
+                                if symbol == "*" {
+                                    import_star = true;
+                                }
+                                symbols_strings.push(symbol.to_string());
+                                names.insert(
+                                    0,
+                                    match alias {
+                                        Some(alias) => alias,
+                                        None => symbol,
+                                    },
+                                );
+                            }
+                            if import_star {
+                                self.emit(Instruction::ImportStar {
+                                    name: module.clone(),
+                                });
+                            } else {
+                                self.emit(Instruction::Import {
+                                    name: module.clone(),
+                                    symbols: symbols_strings,
+                                });
+                                names.iter().for_each(|name| self.store_name(&name));
+                            }
                         }
                     }
                 }
