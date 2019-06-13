@@ -4,8 +4,6 @@
 //!   https://github.com/ProgVal/pythonvm-rust/blob/master/src/processor/mod.rs
 //!
 
-extern crate rustpython_parser;
-
 use std::cell::{Ref, RefCell};
 use std::collections::hash_map::HashMap;
 use std::collections::hash_set::HashSet;
@@ -14,13 +12,14 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
+use crate::compile;
 use crate::error::CompileError;
 use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
 use crate::frozen;
 use crate::function::PyFuncArgs;
 use crate::obj::objbool;
 use crate::obj::objbuiltinfunc::PyBuiltinFunction;
-use crate::obj::objcode::PyCodeRef;
+use crate::obj::objcode::{PyCode, PyCodeRef};
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objfunction::{PyFunction, PyMethod};
 use crate::obj::objgenerator::PyGenerator;
@@ -734,6 +733,16 @@ impl VirtualMachine {
             PyBuiltinFunction => true,
             obj => objtype::class_has_attr(&obj.class(), "__call__"),
         )
+    }
+
+    pub fn compile(
+        &self,
+        source: &str,
+        mode: &compile::Mode,
+        source_path: String,
+    ) -> Result<PyCodeRef, CompileError> {
+        compile::compile(source, mode, source_path)
+            .map(|codeobj| PyCode::new(codeobj).into_ref(self))
     }
 
     pub fn _sub(&self, a: PyObjectRef, b: PyObjectRef) -> PyResult {

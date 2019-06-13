@@ -58,13 +58,8 @@ fn imp_exec_builtin(_mod: PyModuleRef, _vm: &VirtualMachine) -> i32 {
 fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
     let name_str = name.as_str();
     if let Some(frozen) = vm.frozen.borrow().get(name_str) {
-        compile::compile(
-            vm,
-            frozen,
-            &compile::Mode::Exec,
-            format!("frozen {}", name_str),
-        )
-        .map_err(|err| vm.new_syntax_error(&err))
+        vm.compile(frozen, &compile::Mode::Exec, format!("frozen {}", name_str))
+            .map_err(|err| vm.new_syntax_error(&err))
     } else {
         Err(vm.new_import_error(format!("No such frozen object named {}", name.as_str())))
     }

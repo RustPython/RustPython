@@ -13,8 +13,6 @@
 )]
 
 #[macro_use]
-extern crate bitflags;
-#[macro_use]
 extern crate lazy_static;
 extern crate lexical;
 #[macro_use]
@@ -37,10 +35,7 @@ pub use rustpython_derive::*;
 pub mod macros;
 
 mod builtins;
-pub mod bytecode;
-pub mod compile;
 mod dictdatatype;
-pub mod error;
 pub mod eval;
 mod exceptions;
 pub mod format;
@@ -52,7 +47,6 @@ pub mod obj;
 mod pyhash;
 pub mod pyobject;
 pub mod stdlib;
-mod symboltable;
 mod sysmodule;
 mod traceback;
 pub mod util;
@@ -61,3 +55,4 @@ mod vm;
 // pub use self::pyobject::Executor;
 pub use self::exceptions::print_exception;
 pub use self::vm::VirtualMachine;
+pub use rustpython_compiler::*;

@@ -1,10 +1,7 @@
 //! Implement python as a virtual machine with bytecodes. This module
 //! implements bytecode structure.
 
-/*
- * Primitive instruction type, which can be encoded and decoded.
- */
-
+use bitflags::bitflags;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_parser::ast;

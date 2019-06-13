@@ -84,7 +84,8 @@ pub fn import_file(
     content: String,
 ) -> PyResult {
     let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-    let code_obj = compile::compile(vm, &content, &compile::Mode::Exec, file_path.clone())
+    let code_obj = vm
+        .compile(&content, &compile::Mode::Exec, file_path.clone())
         .map_err(|err| vm.new_syntax_error(&err))?;
     // trace!("Code object: {:?}", code_obj);
 
