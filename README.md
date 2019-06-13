@@ -118,7 +118,7 @@ To do this, follow this method:
 ```shell
 $ cd ~/GIT
 $ git clone git@github.com:pybee/ouroboros.git
-$ export PYTHONPATH=~/GIT/ouroboros/ouroboros
+$ export RUSTPYTHONPATH=~/GIT/ouroboros/ouroboros
 $ cd RustPython
 $ cargo run -- -c 'import statistics'
 ```
