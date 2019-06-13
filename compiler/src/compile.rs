@@ -24,31 +24,64 @@ struct Compiler {
 
 /// Compile a given sourcecode into a bytecode object.
 pub fn compile(source: &str, mode: &Mode, source_path: String) -> Result<CodeObject, CompileError> {
-    let mut compiler = Compiler::new();
-    compiler.source_path = Some(source_path);
-    compiler.push_new_code_object("<module>".to_string());
-
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            let symbol_table = make_symbol_table(&ast)?;
-            compiler.compile_program(&ast, symbol_table)
+            compile_program(ast, source_path)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            let symbol_table = statements_to_symbol_table(&statement)?;
-            compiler.compile_statement_eval(&statement, symbol_table)
+            compile_statement_eval(statement, source_path)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            let symbol_table = make_symbol_table(&ast)?;
-            compiler.compile_program_single(&ast, symbol_table)
+            compile_program_single(ast, source_path)
         }
-    }?;
+    }
+}
 
+/// A helper function for the shared code of the different compile functions
+fn with_compiler(
+    source_path: String,
+    f: impl FnOnce(&mut Compiler) -> Result<(), CompileError>,
+) -> Result<CodeObject, CompileError> {
+    let mut compiler = Compiler::new();
+    compiler.source_path = Some(source_path);
+    compiler.push_new_code_object("<module>".to_string());
+    f(&mut compiler)?;
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
     Ok(code)
+}
+
+/// Compile a standard Python program to bytecode
+pub fn compile_program(ast: ast::Program, source_path: String) -> Result<CodeObject, CompileError> {
+    with_compiler(source_path, |compiler| {
+        let symbol_table = make_symbol_table(&ast)?;
+        compiler.compile_program(&ast, symbol_table)
+    })
+}
+
+/// Compile a single Python expression to bytecode
+pub fn compile_statement_eval(
+    statement: Vec<ast::LocatedStatement>,
+    source_path: String,
+) -> Result<CodeObject, CompileError> {
+    with_compiler(source_path, |compiler| {
+        let symbol_table = statements_to_symbol_table(&statement)?;
+        compiler.compile_statement_eval(&statement, symbol_table)
+    })
+}
+
+/// Compile a Python program to bytecode for the context of a REPL
+pub fn compile_program_single(
+    ast: ast::Program,
+    source_path: String,
+) -> Result<CodeObject, CompileError> {
+    with_compiler(source_path, |compiler| {
+        let symbol_table = make_symbol_table(&ast)?;
+        compiler.compile_program_single(&ast, symbol_table)
+    })
 }
 
 pub enum Mode {
