@@ -2,12 +2,13 @@
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
 
+use std::cell::Cell;
 use std::char;
 use std::io::{self, Write};
 use std::str;
 
 use num_bigint::Sign;
-use num_traits::{Signed, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 
 use crate::compile;
 use crate::obj::objbool;
@@ -684,11 +685,20 @@ fn builtin_repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStringRef> 
 fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
-    // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
-    let method = vm.get_method_or_type_error(obj.clone(), "__reversed__", || {
-        format!("argument to reversed() must be a sequence")
-    })?;
-    vm.invoke(method, PyFuncArgs::default())
+    if let Some(reversed_method) = vm.get_method(obj.clone(), "__reversed__") {
+        vm.invoke(reversed_method?, PyFuncArgs::default())
+    } else {
+        vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
+            format!("argument to reversed() must be a sequence")
+        })?;
+        let len = vm.call_method(&obj.clone(), "__len__", PyFuncArgs::default())?;
+        let obj_iterator = objiter::PySequenceIterator {
+            position: Cell::new(objint::get_value(&len).to_isize().unwrap() - 1),
+            obj: obj.clone(),
+            reversed: true,
+        };
+        Ok(obj_iterator.into_ref(vm).into_object())
+    }
 }
 
 fn builtin_round(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
