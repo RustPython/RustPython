@@ -11,6 +11,7 @@ use unicode_casing::CharExt;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_xid::UnicodeXID;
 
+use crate::cformat::{CFormatString, CFormatErrorType};
 use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatString};
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyhash;
@@ -426,6 +427,28 @@ impl PyString {
             false
         } else {
             self.value.chars().all(|c| c.is_ascii_digit())
+        }
+    }
+
+    #[pymethod(name = "__mod__")]
+    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let format_string_text = &self.value;
+        match CFormatString::from_str(format_string_text) {
+            Ok(format_string) => perform_clike_format(vm, format_string, values.clone()),
+            Err(err) => match err.typ {
+                CFormatErrorType::UnsupportedFormatChar(c) => Err(vm.new_value_error(format!(
+                    "unsupported format character '{}' ({:#x}) at index {}",
+                    c, c as u8, err.index
+                ))),
+                CFormatErrorType::UnmatchedKeyParentheses => {
+                    // TODO in cpython, this error comes after verifying that `values` is a mapping type.
+                    Err(vm.new_value_error("incomplete format key".to_string()))
+                }
+                CFormatErrorType::IncompleteFormat => {
+                    Err(vm.new_value_error("incomplete format".to_string()))
+                }
+                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_string())),
+            },
         }
     }
 
@@ -1070,6 +1093,15 @@ fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &
         return Err(vm.new_type_error(format!("__format__ must return a str, not {}", actual_type)));
     }
     Ok(result)
+}
+
+fn perform_clike_format(
+    vm: &VirtualMachine,
+    format_string: CFormatString,
+    values_obj: PyObjectRef,
+) -> PyResult {
+    // TODO
+    Err(vm.new_type_error("Not implemented".to_string()))
 }
 
 fn perform_format(
