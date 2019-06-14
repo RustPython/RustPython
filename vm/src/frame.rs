@@ -908,10 +908,10 @@ impl Frame {
     }
 
     fn import(&self, vm: &VirtualMachine, module: &str, symbols: &Vec<String>) -> FrameResult {
-        let mut from_list = vec![];
-        for symbol in symbols {
-            from_list.push(vm.ctx.new_str(symbol.to_string()));
-        }
+        let from_list = symbols
+            .iter()
+            .map(|symbol| vm.ctx.new_str(symbol.to_string()))
+            .collect();
         let module = vm.import(module, &vm.ctx.new_tuple(from_list))?;
 
         if symbols.is_empty() {
