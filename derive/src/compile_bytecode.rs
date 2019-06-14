@@ -67,7 +67,7 @@ impl BytecodeConst {
         compile::compile(
             &source,
             &mode.unwrap_or(compile::Mode::Exec),
-            source_path.unwrap_or_else(|| "".to_string()),
+            source_path.unwrap_or_else(|| "frozen".to_string()),
         )
         .map_err(|err| err_span!(source_lit, "Compile error: {}", err))
     }
