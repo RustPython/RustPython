@@ -1,13 +1,13 @@
 use super::Diagnostic;
-use proc_macro2::TokenStream as TokenStream2;
+use bincode;
+use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use rustpython_compiler::{bytecode::CodeObject, compile};
-use serde_json;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use syn::parse::{Parse, ParseStream, Result as ParseResult};
-use syn::{self, parse2, Ident, Lit, Meta, MetaList, NestedMeta, Token};
+use syn::{self, parse2, Ident, Lit, LitByteStr, Meta, MetaList, NestedMeta, Token};
 
 struct BytecodeConst {
     ident: Ident,
@@ -109,20 +109,17 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
         env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
     );
 
-    // let name_prefix = &parse_quote!(::rustpython_vm::bytecode);
-
     let consts = consts
         .into_iter()
         .map(|bytecode_const| -> Result<_, Diagnostic> {
             let code_obj = bytecode_const.compile(&manifest_dir)?;
             let ident = bytecode_const.ident;
-            let json = serde_json::to_string(&code_obj).expect("Failed to serialize");
-            // TODO: Figure out some way of outputting this as something more efficient to
-            // deserialize without crashing rustc with a SIGKILL (yes, that happened)
+            let bytes = bincode::serialize(&code_obj).expect("Failed to serialize");
+            let bytes = LitByteStr::new(&bytes, Span::call_site());
             Ok(quote! {
                 static ref #ident: ::rustpython_vm::bytecode::CodeObject = {
-                    use serde_json;
-                    serde_json::from_str(#json).expect("Deserializing CodeObject failed")
+                    use bincode;
+                    bincode::deserialize(#bytes).expect("Deserializing CodeObject failed")
                 };
             })
         })
