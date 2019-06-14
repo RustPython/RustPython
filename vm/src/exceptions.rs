@@ -148,6 +148,7 @@ pub struct ExceptionZoo {
     pub base_exception_type: PyClassRef,
     pub exception_type: PyClassRef,
     pub file_not_found_error: PyClassRef,
+    pub file_exists_error: PyClassRef,
     pub import_error: PyClassRef,
     pub index_error: PyClassRef,
     pub key_error: PyClassRef,
@@ -203,6 +204,7 @@ impl ExceptionZoo {
         let not_implemented_error = create_type("NotImplementedError", &type_type, &runtime_error);
         let file_not_found_error = create_type("FileNotFoundError", &type_type, &os_error);
         let permission_error = create_type("PermissionError", &type_type, &os_error);
+        let file_exists_error = create_type("FileExistsError", &type_type, &os_error);
 
         let warning = create_type("Warning", &type_type, &exception_type);
         let bytes_warning = create_type("BytesWarning", &type_type, &warning);
@@ -224,6 +226,7 @@ impl ExceptionZoo {
             base_exception_type,
             exception_type,
             file_not_found_error,
+            file_exists_error,
             import_error,
             index_error,
             key_error,

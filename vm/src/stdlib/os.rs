@@ -5,6 +5,7 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
+use bitflags::bitflags;
 use num_traits::cast::ToPrimitive;
 
 use crate::function::{IntoPyNativeFunc, PyFuncArgs};
@@ -81,13 +82,26 @@ pub fn os_close(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.get_none())
 }
 
+bitflags! {
+     pub struct FileCreationFlags: u32 {
+        // https://elixir.bootlin.com/linux/v4.8/source/include/uapi/asm-generic/fcntl.h
+        const O_RDONLY = 0o0000_0000;
+        const O_WRONLY = 0o0000_0001;
+        const O_RDWR = 0o0000_0002;
+        const O_CREAT = 0o0000_0100;
+        const O_EXCL = 0o0000_0200;
+        const O_APPEND = 0o0000_2000;
+        const O_NONBLOCK = 0o0000_4000;
+    }
+}
+
 pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
         required = [
             (name, Some(vm.ctx.str_type())),
-            (mode, Some(vm.ctx.int_type()))
+            (flags, Some(vm.ctx.int_type()))
         ],
         optional = [(dir_fd, Some(vm.ctx.int_type()))]
     );
@@ -102,14 +116,32 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     };
     let fname = &make_path(vm, name, &dir_fd).value;
 
-    let handle = match objint::get_value(mode).to_u16().unwrap() {
-        0 => OpenOptions::new().read(true).open(&fname),
-        1 => OpenOptions::new().write(true).open(&fname),
-        2 => OpenOptions::new().read(true).write(true).open(&fname),
-        512 => OpenOptions::new().write(true).create(true).open(&fname),
-        _ => OpenOptions::new().read(true).open(&fname),
+    let flags = FileCreationFlags::from_bits(objint::get_value(flags).to_u32().unwrap())
+        .ok_or(vm.new_value_error("Unsupported flag".to_string()))?;
+
+    let mut options = &mut OpenOptions::new();
+
+    if flags.contains(FileCreationFlags::O_WRONLY) {
+        options = options.write(true);
+    } else if flags.contains(FileCreationFlags::O_RDWR) {
+        options = options.read(true).write(true);
+    } else {
+        options = options.read(true);
     }
-    .map_err(|err| match err.kind() {
+
+    if flags.contains(FileCreationFlags::O_APPEND) {
+        options = options.append(true);
+    }
+
+    if flags.contains(FileCreationFlags::O_CREAT) {
+        if flags.contains(FileCreationFlags::O_EXCL) {
+            options = options.create_new(true);
+        } else {
+            options = options.create(true);
+        }
+    }
+
+    let handle = options.open(&fname).map_err(|err| match err.kind() {
         ErrorKind::NotFound => {
             let exc_type = vm.ctx.exceptions.file_not_found_error.clone();
             vm.new_exception(exc_type, format!("No such file or directory: {}", &fname))
@@ -117,6 +149,10 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         ErrorKind::PermissionDenied => {
             let exc_type = vm.ctx.exceptions.permission_error.clone();
             vm.new_exception(exc_type, format!("Permission denied: {}", &fname))
+        }
+        ErrorKind::AlreadyExists => {
+            let exc_type = vm.ctx.exceptions.file_exists_error.clone();
+            vm.new_exception(exc_type, format!("File exists: {}", &fname))
         }
         _ => vm.new_value_error("Unhandled file IO error".to_string()),
     })?;
@@ -743,12 +779,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getcwd" => ctx.new_rustfunc(os_getcwd),
         "chdir" => ctx.new_rustfunc(os_chdir),
         "fspath" => ctx.new_rustfunc(os_fspath),
-        "O_RDONLY" => ctx.new_int(0),
-        "O_WRONLY" => ctx.new_int(1),
-        "O_RDWR" => ctx.new_int(2),
-        "O_NONBLOCK" => ctx.new_int(4),
-        "O_APPEND" => ctx.new_int(8),
-        "O_CREAT" => ctx.new_int(512)
+        "O_RDONLY" => ctx.new_int(FileCreationFlags::O_RDONLY.bits()),
+        "O_WRONLY" => ctx.new_int(FileCreationFlags::O_WRONLY.bits()),
+        "O_RDWR" => ctx.new_int(FileCreationFlags::O_RDWR.bits()),
+        "O_NONBLOCK" => ctx.new_int(FileCreationFlags::O_NONBLOCK.bits()),
+        "O_APPEND" => ctx.new_int(FileCreationFlags::O_APPEND.bits()),
+        "O_EXCL" => ctx.new_int(FileCreationFlags::O_EXCL.bits()),
+        "O_CREAT" => ctx.new_int(FileCreationFlags::O_CREAT.bits())
     });
 
     for support in support_funcs {
