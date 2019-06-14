@@ -74,8 +74,8 @@ pub enum LexicalErrorType {
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Location {
-    pub row: usize,
-    pub column: usize,
+    row: usize,
+    column: usize,
 }
 
 impl Location {
