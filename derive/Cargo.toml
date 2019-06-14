@@ -11,3 +11,5 @@ proc-macro = true
 syn = { version = "0.15.29", features = ["full"] }
 quote = "0.6.11"
 proc-macro2 = "0.4.27"
+rustpython_compiler = { path = "../compiler" }
+serde_json = "1.0"

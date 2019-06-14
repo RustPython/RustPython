@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+pub use ast::{ConversionFlag, Location};
+
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]

@@ -1,25 +1,20 @@
-use std::collections::hash_map::HashMap;
+use crate::bytecode::CodeObject;
+use std::collections::HashMap;
 
-const HELLO: &str = "initialized = True
+py_compile_bytecode! {
+    static ref HELLO = source(
+"initialized = True
 print(\"Hello world!\")
-";
-
-const IMPORTLIB_BOOTSTRAP: &'static str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../Lib/importlib/_bootstrap.py"
-));
-const IMPORTLIB_BOOTSTRAP_EXTERNAL: &'static str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../Lib/importlib/_bootstrap_external.py"
-));
-
-pub fn get_module_inits() -> HashMap<String, &'static str> {
-    let mut modules = HashMap::new();
-    modules.insert("__hello__".to_string(), HELLO);
-    modules.insert("_frozen_importlib".to_string(), IMPORTLIB_BOOTSTRAP);
-    modules.insert(
-        "_frozen_importlib_external".to_string(),
-        IMPORTLIB_BOOTSTRAP_EXTERNAL,
+",
     );
-    modules
+    static ref IMPORTLIB_BOOTSTRAP = file("../Lib/importlib/_bootstrap.py");
+    static ref IMPORTLIB_BOOTSTRAP_EXTERNAL = file("../Lib/importlib/_bootstrap_external.py");
+}
+
+pub fn get_module_inits() -> HashMap<&'static str, &'static CodeObject> {
+    hashmap! {
+        "__hello__" => &*HELLO,
+        "_frozen_importlib_external" => &*IMPORTLIB_BOOTSTRAP_EXTERNAL,
+        "_frozen_importlib" => &*IMPORTLIB_BOOTSTRAP,
+    }
 }

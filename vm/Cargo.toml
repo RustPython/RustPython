@@ -32,6 +32,7 @@ indexmap = "1.0.2"
 crc = "^1.0.0"
 bincode = "1.1.4"
 unicode_categories = "0.1.1"
+maplit = "1.0"
 
 
 # TODO: release and publish to crates.io

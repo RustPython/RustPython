@@ -17,6 +17,8 @@ extern crate lazy_static;
 extern crate lexical;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate maplit;
 // extern crate env_logger;
 
 extern crate rustpython_parser;
