@@ -58,7 +58,11 @@ fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyC
     vm.frozen
         .borrow()
         .get(name.as_str())
-        .map(|&frozen| PyCode::new(frozen.clone()))
+        .map(|&frozen| {
+            let mut frozen = frozen.clone();
+            frozen.source_path = format!("frozen {}", name.as_str());
+            PyCode::new(frozen)
+        })
         .ok_or_else(|| {
             vm.new_import_error(format!("No such frozen object named {}", name.as_str()))
         })
