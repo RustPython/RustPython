@@ -151,7 +151,7 @@ fn parse_fill_and_align(text: &str) -> (Option<char>, Option<FormatAlign>, &str)
     }
 }
 
-fn parse_number(text: &str) -> (Option<usize>, &str) {
+pub fn parse_number(text: &str) -> (Option<usize>, &str) {
     let num_digits: usize = get_num_digits(text);
     if num_digits == 0 {
         return (None, text);
@@ -189,7 +189,7 @@ fn parse_zero(text: &str) -> &str {
     }
 }
 
-fn parse_precision(text: &str) -> (Option<usize>, &str) {
+pub fn parse_precision(text: &str) -> (Option<usize>, &str) {
     let mut chars = text.chars();
     match chars.next() {
         Some('.') => {

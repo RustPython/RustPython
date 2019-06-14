@@ -13,6 +13,8 @@
 )]
 
 #[macro_use]
+extern crate bitflags;
+#[macro_use]
 extern crate lazy_static;
 extern crate lexical;
 #[macro_use]
@@ -41,6 +43,7 @@ pub use rustpython_derive::py_compile_bytecode;
 pub mod macros;
 
 mod builtins;
+pub mod cformat;
 mod dictdatatype;
 pub mod eval;
 mod exceptions;

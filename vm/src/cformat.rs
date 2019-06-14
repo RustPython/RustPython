@@ -1,0 +1,353 @@
+use crate::format::{parse_number, parse_precision};
+/// Implementation of Printf-Style string formatting
+/// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
+use num_bigint::{BigInt, Sign};
+use num_traits::Signed;
+use std::cmp;
+use std::str::FromStr;
+
+#[derive(Debug, PartialEq)]
+pub enum CFormatErrorType {
+    UnmatchedKeyParentheses,
+    MissingModuloSign,
+    UnescapedModuloSignInLiteral,
+    UnsupportedFormatChar(char),
+    IncompleteFormat,
+    Unimplemented,
+}
+
+// also contains how many chars the parsing function consumed
+type ParsingError = (CFormatErrorType, usize);
+
+pub struct CFormatError {
+    pub typ: CFormatErrorType,
+    pub index: usize,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CFormatPreconversor {
+    Repr,
+    Str,
+    Ascii,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CFormatCase {
+    Lowercase,
+    Uppercase,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CNumberType {
+    Decimal,
+    Octal,
+    Hex(CFormatCase),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CFloatType {
+    Exponent(CFormatCase),
+    PointDecimal,
+    General(CFormatCase),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CFormatType {
+    Number(CNumberType),
+    Float(CFloatType),
+    Character,
+    String(CFormatPreconversor),
+}
+
+bitflags! {
+    pub struct CConversionFlags: u32 {
+        const ALTERNATE_FORM = 0b0000_0001;
+        const ZERO_PAD = 0b0000_0010;
+        const LEFT_ADJUST = 0b0000_0100;
+        const BLANK_SIGN = 0b0000_1000;
+        const SIGN_CHAR = 0b0001_0000;
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct CFormatSpec {
+    pub mapping_key: Option<String>,
+    pub flags: CConversionFlags,
+    pub min_field_width: Option<usize>,
+    pub precision: Option<usize>,
+    pub format_type: CFormatType,
+    pub format_char: char,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CFormatPart {
+    Literal(String),
+    Spec(CFormatSpec),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct CFormatString {
+    pub format_parts: Vec<(usize, CFormatPart)>,
+}
+
+impl FromStr for CFormatString {
+    type Err = CFormatError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let mut cur_text: &str = text;
+        let mut index = 0;
+        let mut parts: Vec<(usize, CFormatPart)> = Vec::new();
+        while !cur_text.is_empty() {
+            cur_text = parse_literal(cur_text)
+                .or_else(|_| parse_specifier(cur_text))
+                .map(|(format_part, new_text, consumed)| {
+                    parts.push((index, format_part));
+                    index = index + consumed;
+                    new_text
+                })
+                .map_err(|(e, consumed)| {
+                    CFormatError {
+                        typ: e,
+                        index: index + consumed,
+                    }
+                })?;
+        }
+
+        Ok(CFormatString {
+            format_parts: parts,
+        })
+    }
+}
+
+fn parse_literal_single(text: &str) -> Result<(char, &str), CFormatErrorType> {
+    let mut chars = text.chars();
+    // TODO get rid of the unwrap
+    let first_char = chars.next().unwrap();
+    if first_char == '%' {
+        // if we see a %, it has to be escaped
+        match chars.next() {
+            Some(next_char) => {
+                if next_char != first_char {
+                    Err(CFormatErrorType::UnescapedModuloSignInLiteral)
+                } else {
+                    Ok((first_char, chars.as_str()))
+                }
+            }
+            None => Err(CFormatErrorType::IncompleteFormat),
+        }
+    } else {
+        Ok((first_char, chars.as_str()))
+    }
+}
+
+fn parse_literal(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError> {
+    let mut cur_text = text;
+    let mut result_string = String::new();
+    let mut consumed = 0;
+    while !cur_text.is_empty() {
+        match parse_literal_single(cur_text) {
+            Ok((next_char, remaining)) => {
+                result_string.push(next_char);
+                consumed = consumed + 1;
+                cur_text = remaining;
+            }
+            Err(err) => {
+                if !result_string.is_empty() {
+                    return Ok((
+                        CFormatPart::Literal(result_string.to_string()),
+                        cur_text,
+                        consumed,
+                    ));
+                } else {
+                    return Err((err, consumed));
+                }
+            }
+        }
+    }
+    Ok((
+        CFormatPart::Literal(result_string.to_string()),
+        "",
+        text.len(),
+    ))
+}
+
+fn parse_spec_mapping_key(text: &str) -> Result<(Option<String>, &str), CFormatErrorType> {
+    let mut chars = text.chars();
+
+    let next_char = chars.next();
+    if next_char == Some('(') {
+        // Get remaining characters after opening parentheses.
+        let cur_text = chars.as_str();
+        match cur_text.find(')') {
+            Some(position) => {
+                let (left, right) = cur_text.split_at(position);
+
+                Ok((Some(left.to_string()), &right[1..]))
+            }
+            None => Err(CFormatErrorType::UnmatchedKeyParentheses),
+        }
+    } else {
+        Ok((None, text))
+    }
+}
+
+fn parse_flag_single(text: &str) -> (Option<CConversionFlags>, &str) {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some('#') => (Some(CConversionFlags::ALTERNATE_FORM), chars.as_str()),
+        Some('0') => (Some(CConversionFlags::ZERO_PAD), chars.as_str()),
+        Some('-') => (Some(CConversionFlags::LEFT_ADJUST), chars.as_str()),
+        Some(' ') => (Some(CConversionFlags::BLANK_SIGN), chars.as_str()),
+        Some('+') => (Some(CConversionFlags::SIGN_CHAR), chars.as_str()),
+        _ => (None, text),
+    }
+}
+
+fn parse_flags(text: &str) -> (CConversionFlags, &str) {
+    let mut flags = CConversionFlags::empty();
+    let mut cur_text = text;
+    while !cur_text.is_empty() {
+        match parse_flag_single(cur_text) {
+            (Some(flag), text) => {
+                flags |= flag;
+                cur_text = text;
+            }
+
+            (None, text) => {
+                return (flags, text);
+            }
+        }
+    }
+
+    (flags, "")
+}
+
+fn consume_length(text: &str) -> &str {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some('h') | Some('l') | Some('L') => chars.as_str(),
+        _ => text,
+    }
+}
+
+fn parse_format_type(text: &str) -> Result<(CFormatType, &str, char), CFormatErrorType> {
+    use CFloatType::*;
+    use CFormatCase::{Lowercase, Uppercase};
+    use CNumberType::*;
+    let mut chars = text.chars();
+    let next_char = chars.next();
+    match next_char {
+        Some('d') | Some('i') | Some('u') => Ok((
+            CFormatType::Number(Decimal),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('o') => Ok((
+            CFormatType::Number(Octal),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('x') => Ok((
+            CFormatType::Number(Hex(Lowercase)),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('X') => Ok((
+            CFormatType::Number(Hex(Uppercase)),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('e') => Ok((
+            CFormatType::Float(Exponent(Lowercase)),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('E') => Ok((
+            CFormatType::Float(Exponent(Uppercase)),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('f') => Ok((
+            CFormatType::Float(PointDecimal),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('F') => Ok((
+            CFormatType::Float(PointDecimal),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('g') => Ok((
+            CFormatType::Float(General(Lowercase)),
+            text,
+            next_char.unwrap(),
+        )),
+        Some('G') => Ok((
+            CFormatType::Float(General(Uppercase)),
+            text,
+            next_char.unwrap(),
+        )),
+        Some('c') => Ok((CFormatType::Character, chars.as_str(), next_char.unwrap())),
+        Some('r') => Ok((
+            CFormatType::String(CFormatPreconversor::Repr),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('s') => Ok((
+            CFormatType::String(CFormatPreconversor::Str),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some('a') => Ok((
+            CFormatType::String(CFormatPreconversor::Ascii),
+            chars.as_str(),
+            next_char.unwrap(),
+        )),
+        Some(c) => Err(CFormatErrorType::UnsupportedFormatChar(c)),
+        None => Err(CFormatErrorType::IncompleteFormat), // should not happen because it is handled earlier in the parsing
+    }
+}
+
+fn parse_specifier(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError> {
+    let consumed = 0;
+    let mut chars = text.chars();
+    if chars.next() != Some('%') {
+        return Err((CFormatErrorType::MissingModuloSign, consumed));
+    }
+    let consumed = consumed + 1;
+
+    let (mapping_key, after_mapping_key) =
+        parse_spec_mapping_key(chars.as_str()).map_err(|err| (err, consumed))?;
+    let consumed = text.find(after_mapping_key).unwrap();
+    let (flags, after_flags) = parse_flags(after_mapping_key);
+    let (width, after_width) = parse_number(after_flags);
+    let (precision, after_precision) = parse_precision(after_width);
+    // A length modifier (h, l, or L) may be present,
+    // but is ignored as it is not necessary for Python – so e.g. %ld is identical to %d.
+    let after_length = consume_length(after_precision);
+    let (format_type, remaining_text, format_char) =
+        parse_format_type(after_length).map_err(|err| (err, consumed))?;
+    let consumed = text.find(remaining_text).unwrap();
+
+    // apply default precision for float types
+    let precision = match precision {
+        Some(precision) => Some(precision),
+        None => match format_type {
+            CFormatType::Float(_) => Some(6),
+            _ => None,
+        },
+    };
+
+    Ok((
+        CFormatPart::Spec(CFormatSpec {
+            mapping_key: mapping_key,
+            flags: flags,
+            min_field_width: width,
+            precision: precision,
+            format_type: format_type,
+            format_char: format_char,
+        }),
+        remaining_text,
+        consumed,
+    ))
+}
