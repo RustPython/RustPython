@@ -8,9 +8,10 @@ mod compile_bytecode;
 mod from_args;
 mod pyclass;
 
-use error::Diagnostic;
+use error::{extract_spans, Diagnostic};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
+use proc_macro_hack::proc_macro_hack;
 use quote::ToTokens;
 use syn::{parse_macro_input, AttributeArgs, DeriveInput, Item};
 
@@ -49,7 +50,7 @@ pub fn pystruct_sequence(attr: TokenStream, item: TokenStream) -> TokenStream {
     result_to_tokens(pyclass::impl_pystruct_sequence(attr, item))
 }
 
-#[proc_macro]
+#[proc_macro_hack]
 pub fn py_compile_bytecode(input: TokenStream) -> TokenStream {
     result_to_tokens(compile_bytecode::impl_py_compile_bytecode(input.into()))
 }

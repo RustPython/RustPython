@@ -29,6 +29,10 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
+use proc_macro_hack::proc_macro_hack;
+#[proc_macro_hack]
+pub use rustpython_derive::py_compile_bytecode;
+
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
 

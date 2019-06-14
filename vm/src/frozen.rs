@@ -1,14 +1,16 @@
 use crate::bytecode::CodeObject;
 use std::collections::HashMap;
 
-py_compile_bytecode! {
-    static ref HELLO = source(
-"initialized = True
+lazy_static! {
+    static ref HELLO: CodeObject = py_compile_bytecode!(
+        source = "initialized = True
 print(\"Hello world!\")
 ",
     );
-    static ref IMPORTLIB_BOOTSTRAP = file("../Lib/importlib/_bootstrap.py");
-    static ref IMPORTLIB_BOOTSTRAP_EXTERNAL = file("../Lib/importlib/_bootstrap_external.py");
+    static ref IMPORTLIB_BOOTSTRAP: CodeObject =
+        py_compile_bytecode!(file = "../Lib/importlib/_bootstrap.py");
+    static ref IMPORTLIB_BOOTSTRAP_EXTERNAL: CodeObject =
+        py_compile_bytecode!(file = "../Lib/importlib/_bootstrap_external.py");
 }
 
 pub fn get_module_inits() -> HashMap<&'static str, &'static CodeObject> {

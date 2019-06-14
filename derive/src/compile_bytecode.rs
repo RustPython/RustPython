@@ -1,31 +1,76 @@
-use super::Diagnostic;
+use crate::{extract_spans, Diagnostic};
 use bincode;
 use proc_macro2::{Span, TokenStream as TokenStream2};
 use quote::quote;
 use rustpython_compiler::{bytecode::CodeObject, compile};
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use syn::parse::{Parse, ParseStream, Result as ParseResult};
-use syn::{self, parse2, Ident, Lit, LitByteStr, Meta, MetaList, NestedMeta, Token};
+use syn::{self, parse2, Lit, LitByteStr, Meta, Token};
 
-struct BytecodeConst {
-    ident: Ident,
-    meta: MetaList,
+enum CompilationSourceKind {
+    File(PathBuf),
+    SourceCode(String),
 }
 
-impl BytecodeConst {
-    fn compile(&self, manifest_dir: &Path) -> Result<CodeObject, Diagnostic> {
-        let meta = &self.meta;
+struct CompilationSource {
+    kind: CompilationSourceKind,
+    span: (Span, Span),
+}
 
+impl CompilationSource {
+    fn compile(self, mode: &compile::Mode, source_path: String) -> Result<CodeObject, Diagnostic> {
+        let compile = |source| {
+            compile::compile(source, mode, source_path).map_err(|err| {
+                Diagnostic::spans_error(self.span, format!("Compile error: {}", err))
+            })
+        };
+
+        match &self.kind {
+            CompilationSourceKind::File(rel_path) => {
+                let mut path = PathBuf::from(
+                    env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
+                );
+                path.push(rel_path);
+                let source = fs::read_to_string(&path).map_err(|err| {
+                    Diagnostic::spans_error(
+                        self.span,
+                        format!("Error reading file {:?}: {}", path, err),
+                    )
+                })?;
+                compile(&source)
+            }
+            CompilationSourceKind::SourceCode(code) => compile(code),
+        }
+    }
+}
+
+struct PyCompileInput {
+    span: Span,
+    metas: Vec<Meta>,
+}
+
+impl PyCompileInput {
+    fn compile(&self) -> Result<CodeObject, Diagnostic> {
         let mut source_path = None;
         let mut mode = None;
-        let mut source_lit = None;
+        let mut source: Option<CompilationSource> = None;
 
-        for meta in &meta.nested {
+        fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), Diagnostic> {
+            if let Some(source) = source {
+                Err(Diagnostic::spans_error(
+                    source.span.clone(),
+                    "Cannot have more than one source",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
+        for meta in &self.metas {
             match meta {
-                NestedMeta::Literal(lit) => source_lit = Some(lit),
-                NestedMeta::Meta(Meta::NameValue(name_value)) => {
+                Meta::NameValue(name_value) => {
                     if name_value.ident == "mode" {
                         mode = Some(match &name_value.lit {
                             Lit::Str(s) => match s.value().as_str() {
@@ -41,94 +86,69 @@ impl BytecodeConst {
                             Lit::Str(s) => s.value(),
                             _ => bail_span!(name_value.lit, "source_path must be string"),
                         })
+                    } else if name_value.ident == "source" {
+                        assert_source_empty(&source)?;
+                        let code = match &name_value.lit {
+                            Lit::Str(s) => s.value(),
+                            _ => bail_span!(name_value.lit, "source must be a string"),
+                        };
+                        source = Some(CompilationSource {
+                            kind: CompilationSourceKind::SourceCode(code),
+                            span: extract_spans(&name_value).unwrap(),
+                        });
+                    } else if name_value.ident == "file" {
+                        assert_source_empty(&source)?;
+                        let path = match &name_value.lit {
+                            Lit::Str(s) => PathBuf::from(s.value()),
+                            _ => bail_span!(name_value.lit, "source must be a string"),
+                        };
+                        source = Some(CompilationSource {
+                            kind: CompilationSourceKind::File(path),
+                            span: extract_spans(&name_value).unwrap(),
+                        });
                     }
                 }
                 _ => {}
             }
         }
 
-        let source = if meta.ident == "file" {
-            let path = match source_lit {
-                Some(Lit::Str(s)) => s.value(),
-                _ => bail_span!(source_lit, "Expected string literal for path to file()"),
-            };
-            let path = manifest_dir.join(path);
-            fs::read_to_string(&path)
-                .map_err(|err| err_span!(source_lit, "Error reading file {:?}: {}", path, err))?
-        } else if meta.ident == "source" {
-            match source_lit {
-                Some(Lit::Str(s)) => s.value(),
-                _ => bail_span!(source_lit, "Expected string literal for source()"),
-            }
-        } else {
-            bail_span!(meta.ident, "Expected either 'file' or 'source'")
-        };
-
-        compile::compile(
-            &source,
-            &mode.unwrap_or(compile::Mode::Exec),
-            source_path.unwrap_or_else(|| "frozen".to_string()),
-        )
-        .map_err(|err| err_span!(source_lit, "Compile error: {}", err))
+        source
+            .ok_or_else(|| {
+                Diagnostic::span_error(
+                    self.span.clone(),
+                    "Must have either file or source in py_compile_bytecode!()",
+                )
+            })?
+            .compile(
+                &mode.unwrap_or(compile::Mode::Exec),
+                source_path.unwrap_or_else(|| "frozen".to_string()),
+            )
     }
 }
-
-impl Parse for BytecodeConst {
-    /// Parse the form `static ref IDENT = metalist(...);`
-    fn parse(input: ParseStream) -> ParseResult<Self> {
-        input.parse::<Token![static]>()?;
-        input.parse::<Token![ref]>()?;
-        let ident = input.parse()?;
-        input.parse::<Token![=]>()?;
-        let meta = input.parse()?;
-        input.parse::<Token![;]>()?;
-        Ok(BytecodeConst { ident, meta })
-    }
-}
-
-struct PyCompileInput(Vec<BytecodeConst>);
 
 impl Parse for PyCompileInput {
     fn parse(input: ParseStream) -> ParseResult<Self> {
-        std::iter::from_fn(|| {
-            if input.is_empty() {
-                None
-            } else {
-                Some(input.parse())
-            }
-        })
-        .collect::<ParseResult<_>>()
-        .map(PyCompileInput)
+        let span = input.cursor().span();
+        let metas = input
+            .parse_terminated::<Meta, Token![,]>(Meta::parse)?
+            .into_iter()
+            .collect();
+        Ok(PyCompileInput { span, metas })
     }
 }
 
 pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
-    let PyCompileInput(consts) = parse2(input)?;
+    let input: PyCompileInput = parse2(input)?;
 
-    let manifest_dir = PathBuf::from(
-        env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is not present"),
-    );
-
-    let consts = consts
-        .into_iter()
-        .map(|bytecode_const| -> Result<_, Diagnostic> {
-            let code_obj = bytecode_const.compile(&manifest_dir)?;
-            let ident = bytecode_const.ident;
-            let bytes = bincode::serialize(&code_obj).expect("Failed to serialize");
-            let bytes = LitByteStr::new(&bytes, Span::call_site());
-            Ok(quote! {
-                static ref #ident: ::rustpython_vm::bytecode::CodeObject = {
-                    use bincode;
-                    bincode::deserialize(#bytes).expect("Deserializing CodeObject failed")
-                };
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let code_obj = input.compile()?;
+    let bytes = bincode::serialize(&code_obj).expect("Failed to serialize");
+    let bytes = LitByteStr::new(&bytes, Span::call_site());
 
     let output = quote! {
-        lazy_static! {
-            #(#consts)*
-        }
+        ({
+            use bincode;
+            bincode::deserialize(#bytes).expect("Deserializing CodeObject failed")
+        })
     };
 
     Ok(output)
