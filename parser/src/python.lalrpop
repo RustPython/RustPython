@@ -206,7 +206,7 @@ ImportStatement: ast::LocatedStatement = {
             .map(|(n, a)|
                 ast::SingleImport {
                     module: n.to_string(),
-                    symbol: None,
+                    symbols: vec![],
                     alias: a.clone()
                 })
             .collect()
@@ -217,15 +217,18 @@ ImportStatement: ast::LocatedStatement = {
     ast::LocatedStatement {
       location: loc,
       node: ast::Statement::Import {
-        import_parts: i
-            .iter()
-            .map(|(i, a)|
-                ast::SingleImport {
-                    module: n.to_string(),
-                    symbol: Some(i.to_string()),
-                    alias: a.clone()
-                })
-            .collect()
+        import_parts: vec![
+            ast::SingleImport {
+                module: n.to_string(),
+                symbols: i.iter()
+                    .map(|(i, a)|
+                        ast::ImportSymbol {
+                            symbol: i.to_string(),
+                            alias: a.clone(),
+                        })
+                    .collect(),
+                alias: None
+        }]
       },
     }
   },

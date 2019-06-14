@@ -28,11 +28,16 @@ pub struct Program {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct ImportSymbol {
+    pub symbol: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct SingleImport {
     pub module: String,
-    // (symbol name in module, name it should be assigned locally)
-    pub symbol: Option<String>,
     pub alias: Option<String>,
+    pub symbols: Vec<ImportSymbol>,
 }
 
 #[derive(Debug, PartialEq)]
