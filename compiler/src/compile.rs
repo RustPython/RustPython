@@ -255,46 +255,45 @@ impl Compiler {
                 } in import_parts
                 {
                     if let Some(alias) = alias {
+                        // import module as alias
                         self.emit(Instruction::Import {
                             name: module.clone(),
                             symbols: vec![],
                         });
                         self.store_name(&alias);
+                    } else if symbols.is_empty() {
+                        // import module
+                        self.emit(Instruction::Import {
+                            name: module.clone(),
+                            symbols: vec![],
+                        });
+                        self.store_name(&module.clone());
                     } else {
-                        if symbols.is_empty() {
+                        let import_star = symbols
+                            .iter()
+                            .any(|import_symbol| import_symbol.symbol == "*");
+                        if import_star {
+                            // from module import *
+                            self.emit(Instruction::ImportStar {
+                                name: module.clone(),
+                            });
+                        } else {
+                            // from module import symbol
+                            // from module import symbol as alias
+                            let (names, symbols_strings): (Vec<String>, Vec<String>) = symbols
+                                .iter()
+                                .map(|ast::ImportSymbol { symbol, alias }| {
+                                    (
+                                        alias.clone().unwrap_or_else(|| symbol.to_string()),
+                                        symbol.to_string(),
+                                    )
+                                })
+                                .unzip();
                             self.emit(Instruction::Import {
                                 name: module.clone(),
-                                symbols: vec![],
+                                symbols: symbols_strings,
                             });
-                            self.store_name(&module.clone());
-                        } else {
-                            let mut import_star = false;
-                            let mut symbols_strings = vec![];
-                            let mut names = vec![];
-                            for ast::ImportSymbol { symbol, alias } in symbols {
-                                if symbol == "*" {
-                                    import_star = true;
-                                }
-                                symbols_strings.push(symbol.to_string());
-                                names.insert(
-                                    0,
-                                    match alias {
-                                        Some(alias) => alias,
-                                        None => symbol,
-                                    },
-                                );
-                            }
-                            if import_star {
-                                self.emit(Instruction::ImportStar {
-                                    name: module.clone(),
-                                });
-                            } else {
-                                self.emit(Instruction::Import {
-                                    name: module.clone(),
-                                    symbols: symbols_strings,
-                                });
-                                names.iter().for_each(|name| self.store_name(&name));
-                            }
+                            names.iter().rev().for_each(|name| self.store_name(&name));
                         }
                     }
                 }
