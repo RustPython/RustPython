@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unicode_xid::UnicodeXID;
+use wtf8;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct IndentationLevel {
@@ -67,6 +68,7 @@ pub struct LexicalError {
 #[derive(Debug)]
 pub enum LexicalErrorType {
     StringError,
+    UnicodeError,
     NestingError,
     UnrecognizedToken { tok: char },
     OtherError(String),
@@ -456,6 +458,27 @@ where
         }
     }
 
+    fn unicode_literal(&mut self, literal_number: usize) -> Result<char, LexicalError> {
+        let mut p: u32 = 0u32;
+        let unicode_error = Err(LexicalError {
+            error: LexicalErrorType::UnicodeError,
+            location: self.get_pos(),
+        });
+        for i in 1..=literal_number {
+            match self.next_char() {
+                Some(c) => match c.to_digit(16) {
+                    Some(d) => p += d << (literal_number - i) * 4,
+                    None => return unicode_error,
+                },
+                None => return unicode_error,
+            }
+        }
+        match wtf8::CodePoint::from_u32(p) {
+            Some(cp) => return Ok(cp.to_char_lossy()),
+            None => return unicode_error,
+        }
+    }
+
     fn lex_string(
         &mut self,
         is_bytes: bool,
@@ -513,6 +536,9 @@ where
                             Some('t') => {
                                 string_content.push('\t');
                             }
+                            Some('u') => string_content.push(self.unicode_literal(4)?),
+                            Some('U') => string_content.push(self.unicode_literal(8)?),
+                            Some('x') if !is_bytes => string_content.push(self.unicode_literal(2)?),
                             Some('v') => string_content.push('\x0b'),
                             Some(c) => {
                                 string_content.push('\\');

@@ -240,3 +240,12 @@ assert " ".isprintable()
 assert "abcdefg".isprintable()
 assert not "abcdefg\n".isprintable()
 assert "ʹ".isprintable()
+
+# test unicode iterals
+assert "\xac" == "¬"
+assert "\u0037" == "7"
+assert "\u0040" == "@"
+assert "\u0041" == "A"
+assert "\u00BE" == "¾"
+assert "\u9487" == "钇"
+assert "\U0001F609" == "😉"
