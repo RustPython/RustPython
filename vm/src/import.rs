@@ -25,7 +25,7 @@ pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    if let Some(&frozen) = vm.frozen.borrow().get(module_name) {
+    if let Some(frozen) = vm.frozen.borrow().get(module_name) {
         let mut frozen = frozen.clone();
         frozen.source_path = format!("frozen {}", module_name);
         import_codeobj(vm, module_name, frozen)

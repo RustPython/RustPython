@@ -58,7 +58,7 @@ fn imp_get_frozen_object(name: PyStringRef, vm: &VirtualMachine) -> PyResult<PyC
     vm.frozen
         .borrow()
         .get(name.as_str())
-        .map(|&frozen| {
+        .map(|frozen| {
             let mut frozen = frozen.clone();
             frozen.source_path = format!("frozen {}", name.as_str());
             PyCode::new(frozen)

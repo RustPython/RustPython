@@ -51,17 +51,11 @@ struct PyCompileInput {
     metas: Vec<Meta>,
 }
 
-struct PyCompileResult {
-    code_obj: CodeObject,
-    lazy_static: bool,
-}
-
 impl PyCompileInput {
-    fn compile(&self) -> Result<PyCompileResult, Diagnostic> {
+    fn compile(&self) -> Result<CodeObject, Diagnostic> {
         let mut source_path = None;
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
-        let mut lazy_static = false;
 
         fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), Diagnostic> {
             if let Some(source) = source {
@@ -114,16 +108,11 @@ impl PyCompileInput {
                         });
                     }
                 }
-                Meta::Word(ident) => {
-                    if ident == "lazy_static" {
-                        lazy_static = true;
-                    }
-                }
                 _ => {}
             }
         }
 
-        let code_obj = source
+        source
             .ok_or_else(|| {
                 Diagnostic::span_error(
                     self.span.clone(),
@@ -133,12 +122,7 @@ impl PyCompileInput {
             .compile(
                 &mode.unwrap_or(compile::Mode::Exec),
                 source_path.unwrap_or_else(|| "frozen".to_string()),
-            )?;
-
-        Ok(PyCompileResult {
-            code_obj,
-            lazy_static,
-        })
+            )
     }
 }
 
@@ -156,10 +140,7 @@ impl Parse for PyCompileInput {
 pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Diagnostic> {
     let input: PyCompileInput = parse2(input)?;
 
-    let PyCompileResult {
-        code_obj,
-        lazy_static,
-    } = input.compile()?;
+    let code_obj = input.compile()?;
 
     let bytes = bincode::serialize(&code_obj).expect("Failed to serialize");
     let bytes = LitByteStr::new(&bytes, Span::call_site());
@@ -172,17 +153,5 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
         })
     };
 
-    if lazy_static {
-        Ok(quote! {
-            ({
-                use ::lazy_static::lazy_static;
-                lazy_static! {
-                    static ref STATIC: ::rustpython_vm::bytecode::CodeObject = #output;
-                }
-                &*STATIC
-            })
-        })
-    } else {
-        Ok(output)
-    }
+    Ok(output)
 }
