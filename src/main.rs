@@ -74,13 +74,18 @@ fn main() {
     handle_exception(&vm, result);
 }
 
-fn _run_string(vm: &VirtualMachine, source: &str, source_path: String) -> PyResult {
+fn _run_string(vm: &VirtualMachine, mut source: String, source_path: String) -> PyResult {
+    // This works around https://github.com/RustPython/RustPython/issues/17
+    if !source.ends_with("\n") {
+        source.push('\n')
+    }
+
     let code_obj = vm
-        .compile(source, &compile::Mode::Exec, source_path.clone())
+        .compile(&source, &compile::Mode::Exec, source_path.clone())
         .map_err(|err| vm.new_syntax_error(&err))?;
-    // trace!("Code object: {:?}", code_obj.borrow());
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__file__", vm.new_str(source_path), vm)?;
+
     vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))
 }
 
@@ -91,12 +96,9 @@ fn handle_exception(vm: &VirtualMachine, result: PyResult) {
     }
 }
 
-fn run_command(vm: &VirtualMachine, mut source: String) -> PyResult {
+fn run_command(vm: &VirtualMachine, source: String) -> PyResult {
     debug!("Running command {}", source);
-
-    // This works around https://github.com/RustPython/RustPython/issues/17
-    source.push('\n');
-    _run_string(vm, &source, "<stdin>".to_string())
+    _run_string(vm, source, "<stdin>".to_string())
 }
 
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult {
@@ -135,7 +137,7 @@ fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
     vm.call_method(&sys_path, "insert", vec![vm.new_int(0), vm.new_str(dir)])?;
 
     match util::read_file(&file_path) {
-        Ok(source) => _run_string(vm, &source, file_path.to_str().unwrap().to_string()),
+        Ok(source) => _run_string(vm, source, file_path.to_str().unwrap().to_string()),
         Err(err) => {
             error!(
                 "Failed reading file '{}': {:?}",
