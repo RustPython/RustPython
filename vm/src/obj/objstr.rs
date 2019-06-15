@@ -1187,12 +1187,6 @@ fn do_cformat(
         } else {
             values_obj.clone()
         }
-
-        // if values.len() > num_specifiers {
-        //     return Err(vm.new_type_error("not all arguments converted during string formatting".to_string()));
-        // } else if values.len() < num_specifiers {
-        //     return Err(vm.new_type_error("not enough arguments for format string".to_string()));
-        // }
     };
 
     let mut auto_index: usize = 0;
@@ -1206,8 +1200,13 @@ fn do_cformat(
                         call_getitem(vm, &values_obj, &vm.ctx.new_str(key.to_string()))?
                     }
                     None => {
-                        // TODO: translate exception from IndexError to TypeError
-                        let obj = call_getitem(vm, &values_obj, &vm.ctx.new_int(auto_index))?;
+                        let elements = objtuple::get_value(&values_obj);
+                        let obj = match elements.into_iter().nth(auto_index) {
+                            Some(obj) => Ok(obj),
+                            None => Err(vm.new_type_error(
+                                "not enough arguments for format string".to_string(),
+                            )),
+                        }?;
                         auto_index += 1;
 
                         obj
@@ -1219,6 +1218,20 @@ fn do_cformat(
             CFormatPart::Literal(literal) => Ok(literal.clone()),
         }?;
         final_string.push_str(&result_string);
+    }
+
+    // check that all arguments were converted
+    if !mapping_required {
+        if !objtuple::get_value(&values_obj)
+            .into_iter()
+            .skip(auto_index)
+            .collect::<Vec<PyObjectRef>>()
+            .is_empty()
+        {
+            return Err(vm.new_type_error(
+                "not all arguments converted during string formatting".to_string(),
+            ));
+        }
     }
 
     Ok(vm.ctx.new_str(final_string))
