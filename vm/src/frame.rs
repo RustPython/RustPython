@@ -271,7 +271,10 @@ impl Frame {
     }
 
     pub fn run(&self, vm: &VirtualMachine) -> Result<ExecutionResult, PyObjectRef> {
-        let filename = &self.code.source_path.to_string();
+        let filename = match self.code.source_path.clone() {
+            Some(s) => vm.ctx.new_str(s),
+            None => vm.get_none(),
+        };
 
         // This is the name of the object being run:
         let run_obj_name = &self.code.obj_name.to_string();
@@ -299,7 +302,7 @@ impl Frame {
                         .unwrap();
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let raise_location = vm.ctx.new_tuple(vec![
-                        vm.ctx.new_str(filename.clone()),
+                        filename.clone(),
                         vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);

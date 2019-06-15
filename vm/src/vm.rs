@@ -739,7 +739,7 @@ impl VirtualMachine {
         &self,
         source: &str,
         mode: &compile::Mode,
-        source_path: String,
+        source_path: Option<String>,
     ) -> Result<PyCodeRef, CompileError> {
         compile::compile(source, mode, source_path)
             .map(|codeobj| PyCode::new(codeobj).into_ref(self))
