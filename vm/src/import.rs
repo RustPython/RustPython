@@ -91,7 +91,7 @@ pub fn import_codeobj(vm: &VirtualMachine, module_name: &str, code_obj: CodeObje
     attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
     let file_path = &code_obj.source_path;
     if !file_path.starts_with("frozen") {
-        // TODO: Should be removed after precompiling frozen modules.
+        // TODO: Should be less hacky, not depend on source_path
         attrs.set_item("__file__", vm.new_str(file_path.to_owned()), vm)?;
     }
     let module = vm.ctx.new_module(module_name, attrs.clone());
