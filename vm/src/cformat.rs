@@ -1,4 +1,4 @@
-use crate::format::{parse_number, parse_precision};
+use crate::format::get_num_digits;
 /// Implementation of Printf-Style string formatting
 /// [https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting]
 use num_bigint::{BigInt, Sign};
@@ -71,11 +71,17 @@ bitflags! {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum CFormatQuantity {
+    Amount(usize),
+    FromValuesTuple,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct CFormatSpec {
     pub mapping_key: Option<String>,
     pub flags: CConversionFlags,
-    pub min_field_width: Option<usize>,
-    pub precision: Option<usize>,
+    pub min_field_width: Option<CFormatQuantity>,
+    pub precision: Option<CFormatQuantity>,
     pub format_type: CFormatType,
     pub format_char: char,
     chars_consumed: usize,
@@ -101,8 +107,8 @@ impl CFormatSpec {
         let num_chars = num_chars;
 
         let width = match self.min_field_width {
-            Some(width) => cmp::max(width, num_chars),
-            None => num_chars,
+            Some(CFormatQuantity::Amount(width)) => cmp::max(width, num_chars),
+            _ => num_chars,
         };
         let fill_chars_needed = width - num_chars;
         let fill_string = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
@@ -121,7 +127,7 @@ impl CFormatSpec {
     pub fn format_string(&self, string: String) -> String {
         let mut string = string;
         // truncate if needed
-        if let Some(precision) = self.precision {
+        if let Some(CFormatQuantity::Amount(precision)) = self.precision {
             if string.len() > precision {
                 string.truncate(precision);
             }
@@ -239,6 +245,32 @@ impl FromStr for CFormatString {
         Ok(CFormatString {
             format_parts: parts,
         })
+    }
+}
+
+fn parse_quantity(text: &str) -> (Option<CFormatQuantity>, &str) {
+    let num_digits: usize = get_num_digits(text);
+    if num_digits == 0 {
+        let mut chars = text.chars();
+        return match chars.next() {
+            Some('*') => (Some(CFormatQuantity::FromValuesTuple), chars.as_str()),
+            _ => (None, text),
+        };
+    }
+    // This should never fail
+    (
+        Some(CFormatQuantity::Amount(
+            text[..num_digits].parse::<usize>().unwrap(),
+        )),
+        &text[num_digits..],
+    )
+}
+
+fn parse_precision(text: &str) -> (Option<CFormatQuantity>, &str) {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some('.') => parse_quantity(&chars.as_str()),
+        _ => (None, text),
     }
 }
 
@@ -445,7 +477,7 @@ impl FromStr for CFormatSpec {
         let (mapping_key, after_mapping_key) =
             parse_spec_mapping_key(chars.as_str()).map_err(|err| (err, consumed))?;
         let (flags, after_flags) = parse_flags(after_mapping_key);
-        let (width, after_width) = parse_number(after_flags);
+        let (width, after_width) = parse_quantity(after_flags);
         let (precision, after_precision) = parse_precision(after_width);
         // A length modifier (h, l, or L) may be present,
         // but is ignored as it is not necessary for Python – so e.g. %ld is identical to %d.
@@ -459,7 +491,7 @@ impl FromStr for CFormatSpec {
         let precision = match precision {
             Some(precision) => Some(precision),
             None => match format_type {
-                CFormatType::Float(_) => Some(6),
+                CFormatType::Float(_) => Some(CFormatQuantity::Amount(6)),
                 _ => None,
             },
         };
@@ -575,7 +607,7 @@ mod tests {
             format_type: CFormatType::Number(CNumberType::Decimal),
             format_char: 'd',
             chars_consumed: 17,
-            min_field_width: Some(10),
+            min_field_width: Some(CFormatQuantity::Amount(10)),
             precision: None,
             mapping_key: None,
             flags: CConversionFlags::all(),

@@ -12,8 +12,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_xid::UnicodeXID;
 
 use crate::cformat::{
-    CFormatErrorType, CFormatPart, CFormatPreconversor, CFormatSpec, CFormatString, CFormatType,
-    CNumberType,
+    CFormatErrorType, CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec,
+    CFormatString, CFormatType, CNumberType,
 };
 use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatString};
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
@@ -1146,7 +1146,7 @@ fn do_cformat_specifier(
 
 fn do_cformat(
     vm: &VirtualMachine,
-    format_string: CFormatString,
+    mut format_string: CFormatString,
     values_obj: PyObjectRef,
 ) -> PyResult {
     let mut final_string = String::new();
@@ -1169,7 +1169,7 @@ fn do_cformat(
         if !objtype::isinstance(&values_obj, &vm.ctx.dict_type()) {
             return Err(vm.new_type_error("format requires a mapping".to_string()));
         }
-        values_obj
+        values_obj.clone()
     } else {
         // check for only literal parts, in which case only empty tuple is allowed
         if 0 == num_specifiers
@@ -1190,7 +1190,7 @@ fn do_cformat(
     };
 
     let mut auto_index: usize = 0;
-    for (_, part) in &format_string.format_parts {
+    for (_, part) in &mut format_string.format_parts {
         let result_string: String = match part {
             CFormatPart::Spec(format_spec) => {
                 // try to get the object
@@ -1200,8 +1200,42 @@ fn do_cformat(
                         call_getitem(vm, &values_obj, &vm.ctx.new_str(key.to_string()))?
                     }
                     None => {
-                        let elements = objtuple::get_value(&values_obj);
-                        let obj = match elements.into_iter().nth(auto_index) {
+                        let mut elements = objtuple::get_value(&values_obj)
+                            .into_iter()
+                            .skip(auto_index);
+
+                        let mut try_quantity_from_tuple = |q: &mut Option<CFormatQuantity>| {
+                            match q {
+                                Some(CFormatQuantity::FromValuesTuple) => {
+                                    match elements.next() {
+                                        Some(width_obj) => {
+                                            auto_index += 1;
+                                            if !objtype::isinstance(&width_obj, &vm.ctx.int_type())
+                                            {
+                                                Err(vm.new_type_error("* wants int".to_string()))
+                                            } else {
+                                                // TODO: handle errors when truncating BigInt to usize
+                                                *q = Some(CFormatQuantity::Amount(
+                                                    objint::get_value(&width_obj)
+                                                        .to_usize()
+                                                        .unwrap(),
+                                                ));
+                                                Ok(())
+                                            }
+                                        }
+                                        None => Err(vm.new_type_error(
+                                            "not enough arguments for format string".to_string(),
+                                        )),
+                                    }
+                                }
+                                _ => Ok(()),
+                            }
+                        };
+
+                        try_quantity_from_tuple(&mut format_spec.min_field_width)?;
+                        try_quantity_from_tuple(&mut format_spec.precision)?;
+
+                        let obj = match elements.next() {
                             Some(obj) => Ok(obj),
                             None => Err(vm.new_type_error(
                                 "not enough arguments for format string".to_string(),
