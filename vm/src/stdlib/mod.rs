@@ -34,29 +34,27 @@ use crate::pyobject::PyObjectRef;
 pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef>;
 
 pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
-    let mut modules = HashMap::new();
-    modules.insert(
-        "ast".to_string(),
-        Box::new(ast::make_module) as StdlibInitFunc,
-    );
-    modules.insert("binascii".to_string(), Box::new(binascii::make_module));
-    modules.insert("dis".to_string(), Box::new(dis::make_module));
-    modules.insert("itertools".to_string(), Box::new(itertools::make_module));
-    modules.insert("json".to_string(), Box::new(json::make_module));
-    modules.insert("keyword".to_string(), Box::new(keyword::make_module));
-    modules.insert("marshal".to_string(), Box::new(marshal::make_module));
-    modules.insert("math".to_string(), Box::new(math::make_module));
-    modules.insert("platform".to_string(), Box::new(platform::make_module));
-    modules.insert("re".to_string(), Box::new(re::make_module));
-    modules.insert("random".to_string(), Box::new(random::make_module));
-    modules.insert("string".to_string(), Box::new(string::make_module));
-    modules.insert("struct".to_string(), Box::new(pystruct::make_module));
-    modules.insert("_thread".to_string(), Box::new(thread::make_module));
-    modules.insert("time".to_string(), Box::new(time_module::make_module));
-    modules.insert("tokenize".to_string(), Box::new(tokenize::make_module));
-    modules.insert("_weakref".to_string(), Box::new(weakref::make_module));
-    modules.insert("_imp".to_string(), Box::new(imp::make_module));
-    modules.insert("_warnings".to_string(), Box::new(warnings::make_module));
+    let mut modules = hashmap! {
+        "ast".to_string() => Box::new(ast::make_module) as StdlibInitFunc,
+        "binascii".to_string() => Box::new(binascii::make_module),
+        "dis".to_string() => Box::new(dis::make_module),
+        "itertools".to_string() => Box::new(itertools::make_module),
+        "json".to_string() => Box::new(json::make_module),
+        "keyword".to_string() => Box::new(keyword::make_module),
+        "marshal".to_string() => Box::new(marshal::make_module),
+        "math".to_string() => Box::new(math::make_module),
+        "platform".to_string() => Box::new(platform::make_module),
+        "re".to_string() => Box::new(re::make_module),
+        "random".to_string() => Box::new(random::make_module),
+        "string".to_string() => Box::new(string::make_module),
+        "struct".to_string() => Box::new(pystruct::make_module),
+        "_thread".to_string() => Box::new(thread::make_module),
+        "time".to_string() => Box::new(time_module::make_module),
+        "tokenize".to_string() => Box::new(tokenize::make_module),
+        "_weakref".to_string() => Box::new(weakref::make_module),
+        "_imp".to_string() => Box::new(imp::make_module),
+        "_warnings".to_string() => Box::new(warnings::make_module),
+    };
 
     // disable some modules on WASM
     #[cfg(not(target_arch = "wasm32"))]
