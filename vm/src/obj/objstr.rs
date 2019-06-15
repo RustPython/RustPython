@@ -11,7 +11,10 @@ use unicode_casing::CharExt;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_xid::UnicodeXID;
 
-use crate::cformat::{CFormatString, CFormatErrorType};
+use crate::cformat::{
+    CFormatErrorType, CFormatPart, CFormatPreconversor, CFormatSpec, CFormatString, CFormatType,
+    CNumberType,
+};
 use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatString};
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
 use crate::pyhash;
@@ -27,6 +30,7 @@ use super::objint::{self, PyInt};
 use super::objnone::PyNone;
 use super::objsequence::PySliceableSequence;
 use super::objslice::PySlice;
+use super::objtuple;
 use super::objtype::{self, PyClassRef};
 
 use unicode_categories::UnicodeCategories;
@@ -434,7 +438,7 @@ impl PyString {
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let format_string_text = &self.value;
         match CFormatString::from_str(format_string_text) {
-            Ok(format_string) => perform_clike_format(vm, format_string, values.clone()),
+            Ok(format_string) => do_cformat(vm, format_string, values.clone()),
             Err(err) => match err.typ {
                 CFormatErrorType::UnsupportedFormatChar(c) => Err(vm.new_value_error(format!(
                     "unsupported format character '{}' ({:#x}) at index {}",
@@ -1076,6 +1080,10 @@ fn count_char(s: &str, c: char) -> usize {
     s.chars().filter(|x| *x == c).count()
 }
 
+fn call_getitem(vm: &VirtualMachine, container: &PyObjectRef, key: &PyObjectRef) -> PyResult {
+    vm.call_method(container, "__getitem__", vec![key.clone()])
+}
+
 fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &str) -> PyResult {
     let (preconversor, new_format_spec) = FormatPreconversor::parse_and_consume(format_spec);
     let argument = match preconversor {
@@ -1095,13 +1103,125 @@ fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &
     Ok(result)
 }
 
-fn perform_clike_format(
+fn do_cformat_specifier(
+    vm: &VirtualMachine,
+    format_spec: &CFormatSpec,
+    obj: PyObjectRef,
+) -> Result<String, PyObjectRef> {
+    use CNumberType::*;
+    // do the formatting by type
+    let format_type = &format_spec.format_type;
+
+    match format_type {
+        CFormatType::String(preconversor) => {
+            let result = match preconversor {
+                CFormatPreconversor::Str => vm.call_method(&obj.clone(), "__str__", vec![])?,
+                CFormatPreconversor::Repr => vm.call_method(&obj.clone(), "__repr__", vec![])?,
+                CFormatPreconversor::Ascii => vm.call_method(&obj.clone(), "__repr__", vec![])?,
+            };
+            Ok(format_spec.format_string(get_value(&result)))
+        }
+        CFormatType::Number(_) => {
+            if !objtype::isinstance(&obj, &vm.ctx.int_type()) {
+                let required_type_string = match format_type {
+                    CFormatType::Number(Decimal) => "a number",
+                    CFormatType::Number(_) => "an integer",
+                    _ => unreachable!(),
+                };
+                return Err(vm.new_type_error(format!(
+                    "%{} format: {} is required, not {}",
+                    format_spec.format_char,
+                    required_type_string,
+                    obj.class()
+                )));
+            }
+            Ok(format_spec.format_number(objint::get_value(&obj)))
+        }
+        _ => Err(vm.new_not_implemented_error(format!(
+            "Not yet implemented for %{}",
+            format_spec.format_char
+        ))),
+    }
+}
+
+fn do_cformat(
     vm: &VirtualMachine,
     format_string: CFormatString,
     values_obj: PyObjectRef,
 ) -> PyResult {
-    // TODO
-    Err(vm.new_type_error("Not implemented".to_string()))
+    let mut final_string = String::new();
+    let num_specifiers = format_string
+        .format_parts
+        .iter()
+        .filter(|(_, part)| CFormatPart::is_specifier(part))
+        .count();
+    let mapping_required = format_string
+        .format_parts
+        .iter()
+        .any(|(_, part)| CFormatPart::has_key(part))
+        && format_string
+            .format_parts
+            .iter()
+            .filter(|(_, part)| CFormatPart::is_specifier(part))
+            .all(|(_, part)| CFormatPart::has_key(part));
+
+    let values_obj = if mapping_required {
+        if !objtype::isinstance(&values_obj, &vm.ctx.dict_type()) {
+            return Err(vm.new_type_error("format requires a mapping".to_string()));
+        }
+        values_obj
+    } else {
+        // check for only literal parts, in which case only empty tuple is allowed
+        if 0 == num_specifiers
+            && (!objtype::isinstance(&values_obj, &vm.ctx.tuple_type())
+                || !objtuple::get_value(&values_obj).is_empty())
+        {
+            return Err(vm.new_type_error(
+                "not all arguments converted during string formatting".to_string(),
+            ));
+        }
+
+        // convert `values_obj` to a new tuple if it's not a tuple
+        if !objtype::isinstance(&values_obj, &vm.ctx.tuple_type()) {
+            vm.ctx.new_tuple(vec![values_obj.clone()])
+        } else {
+            values_obj.clone()
+        }
+
+        // if values.len() > num_specifiers {
+        //     return Err(vm.new_type_error("not all arguments converted during string formatting".to_string()));
+        // } else if values.len() < num_specifiers {
+        //     return Err(vm.new_type_error("not enough arguments for format string".to_string()));
+        // }
+    };
+
+    let mut auto_index: usize = 0;
+    for (_, part) in &format_string.format_parts {
+        let result_string: String = match part {
+            CFormatPart::Spec(format_spec) => {
+                // try to get the object
+                let obj: PyObjectRef = match &format_spec.mapping_key {
+                    Some(key) => {
+                        // TODO: change the KeyError message to match the one in cpython
+                        call_getitem(vm, &values_obj, &vm.ctx.new_str(key.to_string()))?
+                    }
+                    None => {
+                        // TODO: translate exception from IndexError to TypeError
+                        let obj = call_getitem(vm, &values_obj, &vm.ctx.new_int(auto_index))?;
+                        auto_index += 1;
+
+                        obj
+                    }
+                };
+
+                do_cformat_specifier(vm, &format_spec, obj)
+            }
+            CFormatPart::Literal(literal) => Ok(literal.clone()),
+        }?;
+        final_string.push_str(&result_string);
+    }
+
+    Ok(vm.ctx.new_str(final_string))
 }
 
 fn perform_format(

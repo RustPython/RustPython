@@ -79,10 +79,128 @@ pub struct CFormatSpec {
     pub format_char: char,
 }
 
+impl CFormatSpec {
+    fn compute_fill_string(fill_char: char, fill_chars_needed: usize) -> String {
+        (0..fill_chars_needed)
+            .map(|_| fill_char)
+            .collect::<String>()
+    }
+
+    pub fn fill_string(&self, string: String, fill_char: char, num_prefix_chars: Option<usize>) -> String {
+        let mut num_chars = string.len();
+        if let Some(num_prefix_chars) = num_prefix_chars {
+            num_chars = num_chars + num_prefix_chars;
+        }
+        let num_chars = num_chars;
+
+        let width = match self.min_field_width {
+            Some(width) => cmp::max(width, num_chars),
+            None => num_chars,
+        };
+        let fill_chars_needed = width - num_chars;
+        let fill_string = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
+
+        if !fill_string.is_empty() {
+            if self.flags.contains(CConversionFlags::LEFT_ADJUST) {
+                format!("{}{}", string, fill_string)
+            } else {
+                format!("{}{}", fill_string, string)
+            }
+        } else {
+            string
+        }
+    }
+
+    pub fn format_string(&self, string: String) -> String {
+        let mut string = string;
+        // truncate if needed
+        if let Some(precision) = self.precision {
+            if string.len() > precision {
+                string.truncate(precision);
+            }
+        }
+        self.fill_string(string, ' ', None)
+    }
+
+    pub fn format_number(&self, num: &BigInt) -> String {
+        use CFormatCase::{Lowercase, Uppercase};
+        use CNumberType::*;
+        let fill_char = if self.flags.contains(CConversionFlags::ZERO_PAD) {
+            '0'
+        } else {
+            ' '
+        };
+        let magnitude = num.abs();
+        let prefix = if self.flags.contains(CConversionFlags::ALTERNATE_FORM) {
+            match self.format_type {
+                CFormatType::Number(Octal) => "0o",
+                CFormatType::Number(Hex(Lowercase)) => "0x",
+                CFormatType::Number(Hex(Uppercase)) => "0X",
+                _ => "",
+            }
+        } else {
+            ""
+        };
+
+        let magnitude_string: String = match self.format_type {
+            CFormatType::Number(Decimal) => magnitude.to_str_radix(10),
+            CFormatType::Number(Octal) => magnitude.to_str_radix(8),
+            CFormatType::Number(Hex(Lowercase)) => magnitude.to_str_radix(16),
+            CFormatType::Number(Hex(Uppercase)) => {
+                let mut result = magnitude.to_str_radix(16);
+                result.make_ascii_uppercase();
+                result
+            }
+            _ => unreachable!(), // Should not happen because caller has to make sure that this is a number
+        };
+
+
+        let sign_string = match num.sign() {
+            Sign::Minus => "-",
+            _ => {
+                if self.flags.contains(CConversionFlags::SIGN_CHAR) {
+                    "+"
+                } else if self.flags.contains(CConversionFlags::BLANK_SIGN) {
+                    " "
+                } else {
+                    ""
+                }
+            }
+        };
+
+
+        let prefix = format!("{}{}", sign_string, prefix);
+        let magnitude_filled_string = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
+            // '-' flags overrides '0' flag
+            self.fill_string(magnitude_string, fill_char, Some(prefix.len()))
+        } else {
+            magnitude_string
+        };
+
+        format!("{}{}", prefix, magnitude_filled_string)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum CFormatPart {
     Literal(String),
     Spec(CFormatSpec),
+}
+
+impl CFormatPart {
+    pub fn is_specifier(&self) -> bool {
+        match self {
+            CFormatPart::Spec(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn has_key(&self) -> bool {
+        match self {
+            CFormatPart::Spec(s) => s.mapping_key.is_some(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
