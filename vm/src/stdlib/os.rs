@@ -103,7 +103,10 @@ pub fn os_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
             (name, Some(vm.ctx.str_type())),
             (flags, Some(vm.ctx.int_type()))
         ],
-        optional = [(dir_fd, Some(vm.ctx.int_type()))]
+        optional = [
+            (_mode, Some(vm.ctx.int_type())),
+            (dir_fd, Some(vm.ctx.int_type()))
+        ]
     );
 
     let name = name.clone().downcast::<PyString>().unwrap();
