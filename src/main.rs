@@ -83,10 +83,10 @@ fn _run_string(vm: &VirtualMachine, mut source: String, source_path: String) -> 
     let code_obj = vm
         .compile(&source, &compile::Mode::Exec, source_path.clone())
         .map_err(|err| vm.new_syntax_error(&err))?;
-    let attrs = vm.ctx.new_dict();
-    attrs.set_item("__file__", vm.new_str(source_path), vm)?;
+    let globals = vm.ctx.new_dict();
+    globals.set_item("__file__", vm.new_str(source_path), vm)?;
 
-    vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))
+    vm.run_code_obj(code_obj, Scope::with_builtins(None, globals, vm))
 }
 
 fn handle_exception(vm: &VirtualMachine, result: PyResult) {
