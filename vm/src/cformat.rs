@@ -19,6 +19,7 @@ pub enum CFormatErrorType {
 // also contains how many chars the parsing function consumed
 type ParsingError = (CFormatErrorType, usize);
 
+#[derive(Debug, PartialEq)]
 pub struct CFormatError {
     pub typ: CFormatErrorType,
     pub index: usize,
@@ -77,6 +78,7 @@ pub struct CFormatSpec {
     pub precision: Option<usize>,
     pub format_type: CFormatType,
     pub format_char: char,
+    chars_consumed: usize,
 }
 
 impl CFormatSpec {
@@ -86,7 +88,12 @@ impl CFormatSpec {
             .collect::<String>()
     }
 
-    pub fn fill_string(&self, string: String, fill_char: char, num_prefix_chars: Option<usize>) -> String {
+    pub fn fill_string(
+        &self,
+        string: String,
+        fill_char: char,
+        num_prefix_chars: Option<usize>,
+    ) -> String {
         let mut num_chars = string.len();
         if let Some(num_prefix_chars) = num_prefix_chars {
             num_chars = num_chars + num_prefix_chars;
@@ -125,11 +132,6 @@ impl CFormatSpec {
     pub fn format_number(&self, num: &BigInt) -> String {
         use CFormatCase::{Lowercase, Uppercase};
         use CNumberType::*;
-        let fill_char = if self.flags.contains(CConversionFlags::ZERO_PAD) {
-            '0'
-        } else {
-            ' '
-        };
         let magnitude = num.abs();
         let prefix = if self.flags.contains(CConversionFlags::ALTERNATE_FORM) {
             match self.format_type {
@@ -154,7 +156,6 @@ impl CFormatSpec {
             _ => unreachable!(), // Should not happen because caller has to make sure that this is a number
         };
 
-
         let sign_string = match num.sign() {
             Sign::Minus => "-",
             _ => {
@@ -168,16 +169,22 @@ impl CFormatSpec {
             }
         };
 
-
         let prefix = format!("{}{}", sign_string, prefix);
-        let magnitude_filled_string = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
-            // '-' flags overrides '0' flag
-            self.fill_string(magnitude_string, fill_char, Some(prefix.len()))
-        } else {
-            magnitude_string
-        };
 
-        format!("{}{}", prefix, magnitude_filled_string)
+        if self.flags.contains(CConversionFlags::ZERO_PAD) {
+            let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
+                '0'
+            } else {
+                ' ' // '-' overrides the '0' conversion if both are given
+            };
+            format!(
+                "{}{}",
+                prefix,
+                self.fill_string(magnitude_string, fill_char, Some(prefix.len()))
+            )
+        } else {
+            self.fill_string(format!("{}{}", prefix, magnitude_string), ' ', None)
+        }
     }
 }
 
@@ -223,11 +230,9 @@ impl FromStr for CFormatString {
                     index = index + consumed;
                     new_text
                 })
-                .map_err(|(e, consumed)| {
-                    CFormatError {
-                        typ: e,
-                        index: index + consumed,
-                    }
+                .map_err(|(e, consumed)| CFormatError {
+                    typ: e,
+                    index: index + consumed,
                 })?;
         }
 
@@ -426,46 +431,280 @@ fn parse_format_type(text: &str) -> Result<(CFormatType, &str, char), CFormatErr
     }
 }
 
-fn parse_specifier(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError> {
-    let consumed = 0;
-    let mut chars = text.chars();
-    if chars.next() != Some('%') {
-        return Err((CFormatErrorType::MissingModuloSign, consumed));
-    }
-    let consumed = consumed + 1;
+impl FromStr for CFormatSpec {
+    type Err = ParsingError;
 
-    let (mapping_key, after_mapping_key) =
-        parse_spec_mapping_key(chars.as_str()).map_err(|err| (err, consumed))?;
-    let consumed = text.find(after_mapping_key).unwrap();
-    let (flags, after_flags) = parse_flags(after_mapping_key);
-    let (width, after_width) = parse_number(after_flags);
-    let (precision, after_precision) = parse_precision(after_width);
-    // A length modifier (h, l, or L) may be present,
-    // but is ignored as it is not necessary for Python – so e.g. %ld is identical to %d.
-    let after_length = consume_length(after_precision);
-    let (format_type, remaining_text, format_char) =
-        parse_format_type(after_length).map_err(|err| (err, consumed))?;
-    let consumed = text.find(remaining_text).unwrap();
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let consumed = 0;
+        let mut chars = text.chars();
+        if chars.next() != Some('%') {
+            return Err((CFormatErrorType::MissingModuloSign, consumed));
+        }
+        let consumed = consumed + 1;
 
-    // apply default precision for float types
-    let precision = match precision {
-        Some(precision) => Some(precision),
-        None => match format_type {
-            CFormatType::Float(_) => Some(6),
-            _ => None,
-        },
-    };
+        let (mapping_key, after_mapping_key) =
+            parse_spec_mapping_key(chars.as_str()).map_err(|err| (err, consumed))?;
+        let (flags, after_flags) = parse_flags(after_mapping_key);
+        let (width, after_width) = parse_number(after_flags);
+        let (precision, after_precision) = parse_precision(after_width);
+        // A length modifier (h, l, or L) may be present,
+        // but is ignored as it is not necessary for Python – so e.g. %ld is identical to %d.
+        let after_length = consume_length(after_precision);
+        let consumed = text.find(after_length).unwrap();
+        let (format_type, _remaining_text, format_char) =
+            parse_format_type(after_length).map_err(|err| (err, consumed))?;
+        let consumed = consumed + 1; // not using text.find because if the str is exausted consumed will be 0
 
-    Ok((
-        CFormatPart::Spec(CFormatSpec {
+        // apply default precision for float types
+        let precision = match precision {
+            Some(precision) => Some(precision),
+            None => match format_type {
+                CFormatType::Float(_) => Some(6),
+                _ => None,
+            },
+        };
+
+        Ok(CFormatSpec {
             mapping_key: mapping_key,
             flags: flags,
             min_field_width: width,
             precision: precision,
             format_type: format_type,
             format_char: format_char,
-        }),
-        remaining_text,
-        consumed,
+            chars_consumed: consumed,
+        })
+    }
+}
+
+fn parse_specifier(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError> {
+    let spec = text.parse::<CFormatSpec>()?;
+    let chars_consumed = spec.chars_consumed;
+    Ok((
+        CFormatPart::Spec(spec),
+        &text[chars_consumed..],
+        chars_consumed,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fill_and_align() {
+        assert_eq!(
+            "%10s"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_string("test".to_string()),
+            "      test".to_string()
+        );
+        assert_eq!(
+            "%-10s"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_string("test".to_string()),
+            "test      ".to_string()
+        );
+        assert_eq!(
+            "%#10x"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(0x1337)),
+            "    0x1337".to_string()
+        );
+        assert_eq!(
+            "%-#10x"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(0x1337)),
+            "0x1337    ".to_string()
+        );
+    }
+
+    #[test]
+    fn test_parse_key() {
+        let expected = Ok(CFormatSpec {
+            mapping_key: Some("amount".to_string()),
+            format_type: CFormatType::Number(CNumberType::Decimal),
+            format_char: 'd',
+            chars_consumed: 10,
+            min_field_width: None,
+            precision: None,
+            flags: CConversionFlags::empty(),
+        });
+        assert_eq!("%(amount)d".parse::<CFormatSpec>(), expected);
+    }
+
+    #[test]
+    fn test_format_parse_key_fail() {
+        assert_eq!(
+            "%(aged".parse::<CFormatString>(),
+            Err(CFormatError {
+                typ: CFormatErrorType::UnmatchedKeyParentheses,
+                index: 1
+            })
+        );
+    }
+
+    #[test]
+    fn test_format_parse_type_fail() {
+        assert_eq!(
+            "Hello %n".parse::<CFormatString>(),
+            Err(CFormatError {
+                typ: CFormatErrorType::UnsupportedFormatChar('n'),
+                index: 7
+            })
+        );
+    }
+
+    #[test]
+    fn test_incomplete_format_fail() {
+        assert_eq!(
+            "Hello %".parse::<CFormatString>(),
+            Err(CFormatError {
+                typ: CFormatErrorType::IncompleteFormat,
+                index: 6
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_flags() {
+        let expected = Ok(CFormatSpec {
+            format_type: CFormatType::Number(CNumberType::Decimal),
+            format_char: 'd',
+            chars_consumed: 17,
+            min_field_width: Some(10),
+            precision: None,
+            mapping_key: None,
+            flags: CConversionFlags::all(),
+        });
+        let parsed = "%  0   -+++###10d".parse::<CFormatSpec>();
+        assert_eq!(parsed, expected);
+        assert_eq!(
+            parsed.unwrap().format_number(&BigInt::from(12)),
+            "+12       ".to_string()
+        );
+    }
+
+    #[test]
+    fn test_parse_and_format_string() {
+        assert_eq!(
+            "%5.4s"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_string("Hello, World!".to_string()),
+            " Hell".to_string()
+        );
+        assert_eq!(
+            "%-5.4s"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_string("Hello, World!".to_string()),
+            "Hell ".to_string()
+        );
+    }
+
+    #[test]
+    fn test_parse_and_format_number() {
+        assert_eq!(
+            "%05d"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(27)),
+            "00027".to_string()
+        );
+        assert_eq!(
+            "%+05d"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(27)),
+            "+0027".to_string()
+        );
+        assert_eq!(
+            "%-d"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(-27)),
+            "-27".to_string()
+        );
+        assert_eq!(
+            "% d"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(27)),
+            " 27".to_string()
+        );
+        assert_eq!(
+            "% d"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(-27)),
+            "-27".to_string()
+        );
+        assert_eq!(
+            "%08x"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(0x1337)),
+            "00001337".to_string()
+        );
+        assert_eq!(
+            "%#010x"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(0x1337)),
+            "0x00001337".to_string()
+        );
+        assert_eq!(
+            "%-#010x"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(0x1337)),
+            "0x1337    ".to_string()
+        );
+    }
+
+    #[test]
+    fn test_format_parse() {
+        let fmt = "Hello, my name is %s and I'm %d years old";
+        let expected = Ok(CFormatString {
+            format_parts: vec![
+                (0, CFormatPart::Literal("Hello, my name is ".to_string())),
+                (
+                    18,
+                    CFormatPart::Spec(CFormatSpec {
+                        format_type: CFormatType::String(CFormatPreconversor::Str),
+                        format_char: 's',
+                        chars_consumed: 2,
+                        mapping_key: None,
+                        min_field_width: None,
+                        precision: None,
+                        flags: CConversionFlags::empty(),
+                    }),
+                ),
+                (20, CFormatPart::Literal(" and I'm ".to_string())),
+                (
+                    29,
+                    CFormatPart::Spec(CFormatSpec {
+                        format_type: CFormatType::Number(CNumberType::Decimal),
+                        format_char: 'd',
+                        chars_consumed: 2,
+                        mapping_key: None,
+                        min_field_width: None,
+                        precision: None,
+                        flags: CConversionFlags::empty(),
+                    }),
+                ),
+                (31, CFormatPart::Literal(" years old".to_string())),
+            ],
+        });
+        let result = fmt.parse::<CFormatString>();
+        assert_eq!(
+            result, expected,
+            "left = {:#?} \n\n\n right = {:#?}",
+            result, expected
+        );
+    }
 }
