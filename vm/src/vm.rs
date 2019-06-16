@@ -53,7 +53,7 @@ pub struct VirtualMachine {
     pub frames: RefCell<Vec<FrameRef>>,
     pub wasm_id: Option<String>,
     pub exceptions: RefCell<Vec<PyObjectRef>>,
-    pub frozen: RefCell<HashMap<String, &'static str>>,
+    pub frozen: RefCell<HashMap<String, bytecode::CodeObject>>,
     pub import_func: RefCell<PyObjectRef>,
 }
 

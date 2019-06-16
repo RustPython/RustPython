@@ -4,10 +4,11 @@
 
 use std::path::PathBuf;
 
+use crate::bytecode::CodeObject;
 use crate::compile;
 use crate::frame::Scope;
-use crate::obj::{objsequence, objstr};
-use crate::pyobject::{ItemProtocol, PyResult};
+use crate::obj::{objcode, objsequence, objstr};
+use crate::pyobject::{ItemProtocol, PyResult, PyValue};
 use crate::util;
 use crate::vm::VirtualMachine;
 
@@ -25,12 +26,9 @@ pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     if let Some(frozen) = vm.frozen.borrow().get(module_name) {
-        import_file(
-            vm,
-            module_name,
-            format!("frozen {}", module_name),
-            frozen.to_string(),
-        )
+        let mut frozen = frozen.clone();
+        frozen.source_path = format!("frozen {}", module_name);
+        import_codeobj(vm, module_name, frozen)
     } else {
         Err(vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
     }
@@ -83,25 +81,30 @@ pub fn import_file(
     file_path: String,
     content: String,
 ) -> PyResult {
-    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-    let code_obj = vm
-        .compile(&content, &compile::Mode::Exec, file_path.clone())
+    let code_obj = compile::compile(&content, &compile::Mode::Exec, file_path)
         .map_err(|err| vm.new_syntax_error(&err))?;
-    // trace!("Code object: {:?}", code_obj);
+    import_codeobj(vm, module_name, code_obj)
+}
 
+pub fn import_codeobj(vm: &VirtualMachine, module_name: &str, code_obj: CodeObject) -> PyResult {
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
+    let file_path = &code_obj.source_path;
     if !file_path.starts_with("frozen") {
-        // TODO: Should be removed after precompiling frozen modules.
-        attrs.set_item("__file__", vm.new_str(file_path), vm)?;
+        // TODO: Should be less hacky, not depend on source_path
+        attrs.set_item("__file__", vm.new_str(file_path.to_owned()), vm)?;
     }
     let module = vm.ctx.new_module(module_name, attrs.clone());
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
     sys_modules.set_item(module_name, module.clone(), vm)?;
 
     // Execute main code in module:
-    vm.run_code_obj(code_obj, Scope::with_builtins(None, attrs, vm))?;
+    vm.run_code_obj(
+        objcode::PyCode::new(code_obj).into_ref(vm),
+        Scope::with_builtins(None, attrs, vm),
+    )?;
     Ok(module)
 }
 
