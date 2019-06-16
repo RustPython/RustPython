@@ -1,3 +1,18 @@
+//! Parsing and processing for this form:
+//! ```ignore
+//! py_compile_input!(
+//!     // either:
+//!     source = "python_source_code",
+//!     // or
+//!     file = "file/path/relative/to/$CARGO_MANIFEST_DIR",
+//!
+//!     // the mode to compile the code in
+//!     mode = "exec", // or "eval" or "single"
+//!     // the path put into the CodeObject, defaults to `None`
+//!     source_path = "frozen",
+//! )
+//! ```
+
 use crate::{extract_spans, Diagnostic};
 use bincode;
 use proc_macro2::{Span, TokenStream as TokenStream2};
@@ -46,6 +61,7 @@ impl CompilationSource {
     }
 }
 
+/// This is essentially just a comma-separated list of Meta nodes, aka the inside of a MetaList.
 struct PyCompileInput {
     span: Span,
     metas: Vec<Meta>,
