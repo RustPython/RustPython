@@ -856,6 +856,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "IndexError" => ctx.exceptions.index_error.clone(),
         "ImportError" => ctx.exceptions.import_error.clone(),
         "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
+        "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),

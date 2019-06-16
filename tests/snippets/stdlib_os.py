@@ -4,12 +4,13 @@ import stat
 
 from testutils import assert_raises
 
-fd = os.open('README.md', 0)
+fd = os.open('README.md', os.O_RDONLY)
 assert fd > 0
 
 os.close(fd)
 assert_raises(OSError, lambda: os.read(fd, 10))
-assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', 0))
+assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', os.O_RDONLY))
+assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', os.O_WRONLY))
 
 
 assert os.O_RDONLY == 0
@@ -88,14 +89,17 @@ CONTENT3 = b"BOYA"
 
 with TestWithTempDir() as tmpdir:
 	fname = os.path.join(tmpdir, FILE_NAME)
-	with open(fname, "wb"):
-		pass
-	fd = os.open(fname, 1)
+	fd = os.open(fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
 	assert os.write(fd, CONTENT2) == len(CONTENT2)
+	os.close(fd)
+
+	fd = os.open(fname, os.O_WRONLY | os.O_APPEND)
 	assert os.write(fd, CONTENT3) == len(CONTENT3)
 	os.close(fd)
 
-	fd = os.open(fname, 0)
+	assert_raises(FileExistsError, lambda: os.open(fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL))
+
+	fd = os.open(fname, os.O_RDONLY)
 	assert os.read(fd, len(CONTENT2)) == CONTENT2
 	assert os.read(fd, len(CONTENT3)) == CONTENT3
 	os.close(fd)
