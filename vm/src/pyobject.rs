@@ -1149,6 +1149,7 @@ where
                 objiter::PySequenceIterator {
                     position: Cell::new(0),
                     obj: obj.clone(),
+                    reversed: false,
                 }
                 .into_ref(vm)
                 .into_object(),

@@ -50,7 +50,7 @@ pub enum NameScope {
 pub enum Instruction {
     Import {
         name: String,
-        symbol: Option<String>,
+        symbols: Vec<String>,
     },
     ImportStar {
         name: String,
@@ -330,7 +330,7 @@ impl Instruction {
         }
 
         match self {
-            Import { name, symbol } => w!(Import, name, format!("{:?}", symbol)),
+            Import { name, symbols } => w!(Import, name, format!("{:?}", symbols)),
             ImportStar { name } => w!(ImportStar, name),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),

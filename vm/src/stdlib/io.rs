@@ -21,16 +21,6 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-fn compute_c_flag(mode: &str) -> u16 {
-    match mode {
-        "w" => 512,
-        "x" => 512,
-        "a" => 8,
-        "+" => 2,
-        _ => 0,
-    }
-}
-
 #[derive(Debug)]
 struct PyStringIO {
     data: RefCell<String>,
@@ -130,6 +120,21 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     }
 
     Ok(vm.ctx.new_bytes(result))
+}
+
+fn compute_c_flag(mode: &str) -> u32 {
+    let flags = match mode {
+        "w" => os::FileCreationFlags::O_WRONLY | os::FileCreationFlags::O_CREAT,
+        "x" => {
+            os::FileCreationFlags::O_WRONLY
+                | os::FileCreationFlags::O_CREAT
+                | os::FileCreationFlags::O_EXCL
+        }
+        "a" => os::FileCreationFlags::O_APPEND,
+        "+" => os::FileCreationFlags::O_RDWR,
+        _ => os::FileCreationFlags::O_RDONLY,
+    };
+    flags.bits()
 }
 
 fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {

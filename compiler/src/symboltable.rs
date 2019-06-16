@@ -300,14 +300,22 @@ impl SymbolTableBuilder {
                 for part in import_parts {
                     if let Some(alias) = &part.alias {
                         // `import mymodule as myalias`
-                        // `from mymodule import myimportname as myalias`
                         self.register_name(alias, SymbolRole::Assigned)?;
-                    } else if let Some(symbol) = &part.symbol {
-                        // `from mymodule import myimport`
-                        self.register_name(symbol, SymbolRole::Assigned)?;
                     } else {
-                        // `import module`
-                        self.register_name(&part.module, SymbolRole::Assigned)?;
+                        if part.symbols.is_empty() {
+                            // `import module`
+                            self.register_name(&part.module, SymbolRole::Assigned)?;
+                        } else {
+                            // `from mymodule import myimport`
+                            for symbol in &part.symbols {
+                                if let Some(alias) = &symbol.alias {
+                                    // `from mymodule import myimportname as myalias`
+                                    self.register_name(alias, SymbolRole::Assigned)?;
+                                } else {
+                                    self.register_name(&symbol.symbol, SymbolRole::Assigned)?;
+                                }
+                            }
+                        }
                     }
                 }
             }

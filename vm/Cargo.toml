@@ -34,6 +34,7 @@ bincode = "1.1.4"
 unicode_categories = "0.1.1"
 maplit = "1.0"
 proc-macro-hack = "0.5"
+bitflags = "1.1"
 
 
 # TODO: release and publish to crates.io

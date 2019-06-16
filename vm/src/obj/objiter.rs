@@ -28,6 +28,7 @@ pub fn get_iter(vm: &VirtualMachine, iter_target: &PyObjectRef) -> PyResult {
         let obj_iterator = PySequenceIterator {
             position: Cell::new(0),
             obj: iter_target.clone(),
+            reversed: false,
         };
         Ok(obj_iterator.into_ref(vm).into_object())
     }
@@ -80,8 +81,9 @@ pub fn new_stop_iteration(vm: &VirtualMachine) -> PyObjectRef {
 #[pyclass]
 #[derive(Debug)]
 pub struct PySequenceIterator {
-    pub position: Cell<usize>,
+    pub position: Cell<isize>,
     pub obj: PyObjectRef,
+    pub reversed: bool,
 }
 
 impl PyValue for PySequenceIterator {
@@ -94,17 +96,22 @@ impl PyValue for PySequenceIterator {
 impl PySequenceIterator {
     #[pymethod(name = "__next__")]
     fn next(&self, vm: &VirtualMachine) -> PyResult {
-        let number = vm.ctx.new_int(self.position.get());
-        match vm.call_method(&self.obj, "__getitem__", vec![number]) {
-            Ok(val) => {
-                self.position.set(self.position.get() + 1);
-                Ok(val)
+        if self.position.get() >= 0 {
+            let step: isize = if self.reversed { -1 } else { 1 };
+            let number = vm.ctx.new_int(self.position.get());
+            match vm.call_method(&self.obj, "__getitem__", vec![number]) {
+                Ok(val) => {
+                    self.position.set(self.position.get() + step);
+                    Ok(val)
+                }
+                Err(ref e) if objtype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
+                    Err(new_stop_iteration(vm))
+                }
+                // also catches stop_iteration => stop_iteration
+                Err(e) => Err(e),
             }
-            Err(ref e) if objtype::isinstance(&e, &vm.ctx.exceptions.index_error) => {
-                Err(new_stop_iteration(vm))
-            }
-            // also catches stop_iteration => stop_iteration
-            Err(e) => Err(e),
+        } else {
+            Err(new_stop_iteration(vm))
         }
     }
 
