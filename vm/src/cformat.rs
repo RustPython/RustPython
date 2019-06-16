@@ -4,6 +4,7 @@ use crate::format::get_num_digits;
 use num_bigint::{BigInt, Sign};
 use num_traits::Signed;
 use std::cmp;
+use std::fmt;
 use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
@@ -23,6 +24,22 @@ type ParsingError = (CFormatErrorType, usize);
 pub struct CFormatError {
     pub typ: CFormatErrorType,
     pub index: usize,
+}
+
+impl fmt::Display for CFormatError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use CFormatErrorType::*;
+        match self.typ {
+            UnmatchedKeyParentheses => write!(f, "incomplete format key"),
+            CFormatErrorType::IncompleteFormat => write!(f, "incomplete format"),
+            UnsupportedFormatChar(c) => write!(
+                f,
+                "unsupported format character '{}' ({:#x}) at index {}",
+                c, c as u32, self.index
+            ),
+            _ => write!(f, "unexpected error parsing format string"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]

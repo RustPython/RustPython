@@ -13,8 +13,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_xid::UnicodeXID;
 
 use crate::cformat::{
-    CFormatErrorType, CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec,
-    CFormatString, CFormatType, CNumberType,
+    CFormatPart, CFormatPreconversor, CFormatQuantity, CFormatSpec, CFormatString, CFormatType,
+    CNumberType,
 };
 use crate::format::{FormatParseError, FormatPart, FormatPreconversor, FormatString};
 use crate::function::{single_or_tuple_any, OptionalArg, PyFuncArgs};
@@ -438,23 +438,9 @@ impl PyString {
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let format_string_text = &self.value;
-        match CFormatString::from_str(format_string_text) {
-            Ok(format_string) => do_cformat(vm, format_string, values.clone()),
-            Err(err) => match err.typ {
-                CFormatErrorType::UnsupportedFormatChar(c) => Err(vm.new_value_error(format!(
-                    "unsupported format character '{}' ({:#x}) at index {}",
-                    c, c as u32, err.index
-                ))),
-                CFormatErrorType::UnmatchedKeyParentheses => {
-                    // TODO in cpython, this error comes after verifying that `values` is a mapping type.
-                    Err(vm.new_value_error("incomplete format key".to_string()))
-                }
-                CFormatErrorType::IncompleteFormat => {
-                    Err(vm.new_value_error("incomplete format".to_string()))
-                }
-                _ => Err(vm.new_value_error("Unexpected error parsing format string".to_string())),
-            },
-        }
+        let format_string = CFormatString::from_str(format_string_text)
+            .map_err(|err| vm.new_value_error(format!("{}", err)))?;
+        do_cformat(vm, format_string, values.clone())
     }
 
     #[pymethod]
