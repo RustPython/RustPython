@@ -100,7 +100,7 @@ impl CFormatSpec {
         fill_char: char,
         num_prefix_chars: Option<usize>,
     ) -> String {
-        let mut num_chars = string.len();
+        let mut num_chars = string.chars().count();
         if let Some(num_prefix_chars) = num_prefix_chars {
             num_chars = num_chars + num_prefix_chars;
         }
@@ -128,8 +128,8 @@ impl CFormatSpec {
         let mut string = string;
         // truncate if needed
         if let Some(CFormatQuantity::Amount(precision)) = self.precision {
-            if string.len() > precision {
-                string.truncate(precision);
+            if string.chars().count() > precision {
+                string = string.chars().take(precision).collect::<String>();
             }
         }
         self.fill_string(string, ' ', None)
@@ -186,7 +186,7 @@ impl CFormatSpec {
             format!(
                 "{}{}",
                 prefix,
-                self.fill_string(magnitude_string, fill_char, Some(prefix.len()))
+                self.fill_string(magnitude_string, fill_char, Some(prefix.chars().count()))
             )
         } else {
             self.fill_string(format!("{}{}", prefix, magnitude_string), ' ', None)
@@ -322,7 +322,7 @@ fn parse_literal(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError>
     Ok((
         CFormatPart::Literal(result_string.to_string()),
         "",
-        text.len(),
+        text.chars().count(),
     ))
 }
 
@@ -635,6 +635,17 @@ mod tests {
                 .unwrap()
                 .format_string("Hello, World!".to_string()),
             "Hell ".to_string()
+        );
+    }
+
+    #[test]
+    fn test_parse_and_format_unicode_string() {
+        assert_eq!(
+            "%.2s"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_string("❤❤❤❤❤❤❤❤".to_string()),
+            "❤❤".to_string()
         );
     }
 
