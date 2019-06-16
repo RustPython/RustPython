@@ -1,6 +1,7 @@
 extern crate unicode_categories;
 extern crate unicode_xid;
 
+use std::char;
 use std::fmt;
 use std::ops::Range;
 use std::str::FromStr;
@@ -442,7 +443,7 @@ impl PyString {
             Err(err) => match err.typ {
                 CFormatErrorType::UnsupportedFormatChar(c) => Err(vm.new_value_error(format!(
                     "unsupported format character '{}' ({:#x}) at index {}",
-                    c, c as u8, err.index
+                    c, c as u32, err.index
                 ))),
                 CFormatErrorType::UnmatchedKeyParentheses => {
                     // TODO in cpython, this error comes after verifying that `values` is a mapping type.
@@ -1105,7 +1106,7 @@ fn call_object_format(vm: &VirtualMachine, argument: PyObjectRef, format_spec: &
 
 fn do_cformat_specifier(
     vm: &VirtualMachine,
-    format_spec: &CFormatSpec,
+    format_spec: &mut CFormatSpec,
     obj: PyObjectRef,
 ) -> Result<String, PyObjectRef> {
     use CNumberType::*;
@@ -1136,6 +1137,33 @@ fn do_cformat_specifier(
                 )));
             }
             Ok(format_spec.format_number(objint::get_value(&obj)))
+        }
+        CFormatType::Character => {
+            let char_string = {
+                if objtype::isinstance(&obj, &vm.ctx.int_type()) {
+                    // BigInt truncation is fine in this case because only the unicode range is relevant
+                    match objint::get_value(&obj).to_u32().and_then(char::from_u32) {
+                        Some(value) => Ok(value.to_string()),
+                        None => {
+                            Err(vm.new_overflow_error("%c arg not in range(0x110000)".to_string()))
+                        }
+                    }
+                } else if objtype::isinstance(&obj, &vm.ctx.str_type()) {
+                    let s: String = get_value(&obj);
+                    let num_chars = s.chars().count();
+                    if num_chars != 1 {
+                        Err(vm.new_type_error("%c requires int or char".to_string()))
+                    } else {
+                        println!("Hurray!");
+                        Ok(s.chars().next().unwrap().to_string())
+                    }
+                } else {
+                    // TODO re-arrange this block so this error is only created once
+                    Err(vm.new_type_error("%c requires int or char".to_string()))
+                }
+            }?;
+            format_spec.precision = Some(CFormatQuantity::Amount(1));
+            Ok(format_spec.format_string(char_string))
         }
         _ => Err(vm.new_not_implemented_error(format!(
             "Not yet implemented for %{}",
@@ -1246,8 +1274,7 @@ fn do_cformat(
                         obj
                     }
                 };
-
-                do_cformat_specifier(vm, &format_spec, obj)
+                do_cformat_specifier(vm, format_spec, obj)
             }
             CFormatPart::Literal(literal) => Ok(literal.clone()),
         }?;
