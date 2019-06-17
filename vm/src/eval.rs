@@ -1,12 +1,15 @@
-extern crate rustpython_parser;
-
 use crate::compile;
 use crate::frame::Scope;
 use crate::pyobject::PyResult;
 use crate::vm::VirtualMachine;
 
-pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
-    match vm.compile(source, &compile::Mode::Eval, source_path.to_string()) {
+pub fn eval(
+    vm: &VirtualMachine,
+    source: &str,
+    scope: Scope,
+    source_path: Option<String>,
+) -> PyResult {
+    match vm.compile(source, &compile::Mode::Eval, source_path) {
         Ok(bytecode) => {
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)
@@ -25,7 +28,7 @@ mod tests {
         let source = String::from("print('Hello world')\n");
         let mut vm = VirtualMachine::new();
         let vars = vm.new_scope_with_builtins();
-        let _result = eval(&mut vm, &source, vars, "<unittest>");
+        let _result = eval(&mut vm, &source, vars, Some("<unittest>".to_string()));
 
         // TODO: check result?
         //assert_eq!(

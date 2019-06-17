@@ -21,7 +21,7 @@ pub struct CodeObject {
     pub varargs: Varargs,       // *args or *
     pub kwonlyarg_names: Vec<String>,
     pub varkeywords: Varargs, // **kwargs or **
-    pub source_path: String,
+    pub source_path: Option<String>,
     pub first_line_number: usize,
     pub obj_name: String, // Name of the object that created this code object
     pub is_generator: bool,
@@ -269,7 +269,7 @@ impl CodeObject {
         varargs: Varargs,
         kwonlyarg_names: Vec<String>,
         varkeywords: Varargs,
-        source_path: String,
+        source_path: Option<String>,
         first_line_number: usize,
         obj_name: String,
     ) -> CodeObject {

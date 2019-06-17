@@ -373,7 +373,7 @@ fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachi
                 .expect("that the vm is valid when the promise resolves");
             let vm = &stored_vm.vm;
             let resp_text = text.as_string().unwrap();
-            let res = import_file(vm, module.as_str(), "WEB".to_string(), resp_text);
+            let res = import_file(vm, module.as_str(), Some("WEB".to_string()), resp_text);
             match res {
                 Ok(_) => Ok(JsValue::null()),
                 Err(err) => Err(convert::py_err_to_js_err(vm, &err)),

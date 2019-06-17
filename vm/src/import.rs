@@ -25,13 +25,12 @@ pub fn init_importlib(vm: &VirtualMachine) -> PyResult {
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    if let Some(frozen) = vm.frozen.borrow().get(module_name) {
-        let mut frozen = frozen.clone();
-        frozen.source_path = format!("frozen {}", module_name);
-        import_codeobj(vm, module_name, frozen)
-    } else {
-        Err(vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
-    }
+    vm.frozen
+        .borrow()
+        .get(module_name)
+        .cloned()
+        .ok_or_else(|| vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
+        .and_then(|frozen| import_codeobj(vm, module_name, frozen))
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
@@ -69,7 +68,7 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
         import_file(
             vm,
             module_name,
-            file_path.to_str().unwrap().to_string(),
+            Some(file_path.to_str().unwrap().to_string()),
             source,
         )
     }
@@ -78,7 +77,7 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
 pub fn import_file(
     vm: &VirtualMachine,
     module_name: &str,
-    file_path: String,
+    file_path: Option<String>,
     content: String,
 ) -> PyResult {
     let code_obj = compile::compile(&content, &compile::Mode::Exec, file_path)
@@ -89,10 +88,8 @@ pub fn import_file(
 pub fn import_codeobj(vm: &VirtualMachine, module_name: &str, code_obj: CodeObject) -> PyResult {
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
-    let file_path = &code_obj.source_path;
-    if !file_path.starts_with("frozen") {
-        // TODO: Should be less hacky, not depend on source_path
-        attrs.set_item("__file__", vm.new_str(file_path.to_owned()), vm)?;
+    if let Some(source_path) = &code_obj.source_path {
+        attrs.set_item("__file__", vm.new_str(source_path.to_owned()), vm)?;
     }
     let module = vm.ctx.new_module(module_name, attrs.clone());
 
