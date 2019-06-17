@@ -343,19 +343,41 @@ fn parse_literal(text: &str) -> Result<(CFormatPart, &str, usize), ParsingError>
     ))
 }
 
+fn parse_text_inside_parentheses(text: &str) -> Option<(String, &str)> {
+    let mut counter = 1;
+    let mut chars = text.chars();
+    let mut contained_text = String::new();
+    while counter > 0 {
+        let c = chars.next();
+
+        match c {
+            Some('(') => {
+                counter += 1;
+            }
+            Some(')') => {
+                counter -= 1;
+            }
+            None => {
+                return None;
+            }
+            _ => (),
+        }
+
+        if counter > 0 {
+            contained_text.push(c.unwrap());
+        }
+    }
+
+    Some((contained_text, chars.as_str()))
+}
+
 fn parse_spec_mapping_key(text: &str) -> Result<(Option<String>, &str), CFormatErrorType> {
     let mut chars = text.chars();
 
     let next_char = chars.next();
     if next_char == Some('(') {
-        // Get remaining characters after opening parentheses.
-        let cur_text = chars.as_str();
-        match cur_text.find(')') {
-            Some(position) => {
-                let (left, right) = cur_text.split_at(position);
-
-                Ok((Some(left.to_string()), &right[1..]))
-            }
+        match parse_text_inside_parentheses(chars.as_str()) {
+            Some((key, remaining_text)) => Ok((Some(key), remaining_text)),
             None => Err(CFormatErrorType::UnmatchedKeyParentheses),
         }
     } else {
@@ -480,29 +502,30 @@ fn parse_format_type(text: &str) -> Result<(CFormatType, &str, char), CFormatErr
     }
 }
 
+fn calc_consumed(a: &str, b: &str) -> usize {
+    a.chars().count() - b.chars().count()
+}
+
 impl FromStr for CFormatSpec {
     type Err = ParsingError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let consumed = 0;
         let mut chars = text.chars();
         if chars.next() != Some('%') {
-            return Err((CFormatErrorType::MissingModuloSign, consumed));
+            return Err((CFormatErrorType::MissingModuloSign, 1));
         }
-        let consumed = consumed + 1;
 
-        let (mapping_key, after_mapping_key) =
-            parse_spec_mapping_key(chars.as_str()).map_err(|err| (err, consumed))?;
+        let after_modulo_sign = chars.as_str();
+        let (mapping_key, after_mapping_key) = parse_spec_mapping_key(after_modulo_sign)
+            .map_err(|err| (err, calc_consumed(text, after_modulo_sign)))?;
         let (flags, after_flags) = parse_flags(after_mapping_key);
         let (width, after_width) = parse_quantity(after_flags);
         let (precision, after_precision) = parse_precision(after_width);
         // A length modifier (h, l, or L) may be present,
         // but is ignored as it is not necessary for Python – so e.g. %ld is identical to %d.
         let after_length = consume_length(after_precision);
-        let consumed = text.find(after_length).unwrap();
-        let (format_type, _remaining_text, format_char) =
-            parse_format_type(after_length).map_err(|err| (err, consumed))?;
-        let consumed = consumed + 1; // not using text.find because if the str is exausted consumed will be 0
+        let (format_type, remaining_text, format_char) = parse_format_type(after_length)
+            .map_err(|err| (err, calc_consumed(text, after_length)))?;
 
         // apply default precision for float types
         let precision = match precision {
@@ -520,7 +543,7 @@ impl FromStr for CFormatSpec {
             precision: precision,
             format_type: format_type,
             format_char: format_char,
-            chars_consumed: consumed,
+            chars_consumed: calc_consumed(text, remaining_text),
         })
     }
 }
@@ -583,6 +606,20 @@ mod tests {
             flags: CConversionFlags::empty(),
         });
         assert_eq!("%(amount)d".parse::<CFormatSpec>(), expected);
+
+        let expected = Ok(CFormatSpec {
+            mapping_key: Some("m((u(((l((((ti))))p)))l))e".to_string()),
+            format_type: CFormatType::Number(CNumberType::Decimal),
+            format_char: 'd',
+            chars_consumed: 30,
+            min_field_width: None,
+            precision: None,
+            flags: CConversionFlags::empty(),
+        });
+        assert_eq!(
+            "%(m((u(((l((((ti))))p)))l))e)d".parse::<CFormatSpec>(),
+            expected
+        );
     }
 
     #[test]
@@ -613,7 +650,7 @@ mod tests {
             "Hello %".parse::<CFormatString>(),
             Err(CFormatError {
                 typ: CFormatErrorType::IncompleteFormat,
-                index: 6
+                index: 7
             })
         );
     }
