@@ -1269,11 +1269,11 @@ fn do_cformat(
 
     // check that all arguments were converted
     if !mapping_required {
-        if !objtuple::get_value(&values_obj)
+        if objtuple::get_value(&values_obj)
             .into_iter()
             .skip(auto_index)
-            .collect::<Vec<PyObjectRef>>()
-            .is_empty()
+            .next()
+            .is_some()
         {
             return Err(vm.new_type_error(
                 "not all arguments converted during string formatting".to_string(),
