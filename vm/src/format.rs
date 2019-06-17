@@ -110,7 +110,7 @@ pub struct FormatSpec {
     format_type: Option<FormatType>,
 }
 
-fn get_num_digits(text: &str) -> usize {
+pub fn get_num_digits(text: &str) -> usize {
     for (index, character) in text.char_indices() {
         if !character.is_digit(10) {
             return index;
