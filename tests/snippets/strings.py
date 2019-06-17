@@ -204,6 +204,20 @@ assert "{} {!s} {!r} {!a}".format(f, f, f, f) == 'str(Foo) str(Foo) repr(Foo) re
 assert "{foo} {foo!s} {foo!r} {foo!a}".format(foo=f) == 'str(Foo) str(Foo) repr(Foo) repr(Foo)'
 # assert '{} {!r} {:10} {!r:10} {foo!r:10} {foo!r} {foo}'.format('txt1', 'txt2', 'txt3', 'txt4', 'txt5', foo='bar')
 
+
+# Printf-style String formatting
+assert "%d %d" % (1, 2) == "1 2"
+assert "%*c  " % (3, '❤') == "  ❤  "
+assert "%(first)s %(second)s" % {'second': 'World!', 'first': "Hello,"} == "Hello, World!"
+assert "%(key())s" % {'key()': 'aaa'}
+assert "%s %a %r" % (f, f, f) == "str(Foo) repr(Foo) repr(Foo)"
+assert "repr() shows quotes: %r; str() doesn't: %s" % ("test1", "test2") == "repr() shows quotes: 'test1'; str() doesn't: test2"
+
+assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), msg="format requires a mapping")
+assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", msg="format requires a mapping")
+assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"}, msg="incomplete format key")
+assert_raises(ValueError, lambda: "My name is %" % "Foo", msg="incomplete format")
+
 assert 'a' < 'b'
 assert 'a' <= 'b'
 assert 'a' <= 'a'
