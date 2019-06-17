@@ -162,6 +162,36 @@ impl PyJsValue {
             .map_err(|err| convert::js_to_py(vm, err))
     }
 
+    #[pymethod]
+    fn construct(
+        &self,
+        args: Args<PyJsValueRef>,
+        opts: NewObjectOptions,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyJsValue> {
+        let ctor = self
+            .value
+            .dyn_ref::<js_sys::Function>()
+            .ok_or_else(|| vm.new_type_error("JS value is not callable".to_string()))?;
+        let proto = opts
+            .prototype
+            .as_ref()
+            .and_then(|proto| proto.value.dyn_ref::<js_sys::Function>().clone());
+        let js_args = Array::new();
+        for arg in args {
+            js_args.push(&arg.value);
+        }
+        let constructed_result = if let Some(proto) = proto {
+            Reflect::construct_with_new_target(ctor, &js_args, &proto)
+        } else {
+            Reflect::construct(ctor, &js_args)
+        };
+        constructed_result
+            .map(PyJsValue::new)
+            .map_err(|err| convert::js_to_py(vm, err))
+    }
+
+
     #[pymethod(name = "typeof")]
     fn type_of(&self, _vm: &VirtualMachine) -> String {
         type_of(self.value.clone())
