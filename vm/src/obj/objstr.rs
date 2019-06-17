@@ -1158,6 +1158,36 @@ fn do_cformat_specifier(
     }
 }
 
+fn try_update_quantity_from_tuple(
+    vm: &VirtualMachine,
+    elements: &mut Iterator<Item = PyObjectRef>,
+    q: &mut Option<CFormatQuantity>,
+    mut tuple_index: usize,
+) -> PyResult<usize> {
+    match q {
+        Some(CFormatQuantity::FromValuesTuple) => {
+            match elements.next() {
+                Some(width_obj) => {
+                    tuple_index += 1;
+                    if !objtype::isinstance(&width_obj, &vm.ctx.int_type()) {
+                        Err(vm.new_type_error("* wants int".to_string()))
+                    } else {
+                        // TODO: handle errors when truncating BigInt to usize
+                        *q = Some(CFormatQuantity::Amount(
+                            objint::get_value(&width_obj).to_usize().unwrap(),
+                        ));
+                        Ok(tuple_index)
+                    }
+                }
+                None => {
+                    Err(vm.new_type_error("not enough arguments for format string".to_string()))
+                }
+            }
+        }
+        _ => Ok(tuple_index),
+    }
+}
+
 fn do_cformat(
     vm: &VirtualMachine,
     mut format_string: CFormatString,
@@ -1203,7 +1233,7 @@ fn do_cformat(
         }
     };
 
-    let mut auto_index: usize = 0;
+    let mut tuple_index: usize = 0;
     for (_, part) in &mut format_string.format_parts {
         let result_string: String = match part {
             CFormatPart::Spec(format_spec) => {
@@ -1216,38 +1246,20 @@ fn do_cformat(
                     None => {
                         let mut elements = objtuple::get_value(&values_obj)
                             .into_iter()
-                            .skip(auto_index);
+                            .skip(tuple_index);
 
-                        let mut try_quantity_from_tuple = |q: &mut Option<CFormatQuantity>| {
-                            match q {
-                                Some(CFormatQuantity::FromValuesTuple) => {
-                                    match elements.next() {
-                                        Some(width_obj) => {
-                                            auto_index += 1;
-                                            if !objtype::isinstance(&width_obj, &vm.ctx.int_type())
-                                            {
-                                                Err(vm.new_type_error("* wants int".to_string()))
-                                            } else {
-                                                // TODO: handle errors when truncating BigInt to usize
-                                                *q = Some(CFormatQuantity::Amount(
-                                                    objint::get_value(&width_obj)
-                                                        .to_usize()
-                                                        .unwrap(),
-                                                ));
-                                                Ok(())
-                                            }
-                                        }
-                                        None => Err(vm.new_type_error(
-                                            "not enough arguments for format string".to_string(),
-                                        )),
-                                    }
-                                }
-                                _ => Ok(()),
-                            }
-                        };
-
-                        try_quantity_from_tuple(&mut format_spec.min_field_width)?;
-                        try_quantity_from_tuple(&mut format_spec.precision)?;
+                        tuple_index = try_update_quantity_from_tuple(
+                            vm,
+                            &mut elements,
+                            &mut format_spec.min_field_width,
+                            tuple_index,
+                        )?;
+                        tuple_index = try_update_quantity_from_tuple(
+                            vm,
+                            &mut elements,
+                            &mut format_spec.precision,
+                            tuple_index,
+                        )?;
 
                         let obj = match elements.next() {
                             Some(obj) => Ok(obj),
@@ -1255,7 +1267,7 @@ fn do_cformat(
                                 "not enough arguments for format string".to_string(),
                             )),
                         }?;
-                        auto_index += 1;
+                        tuple_index += 1;
 
                         obj
                     }
@@ -1271,7 +1283,7 @@ fn do_cformat(
     if !mapping_required {
         if objtuple::get_value(&values_obj)
             .into_iter()
-            .skip(auto_index)
+            .skip(tuple_index)
             .next()
             .is_some()
         {
