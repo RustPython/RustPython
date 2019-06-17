@@ -34,6 +34,7 @@ use crate::pyobject::PyObjectRef;
 pub type StdlibInitFunc = Box<dyn Fn(&VirtualMachine) -> PyObjectRef>;
 
 pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
+    #[allow(unused_mut)]
     let mut modules = hashmap! {
         "ast".to_string() => Box::new(ast::make_module) as StdlibInitFunc,
         "binascii".to_string() => Box::new(binascii::make_module),
