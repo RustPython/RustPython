@@ -418,5 +418,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub fn setup_browser_module(vm: &VirtualMachine) {
     vm.stdlib_inits
         .borrow_mut()
-        .insert("browser".to_string(), Box::new(make_module));
+        .insert("_browser".to_string(), Box::new(make_module));
+    vm.frozen.borrow_mut().insert(
+        "browser".to_string(),
+        py_compile_bytecode!(file = "src/browser.py"),
+    );
 }
