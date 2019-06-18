@@ -6,11 +6,15 @@ use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 
-// I don't know why there is no other option for this
-#[wasm_bindgen(inline_js = "export function type_of(a) { return typeof a; }")]
+#[wasm_bindgen(inline_js = "
+export function type_of(a) { return typeof a; }
+export function instance_of(lhs, rhs) { return lhs instanceof rhs; }
+")]
 extern "C" {
     #[wasm_bindgen]
-    fn type_of(a: JsValue) -> String;
+    fn type_of(a: &JsValue) -> String;
+    #[wasm_bindgen(catch)]
+    fn instance_of(lhs: &JsValue, rhs: &JsValue) -> Result<bool, JsValue>;
 }
 
 #[pyclass(name = "JsValue")]
@@ -122,28 +126,6 @@ impl PyJsValue {
     }
 
     #[pymethod]
-    fn as_str(&self, _vm: &VirtualMachine) -> Option<String> {
-        self.value.as_string()
-    }
-
-    #[pymethod]
-    fn as_float(&self, _vm: &VirtualMachine) -> Option<f64> {
-        self.value.as_f64()
-    }
-    
-    #[pymethod]
-    fn as_bool(&self, _vm: &VirtualMachine) -> Option<bool> {
-        self.value.as_bool()
-    }
-
-    #[pymethod]
-    /// Checks that `typeof self == "object" && self !== null`. Use instead
-    /// of `value.typeof() == "object"`
-    fn is_object(&self, _vm: &VirtualMachine) -> bool {
-        self.value.is_object()
-    }
-
-    #[pymethod]
     fn call(
         &self,
         args: Args<PyJsValueRef>,
@@ -197,10 +179,36 @@ impl PyJsValue {
             .map_err(|err| convert::js_to_py(vm, err))
     }
 
+    #[pymethod]
+    fn as_str(&self, _vm: &VirtualMachine) -> Option<String> {
+        self.value.as_string()
+    }
+
+    #[pymethod]
+    fn as_float(&self, _vm: &VirtualMachine) -> Option<f64> {
+        self.value.as_f64()
+    }
+
+    #[pymethod]
+    fn as_bool(&self, _vm: &VirtualMachine) -> Option<bool> {
+        self.value.as_bool()
+    }
 
     #[pymethod(name = "typeof")]
     fn type_of(&self, _vm: &VirtualMachine) -> String {
-        type_of(self.value.clone())
+        type_of(&self.value)
+    }
+
+    #[pymethod]
+    /// Checks that `typeof self == "object" && self !== null`. Use instead
+    /// of `value.typeof() == "object"`
+    fn is_object(&self, _vm: &VirtualMachine) -> bool {
+        self.value.is_object()
+    }
+
+    #[pymethod]
+    fn instanceof(&self, rhs: PyJsValueRef, vm: &VirtualMachine) -> PyResult<bool> {
+        instance_of(&self.value, &rhs.value).map_err(|err| convert::js_to_py(vm, err))
     }
 
     #[pymethod(name = "__repr__")]

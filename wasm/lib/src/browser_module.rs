@@ -312,25 +312,6 @@ impl Element {
     }
 }
 
-fn browser_prompt(
-    message: PyStringRef,
-    default: OptionalArg<PyStringRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
-    let result = if let OptionalArg::Present(default) = default {
-        window().prompt_with_message_and_default(message.as_str(), default.as_str())
-    } else {
-        window().prompt_with_message(message.as_str())
-    };
-
-    let result = match result.expect("prompt() not to fail") {
-        Some(result) => vm.new_str(result),
-        None => vm.get_none(),
-    };
-
-    Ok(result)
-}
-
 fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     let weak_vm = weak_vm(vm);
 
