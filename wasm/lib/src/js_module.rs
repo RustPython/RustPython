@@ -130,6 +130,11 @@ impl PyJsValue {
     fn as_float(&self, _vm: &VirtualMachine) -> Option<f64> {
         self.value.as_f64()
     }
+    
+    #[pymethod]
+    fn as_bool(&self, _vm: &VirtualMachine) -> Option<bool> {
+        self.value.as_bool()
+    }
 
     #[pymethod]
     /// Checks that `typeof self == "object" && self !== null`. Use instead
@@ -186,6 +191,7 @@ impl PyJsValue {
         } else {
             Reflect::construct(ctor, &js_args)
         };
+
         constructed_result
             .map(PyJsValue::new)
             .map_err(|err| convert::js_to_py(vm, err))

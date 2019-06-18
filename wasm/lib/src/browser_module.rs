@@ -312,22 +312,6 @@ impl Element {
     }
 }
 
-fn browser_alert(message: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    window()
-        .alert_with_message(message.as_str())
-        .expect("alert() not to fail");
-
-    Ok(vm.get_none())
-}
-
-fn browser_confirm(message: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    let result = window()
-        .confirm_with_message(message.as_str())
-        .expect("confirm() not to fail");
-
-    Ok(vm.new_bool(result))
-}
-
 fn browser_prompt(
     message: PyStringRef,
     default: OptionalArg<PyStringRef>,
@@ -408,9 +392,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "Document" => document_class,
         "document" => document,
         "Element" => element,
-        "alert" => ctx.new_rustfunc(browser_alert),
-        "confirm" => ctx.new_rustfunc(browser_confirm),
-        "prompt" => ctx.new_rustfunc(browser_prompt),
         "load_module" => ctx.new_rustfunc(browser_load_module),
     })
 }
