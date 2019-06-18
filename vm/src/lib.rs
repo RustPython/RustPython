@@ -55,6 +55,7 @@ pub mod import;
 pub mod obj;
 mod pyhash;
 pub mod pyobject;
+pub mod ser_de;
 pub mod stdlib;
 mod sysmodule;
 mod traceback;

@@ -130,7 +130,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             view.slice(0, bytes.len() as u32).into()
         }
     } else {
-        match vm.serialize(&py_obj) {
+        match vm.serialize(py_obj) {
             Ok(json) => js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED),
             Err(_) => JsValue::UNDEFINED,
         }
