@@ -13,6 +13,12 @@ assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', os.O_RDONLY))
 assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', os.O_WRONLY))
 assert_raises(FileNotFoundError, lambda: os.rename('DOES_NOT_EXIST', 'DOES_NOT_EXIST 2'))
 
+try:
+	os.open('DOES_NOT_EXIST', 0)
+except OSError as err:
+	assert err.errno == 2
+
+
 
 assert os.O_RDONLY == 0
 assert os.O_WRONLY == 1
