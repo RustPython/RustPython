@@ -671,6 +671,10 @@ fn os_fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     }
 }
 
+fn os_rename(src: PyStringRef, dst: PyStringRef, vm: &VirtualMachine) -> PyResult<()> {
+    fs::rename(&src.value, &dst.value).map_err(|s| vm.new_os_error(s.to_string()))
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let ctx = &vm.ctx;
 
@@ -751,8 +755,8 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // pathconf Some None None
         // readlink Some Some None
         SupportFunc::new(vm, "remove", os_remove, Some(false), Some(false), None),
-        // rename Some Some None
-        // replace Some Some None
+        SupportFunc::new(vm, "rename", os_rename, Some(false), Some(false), None),
+        SupportFunc::new(vm, "replace", os_rename, Some(false), Some(false), None), // TODO: Fix replace
         SupportFunc::new(vm, "rmdir", os_rmdir, Some(false), Some(false), None),
         SupportFunc::new(vm, "scandir", os_scandir, Some(false), None, None),
         SupportFunc::new(vm, "stat", os_stat, Some(false), Some(false), Some(false)),
