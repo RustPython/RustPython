@@ -1,5 +1,7 @@
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, Uint8Array};
 use num_traits::cast::ToPrimitive;
+use serde::{de::DeserializeSeed, ser::Serialize};
+use serde_wasm_bindgen;
 use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
 
 use rustpython_vm::function::PyFuncArgs;
@@ -130,10 +132,9 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
             view.slice(0, bytes.len() as u32).into()
         }
     } else {
-        match vm.serialize(py_obj) {
-            Ok(json) => js_sys::JSON::parse(&json).unwrap_or(JsValue::UNDEFINED),
-            Err(_) => JsValue::UNDEFINED,
-        }
+        rustpython_vm::ser_de::PyObjectSerializer::new(vm, &py_obj)
+            .serialize(&serde_wasm_bindgen::Serializer::new())
+            .unwrap_or(JsValue::UNDEFINED)
     }
 }
 
@@ -224,10 +225,8 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         // Because `JSON.stringify(undefined)` returns undefined
         vm.get_none()
     } else {
-        let json = match js_sys::JSON::stringify(&js_val) {
-            Ok(json) => String::from(json),
-            Err(_) => return vm.get_none(),
-        };
-        vm.deserialize(&json).unwrap_or_else(|_| vm.get_none())
+        rustpython_vm::ser_de::PyObjectDeserializer::new(vm)
+            .deserialize(serde_wasm_bindgen::Deserializer::from(js_val))
+            .unwrap_or_else(|_| vm.get_none())
     }
 }
