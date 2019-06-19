@@ -1,8 +1,9 @@
-use crate::convert;
 use js_sys::{Array, Object, Reflect};
 use rustpython_vm::function::Args;
 use rustpython_vm::obj::{objfloat::PyFloatRef, objstr::PyStringRef, objtype::PyClassRef};
-use rustpython_vm::pyobject::{PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject};
+use rustpython_vm::pyobject::{
+    create_type, PyClassImpl, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 
@@ -108,16 +109,16 @@ impl PyJsValue {
 
     #[pymethod]
     fn has_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<bool> {
-        has_prop(&self.value, &name.to_jsvalue()).map_err(|err| convert::js_to_py(vm, err))
+        has_prop(&self.value, &name.to_jsvalue()).map_err(|err| new_js_error(vm, err))
     }
 
     #[pymethod]
     fn get_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<PyJsValue> {
         let name = &name.to_jsvalue();
-        if has_prop(&self.value, name).map_err(|err| convert::js_to_py(vm, err))? {
+        if has_prop(&self.value, name).map_err(|err| new_js_error(vm, err))? {
             get_prop(&self.value, name)
                 .map(PyJsValue::new)
-                .map_err(|err| convert::js_to_py(vm, err))
+                .map_err(|err| new_js_error(vm, err))
         } else {
             Err(vm.new_attribute_error(format!("No attribute {:?} on JS value", name)))
         }
@@ -125,8 +126,7 @@ impl PyJsValue {
 
     #[pymethod]
     fn set_prop(&self, name: JsProperty, value: PyJsValueRef, vm: &VirtualMachine) -> PyResult<()> {
-        set_prop(&self.value, &name.to_jsvalue(), &value.value)
-            .map_err(|err| convert::js_to_py(vm, err))
+        set_prop(&self.value, &name.to_jsvalue(), &value.value).map_err(|err| new_js_error(vm, err))
     }
 
     #[pymethod]
@@ -150,7 +150,7 @@ impl PyJsValue {
         }
         Reflect::apply(func, &this, &js_args)
             .map(PyJsValue::new)
-            .map_err(|err| convert::js_to_py(vm, err))
+            .map_err(|err| new_js_error(vm, err))
     }
 
     #[pymethod]
@@ -180,7 +180,7 @@ impl PyJsValue {
 
         constructed_result
             .map(PyJsValue::new)
-            .map_err(|err| convert::js_to_py(vm, err))
+            .map_err(|err| new_js_error(vm, err))
     }
 
     #[pymethod]
@@ -212,7 +212,7 @@ impl PyJsValue {
 
     #[pymethod]
     fn instanceof(&self, rhs: PyJsValueRef, vm: &VirtualMachine) -> PyResult<bool> {
-        instance_of(&self.value, &rhs.value).map_err(|err| convert::js_to_py(vm, err))
+        instance_of(&self.value, &rhs.value).map_err(|err| new_js_error(vm, err))
     }
 
     #[pymethod(name = "__repr__")]
@@ -233,9 +233,18 @@ struct NewObjectOptions {
     prototype: Option<PyJsValueRef>,
 }
 
+fn new_js_error(vm: &VirtualMachine, err: JsValue) -> PyObjectRef {
+    let exc = vm.new_exception(vm.class("_js", "JsError"), format!("{:?}", err));
+    vm.set_attr(&exc, "js_value", PyJsValue::new(err).into_ref(vm))
+        .unwrap();
+    exc
+}
+
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+    let ctx = &vm.ctx;
     py_module!(vm, "_js", {
-      "JsValue" => PyJsValue::make_class(&vm.ctx),
+        "JsError" => create_type("JsError", &ctx.type_type, &ctx.exceptions.exception_type),
+        "JsValue" => PyJsValue::make_class(ctx),
     })
 }
 
