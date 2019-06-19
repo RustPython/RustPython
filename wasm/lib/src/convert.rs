@@ -45,7 +45,7 @@ pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyObjectRef) -> JsValue {
             let elements = objsequence::get_elements_list(&tb).to_vec();
             if let Some(top) = elements.get(0) {
                 if objtype::isinstance(&top, &vm.ctx.tuple_type()) {
-                    let element = objsequence::get_elements_list(&top);
+                    let element = objsequence::get_elements_tuple(&top);
 
                     if let Some(lineno) = objint::to_int(vm, &element[1], 10)
                         .ok()
