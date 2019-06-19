@@ -1,8 +1,8 @@
 use std::fmt;
 
 use serde;
-use serde::de::Visitor;
-use serde::ser::{SerializeMap, SerializeSeq};
+use serde::de::{DeserializeSeed, Visitor};
+use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
 use crate::obj::{
     objbool,
@@ -15,6 +15,29 @@ use crate::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;
 
+#[inline]
+pub fn serialize<S>(
+    vm: &VirtualMachine,
+    pyobject: &PyObjectRef,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    PyObjectSerializer { vm, pyobject }.serialize(serializer)
+}
+
+#[inline]
+pub fn deserialize<'de, D>(
+    vm: &'de VirtualMachine,
+    deserializer: D,
+) -> Result<<PyObjectDeserializer as DeserializeSeed>::Value, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    PyObjectDeserializer { vm }.deserialize(deserializer)
+}
+
 // We need to have a VM available to serialise a PyObject based on its subclass, so we implement
 // PyObject serialisation via a proxy object which holds a reference to a VM
 pub struct PyObjectSerializer<'s> {
@@ -24,7 +47,7 @@ pub struct PyObjectSerializer<'s> {
 
 impl<'s> PyObjectSerializer<'s> {
     pub fn new(vm: &'s VirtualMachine, pyobject: &'s PyObjectRef) -> Self {
-        PyObjectSerializer { pyobject, vm }
+        PyObjectSerializer { vm, pyobject }
     }
 
     fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer {
@@ -97,7 +120,7 @@ impl<'c> PyObjectDeserializer<'c> {
     }
 }
 
-impl<'de> serde::de::DeserializeSeed<'de> for PyObjectDeserializer<'de> {
+impl<'de> DeserializeSeed<'de> for PyObjectDeserializer<'de> {
     type Value = PyObjectRef;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>

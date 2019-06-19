@@ -1,39 +1,36 @@
 use crate::obj::objstr::PyStringRef;
+use crate::py_serde;
 use crate::pyobject::{create_type, ItemProtocol, PyObjectRef, PyResult};
-use crate::ser_de::{PyObjectDeserializer, PyObjectSerializer};
 use crate::VirtualMachine;
-use serde::de::DeserializeSeed;
 use serde_json;
 
 /// Implement json.dumps
 pub fn json_dumps(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-    let serializer = PyObjectSerializer::new(vm, &obj);
+    let serializer = py_serde::PyObjectSerializer::new(vm, &obj);
     serde_json::to_string(&serializer).map_err(|err| vm.new_type_error(err.to_string()))
 }
 
 /// Implement json.loads
 pub fn json_loads(string: PyStringRef, vm: &VirtualMachine) -> PyResult {
     // TODO: Implement non-trivial deserialization case
+    let de_result =
+        py_serde::deserialize(vm, &mut serde_json::Deserializer::from_str(string.as_str()));
 
-    let de = PyObjectDeserializer::new(vm);
-
-    // TODO: Support deserializing string sub-classes
-    de.deserialize(&mut serde_json::Deserializer::from_str(string.as_str()))
-        .map_err(|err| {
-            let module = vm
-                .get_attribute(vm.sys_module.clone(), "modules")
-                .unwrap()
-                .get_item("json", vm)
-                .unwrap();
-            let json_decode_error = vm.get_attribute(module, "JSONDecodeError").unwrap();
-            let json_decode_error = json_decode_error.downcast().unwrap();
-            let exc = vm.new_exception(json_decode_error, format!("{}", err));
-            vm.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()))
-                .unwrap();
-            vm.set_attr(&exc, "colno", vm.ctx.new_int(err.column()))
-                .unwrap();
-            exc
-        })
+    de_result.map_err(|err| {
+        let module = vm
+            .get_attribute(vm.sys_module.clone(), "modules")
+            .unwrap()
+            .get_item("json", vm)
+            .unwrap();
+        let json_decode_error = vm.get_attribute(module, "JSONDecodeError").unwrap();
+        let json_decode_error = json_decode_error.downcast().unwrap();
+        let exc = vm.new_exception(json_decode_error, format!("{}", err));
+        vm.set_attr(&exc, "lineno", vm.ctx.new_int(err.line()))
+            .unwrap();
+        vm.set_attr(&exc, "colno", vm.ctx.new_int(err.column()))
+            .unwrap();
+        exc
+    })
 }
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
