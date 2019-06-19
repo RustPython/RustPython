@@ -70,32 +70,28 @@ impl PyJsValue {
         }
     }
 
-    #[pyclassmethod]
-    fn null(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
-        PyJsValue::new(JsValue::NULL).into_ref_with_type(vm, cls)
+    #[pymethod]
+    fn null(&self, _vm: &VirtualMachine) -> PyJsValue {
+        PyJsValue::new(JsValue::NULL)
     }
 
-    #[pyclassmethod]
-    fn undefined(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
-        PyJsValue::new(JsValue::UNDEFINED).into_ref_with_type(vm, cls)
+    #[pymethod]
+    fn undefined(&self, _vm: &VirtualMachine) -> PyJsValue {
+        PyJsValue::new(JsValue::UNDEFINED)
     }
 
-    #[pyclassmethod]
-    fn fromstr(cls: PyClassRef, s: PyStringRef, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
-        PyJsValue::new(s.as_str()).into_ref_with_type(vm, cls)
+    #[pymethod]
+    fn new_from_str(&self, s: PyStringRef, _vm: &VirtualMachine) -> PyJsValue {
+        PyJsValue::new(s.as_str())
     }
 
-    #[pyclassmethod]
-    fn fromfloat(cls: PyClassRef, n: PyFloatRef, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
-        PyJsValue::new(n.to_f64()).into_ref_with_type(vm, cls)
+    #[pymethod]
+    fn new_from_float(&self, n: PyFloatRef, _vm: &VirtualMachine) -> PyJsValue {
+        PyJsValue::new(n.to_f64())
     }
 
-    #[pyclassmethod]
-    fn new_object(
-        cls: PyClassRef,
-        opts: NewObjectOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyJsValueRef> {
+    #[pymethod]
+    fn new_object(&self, opts: NewObjectOptions, vm: &VirtualMachine) -> PyResult<PyJsValue> {
         let value = if let Some(proto) = opts.prototype {
             if let Some(proto) = proto.value.dyn_ref::<Object>() {
                 Object::create(proto)
@@ -107,7 +103,7 @@ impl PyJsValue {
         } else {
             Object::new()
         };
-        PyJsValue::new(value).into_ref_with_type(vm, cls)
+        Ok(PyJsValue::new(value))
     }
 
     #[pymethod]
