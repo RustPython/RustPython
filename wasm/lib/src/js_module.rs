@@ -7,10 +7,19 @@ use rustpython_vm::VirtualMachine;
 use wasm_bindgen::{prelude::*, JsCast};
 
 #[wasm_bindgen(inline_js = "
+export function has_prop(target, prop) { return prop in Object(target); }
+export function get_prop(target, prop) { return target[prop]; }
+export function set_prop(target, prop, value) { target[prop] = value; }
 export function type_of(a) { return typeof a; }
 export function instance_of(lhs, rhs) { return lhs instanceof rhs; }
 ")]
 extern "C" {
+    #[wasm_bindgen(catch)]
+    fn has_prop(target: &JsValue, prop: &JsValue) -> Result<bool, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn get_prop(target: &JsValue, prop: &JsValue) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn set_prop(target: &JsValue, prop: &JsValue, value: &JsValue) -> Result<(), JsValue>;
     #[wasm_bindgen]
     fn type_of(a: &JsValue) -> String;
     #[wasm_bindgen(catch)]
@@ -102,10 +111,15 @@ impl PyJsValue {
     }
 
     #[pymethod]
+    fn has_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<bool> {
+        has_prop(&self.value, &name.to_jsvalue()).map_err(|err| convert::js_to_py(vm, err))
+    }
+
+    #[pymethod]
     fn get_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<PyJsValue> {
         let name = &name.to_jsvalue();
-        if Reflect::has(&self.value, name).map_err(|err| convert::js_to_py(vm, err))? {
-            Reflect::get(&self.value, name)
+        if has_prop(&self.value, name).map_err(|err| convert::js_to_py(vm, err))? {
+            get_prop(&self.value, name)
                 .map(PyJsValue::new)
                 .map_err(|err| convert::js_to_py(vm, err))
         } else {
@@ -114,14 +128,8 @@ impl PyJsValue {
     }
 
     #[pymethod]
-    fn set_prop(
-        &self,
-        name: JsProperty,
-        value: PyJsValueRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyJsValue> {
-        Reflect::set(&self.value, &name.to_jsvalue(), &value.value)
-            .map(PyJsValue::new)
+    fn set_prop(&self, name: JsProperty, value: PyJsValueRef, vm: &VirtualMachine) -> PyResult<()> {
+        set_prop(&self.value, &name.to_jsvalue(), &value.value)
             .map_err(|err| convert::js_to_py(vm, err))
     }
 
