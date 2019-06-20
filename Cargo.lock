@@ -950,6 +950,7 @@ dependencies = [
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
  "unic-emoji-char 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "unicode-xid 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wtf8 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1501,6 +1502,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "wtf8"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "xdg"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1682,4 +1688,5 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum winapi-util 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "7168bab6e1daee33b4557efd0e95d5ca70a03706d39fa5f3fe7a236f584b03c9"
 "checksum winapi-x86_64-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 "checksum wincolor 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "561ed901ae465d6185fa7864d63fbd5720d0ef718366c9a4dc83cf6170d7e9ba"
+"checksum wtf8 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "d6b9309a86639c488a8eb2b5331cb5127cc9feb0a94a0db4b5d1ab5b84977956"
 "checksum xdg 2.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d089681aa106a86fade1b0128fb5daf07d5867a509ab036d99988dec80429a57"
