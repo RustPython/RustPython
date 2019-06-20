@@ -35,11 +35,7 @@ struct CompilationSource {
 }
 
 impl CompilationSource {
-    fn compile(
-        self,
-        mode: &compile::Mode,
-        source_path: Option<String>,
-    ) -> Result<CodeObject, Diagnostic> {
+    fn compile(self, mode: &compile::Mode, source_path: String) -> Result<CodeObject, Diagnostic> {
         let compile = |source| {
             compile::compile(source, mode, source_path).map_err(|err| {
                 Diagnostic::spans_error(self.span, format!("Compile error: {}", err))
@@ -139,7 +135,10 @@ impl PyCompileInput {
                     "Must have either file or source in py_compile_bytecode!()",
                 )
             })?
-            .compile(&mode.unwrap_or(compile::Mode::Exec), source_path)
+            .compile(
+                &mode.unwrap_or(compile::Mode::Exec),
+                source_path.unwrap_or_else(|| "frozen".to_string()),
+            )
     }
 }
 
