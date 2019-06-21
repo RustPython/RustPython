@@ -8,8 +8,8 @@
 //!
 //!     // the mode to compile the code in
 //!     mode = "exec", // or "eval" or "single"
-//!     // the path put into the CodeObject, defaults to `None`
-//!     source_path = "frozen",
+//!     // the path put into the CodeObject, defaults to "frozen"
+//!     module_name = "frozen",
 //! )
 //! ```
 
@@ -35,9 +35,9 @@ struct CompilationSource {
 }
 
 impl CompilationSource {
-    fn compile(self, mode: &compile::Mode, source_path: String) -> Result<CodeObject, Diagnostic> {
+    fn compile(self, mode: &compile::Mode, module_name: String) -> Result<CodeObject, Diagnostic> {
         let compile = |source| {
-            compile::compile(source, mode, source_path).map_err(|err| {
+            compile::compile(source, mode, module_name).map_err(|err| {
                 Diagnostic::spans_error(self.span, format!("Compile error: {}", err))
             })
         };
@@ -69,7 +69,7 @@ struct PyCompileInput {
 
 impl PyCompileInput {
     fn compile(&self) -> Result<CodeObject, Diagnostic> {
-        let mut source_path = None;
+        let mut module_name = None;
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
 
@@ -97,10 +97,10 @@ impl PyCompileInput {
                             },
                             _ => bail_span!(name_value.lit, "mode must be a string"),
                         })
-                    } else if name_value.ident == "source_path" {
-                        source_path = Some(match &name_value.lit {
+                    } else if name_value.ident == "module_name" {
+                        module_name = Some(match &name_value.lit {
                             Lit::Str(s) => s.value(),
-                            _ => bail_span!(name_value.lit, "source_path must be string"),
+                            _ => bail_span!(name_value.lit, "module_name must be string"),
                         })
                     } else if name_value.ident == "source" {
                         assert_source_empty(&source)?;
@@ -137,7 +137,7 @@ impl PyCompileInput {
             })?
             .compile(
                 &mode.unwrap_or(compile::Mode::Exec),
-                source_path.unwrap_or_else(|| "frozen".to_string()),
+                module_name.unwrap_or_else(|| "frozen".to_string()),
             )
     }
 }
