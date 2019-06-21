@@ -718,14 +718,6 @@ impl VirtualMachine {
         })
     }
 
-    pub fn serialize(&self, obj: &PyObjectRef) -> PyResult<String> {
-        crate::stdlib::json::ser_pyobject(self, obj)
-    }
-
-    pub fn deserialize(&self, s: &str) -> PyResult {
-        crate::stdlib::json::de_pyobject(self, s)
-    }
-
     pub fn is_callable(&self, obj: &PyObjectRef) -> bool {
         match_class!(obj,
             PyFunction => true,

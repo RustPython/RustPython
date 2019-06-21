@@ -3,7 +3,7 @@ mod binascii;
 mod dis;
 mod imp;
 mod itertools;
-pub(crate) mod json;
+mod json;
 mod keyword;
 mod marshal;
 mod math;
