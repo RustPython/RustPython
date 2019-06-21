@@ -54,7 +54,7 @@ impl PyCodeRef {
         self.code.arg_names.len()
     }
 
-    fn co_filename(self, _vm: &VirtualMachine) -> Option<String> {
+    fn co_filename(self, _vm: &VirtualMachine) -> String {
         self.code.source_path.clone()
     }
 

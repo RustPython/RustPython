@@ -23,11 +23,7 @@ struct Compiler {
 }
 
 /// Compile a given sourcecode into a bytecode object.
-pub fn compile(
-    source: &str,
-    mode: &Mode,
-    source_path: Option<String>,
-) -> Result<CodeObject, CompileError> {
+pub fn compile(source: &str, mode: &Mode, source_path: String) -> Result<CodeObject, CompileError> {
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
@@ -46,11 +42,11 @@ pub fn compile(
 
 /// A helper function for the shared code of the different compile functions
 fn with_compiler(
-    source_path: Option<String>,
+    source_path: String,
     f: impl FnOnce(&mut Compiler) -> Result<(), CompileError>,
 ) -> Result<CodeObject, CompileError> {
     let mut compiler = Compiler::new();
-    compiler.source_path = source_path;
+    compiler.source_path = Some(source_path);
     compiler.push_new_code_object("<module>".to_string());
     f(&mut compiler)?;
     let code = compiler.pop_code_object();
@@ -59,10 +55,7 @@ fn with_compiler(
 }
 
 /// Compile a standard Python program to bytecode
-pub fn compile_program(
-    ast: ast::Program,
-    source_path: Option<String>,
-) -> Result<CodeObject, CompileError> {
+pub fn compile_program(ast: ast::Program, source_path: String) -> Result<CodeObject, CompileError> {
     with_compiler(source_path, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
         compiler.compile_program(&ast, symbol_table)
@@ -72,7 +65,7 @@ pub fn compile_program(
 /// Compile a single Python expression to bytecode
 pub fn compile_statement_eval(
     statement: Vec<ast::LocatedStatement>,
-    source_path: Option<String>,
+    source_path: String,
 ) -> Result<CodeObject, CompileError> {
     with_compiler(source_path, |compiler| {
         let symbol_table = statements_to_symbol_table(&statement)?;
@@ -83,7 +76,7 @@ pub fn compile_statement_eval(
 /// Compile a Python program to bytecode for the context of a REPL
 pub fn compile_program_single(
     ast: ast::Program,
-    source_path: Option<String>,
+    source_path: String,
 ) -> Result<CodeObject, CompileError> {
     with_compiler(source_path, |compiler| {
         let symbol_table = make_symbol_table(&ast)?;
@@ -126,7 +119,7 @@ impl Compiler {
             Varargs::None,
             Vec::new(),
             Varargs::None,
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
             line_number,
             obj_name,
         ));
@@ -603,7 +596,7 @@ impl Compiler {
             Varargs::from(&args.vararg),
             args.kwonlyargs.iter().map(|a| a.arg.clone()).collect(),
             Varargs::from(&args.kwarg),
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
         ));
@@ -856,7 +849,7 @@ impl Compiler {
             Varargs::None,
             vec![],
             Varargs::None,
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
             line_number,
             name.to_string(),
         ));
@@ -1578,7 +1571,7 @@ impl Compiler {
             Varargs::None,
             vec![],
             Varargs::None,
-            self.source_path.clone(),
+            self.source_path.clone().unwrap(),
             line_number,
             name.clone(),
         ));

@@ -28,20 +28,21 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     vm.frozen
         .borrow()
         .get(module_name)
-        .cloned()
         .ok_or_else(|| vm.new_import_error(format!("Cannot import frozen module {}", module_name)))
-        .and_then(|frozen| import_codeobj(vm, module_name, frozen))
+        .and_then(|frozen| import_codeobj(vm, module_name, frozen.clone(), false))
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
-    if let Some(make_module_func) = vm.stdlib_inits.borrow().get(module_name) {
-        let module = make_module_func(vm);
-        sys_modules.set_item(module_name, module.clone(), vm)?;
-        Ok(module)
-    } else {
-        Err(vm.new_import_error(format!("Cannot import bultin module {}", module_name)))
-    }
+    vm.stdlib_inits
+        .borrow()
+        .get(module_name)
+        .ok_or_else(|| vm.new_import_error(format!("Cannot import bultin module {}", module_name)))
+        .and_then(|make_module_func| {
+            let module = make_module_func(vm);
+            let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
+            sys_modules.set_item(module_name, module.clone(), vm)?;
+            Ok(module)
+        })
 }
 
 pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &str) -> PyResult {
@@ -56,8 +57,8 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
     } else if vm.stdlib_inits.borrow().contains_key(module_name) {
         import_builtin(vm, module_name)
     } else {
-        let notfound_error = vm.context().exceptions.module_not_found_error.clone();
-        let import_error = vm.context().exceptions.import_error.clone();
+        let notfound_error = &vm.ctx.exceptions.module_not_found_error;
+        let import_error = &vm.ctx.exceptions.import_error;
 
         // Time to search for module in any place:
         let file_path = find_source(vm, current_path, module_name)
@@ -68,7 +69,7 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
         import_file(
             vm,
             module_name,
-            Some(file_path.to_str().unwrap().to_string()),
+            file_path.to_str().unwrap().to_string(),
             source,
         )
     }
@@ -77,24 +78,29 @@ pub fn import_module(vm: &VirtualMachine, current_path: PathBuf, module_name: &s
 pub fn import_file(
     vm: &VirtualMachine,
     module_name: &str,
-    file_path: Option<String>,
+    file_path: String,
     content: String,
 ) -> PyResult {
     let code_obj = compile::compile(&content, &compile::Mode::Exec, file_path)
         .map_err(|err| vm.new_syntax_error(&err))?;
-    import_codeobj(vm, module_name, code_obj)
+    import_codeobj(vm, module_name, code_obj, true)
 }
 
-pub fn import_codeobj(vm: &VirtualMachine, module_name: &str, code_obj: CodeObject) -> PyResult {
+pub fn import_codeobj(
+    vm: &VirtualMachine,
+    module_name: &str,
+    code_obj: CodeObject,
+    set_file_attr: bool,
+) -> PyResult {
     let attrs = vm.ctx.new_dict();
     attrs.set_item("__name__", vm.new_str(module_name.to_string()), vm)?;
-    if let Some(source_path) = &code_obj.source_path {
-        attrs.set_item("__file__", vm.new_str(source_path.to_owned()), vm)?;
+    if set_file_attr {
+        attrs.set_item("__file__", vm.new_str(code_obj.source_path.to_owned()), vm)?;
     }
     let module = vm.ctx.new_module(module_name, attrs.clone());
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
-    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules").unwrap();
+    let sys_modules = vm.get_attribute(vm.sys_module.clone(), "modules")?;
     sys_modules.set_item(module_name, module.clone(), vm)?;
 
     // Execute main code in module:
