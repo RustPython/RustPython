@@ -1140,7 +1140,6 @@ fn do_cformat_specifier(
                     if num_chars != 1 {
                         Err(vm.new_type_error("%c requires int or char".to_string()))
                     } else {
-                        println!("Hurray!");
                         Ok(s.chars().next().unwrap().to_string())
                     }
                 } else {
