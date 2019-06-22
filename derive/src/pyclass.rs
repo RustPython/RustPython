@@ -11,6 +11,10 @@ enum ClassItem {
         item_ident: Ident,
         py_name: String,
     },
+    ClassMethod {
+        item_ident: Ident,
+        py_name: String,
+    },
     Property {
         item_ident: Ident,
         py_name: String,
@@ -49,8 +53,8 @@ impl ClassItem {
                 let nesteds = meta_to_vec(meta).map_err(|meta| {
                     err_span!(
                         meta,
-                        "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
-                         #[pyproperty(name = \"...\")]",
+                        "#[pymethod = \"...\"] cannot be a name/value, you probably meant \
+                         #[pymethod(name = \"...\")]",
                     )
                 })?;
                 let mut py_name = None;
@@ -76,6 +80,47 @@ impl ClassItem {
                     }
                 }
                 item = Some(ClassItem::Method {
+                    item_ident: sig.ident.clone(),
+                    py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+                });
+                attr_idx = Some(i);
+            } else if name == "pyclassmethod" {
+                if item.is_some() {
+                    bail_span!(
+                        sig.ident,
+                        "You can only have one #[py*] attribute on an impl item"
+                    )
+                }
+                let nesteds = meta_to_vec(meta).map_err(|meta| {
+                    err_span!(
+                        meta,
+                        "#[pyclassmethod = \"...\"] cannot be a name/value, you probably meant \
+                         #[pyclassmethod(name = \"...\")]",
+                    )
+                })?;
+                let mut py_name = None;
+                for meta in nesteds {
+                    let meta = match meta {
+                        NestedMeta::Meta(meta) => meta,
+                        NestedMeta::Literal(_) => continue,
+                    };
+                    match meta {
+                        Meta::NameValue(name_value) => {
+                            if name_value.ident == "name" {
+                                if let Lit::Str(s) = &name_value.lit {
+                                    py_name = Some(s.value());
+                                } else {
+                                    bail_span!(
+                                        &sig.ident,
+                                        "#[pyclassmethod(name = ...)] must be a string"
+                                    );
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                item = Some(ClassItem::ClassMethod {
                     item_ident: sig.ident.clone(),
                     py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
                 });
@@ -210,18 +255,20 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
             _ => {}
         }
     }
-    let methods = items.iter().filter_map(|item| {
-        if let ClassItem::Method {
+    let methods = items.iter().filter_map(|item| match item {
+        ClassItem::Method {
             item_ident,
             py_name,
-        } = item
-        {
-            Some(quote! {
-                class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
-            })
-        } else {
-            None
-        }
+        } => Some(quote! {
+            class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
+        }),
+        ClassItem::ClassMethod {
+            item_ident,
+            py_name,
+        } => Some(quote! {
+            class.set_str_attr(#py_name, ctx.new_classmethod(Self::#item_ident));
+        }),
+        _ => None,
     });
     let properties = properties
         .iter()
