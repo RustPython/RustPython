@@ -5,13 +5,16 @@ use std::cell::RefCell;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::io::Cursor;
+use std::io::SeekFrom;
+
 use std::path::PathBuf;
 
 use num_bigint::ToBigInt;
 use num_traits::ToPrimitive;
 
 use super::os;
-use crate::function::PyFuncArgs;
+use crate::function::{OptionalArg, PyFuncArgs};
 use crate::import;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
@@ -21,9 +24,73 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
+fn byte_count(bytes: OptionalArg<Option<PyObjectRef>>) -> i64 {
+    match bytes {
+        OptionalArg::Present(Some(ref int)) => objint::get_value(int).to_i64().unwrap(),
+        _ => (-1 as i64),
+    }
+}
+
+#[derive(Debug)]
+struct BufferedIO {
+    cursor: Cursor<Vec<u8>>,
+}
+
+impl BufferedIO {
+    fn new(cursor: Cursor<Vec<u8>>) -> BufferedIO {
+        BufferedIO { cursor: cursor }
+    }
+
+    fn write(&mut self, data: Vec<u8>) -> Option<u64> {
+        let length = data.len();
+
+        match self.cursor.write_all(&data) {
+            Ok(_) => Some(length as u64),
+            Err(_) => None,
+        }
+    }
+
+    //return the entire contents of the underlying
+    fn getvalue(&self) -> Vec<u8> {
+        self.cursor.clone().into_inner()
+    }
+
+    //skip to the jth position
+    fn seek(&mut self, offset: u64) -> Option<u64> {
+        match self.cursor.seek(SeekFrom::Start(offset.clone())) {
+            Ok(_) => Some(offset),
+            Err(_) => None,
+        }
+    }
+
+    //Read k bytes from the object and return.
+    fn read(&mut self, bytes: i64) -> Option<Vec<u8>> {
+        let mut buffer = Vec::new();
+
+        //for a defined number of bytes, i.e. bytes != -1
+        if bytes > 0 {
+            let mut handle = self.cursor.clone().take(bytes as u64);
+            //read handle into buffer
+            if let Err(_) = handle.read_to_end(&mut buffer) {
+                return None;
+            }
+            //the take above consumes the struct value
+            //we add this back in with the takes into_inner method
+            self.cursor = handle.into_inner();
+        } else {
+            //read handle into buffer
+            if let Err(_) = self.cursor.read_to_end(&mut buffer) {
+                return None;
+            }
+        };
+
+        Some(buffer)
+    }
+}
+
 #[derive(Debug)]
 struct PyStringIO {
-    data: RefCell<String>,
+    buffer: RefCell<BufferedIO>,
 }
 
 type PyStringIORef = PyRef<PyStringIO>;
@@ -35,32 +102,126 @@ impl PyValue for PyStringIO {
 }
 
 impl PyStringIORef {
-    fn write(self, data: objstr::PyStringRef, _vm: &VirtualMachine) {
-        let data = data.value.clone();
-        self.data.borrow_mut().push_str(&data);
+    //write string to underlying vector
+    fn write(self, data: objstr::PyStringRef, vm: &VirtualMachine) -> PyResult {
+        let bytes = &data.value.clone().into_bytes();
+
+        match self.buffer.borrow_mut().write(bytes.to_vec()) {
+            Some(value) => Ok(vm.ctx.new_int(value)),
+            None => Err(vm.new_type_error("Error Writing String".to_string())),
+        }
     }
 
-    fn getvalue(self, _vm: &VirtualMachine) -> String {
-        self.data.borrow().clone()
+    //return the entire contents of the underlying
+    fn getvalue(self, vm: &VirtualMachine) -> PyResult {
+        match String::from_utf8(self.buffer.borrow().getvalue()) {
+            Ok(result) => Ok(vm.ctx.new_str(result)),
+            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
+        }
+    }
+
+    //skip to the jth position
+    fn seek(self, offset: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let position = objint::get_value(&offset).to_u64().unwrap();
+        match self.buffer.borrow_mut().seek(position) {
+            Some(value) => Ok(vm.ctx.new_int(value)),
+            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+        }
+    }
+
+    //Read k bytes from the object and return.
+    //If k is undefined || k == -1, then we read all bytes until the end of the file.
+    //This also increments the stream position by the value of k
+    fn read(self, bytes: OptionalArg<Option<PyObjectRef>>, vm: &VirtualMachine) -> PyResult {
+        let data = match self.buffer.borrow_mut().read(byte_count(bytes)) {
+            Some(value) => value,
+            None => Vec::new(),
+        };
+
+        match String::from_utf8(data) {
+            Ok(value) => Ok(vm.ctx.new_str(value)),
+            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
+        }
     }
 }
 
-fn string_io_new(cls: PyClassRef, vm: &VirtualMachine) -> PyResult<PyStringIORef> {
+fn string_io_new(
+    cls: PyClassRef,
+    object: OptionalArg<Option<PyObjectRef>>,
+    vm: &VirtualMachine,
+) -> PyResult<PyStringIORef> {
+    let raw_string = match object {
+        OptionalArg::Present(Some(ref input)) => objstr::get_value(input),
+        _ => String::new(),
+    };
+
     PyStringIO {
-        data: RefCell::new(String::default()),
+        buffer: RefCell::new(BufferedIO::new(Cursor::new(raw_string.into_bytes()))),
     }
     .into_ref_with_type(vm, cls)
 }
 
-fn bytes_io_init(vm: &VirtualMachine, _args: PyFuncArgs) -> PyResult {
-    // TODO
-    Ok(vm.get_none())
+#[derive(Debug)]
+struct PyBytesIO {
+    buffer: RefCell<BufferedIO>,
 }
 
-fn bytes_io_getvalue(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args);
-    // TODO
-    Ok(vm.get_none())
+type PyBytesIORef = PyRef<PyBytesIO>;
+
+impl PyValue for PyBytesIO {
+    fn class(vm: &VirtualMachine) -> PyClassRef {
+        vm.class("io", "BytesIO")
+    }
+}
+
+impl PyBytesIORef {
+    fn write(self, data: objbytes::PyBytesRef, vm: &VirtualMachine) -> PyResult {
+        let bytes = data.get_value();
+
+        match self.buffer.borrow_mut().write(bytes.to_vec()) {
+            Some(value) => Ok(vm.ctx.new_int(value)),
+            None => Err(vm.new_type_error("Error Writing Bytes".to_string())),
+        }
+    }
+    //Retrieves the entire bytes object value from the underlying buffer
+    fn getvalue(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.buffer.borrow().getvalue()))
+    }
+
+    //Takes an integer k (bytes) and returns them from the underlying buffer
+    //If k is undefined || k == -1, then we read all bytes until the end of the file.
+    //This also increments the stream position by the value of k
+    fn read(self, bytes: OptionalArg<Option<PyObjectRef>>, vm: &VirtualMachine) -> PyResult {
+        match self.buffer.borrow_mut().read(byte_count(bytes)) {
+            Some(value) => Ok(vm.ctx.new_bytes(value)),
+            None => Err(vm.new_value_error("Error Retrieving Value".to_string())),
+        }
+    }
+
+    //skip to the jth position
+    fn seek(self, offset: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let position = objint::get_value(&offset).to_u64().unwrap();
+        match self.buffer.borrow_mut().seek(position) {
+            Some(value) => Ok(vm.ctx.new_int(value)),
+            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
+        }
+    }
+}
+
+fn bytes_io_new(
+    cls: PyClassRef,
+    object: OptionalArg<Option<PyObjectRef>>,
+    vm: &VirtualMachine,
+) -> PyResult<PyBytesIORef> {
+    let raw_bytes = match object {
+        OptionalArg::Present(Some(ref input)) => objbytes::get_value(input).to_vec(),
+        _ => vec![],
+    };
+
+    PyBytesIO {
+        buffer: RefCell::new(BufferedIO::new(Cursor::new(raw_bytes))),
+    }
+    .into_ref_with_type(vm, cls)
 }
 
 fn io_base_cm_enter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
@@ -145,7 +306,7 @@ fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
-    let rust_mode = mode.map_or("r".to_string(), |m| objstr::get_value(m));
+    let rust_mode = mode.map_or("r".to_string(), objstr::get_value);
 
     match compute_c_flag(&rust_mode).to_bigint() {
         Some(os_mode) => {
@@ -361,8 +522,10 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         required = [(file, Some(vm.ctx.str_type()))],
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
+
     // mode is optional: 'rt' is the default mode (open from reading text)
-    let mode_string = mode.map_or("rt".to_string(), |m| objstr::get_value(m));
+    let mode_string = mode.map_or("rt".to_string(), objstr::get_value);
+
     let (mode, typ) = match split_mode_string(mode_string) {
         Ok((mode, typ)) => (mode, typ),
         Err(error_message) => {
@@ -430,9 +593,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     // IOBase Subclasses
     let raw_io_base = py_class!(ctx, "RawIOBase", io_base.clone(), {});
 
-    let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {
-        "__init__" => ctx.new_rustfunc(buffered_io_base_init)
-    });
+    let buffered_io_base = py_class!(ctx, "BufferedIOBase", io_base.clone(), {});
 
     //TextIO Base has no public constructor
     let text_io_base = py_class!(ctx, "TextIOBase", io_base.clone(), {
@@ -451,10 +612,18 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     // BufferedIOBase Subclasses
     let buffered_reader = py_class!(ctx, "BufferedReader", buffered_io_base.clone(), {
+        //workaround till the buffered classes can be fixed up to be more
+        //consistent with the python model
+        //For more info see: https://github.com/RustPython/RustPython/issues/547
+        "__init__" => ctx.new_rustfunc(buffered_io_base_init),
         "read" => ctx.new_rustfunc(buffered_reader_read)
     });
 
     let buffered_writer = py_class!(ctx, "BufferedWriter", buffered_io_base.clone(), {
+        //workaround till the buffered classes can be fixed up to be more
+        //consistent with the python model
+        //For more info see: https://github.com/RustPython/RustPython/issues/547
+        "__init__" => ctx.new_rustfunc(buffered_io_base_init),
         "write" => ctx.new_rustfunc(buffered_writer_write)
     });
 
@@ -466,14 +635,20 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     //StringIO: in-memory text
     let string_io = py_class!(ctx, "StringIO", text_io_base.clone(), {
         "__new__" => ctx.new_rustfunc(string_io_new),
+        "seek" => ctx.new_rustfunc(PyStringIORef::seek),
+        "read" => ctx.new_rustfunc(PyStringIORef::read),
         "write" => ctx.new_rustfunc(PyStringIORef::write),
         "getvalue" => ctx.new_rustfunc(PyStringIORef::getvalue)
     });
 
     //BytesIO: in-memory bytes
     let bytes_io = py_class!(ctx, "BytesIO", buffered_io_base.clone(), {
-        "__init__" => ctx.new_rustfunc(bytes_io_init),
-        "getvalue" => ctx.new_rustfunc(bytes_io_getvalue)
+        "__new__" => ctx.new_rustfunc(bytes_io_new),
+        "read" => ctx.new_rustfunc(PyBytesIORef::read),
+        "read1" => ctx.new_rustfunc(PyBytesIORef::read),
+        "seek" => ctx.new_rustfunc(PyBytesIORef::seek),
+        "write" => ctx.new_rustfunc(PyBytesIORef::write),
+        "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue)
     });
 
     py_module!(vm, "_io", {
@@ -575,5 +750,38 @@ mod tests {
             split_mode_string("a++".to_string()),
             Err("invalid mode: 'a++'".to_string())
         );
+    }
+
+    #[test]
+    fn test_buffered_read() {
+        let data = vec![1, 2, 3, 4];
+        let bytes: i64 = -1;
+        let mut buffered = BufferedIO {
+            cursor: Cursor::new(data.clone()),
+        };
+
+        assert_eq!(buffered.read(bytes).unwrap(), data);
+    }
+
+    #[test]
+    fn test_buffered_seek() {
+        let data = vec![1, 2, 3, 4];
+        let count: u64 = 2;
+        let mut buffered = BufferedIO {
+            cursor: Cursor::new(data.clone()),
+        };
+
+        assert_eq!(buffered.seek(count.clone()).unwrap(), count);
+        assert_eq!(buffered.read(count.clone() as i64).unwrap(), vec![3, 4]);
+    }
+
+    #[test]
+    fn test_buffered_value() {
+        let data = vec![1, 2, 3, 4];
+        let buffered = BufferedIO {
+            cursor: Cursor::new(data.clone()),
+        };
+
+        assert_eq!(buffered.getvalue(), data);
     }
 }
