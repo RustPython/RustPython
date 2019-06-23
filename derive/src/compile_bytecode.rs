@@ -163,7 +163,7 @@ pub fn impl_py_compile_bytecode(input: TokenStream2) -> Result<TokenStream2, Dia
 
     let output = quote! {
         ({
-            use ::bincode;
+            use ::rustpython_vm::__exports::bincode;
             bincode::deserialize::<::rustpython_vm::bytecode::CodeObject>(#bytes)
                 .expect("Deserializing CodeObject failed")
         })

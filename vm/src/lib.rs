@@ -66,3 +66,8 @@ mod vm;
 pub use self::exceptions::print_exception;
 pub use self::vm::VirtualMachine;
 pub use rustpython_compiler::*;
+
+#[doc(hidden)]
+pub mod __exports {
+    pub use bincode;
+}
