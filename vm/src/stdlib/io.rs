@@ -24,16 +24,6 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
-fn compute_c_flag(mode: &str) -> u16 {
-    match mode {
-        "w" => 512,
-        "x" => 512,
-        "a" => 8,
-        "+" => 2,
-        _ => 0,
-    }
-}
-
 fn byte_count(bytes: OptionalArg<Option<PyObjectRef>>) -> i64 {
     match bytes {
         OptionalArg::Present(Some(ref int)) => objint::get_value(int).to_i64().unwrap(),
