@@ -24,9 +24,8 @@ fn result_to_tokens(result: Result<TokenStream2, Diagnostic>) -> TokenStream {
 
 #[proc_macro_derive(FromArgs, attributes(pyarg))]
 pub fn derive_from_args(input: TokenStream) -> TokenStream {
-    let ast: DeriveInput = syn::parse(input).unwrap();
-
-    from_args::impl_from_args(ast).into()
+    let input = parse_macro_input!(input as DeriveInput);
+    result_to_tokens(from_args::impl_from_args(input))
 }
 
 #[proc_macro_attribute]
