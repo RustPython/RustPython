@@ -28,6 +28,7 @@ use crate::pyobject::{
 };
 use crate::vm::VirtualMachine;
 
+use crate::obj::objbyteinner::PyByteInner;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::stdlib::io::io_open;
 
@@ -530,20 +531,39 @@ fn builtin_oct(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn builtin_ord(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(vm, args, required = [(string, Some(vm.ctx.str_type()))]);
-    let string = objstr::borrow_value(string);
-    let string_len = string.chars().count();
-    if string_len != 1 {
-        return Err(vm.new_type_error(format!(
-            "ord() expected a character, but string of length {} found",
-            string_len
-        )));
-    }
-    match string.chars().next() {
-        Some(character) => Ok(vm.context().new_int(character as i32)),
-        None => Err(vm.new_type_error(
-            "ord() could not guess the integer representing this character".to_string(),
-        )),
+    arg_check!(vm, args, required = [(string, None)]);
+    if objtype::isinstance(string, &vm.ctx.str_type()) {
+        let string = objstr::borrow_value(string);
+        let string_len = string.chars().count();
+        if string_len != 1 {
+            return Err(vm.new_type_error(format!(
+                "ord() expected a character, but string of length {} found",
+                string_len
+            )));
+        }
+        match string.chars().next() {
+            Some(character) => Ok(vm.context().new_int(character as i32)),
+            None => Err(vm.new_type_error(
+                "ord() could not guess the integer representing this character".to_string(),
+            )),
+        }
+    } else if objtype::isinstance(string, &vm.ctx.bytearray_type())
+        || objtype::isinstance(string, &vm.ctx.bytes_type())
+    {
+        let inner = PyByteInner::try_from_object(vm, string.clone()).unwrap();
+        let bytes_len = inner.elements.len();
+        if bytes_len != 1 {
+            return Err(vm.new_type_error(format!(
+                "ord() expected a character, but string of length {} found",
+                bytes_len
+            )));
+        }
+        Ok(vm.context().new_int(inner.elements[0]))
+    } else {
+        Err(vm.new_type_error(format!(
+            "ord() expected a string, bytes or bytearray, but found {}",
+            string.class().name
+        )))
     }
 }
 
