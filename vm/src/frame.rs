@@ -357,8 +357,8 @@ impl Frame {
             }
             bytecode::Instruction::Import {
                 ref name,
-                ref symbol,
-            } => self.import(vm, name, symbol),
+                ref symbols,
+            } => self.import(vm, name, symbols),
             bytecode::Instruction::ImportStar { ref name } => self.import_star(vm, name),
             bytecode::Instruction::LoadName {
                 ref name,
@@ -907,26 +907,28 @@ impl Frame {
         }
     }
 
-    fn import(&self, vm: &VirtualMachine, module: &str, symbol: &Option<String>) -> FrameResult {
-        let module = vm.import(module)?;
+    fn import(&self, vm: &VirtualMachine, module: &str, symbols: &Vec<String>) -> FrameResult {
+        let from_list = symbols
+            .iter()
+            .map(|symbol| vm.ctx.new_str(symbol.to_string()))
+            .collect();
+        let module = vm.import(module, &vm.ctx.new_tuple(from_list))?;
 
-        // If we're importing a symbol, look it up and use it, otherwise construct a module and return
-        // that
-        let obj = match symbol {
-            Some(symbol) => vm.get_attribute(module, symbol.as_str()).map_err(|_| {
-                let import_error = vm.context().exceptions.import_error.clone();
-                vm.new_exception(import_error, format!("cannot import name '{}'", symbol))
-            }),
-            None => Ok(module),
-        };
-
-        // Push module on stack:
-        self.push_value(obj?);
+        if symbols.is_empty() {
+            self.push_value(module);
+        } else {
+            for symbol in symbols {
+                let obj = vm
+                    .get_attribute(module.clone(), symbol.as_str())
+                    .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", symbol)));
+                self.push_value(obj?);
+            }
+        }
         Ok(None)
     }
 
     fn import_star(&self, vm: &VirtualMachine, module: &str) -> FrameResult {
-        let module = vm.import(module)?;
+        let module = vm.import(module, &vm.ctx.new_tuple(vec![]))?;
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {

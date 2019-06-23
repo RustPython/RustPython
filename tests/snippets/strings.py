@@ -182,10 +182,41 @@ assert not '😂'.isidentifier()
 assert not '123'.isidentifier()
 
 # String Formatting
-assert "{} {}".format(1,2) == "1 2"
-assert "{0} {1}".format(2,3) == "2 3"
+assert "{} {}".format(1, 2) == "1 2"
+assert "{0} {1}".format(2, 3) == "2 3"
 assert "--{:s>4}--".format(1) == "--sss1--"
 assert "{keyword} {0}".format(1, keyword=2) == "2 1"
+assert "repr() shows quotes: {!r}; str() doesn't: {!s}".format(
+    'test1', 'test2'
+) == "repr() shows quotes: 'test1'; str() doesn't: test2", 'Output: {!r}, {!s}'.format('test1', 'test2')
+
+
+class Foo:
+    def __str__(self):
+        return 'str(Foo)'
+
+    def __repr__(self):
+        return 'repr(Foo)'
+
+
+f = Foo()
+assert "{} {!s} {!r} {!a}".format(f, f, f, f) == 'str(Foo) str(Foo) repr(Foo) repr(Foo)'
+assert "{foo} {foo!s} {foo!r} {foo!a}".format(foo=f) == 'str(Foo) str(Foo) repr(Foo) repr(Foo)'
+# assert '{} {!r} {:10} {!r:10} {foo!r:10} {foo!r} {foo}'.format('txt1', 'txt2', 'txt3', 'txt4', 'txt5', foo='bar')
+
+
+# Printf-style String formatting
+assert "%d %d" % (1, 2) == "1 2"
+assert "%*c  " % (3, '❤') == "  ❤  "
+assert "%(first)s %(second)s" % {'second': 'World!', 'first': "Hello,"} == "Hello, World!"
+assert "%(key())s" % {'key()': 'aaa'}
+assert "%s %a %r" % (f, f, f) == "str(Foo) repr(Foo) repr(Foo)"
+assert "repr() shows quotes: %r; str() doesn't: %s" % ("test1", "test2") == "repr() shows quotes: 'test1'; str() doesn't: test2"
+
+assert_raises(TypeError, lambda: "My name is %s and I'm %(age)d years old" % ("Foo", 25), msg="format requires a mapping")
+assert_raises(TypeError, lambda: "My name is %(name)s" % "Foo", msg="format requires a mapping")
+assert_raises(ValueError, lambda: "This %(food}s is great!" % {"food": "cookie"}, msg="incomplete format key")
+assert_raises(ValueError, lambda: "My name is %" % "Foo", msg="incomplete format")
 
 assert 'a' < 'b'
 assert 'a' <= 'b'
@@ -216,3 +247,19 @@ for s, b in zip(ss, bs):
 for s, b, e in zip(ss, bs, ['u8', 'U8', 'utf-8', 'UTF-8', 'utf_8']):
     assert s.encode(e) == b
     # assert s.encode(encoding=e) == b
+
+# str.isisprintable
+assert "".isprintable()
+assert " ".isprintable()
+assert "abcdefg".isprintable()
+assert not "abcdefg\n".isprintable()
+assert "ʹ".isprintable()
+
+# test unicode iterals
+assert "\xac" == "¬"
+assert "\u0037" == "7"
+assert "\u0040" == "@"
+assert "\u0041" == "A"
+assert "\u00BE" == "¾"
+assert "\u9487" == "钇"
+assert "\U0001F609" == "😉"

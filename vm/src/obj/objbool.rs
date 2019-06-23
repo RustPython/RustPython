@@ -21,15 +21,19 @@ impl TryFromObject for bool {
 
 /// Convert Python bool into Rust bool.
 pub fn boolval(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<bool> {
-    Ok(if let Ok(f) = vm.get_method(obj.clone(), "__bool__") {
-        let bool_res = vm.invoke(f, PyFuncArgs::default())?;
-        match bool_res.payload::<PyInt>() {
-            Some(i) => !i.as_bigint().is_zero(),
-            None => return Err(vm.new_type_error(String::from("TypeError"))),
+    let rs_bool = match vm.get_method(obj.clone(), "__bool__") {
+        Some(method_or_err) => {
+            // If descriptor returns Error, propagate it further
+            let method = method_or_err?;
+            let bool_obj = vm.invoke(method, PyFuncArgs::default())?;
+            match bool_obj.payload::<PyInt>() {
+                Some(int_obj) => !int_obj.as_bigint().is_zero(),
+                None => return Err(vm.new_type_error(String::from(""))),
+            }
         }
-    } else {
-        true
-    })
+        None => true,
+    };
+    Ok(rs_bool)
 }
 
 pub fn init(context: &PyContext) {

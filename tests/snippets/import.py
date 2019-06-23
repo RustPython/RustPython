@@ -7,6 +7,8 @@ import import_mutual1
 assert import_target.X == import_target.func()
 assert import_target.X == func()
 
+assert import_mutual1.__name__ == "import_mutual1"
+
 assert import_target.Y == other_func()
 
 assert import_target.X == aliased.X

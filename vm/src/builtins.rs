@@ -2,16 +2,17 @@
 //!
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html
 
+use std::cell::Cell;
 use std::char;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::str;
 
 use num_bigint::Sign;
-use num_traits::{Signed, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 
 use crate::compile;
-use crate::import::import_module;
 use crate::obj::objbool;
+use crate::obj::objbytes::PyBytesRef;
 use crate::obj::objcode::PyCodeRef;
 use crate::obj::objdict::PyDictRef;
 use crate::obj::objint::{self, PyIntRef};
@@ -22,7 +23,7 @@ use crate::obj::objtype::{self, PyClassRef};
 use crate::frame::Scope;
 use crate::function::{single_or_tuple_any, Args, KwArgs, OptionalArg, PyFuncArgs};
 use crate::pyobject::{
-    IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
+    Either, IdProtocol, IntoPyObject, ItemProtocol, PyIterable, PyObjectRef, PyResult, PyValue,
     TryFromObject, TypeProtocol,
 };
 use crate::vm::VirtualMachine;
@@ -31,10 +32,10 @@ use crate::vm::VirtualMachine;
 use crate::stdlib::io::io_open;
 
 fn builtin_abs(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    match vm.get_method(x.clone(), "__abs__") {
-        Ok(attrib) => vm.invoke(attrib, PyFuncArgs::new(vec![], vec![])),
-        Err(..) => Err(vm.new_type_error("bad operand for abs".to_string())),
-    }
+    let method = vm.get_method_or_type_error(x.clone(), "__abs__", || {
+        format!("bad operand type for abs(): '{}'", x.class().name)
+    })?;
+    vm.invoke(method, PyFuncArgs::new(vec![], vec![]))
 }
 
 fn builtin_all(iterable: PyIterable<bool>, vm: &VirtualMachine) -> PyResult<bool> {
@@ -79,17 +80,35 @@ fn builtin_chr(i: u32, vm: &VirtualMachine) -> PyResult<String> {
     }
 }
 
-fn builtin_compile(
-    source: PyStringRef,
+#[derive(FromArgs)]
+#[allow(dead_code)]
+struct CompileArgs {
+    #[pyarg(positional_only, optional = false)]
+    source: Either<PyStringRef, PyBytesRef>,
+    #[pyarg(positional_only, optional = false)]
     filename: PyStringRef,
+    #[pyarg(positional_only, optional = false)]
     mode: PyStringRef,
-    vm: &VirtualMachine,
-) -> PyResult<PyCodeRef> {
+    #[pyarg(positional_or_keyword, optional = true)]
+    flags: OptionalArg<PyIntRef>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    dont_inherit: OptionalArg<bool>,
+    #[pyarg(positional_or_keyword, optional = true)]
+    optimize: OptionalArg<PyIntRef>,
+}
+
+fn builtin_compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult<PyCodeRef> {
+    // TODO: compile::compile should probably get bytes
+    let source = match args.source {
+        Either::A(string) => string.value.to_string(),
+        Either::B(bytes) => str::from_utf8(&bytes).unwrap().to_string(),
+    };
+
     // TODO: fix this newline bug:
-    let source = format!("{}\n", &source.value);
+    let source = format!("{}\n", source);
 
     let mode = {
-        let mode = &mode.value;
+        let mode = &args.mode.value;
         if mode == "exec" {
             compile::Mode::Exec
         } else if mode == "eval" {
@@ -103,7 +122,7 @@ fn builtin_compile(
         }
     };
 
-    compile::compile(vm, &source, &mode, filename.value.to_string())
+    vm.compile(&source, &mode, args.filename.value.to_string())
         .map_err(|err| vm.new_syntax_error(&err))
 }
 
@@ -152,7 +171,7 @@ fn builtin_eval(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, "<string>".to_string())
+        vm.compile(&source, &mode, "<string>".to_string())
             .map_err(|err| vm.new_syntax_error(&err))?
     } else {
         return Err(vm.new_type_error("code argument must be str or code object".to_string()));
@@ -180,7 +199,7 @@ fn builtin_exec(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let source = objstr::get_value(source);
         // TODO: fix this newline bug:
         let source = format!("{}\n", source);
-        compile::compile(vm, &source, &mode, "<string>".to_string())
+        vm.compile(&source, &mode, "<string>".to_string())
             .map_err(|err| vm.new_syntax_error(&err))?
     } else if let Ok(code_obj) = PyCodeRef::try_from_object(vm, source.clone()) {
         code_obj
@@ -367,15 +386,10 @@ fn builtin_iter(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 
 fn builtin_len(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
-    let len_method_name = "__len__";
-    match vm.get_method(obj.clone(), len_method_name) {
-        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
-        Err(..) => Err(vm.new_type_error(format!(
-            "object of type '{}' has no method {:?}",
-            obj.class().name,
-            len_method_name
-        ))),
-    }
+    let method = vm.get_method_or_type_error(obj.clone(), "__len__", || {
+        format!("object of type '{}' has no len()", obj.class().name)
+    })?;
+    vm.invoke(method, PyFuncArgs::default())
 }
 
 fn builtin_locals(vm: &VirtualMachine) -> PyDictRef {
@@ -671,15 +685,21 @@ fn builtin_repr(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStringRef> 
 fn builtin_reversed(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(obj, None)]);
 
-    match vm.get_method(obj.clone(), "__reversed__") {
-        Ok(value) => vm.invoke(value, PyFuncArgs::default()),
-        // TODO: fallback to using __len__ and __getitem__, if object supports sequence protocol
-        Err(..) => {
-            Err(vm.new_type_error(format!("'{}' object is not reversible", obj.class().name)))
-        }
+    if let Some(reversed_method) = vm.get_method(obj.clone(), "__reversed__") {
+        vm.invoke(reversed_method?, PyFuncArgs::default())
+    } else {
+        vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
+            format!("argument to reversed() must be a sequence")
+        })?;
+        let len = vm.call_method(&obj.clone(), "__len__", PyFuncArgs::default())?;
+        let obj_iterator = objiter::PySequenceIterator {
+            position: Cell::new(objint::get_value(&len).to_isize().unwrap() - 1),
+            obj: obj.clone(),
+            reversed: true,
+        };
+        Ok(obj_iterator.into_ref(vm).into_object())
     }
 }
-// builtin_reversed
 
 fn builtin_round(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
@@ -732,27 +752,7 @@ fn builtin_sum(iterable: PyIterable, start: OptionalArg, vm: &VirtualMachine) ->
 
 // Should be renamed to builtin___import__?
 fn builtin_import(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(name, Some(vm.ctx.str_type()))],
-        optional = [
-            (_globals, Some(vm.ctx.dict_type())),
-            (_locals, Some(vm.ctx.dict_type()))
-        ]
-    );
-    let current_path = {
-        match vm.current_frame() {
-            Some(frame) => {
-                let mut source_pathbuf = PathBuf::from(&frame.code.source_path);
-                source_pathbuf.pop();
-                source_pathbuf
-            }
-            None => PathBuf::new(),
-        }
-    };
-
-    import_module(vm, current_path, &objstr::get_value(name))
+    vm.invoke(vm.import_func.borrow().clone(), args)
 }
 
 // builtin_vars
@@ -856,10 +856,12 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "IndexError" => ctx.exceptions.index_error.clone(),
         "ImportError" => ctx.exceptions.import_error.clone(),
         "FileNotFoundError" => ctx.exceptions.file_not_found_error.clone(),
+        "FileExistsError" => ctx.exceptions.file_exists_error.clone(),
         "StopIteration" => ctx.exceptions.stop_iteration.clone(),
         "ZeroDivisionError" => ctx.exceptions.zero_division_error.clone(),
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
+        "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.clone(),
 
         // Warnings
         "Warning" => ctx.exceptions.warning.clone(),

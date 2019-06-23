@@ -293,6 +293,21 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_bytes(result))
 }
 
+fn compute_c_flag(mode: &str) -> u32 {
+    let flags = match mode {
+        "w" => os::FileCreationFlags::O_WRONLY | os::FileCreationFlags::O_CREAT,
+        "x" => {
+            os::FileCreationFlags::O_WRONLY
+                | os::FileCreationFlags::O_CREAT
+                | os::FileCreationFlags::O_EXCL
+        }
+        "a" => os::FileCreationFlags::O_APPEND,
+        "+" => os::FileCreationFlags::O_RDWR,
+        _ => os::FileCreationFlags::O_RDONLY,
+    };
+    flags.bits()
+}
+
 fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
@@ -528,29 +543,33 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         }
     };
 
-    let module = import::import_module(vm, PathBuf::default(), "io").unwrap();
-
-    // Class objects (potentially) consumed by io.open
-    // RawIO: FileIO
-    // Buffered: BufferedWriter, BufferedReader
-    // Text: TextIOWrapper
-    let file_io_class = vm.get_attribute(module.clone(), "FileIO").unwrap();
-    let buffered_writer_class = vm.get_attribute(module.clone(), "BufferedWriter").unwrap();
-    let buffered_reader_class = vm.get_attribute(module.clone(), "BufferedReader").unwrap();
-    let text_io_wrapper_class = vm.get_attribute(module, "TextIOWrapper").unwrap();
+    let io_module = import::import_module(vm, PathBuf::default(), "io").unwrap();
 
     // Construct a FileIO (subclass of RawIOBase)
     // This is subsequently consumed by a Buffered Class.
-    let file_args = vec![file.clone(), vm.ctx.new_str(mode.clone())];
-    let file_io_obj = vm.invoke(file_io_class, file_args)?;
+    let file_io_class = vm.get_attribute(io_module.clone(), "FileIO").unwrap();
+    let file_io_obj = vm.invoke(
+        file_io_class,
+        vec![file.clone(), vm.ctx.new_str(mode.clone())],
+    )?;
 
     // Create Buffered class to consume FileIO. The type of buffered class depends on
     // the operation in the mode.
     // There are 3 possible classes here, each inheriting from the RawBaseIO
     // creating || writing || appending => BufferedWriter
     let buffered = match mode.chars().next().unwrap() {
-        'w' => vm.invoke(buffered_writer_class, vec![file_io_obj.clone()]),
-        'r' => vm.invoke(buffered_reader_class, vec![file_io_obj.clone()]),
+        'w' => {
+            let buffered_writer_class = vm
+                .get_attribute(io_module.clone(), "BufferedWriter")
+                .unwrap();
+            vm.invoke(buffered_writer_class, vec![file_io_obj.clone()])
+        }
+        'r' => {
+            let buffered_reader_class = vm
+                .get_attribute(io_module.clone(), "BufferedReader")
+                .unwrap();
+            vm.invoke(buffered_reader_class, vec![file_io_obj.clone()])
+        }
         //TODO: updating => PyBufferedRandom
         _ => unimplemented!("'a' mode is not yet implemented"),
     };
@@ -558,13 +577,14 @@ pub fn io_open(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let io_obj = match typ.chars().next().unwrap() {
         // If the mode is text this buffer type is consumed on construction of
         // a TextIOWrapper which is subsequently returned.
-        't' => vm.invoke(text_io_wrapper_class, vec![buffered.unwrap()]),
-
+        't' => {
+            let text_io_wrapper_class = vm.get_attribute(io_module, "TextIOWrapper").unwrap();
+            vm.invoke(text_io_wrapper_class, vec![buffered.unwrap()])
+        }
         // If the mode is binary this Buffered class is returned directly at
         // this point.
         // For Buffered class construct "raw" IO class e.g. FileIO and pass this into corresponding field
         'b' => buffered,
-
         _ => unreachable!(),
     };
     io_obj
@@ -641,7 +661,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "getvalue" => ctx.new_rustfunc(PyBytesIORef::getvalue)
     });
 
-    py_module!(vm, "io", {
+    py_module!(vm, "_io", {
         "open" => ctx.new_rustfunc(io_open),
         "IOBase" => io_base,
         "RawIOBase" => raw_io_base,

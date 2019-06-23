@@ -1,10 +1,7 @@
 //! Implement python as a virtual machine with bytecodes. This module
 //! implements bytecode structure.
 
-/*
- * Primitive instruction type, which can be encoded and decoded.
- */
-
+use bitflags::bitflags;
 use num_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_parser::ast;
@@ -53,7 +50,7 @@ pub enum NameScope {
 pub enum Instruction {
     Import {
         name: String,
-        symbol: Option<String>,
+        symbols: Vec<String>,
     },
     ImportStar {
         name: String,
@@ -333,7 +330,7 @@ impl Instruction {
         }
 
         match self {
-            Import { name, symbol } => w!(Import, name, format!("{:?}", symbol)),
+            Import { name, symbols } => w!(Import, name, format!("{:?}", symbols)),
             ImportStar { name } => w!(ImportStar, name),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),

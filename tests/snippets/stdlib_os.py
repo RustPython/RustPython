@@ -4,12 +4,20 @@ import stat
 
 from testutils import assert_raises
 
-fd = os.open('README.md', 0)
+fd = os.open('README.md', os.O_RDONLY)
 assert fd > 0
 
 os.close(fd)
 assert_raises(OSError, lambda: os.read(fd, 10))
-assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', 0))
+assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', os.O_RDONLY))
+assert_raises(FileNotFoundError, lambda: os.open('DOES_NOT_EXIST', os.O_WRONLY))
+assert_raises(FileNotFoundError, lambda: os.rename('DOES_NOT_EXIST', 'DOES_NOT_EXIST 2'))
+
+try:
+	os.open('DOES_NOT_EXIST', 0)
+except OSError as err:
+	assert err.errno == 2
+
 
 
 assert os.O_RDONLY == 0
@@ -79,6 +87,7 @@ class TestWithTempCurrentDir():
 
 FILE_NAME = "test1"
 FILE_NAME2 = "test2"
+FILE_NAME3 = "test3"
 SYMLINK_FILE = "symlink"
 SYMLINK_FOLDER = "symlink1"
 FOLDER = "dir1"
@@ -88,17 +97,33 @@ CONTENT3 = b"BOYA"
 
 with TestWithTempDir() as tmpdir:
 	fname = os.path.join(tmpdir, FILE_NAME)
-	with open(fname, "wb"):
-		pass
-	fd = os.open(fname, 1)
+	fd = os.open(fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
 	assert os.write(fd, CONTENT2) == len(CONTENT2)
+	os.close(fd)
+
+	fd = os.open(fname, os.O_WRONLY | os.O_APPEND)
 	assert os.write(fd, CONTENT3) == len(CONTENT3)
 	os.close(fd)
 
-	fd = os.open(fname, 0)
+	assert_raises(FileExistsError, lambda: os.open(fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL))
+
+	fd = os.open(fname, os.O_RDONLY)
 	assert os.read(fd, len(CONTENT2)) == CONTENT2
 	assert os.read(fd, len(CONTENT3)) == CONTENT3
 	os.close(fd)
+
+	fname3 = os.path.join(tmpdir, FILE_NAME3)
+	os.rename(fname, fname3)
+	assert os.path.exists(fname) == False
+	assert os.path.exists(fname3) == True
+
+	fd = os.open(fname3, 0)
+	assert os.read(fd, len(CONTENT2) + len(CONTENT3)) == CONTENT2 + CONTENT3
+	os.close(fd)
+
+	os.rename(fname3, fname)
+	assert os.path.exists(fname3) == False
+	assert os.path.exists(fname) == True
 
 	# wait a little bit to ensure that the file times aren't the same
 	time.sleep(0.1)

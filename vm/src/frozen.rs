@@ -1,11 +1,19 @@
-use std::collections::hash_map::HashMap;
+use crate::bytecode::CodeObject;
+use std::collections::HashMap;
 
-const HELLO: &str = "initialized = True
-print(\"Hello world!\")
-";
-
-pub fn get_module_inits() -> HashMap<String, &'static str> {
-    let mut modules = HashMap::new();
-    modules.insert("__hello__".to_string(), HELLO);
-    modules
+pub fn get_module_inits() -> HashMap<String, CodeObject> {
+    hashmap! {
+        "__hello__".into() => py_compile_bytecode!(
+            source = "initialized = True; print(\"Hello world!\")\n",
+            module_name = "__hello__",
+        ),
+        "_frozen_importlib".into() => py_compile_bytecode!(
+            file = "../Lib/importlib/_bootstrap.py",
+            module_name = "_frozen_importlib",
+        ),
+        "_frozen_importlib_external".into() => py_compile_bytecode!(
+            file = "../Lib/importlib/_bootstrap_external.py",
+            module_name = "_frozen_importlib_external",
+        ),
+    }
 }

@@ -1,3 +1,4 @@
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyContext, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
@@ -9,24 +10,22 @@ pub struct PyModule {
 pub type PyModuleRef = PyRef<PyModule>;
 
 impl PyValue for PyModule {
+    const HAVE_DICT: bool = true;
+
     fn class(vm: &VirtualMachine) -> PyClassRef {
         vm.ctx.module_type()
     }
 }
 
 impl PyModuleRef {
-    fn dir(self: PyModuleRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(dict) = &self.into_object().dict {
-            let keys = dict.into_iter().map(|(k, _v)| k.clone()).collect();
-            Ok(vm.ctx.new_list(keys))
-        } else {
-            panic!("Modules should definitely have a dict.");
-        }
+    fn init(self, name: PyStringRef, vm: &VirtualMachine) -> PyResult {
+        vm.set_attr(&self.into_object(), "__name__", name)?;
+        Ok(vm.get_none())
     }
 }
 
 pub fn init(context: &PyContext) {
     extend_class!(&context, &context.module_type, {
-        "__dir__" => context.new_rustfunc(PyModuleRef::dir),
+        "__init__" => context.new_rustfunc(PyModuleRef::init),
     });
 }

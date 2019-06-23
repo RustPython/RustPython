@@ -224,6 +224,7 @@ settrace() -- set the global debug tracing function
     module_names.sort();
     let modules = ctx.new_dict();
     extend_module!(vm, module, {
+      "__name__" => ctx.new_str(String::from("sys")),
       "argv" => argv(ctx),
       "builtin_module_names" => ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm).unwrap()).collect()),
       "flags" => flags,
@@ -242,6 +243,11 @@ settrace() -- set the global debug tracing function
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
       "platform" => ctx.new_str(platform),
+      "meta_path" => ctx.new_list(vec![]),
+      "path_hooks" => ctx.new_list(vec![]),
+      "path_importer_cache" => ctx.new_dict(),
+      "pycache_prefix" => vm.get_none(),
+      "dont_write_bytecode" => vm.new_bool(true),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();

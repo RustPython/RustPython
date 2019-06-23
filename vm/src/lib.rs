@@ -19,6 +19,8 @@ extern crate lazy_static;
 extern crate lexical;
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate maplit;
 // extern crate env_logger;
 
 extern crate rustpython_parser;
@@ -29,6 +31,10 @@ extern crate self as rustpython_vm;
 
 pub use rustpython_derive::*;
 
+use proc_macro_hack::proc_macro_hack;
+#[proc_macro_hack]
+pub use rustpython_derive::py_compile_bytecode;
+
 //extern crate eval; use eval::eval::*;
 // use py_code_object::{Function, NativeType, PyCodeObject};
 
@@ -37,10 +43,8 @@ pub use rustpython_derive::*;
 pub mod macros;
 
 mod builtins;
-pub mod bytecode;
-pub mod compile;
+pub mod cformat;
 mod dictdatatype;
-pub mod error;
 pub mod eval;
 mod exceptions;
 pub mod format;
@@ -49,10 +53,10 @@ mod frozen;
 pub mod function;
 pub mod import;
 pub mod obj;
+pub mod py_serde;
 mod pyhash;
 pub mod pyobject;
 pub mod stdlib;
-mod symboltable;
 mod sysmodule;
 mod traceback;
 pub mod util;
@@ -61,3 +65,4 @@ mod vm;
 // pub use self::pyobject::Executor;
 pub use self::exceptions::print_exception;
 pub use self::vm::VirtualMachine;
+pub use rustpython_compiler::*;
