@@ -100,7 +100,7 @@ impl BufferedIO {
 
 #[derive(Debug)]
 struct PyStringIO {
-    data: RefCell<Cursor<Vec<u8>>>,
+    buffer: RefCell<BufferedIO>,
 }
 
 type PyStringIORef = PyRef<PyStringIO>;
@@ -115,18 +115,16 @@ impl PyStringIORef {
     //write string to underlying vector
     fn write(self, data: objstr::PyStringRef, vm: &VirtualMachine) -> PyResult {
         let bytes = &data.value.clone().into_bytes();
-        let length = bytes.len();
 
-        let mut cursor = self.data.borrow_mut();
-        match cursor.write_all(bytes) {
-            Ok(_) => Ok(vm.ctx.new_int(length)),
-            Err(_) => Err(vm.new_type_error("Error Writing String".to_string())),
+        match self.buffer.borrow_mut().write(bytes.to_vec()) {
+            Some(value) => Ok(vm.ctx.new_int(value)),
+            None => Err(vm.new_type_error("Error Writing String".to_string())),
         }
     }
 
     //return the entire contents of the underlying
     fn getvalue(self, vm: &VirtualMachine) -> PyResult {
-        match String::from_utf8(self.data.borrow().clone().into_inner()) {
+        match String::from_utf8(self.buffer.borrow().getvalue()) {
             Ok(result) => Ok(vm.ctx.new_str(result)),
             Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
         }
@@ -135,45 +133,25 @@ impl PyStringIORef {
     //skip to the jth position
     fn seek(self, offset: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let position = objint::get_value(&offset).to_u64().unwrap();
-        if let Err(_) = self
-            .data
-            .borrow_mut()
-            .seek(SeekFrom::Start(position.clone()))
-        {
-            return Err(vm.new_value_error("Error Retrieving Value".to_string()));
+        match self.buffer.borrow_mut().seek(position) {
+            Some(value) => Ok(vm.ctx.new_int(value)),
+            None => Err(vm.new_value_error("Error Performing Operation".to_string())),
         }
-
-        Ok(vm.ctx.new_int(position))
     }
 
     //Read k bytes from the object and return.
     //If k is undefined || k == -1, then we read all bytes until the end of the file.
     //This also increments the stream position by the value of k
     fn read(self, bytes: OptionalArg<Option<PyObjectRef>>, vm: &VirtualMachine) -> PyResult {
-        let mut buffer = String::new();
-
-        match bytes {
-            OptionalArg::Present(Some(ref integer)) => {
-                let k = objint::get_value(integer).to_u64().unwrap();
-                let mut handle = self.data.borrow().clone().take(k);
-
-                //read bytes into string
-                if let Err(_) = handle.read_to_string(&mut buffer) {
-                    return Err(vm.new_value_error("Error Retrieving Value".to_string()));
-                }
-
-                //the take above consumes the struct value
-                //we add this back in with the takes into_inner method
-                self.data.replace(handle.into_inner());
-            }
-            _ => {
-                if let Err(_) = self.data.borrow_mut().read_to_string(&mut buffer) {
-                    return Err(vm.new_value_error("Error Retrieving Value".to_string()));
-                }
-            }
+        let data = match self.buffer.borrow_mut().read(byte_count(bytes)) {
+            Some(value) => value,
+            None => Vec::new(),
         };
 
-        Ok(vm.ctx.new_str(buffer))
+        match String::from_utf8(data) {
+            Ok(value) => Ok(vm.ctx.new_str(value)),
+            Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_string())),
+        }
     }
 }
 
@@ -188,7 +166,7 @@ fn string_io_new(
     };
 
     PyStringIO {
-        data: RefCell::new(Cursor::new(raw_string.into_bytes())),
+        buffer: RefCell::new(BufferedIO::new(Cursor::new(raw_string.into_bytes()))),
     }
     .into_ref_with_type(vm, cls)
 }
@@ -778,11 +756,22 @@ mod tests {
     #[test]
     fn test_buffered_seek() {
         let data = vec![1, 2, 3, 4];
-        let offset: u64 = 2;
+        let count: u64 = 2;
         let mut buffered = BufferedIO {
             cursor: Cursor::new(data.clone()),
         };
 
-        assert_eq!(buffered.seek(offset.clone()).unwrap(), offset);
+        assert_eq!(buffered.seek(count.clone()).unwrap(), count);
+        assert_eq!(buffered.read(count.clone() as i64).unwrap(), vec![3, 4]);
+    }
+
+    #[test]
+    fn test_buffered_value() {
+        let data = vec![1, 2, 3, 4];
+        let buffered = BufferedIO {
+            cursor: Cursor::new(data.clone()),
+        };
+
+        assert_eq!(buffered.getvalue(), data);
     }
 }
