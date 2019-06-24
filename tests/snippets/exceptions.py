@@ -6,7 +6,7 @@ assert type(empty_exc.args) == tuple
 
 exc = KeyError('message')
 assert str(exc) == "'message'"
-assert repr(exc) == "KeyError('message')"
+assert repr(exc) == "KeyError('message',)"
 
 exc = KeyError('message', 'another message')
 assert str(exc) == "('message', 'another message')"
@@ -22,4 +22,4 @@ class A:
 
 exc = KeyError(A())
 assert str(exc) == 'repr'
-assert repr(exc) == 'KeyError(repr)'
+assert repr(exc) == 'KeyError(repr,)'

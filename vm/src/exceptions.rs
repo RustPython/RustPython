@@ -185,6 +185,7 @@ fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     let exc_name = exc.class().name.clone();
     let joined_str = match args_repr.len() {
         0 => format!("{}()", exc_name),
+        1 => format!("{}({},)", exc_name, args_repr[0]),
         _ => format!("{}({})", exc_name, args_repr.join(", ")),
     };
     Ok(vm.new_str(joined_str))
