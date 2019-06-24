@@ -1,5 +1,6 @@
 use crate::function::PyFuncArgs;
 use crate::obj::objsequence;
+use crate::obj::objtuple::{PyTuple, PyTupleRef};
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{create_type, IdProtocol, PyContext, PyObjectRef, PyResult, TypeProtocol};
@@ -8,16 +9,12 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 fn exception_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    let zelf = args.args[0].clone();
-    let msg = if args.args.len() > 1 {
-        args.args[1].clone()
-    } else {
-        let empty_string = String::default();
-        vm.new_str(empty_string)
-    };
+    let exc_self = args.args[0].clone();
+    let exc_args = vm.ctx.new_tuple(args.args[1..].to_vec());
+    vm.set_attr(&exc_self, "args", exc_args)?;
+
     let traceback = vm.ctx.new_list(Vec::new());
-    vm.set_attr(&zelf, "msg", msg)?;
-    vm.set_attr(&zelf, "__traceback__", traceback)?;
+    vm.set_attr(&exc_self, "__traceback__", traceback)?;
     Ok(vm.get_none())
 }
 
@@ -119,25 +116,70 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
     }
 }
 
+fn exception_args_as_string(vm: &VirtualMachine, varargs: PyTupleRef) -> Vec<String> {
+    match varargs.elements.len() {
+        0 => vec![],
+        1 => {
+            let args0_repr = match vm.to_repr(&varargs.elements[0]) {
+                Ok(args0_repr) => args0_repr.value.clone(),
+                Err(_) => "<element repr() failed>".to_string(),
+            };
+            vec![args0_repr]
+        }
+        _ => {
+            let mut args_vec = Vec::with_capacity(varargs.elements.len());
+            for vararg in &varargs.elements {
+                let arg_repr = match vm.to_repr(vararg) {
+                    Ok(arg_repr) => arg_repr.value.clone(),
+                    Err(_) => "<element repr() failed>".to_string(),
+                };
+                args_vec.push(arg_repr);
+            }
+            args_vec
+        }
+    }
+}
+
 fn exception_str(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
         required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
     );
-    let msg = if let Ok(m) = vm.get_attribute(exc.clone(), "msg") {
-        match vm.to_pystr(&m) {
-            Ok(msg) => msg,
-            _ => "<exception str() failed>".to_string(),
-        }
-    } else {
-        panic!("Error message must be set");
+    let args = vm
+        .get_attribute(exc.clone(), "args")
+        .unwrap()
+        .downcast::<PyTuple>()
+        .expect("'args' must be a tuple");
+    let args_str = exception_args_as_string(vm, args);
+    let joined_str = match args_str.len() {
+        0 => "".to_string(),
+        1 => args_str[0].to_string(),
+        _ => format!("({})", args_str.join(", ")),
     };
-    let mut exc_repr = exc.class().name.clone();
-    if !msg.is_empty() {
-        &exc_repr.push_str(&format!(": {}", msg));
-    }
-    Ok(vm.new_str(exc_repr))
+    Ok(vm.new_str(joined_str))
+}
+
+fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
+    arg_check!(
+        vm,
+        args,
+        required = [(exc, Some(vm.ctx.exceptions.exception_type.clone()))]
+    );
+    let args = vm
+        .get_attribute(exc.clone(), "args")
+        .unwrap()
+        .downcast::<PyTuple>()
+        .expect("'args' must be a tuple");
+    let args_repr = exception_args_as_string(vm, args);
+
+    let exc_repr = exc.class().name.clone();
+    let joined_str = match args_repr.len() {
+        0 => format!("{}()", exc_repr),
+        1 => format!("{}({})", exc_repr, args_repr[0].to_string()),
+        _ => format!("{}({})", exc_repr, args_repr.join(", ")),
+    };
+    Ok(vm.new_str(joined_str))
 }
 
 #[derive(Debug)]
@@ -266,6 +308,7 @@ pub fn init(context: &PyContext) {
 
     let exception_type = &context.exceptions.exception_type;
     extend_class!(context, exception_type, {
-        "__str__" => context.new_rustfunc(exception_str)
+        "__str__" => context.new_rustfunc(exception_str),
+        "__repr__" => context.new_rustfunc(exception_repr),
     });
 }

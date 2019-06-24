@@ -173,7 +173,7 @@ impl VirtualMachine {
         self.invoke(exc_type.into_object(), args)
     }
 
-    /// Create Python instance of `exc_type` with message
+    /// Create Python instance of `exc_type` with message as first element of `args` tuple
     pub fn new_exception(&self, exc_type: PyClassRef, msg: String) -> PyObjectRef {
         // TODO: exc_type may be user-defined exception, so we should return PyResult
         // TODO: maybe there is a clearer way to create an instance:
