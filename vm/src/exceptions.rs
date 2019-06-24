@@ -110,9 +110,18 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
         println!("No traceback set on exception");
     }
 
-    match vm.to_str(exc) {
-        Ok(txt) => println!("{}", txt.value),
-        Err(err) => println!("Error during error {:?}", err),
+    let varargs = vm
+        .get_attribute(exc.clone(), "args")
+        .unwrap()
+        .downcast::<PyTuple>()
+        .expect("'args' must be a tuple");
+    let args_repr = exception_args_as_string(vm, varargs);
+
+    let exc_repr = exc.class().name.clone();
+    match args_repr.len() {
+        0 => println!("{}", exc_repr),
+        1 => println!("{}: {}", exc_repr, args_repr[0]),
+        _ => println!("{}: ({})", exc_repr, args_repr.join(", ")),
     }
 }
 
