@@ -117,11 +117,11 @@ pub fn print_exception_inner(vm: &VirtualMachine, exc: &PyObjectRef) {
         .expect("'args' must be a tuple");
     let args_repr = exception_args_as_string(vm, varargs);
 
-    let exc_repr = exc.class().name.clone();
+    let exc_name = exc.class().name.clone();
     match args_repr.len() {
-        0 => println!("{}", exc_repr),
-        1 => println!("{}: {}", exc_repr, args_repr[0]),
-        _ => println!("{}: ({})", exc_repr, args_repr.join(", ")),
+        0 => println!("{}", exc_name),
+        1 => println!("{}: {}", exc_name, args_repr[0]),
+        _ => println!("{}: ({})", exc_name, args_repr.join(", ")),
     }
 }
 
@@ -182,11 +182,11 @@ fn exception_repr(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         .expect("'args' must be a tuple");
     let args_repr = exception_args_as_string(vm, args);
 
-    let exc_repr = exc.class().name.clone();
+    let exc_name = exc.class().name.clone();
     let joined_str = match args_repr.len() {
-        0 => format!("{}()", exc_repr),
-        1 => format!("{}({})", exc_repr, args_repr[0].to_string()),
-        _ => format!("{}({})", exc_repr, args_repr.join(", ")),
+        0 => format!("{}()", exc_name),
+        1 => format!("{}({})", exc_name, args_repr[0].to_string()),
+        _ => format!("{}({})", exc_name, args_repr.join(", ")),
     };
     Ok(vm.new_str(joined_str))
 }
