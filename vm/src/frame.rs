@@ -912,7 +912,9 @@ impl Frame {
             .iter()
             .map(|symbol| vm.ctx.new_str(symbol.to_string()))
             .collect();
-        let module = vm.import(module, &vm.ctx.new_tuple(from_list))?;
+        let level = module.chars().take_while(|char| *char == '.').count();
+        let module_name = &module[level..];
+        let module = vm.import(module_name, &vm.ctx.new_tuple(from_list), level)?;
 
         if symbols.is_empty() {
             self.push_value(module);
@@ -928,7 +930,8 @@ impl Frame {
     }
 
     fn import_star(&self, vm: &VirtualMachine, module: &str) -> FrameResult {
-        let module = vm.import(module, &vm.ctx.new_tuple(vec![]))?;
+        let level = module.chars().take_while(|char| *char == '.').count();
+        let module = vm.import(module, &vm.ctx.new_tuple(vec![]), level)?;
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {

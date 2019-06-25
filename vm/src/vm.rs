@@ -136,7 +136,7 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyClassRef> {
         let class = self
-            .get_attribute(self.import(module, &self.ctx.new_tuple(vec![]))?, class)?
+            .get_attribute(self.import(module, &self.ctx.new_tuple(vec![]), 0)?, class)?
             .downcast()
             .expect("not a class");
         Ok(class)
@@ -144,7 +144,7 @@ impl VirtualMachine {
 
     pub fn class(&self, module: &str, class: &str) -> PyClassRef {
         let module = self
-            .import(module, &self.ctx.new_tuple(vec![]))
+            .import(module, &self.ctx.new_tuple(vec![]), 0)
             .unwrap_or_else(|_| panic!("unable to import {}", module));
         let class = self
             .get_attribute(module.clone(), class)
@@ -302,7 +302,7 @@ impl VirtualMachine {
         TryFromObject::try_from_object(self, repr)
     }
 
-    pub fn import(&self, module: &str, from_list: &PyObjectRef) -> PyResult {
+    pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
         let sys_modules = self
             .get_attribute(self.sys_module.clone(), "modules")
             .unwrap();
@@ -314,9 +314,14 @@ impl VirtualMachine {
                     func,
                     vec![
                         self.ctx.new_str(module.to_string()),
-                        self.get_none(),
+                        if self.current_frame().is_some() {
+                            self.get_locals().into_object()
+                        } else {
+                            self.get_none()
+                        },
                         self.get_none(),
                         from_list.clone(),
+                        self.ctx.new_int(level),
                     ],
                 ),
                 Err(_) => Err(self.new_exception(
