@@ -284,16 +284,19 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn compute_c_flag(mode: &str) -> u32 {
-    let flags = match mode {
-        "w" => os::FileCreationFlags::O_WRONLY | os::FileCreationFlags::O_CREAT,
-        "x" => {
-            os::FileCreationFlags::O_WRONLY
-                | os::FileCreationFlags::O_CREAT
-                | os::FileCreationFlags::O_EXCL
-        }
-        "a" => os::FileCreationFlags::O_APPEND,
-        "+" => os::FileCreationFlags::O_RDWR,
-        _ => os::FileCreationFlags::O_RDONLY,
+    let flags = match mode.chars().next() {
+        Some(mode) => match mode {
+            'w' => os::FileCreationFlags::O_WRONLY | os::FileCreationFlags::O_CREAT,
+            'x' => {
+                os::FileCreationFlags::O_WRONLY
+                    | os::FileCreationFlags::O_CREAT
+                    | os::FileCreationFlags::O_EXCL
+            }
+            'a' => os::FileCreationFlags::O_APPEND,
+            '+' => os::FileCreationFlags::O_RDWR,
+            _ => os::FileCreationFlags::O_RDONLY,
+        },
+        None => os::FileCreationFlags::O_RDONLY,
     };
     flags.bits()
 }
