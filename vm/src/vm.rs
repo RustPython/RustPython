@@ -314,7 +314,11 @@ impl VirtualMachine {
                     func,
                     vec![
                         self.ctx.new_str(module.to_string()),
-                        self.get_locals().clone().as_object().clone(),
+                        if self.current_frame().is_some() {
+                            self.get_locals().into_object()
+                        } else {
+                            self.get_none()
+                        },
                         self.get_none(),
                         from_list.clone(),
                         self.ctx.new_int(level),
