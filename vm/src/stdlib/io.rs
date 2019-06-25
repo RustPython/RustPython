@@ -16,10 +16,12 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::import;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
+use crate::obj::objbytes::PyBytes;
 use crate::obj::objint;
 use crate::obj::objstr;
 use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
+use crate::pyobject::TypeProtocol;
 use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -383,11 +385,7 @@ fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(file_io, None), (obj, Some(vm.ctx.bytes_type()))]
-    );
+    arg_check!(vm, args, required = [(file_io, None), (obj, None)]);
 
     let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
@@ -397,22 +395,25 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     //to support windows - i.e. raw file_handles
     let mut handle = os::rust_file(raw_fd);
 
-    match obj.payload::<PyByteArray>() {
-        Some(bytes) => {
-            let value_mut = &mut bytes.inner.borrow_mut().elements;
-            match handle.write(&value_mut[..]) {
-                Ok(len) => {
-                    //reset raw fd on the FileIO object
-                    let updated = os::raw_file_number(handle);
-                    vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
+    let bytes = match_class!(obj.clone(),
+        i @ PyBytes => Ok(i.get_value().to_vec()),
+        j @ PyByteArray => Ok(j.inner.borrow().elements.to_vec()),
+        obj => Err(vm.new_type_error(format!(
+                    "a bytes-like object is required, not {}",
+                    obj.class()
+                )))
+    );
 
-                    //return number of bytes written
-                    Ok(vm.ctx.new_int(len))
-                }
-                Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string())),
-            }
+    match handle.write(&bytes?) {
+        Ok(len) => {
+            //reset raw fd on the FileIO object
+            let updated = os::raw_file_number(handle);
+            vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
+
+            //return number of bytes written
+            Ok(vm.ctx.new_int(len))
         }
-        None => Err(vm.new_value_error("Expected Bytes Object".to_string())),
+        Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string())),
     }
 }
 
