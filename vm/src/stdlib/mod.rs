@@ -16,6 +16,7 @@ mod string;
 mod thread;
 mod time_module;
 mod tokenize;
+mod unicodedata;
 mod warnings;
 mod weakref;
 use std::collections::HashMap;
@@ -54,6 +55,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "tokenize".to_string() => Box::new(tokenize::make_module),
         "_weakref".to_string() => Box::new(weakref::make_module),
         "_imp".to_string() => Box::new(imp::make_module),
+        "unicodedata".to_string() => Box::new(unicodedata::make_module),
         "_warnings".to_string() => Box::new(warnings::make_module),
     };
 
