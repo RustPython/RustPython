@@ -210,7 +210,7 @@ impl PyDictRef {
             let method = method_or_err?;
             return vm.invoke(method, vec![key]);
         }
-        Err(vm.new_key_error(format!("Key not found: {}", vm.to_pystr(&key)?)))
+        Err(vm.new_key_error(key.clone()))
     }
 
     fn get(
@@ -266,7 +266,8 @@ impl PyDictRef {
         if let Some((key, value)) = entries.pop_front() {
             Ok(vm.ctx.new_tuple(vec![key, value]))
         } else {
-            Err(vm.new_key_error("popitem(): dictionary is empty".to_string()))
+            let err_msg = vm.new_str("popitem(): dictionary is empty".to_string());
+            Err(vm.new_key_error(err_msg))
         }
     }
 

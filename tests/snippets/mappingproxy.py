@@ -9,8 +9,10 @@ class A(dict):
 
 
 assert A.__dict__['a'] == A.a
-with assertRaises(KeyError):
-    A.__dict__['not_here']
+with assertRaises(KeyError) as cm:
+    A.__dict__['not here']
+
+assert cm.exception.args[0] == "not here"
 
 assert 'b' in A.__dict__
 assert 'c' not in A.__dict__
