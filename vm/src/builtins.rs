@@ -882,6 +882,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
         "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.clone(),
+        "EOFError" => ctx.exceptions.eof_error.clone(),
 
         // Warnings
         "Warning" => ctx.exceptions.warning.clone(),
