@@ -1,4 +1,5 @@
 import time
+import sys
 
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
@@ -16,12 +17,23 @@ vm.destroy();
 return output;
 """
 
+def print_stack(driver):
+	stack = driver.execute_script(
+		"return window.__RUSTPYTHON_ERROR_MSG + '\\n' + window.__RUSTPYTHON_ERROR_STACK"
+	)
+	print(f"RustPython error stack:\n{stack}", file=sys.stderr)
+
+
 @pytest.fixture(scope="module")
 def driver(request):
 	options = Options()
 	options.add_argument('-headless')
 	driver = webdriver.Firefox(options=options)
-	driver.get("http://localhost:8080")
+	try:
+		driver.get("http://localhost:8080")
+	except Exception as e:
+		print_stack(driver)
+		raise
 	time.sleep(5)
 	yield driver
 	driver.close()
@@ -35,4 +47,9 @@ def driver(request):
 )
 def test_demo(driver, script, output):
 	script = RUN_CODE_TEMPLATE.format(script)
-	assert driver.execute_script(script).strip() == output
+	try:
+		script_output = driver.execute_script(script)
+	except Exception as e:
+		print_stack(driver)
+		raise
+	assert script_output.strip() == output
