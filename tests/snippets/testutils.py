@@ -23,6 +23,7 @@ def assert_raises(exc_type, expr, msg=None):
 class assertRaises:
     def __init__(self, expected):
         self.expected = expected
+        self.exception = None
 
     def __enter__(self):
         return self
@@ -33,6 +34,8 @@ class assertRaises:
             assert False, failmsg
         if not issubclass(exc_type, self.expected):
             return False
+
+        self.exception = exc_val
         return True
 
 

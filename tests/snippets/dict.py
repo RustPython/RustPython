@@ -52,6 +52,10 @@ assert ('d', 3) == next(it)
 with assertRaises(StopIteration):
     next(it)
 
+with assertRaises(KeyError) as cm:
+    del x[10]
+assert cm.exception.args[0] == 10
+
 # Iterating a dictionary is just its keys:
 assert ['a', 'b', 'd'] == list(x)
 
@@ -94,9 +98,6 @@ assert x[1] == 1
 x[7] = 7
 x[2] = 2
 x[(5, 6)] = 5
-
-with assertRaises(KeyError):
-    x["not here"]
 
 with assertRaises(TypeError):
     x[[]] # Unhashable type.
@@ -167,19 +168,42 @@ assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}
 y.update(y)
 assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}  # hasn't changed
 
+# KeyError has object that used as key as an .args[0]
+with assertRaises(KeyError) as cm:
+    x['not here']
+assert cm.exception.args[0] == "not here"
+with assertRaises(KeyError) as cm:
+    x.pop('not here')
+assert cm.exception.args[0] == "not here"
+
+with assertRaises(KeyError) as cm:
+    x[10]
+assert cm.exception.args[0] == 10
+with assertRaises(KeyError) as cm:
+    x.pop(10)
+assert cm.exception.args[0] == 10
+
+class MyClass: pass
+obj = MyClass()
+
+with assertRaises(KeyError) as cm:
+    x[obj]
+assert cm.exception.args[0] == obj
+with assertRaises(KeyError) as cm:
+    x.pop(obj)
+assert cm.exception.args[0] == obj
+
 x = {1: 'a', '1': None}
 assert x.pop(1) == 'a'
 assert x.pop('1') is None
 assert x == {}
 
-with assertRaises(KeyError):
-    x.pop("not here")
-
 x = {1: 'a'}
 assert (1, 'a') == x.popitem()
-with assertRaises(KeyError):
-    x.popitem()
 assert x == {}
+with assertRaises(KeyError) as cm:
+    x.popitem()
+assert cm.exception.args == ('popitem(): dictionary is empty',)
 
 x = {'a': 4}
 assert 4 == x.setdefault('a', 0)

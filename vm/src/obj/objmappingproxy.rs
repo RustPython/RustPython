@@ -28,7 +28,7 @@ impl PyMappingProxy {
         if let Some(value) = objtype::class_get_attr(&self.class, key.as_str()) {
             return Ok(value);
         }
-        Err(vm.new_key_error(format!("Key not found: {}", key)))
+        Err(vm.new_key_error(key.into_object()))
     }
 
     #[pymethod(name = "__contains__")]
