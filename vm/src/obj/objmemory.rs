@@ -33,6 +33,11 @@ impl PyMemoryView {
     fn obj(&self, __vm: &VirtualMachine) -> PyObjectRef {
         self.obj_ref.clone()
     }
+
+    #[pymethod(name = "__getitem__")]
+    fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm.call_method(&self.obj_ref, "__getitem__", vec![needle])
+    }
 }
 
 impl PyValue for PyMemoryView {
