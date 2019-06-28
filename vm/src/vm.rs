@@ -307,21 +307,18 @@ impl VirtualMachine {
         sys_modules.get_item(module.to_string(), self).or_else(|_| {
             let import_func = self
                 .get_attribute(self.builtins.clone(), "__import__")
-                .map_err(|_| {
-                    self.new_exception(
-                        self.ctx.exceptions.import_error.clone(),
-                        "__import__ not found".to_string(),
-                    )
-                })?;
+                .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
+
+            let locals = if let Some(frame) = self.current_frame() {
+                frame.scope.get_locals().into_object()
+            } else {
+                self.get_none()
+            };
             self.invoke(
                 import_func,
                 vec![
                     self.ctx.new_str(module.to_string()),
-                    if let Some(frame) = self.current_frame() {
-                        frame.scope.get_locals().into_object()
-                    } else {
-                        self.get_none()
-                    },
+                    locals,
                     self.get_none(),
                     from_list.clone(),
                     self.ctx.new_int(level),
