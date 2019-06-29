@@ -605,6 +605,17 @@ fn os_stat(path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     unimplemented!();
 }
 
+fn os_lstat(path: PyStringRef, dir_fd: DirFd, vm: &VirtualMachine) -> PyResult<StatResult> {
+    os_stat(
+        path,
+        dir_fd,
+        FollowSymlinks {
+            follow_symlinks: false,
+        },
+        vm,
+    )
+}
+
 #[cfg(unix)]
 fn os_symlink(
     src: PyStringRef,
@@ -788,6 +799,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "ScandirIter" => scandir_iter,
         "DirEntry" => dir_entry,
         "stat_result" => stat_result,
+        "lstat" => ctx.new_rustfunc(os_lstat),
         "getcwd" => ctx.new_rustfunc(os_getcwd),
         "chdir" => ctx.new_rustfunc(os_chdir),
         "fspath" => ctx.new_rustfunc(os_fspath),
