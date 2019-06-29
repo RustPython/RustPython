@@ -1,4 +1,4 @@
-from testutils import assert_raises
+from testutils import assert_raises, assertRaises
 
 a = 1
 del a
@@ -16,3 +16,6 @@ y = 2
 del (x, y)
 assert_raises(NameError, lambda: x)
 assert_raises(NameError, lambda: y)
+
+with assertRaises(NameError):
+    del y

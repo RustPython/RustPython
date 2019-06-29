@@ -52,6 +52,10 @@ assert ('d', 3) == next(it)
 with assertRaises(StopIteration):
     next(it)
 
+with assertRaises(KeyError) as cm:
+    del x[10]
+assert cm.exception.args[0] == 10
+
 # Iterating a dictionary is just its keys:
 assert ['a', 'b', 'd'] == list(x)
 
@@ -94,9 +98,6 @@ assert x[1] == 1
 x[7] = 7
 x[2] = 2
 x[(5, 6)] = 5
-
-with assertRaises(KeyError):
-    x["not here"]
 
 with assertRaises(TypeError):
     x[[]] # Unhashable type.
@@ -167,19 +168,42 @@ assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}
 y.update(y)
 assert y == {'a': 2, 'b': 12, 'c': 19, 'd': -1}  # hasn't changed
 
+# KeyError has object that used as key as an .args[0]
+with assertRaises(KeyError) as cm:
+    x['not here']
+assert cm.exception.args[0] == "not here"
+with assertRaises(KeyError) as cm:
+    x.pop('not here')
+assert cm.exception.args[0] == "not here"
+
+with assertRaises(KeyError) as cm:
+    x[10]
+assert cm.exception.args[0] == 10
+with assertRaises(KeyError) as cm:
+    x.pop(10)
+assert cm.exception.args[0] == 10
+
+class MyClass: pass
+obj = MyClass()
+
+with assertRaises(KeyError) as cm:
+    x[obj]
+assert cm.exception.args[0] == obj
+with assertRaises(KeyError) as cm:
+    x.pop(obj)
+assert cm.exception.args[0] == obj
+
 x = {1: 'a', '1': None}
 assert x.pop(1) == 'a'
 assert x.pop('1') is None
 assert x == {}
 
-with assertRaises(KeyError):
-    x.pop("not here")
-
 x = {1: 'a'}
 assert (1, 'a') == x.popitem()
-with assertRaises(KeyError):
-    x.popitem()
 assert x == {}
+with assertRaises(KeyError) as cm:
+    x.popitem()
+assert cm.exception.args == ('popitem(): dictionary is empty',)
 
 x = {'a': 4}
 assert 4 == x.setdefault('a', 0)
@@ -191,3 +215,29 @@ assert x['c'] is None
 
 assert {1: None, "b": None} == dict.fromkeys([1, "b"])
 assert {1: 0, "b": 0} == dict.fromkeys([1, "b"], 0)
+
+x = {'a': 1, 'b': 1, 'c': 1}
+y = {'b': 2, 'c': 2, 'd': 2}
+z = {'c': 3, 'd': 3, 'e': 3}
+
+w = {1: 1, **x, 2: 2, **y, 3: 3, **z, 4: 4}
+assert w == {1: 1, 'a': 1, 'b': 2, 'c': 3, 2: 2, 'd': 3, 3: 3, 'e': 3, 4: 4}
+
+assert str({True: True, 1.0: 1.0}) == str({True: 1.0})
+
+class A:
+    def __hash__(self):
+        return 1
+    def __eq__(self, other):
+        return isinstance(other, A)
+class B:
+    def __hash__(self):
+        return 1
+    def __eq__(self, other):
+        return isinstance(other, B)
+
+s = {1: 0, A(): 1, B(): 2}
+assert len(s) == 3
+assert s[1] == 0
+assert s[A()] == 1
+assert s[B()] == 2

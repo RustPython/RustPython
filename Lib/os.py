@@ -1,19 +1,19 @@
+import sys
+
 from _os import *
 
-curdir = '.'
-pardir = '..'
-extsep = '.'
 
 if name == 'nt':
-    sep = '\\'
     linesep = '\r\n'
-    altsep = '/'
-    pathsep = ';'
+    import ntpath as path
 else:
-    sep = '/'
     linesep = '\n'
-    altsep = None
-    pathsep = ':'
+    import posixpath as path
+
+
+sys.modules['os.path'] = path
+from os.path import (curdir, pardir, sep, pathsep, defpath, extsep, altsep,
+    devnull)
 
 # Change environ to automatically call putenv(), unsetenv if they exist.
 from _collections_abc import MutableMapping
@@ -33,8 +33,7 @@ class _Environ(MutableMapping):
             value = self._data[self.encodekey(key)]
         except KeyError:
             # raise KeyError with the original key value
-            # raise KeyError(key) from None
-            raise KeyError(key)
+            raise KeyError(key) from None
 
         return self.decodevalue(value)
 
@@ -51,8 +50,7 @@ class _Environ(MutableMapping):
             del self._data[encodedkey]
         except KeyError:
             # raise KeyError with the original key value
-            # raise KeyError(key) from None
-            raise KeyError(key)
+            raise KeyError(key) from None
 
     def __iter__(self):
         # list() from dict object is an atomic operation

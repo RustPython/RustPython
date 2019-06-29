@@ -3,29 +3,38 @@
  */
 
 use std::cell::{Cell, RefCell};
-use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
+use crate::dictdatatype;
 use crate::function::OptionalArg;
 use crate::pyobject::{
-    PyContext, PyIterable, PyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::{ReprGuard, VirtualMachine};
 
-use super::objbool;
-use super::objint;
 use super::objlist::PyListIterator;
 use super::objtype;
 use super::objtype::PyClassRef;
 
+pub type SetContentType = dictdatatype::Dict<()>;
+
+/// set() -> new empty set object
+/// set(iterable) -> new set object
+///
+/// Build an unordered collection of unique elements.
+#[pyclass]
 #[derive(Default)]
 pub struct PySet {
     inner: RefCell<PySetInner>,
 }
 pub type PySetRef = PyRef<PySet>;
 
+/// frozenset() -> empty frozenset object
+/// frozenset(iterable) -> frozenset object
+///
+/// Build an immutable unordered collection of unique elements.
+#[pyclass]
 #[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
@@ -60,44 +69,41 @@ impl PyValue for PyFrozenSet {
 
 #[derive(Default, Clone)]
 struct PySetInner {
-    elements: HashMap<u64, PyObjectRef>,
+    content: SetContentType,
 }
 
 impl PySetInner {
-    fn new(iterable: OptionalArg<PyIterable>, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let elements: HashMap<u64, PyObjectRef> = match iterable {
-            OptionalArg::Missing => HashMap::new(),
-            OptionalArg::Present(iterable) => {
-                let mut elements = HashMap::new();
-                for item in iterable.iter(vm)? {
-                    insert_into_set(vm, &mut elements, &item?)?;
-                }
-                elements
-            }
-        };
+    fn new(iterable: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
+        let mut set = PySetInner::default();
+        for item in iterable.iter(vm)? {
+            set.add(&item?, vm)?;
+        }
+        Ok(set)
+    }
 
-        Ok(PySetInner { elements })
+    fn from_arg(iterable: OptionalArg<PyIterable>, vm: &VirtualMachine) -> PyResult<PySetInner> {
+        if let OptionalArg::Present(iterable) = iterable {
+            Self::new(iterable, vm)
+        } else {
+            Ok(PySetInner::default())
+        }
     }
 
     fn len(&self) -> usize {
-        self.elements.len()
+        self.content.len()
     }
+
     fn copy(&self) -> PySetInner {
         PySetInner {
-            elements: self.elements.clone(),
+            content: self.content.clone(),
         }
     }
 
-    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        for element in self.elements.iter() {
-            let value = vm._eq(needle.clone(), element.1.clone())?;
-            if objbool::get_value(&value) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+    fn contains(&self, needle: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.content.contains(vm, needle)
     }
 
+    #[inline]
     fn _compare_inner(
         &self,
         other: &PySetInner,
@@ -105,26 +111,13 @@ impl PySetInner {
         swap: bool,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let get_zelf = |swap: bool| -> &PySetInner {
-            if swap {
-                other
-            } else {
-                self
-            }
-        };
-        let get_other = |swap: bool| -> &PySetInner {
-            if swap {
-                self
-            } else {
-                other
-            }
-        };
+        let (zelf, other) = if swap { (other, self) } else { (self, other) };
 
-        if size_func(get_zelf(swap).len(), get_other(swap).len()) {
+        if size_func(zelf.len(), other.len()) {
             return Ok(vm.new_bool(false));
         }
-        for element in get_other(swap).elements.iter() {
-            if !get_zelf(swap).contains(element.1.clone(), vm)? {
+        for key in other.content.keys() {
+            if !zelf.contains(&key, vm)? {
                 return Ok(vm.new_bool(false));
             }
         }
@@ -177,55 +170,60 @@ impl PySetInner {
     }
 
     fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut elements = self.elements.clone();
+        let mut set = self.clone();
         for item in other.iter(vm)? {
-            insert_into_set(vm, &mut elements, &item?)?;
+            set.add(&item?, vm)?;
         }
 
-        Ok(PySetInner { elements })
+        Ok(set)
     }
 
     fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut elements = HashMap::new();
+        let mut set = PySetInner::default();
         for item in other.iter(vm)? {
             let obj = item?;
-            if self.contains(obj.clone(), vm)? {
-                insert_into_set(vm, &mut elements, &obj)?;
+            if self.contains(&obj, vm)? {
+                set.add(&obj, vm)?;
             }
         }
-        Ok(PySetInner { elements })
+        Ok(set)
     }
 
     fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
-        let mut elements = self.elements.clone();
+        let mut set = self.copy();
         for item in other.iter(vm)? {
-            let obj = item?;
-            if self.contains(obj.clone(), vm)? {
-                remove_from_set(vm, &mut elements, &obj)?;
-            }
+            set.content.delete_if_exists(vm, &item?)?;
         }
-        Ok(PySetInner { elements })
+        Ok(set)
     }
 
     fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<PySetInner> {
         let mut new_inner = self.clone();
 
         for item in other.iter(vm)? {
-            let obj = item?;
-            if !self.contains(obj.clone(), vm)? {
-                new_inner.add(&obj, vm)?;
-            } else {
-                new_inner.remove(&obj, vm)?;
-            }
+            new_inner.content.delete_or_insert(vm, &item?, ())?
         }
 
         Ok(new_inner)
     }
 
+    fn issuperset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        for item in other.iter(vm)? {
+            if !self.contains(&item?, vm)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+        let other_set = PySetInner::new(other, vm)?;
+        self.le(&other_set, vm)
+    }
+
     fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         for item in other.iter(vm)? {
-            let obj = item?;
-            if self.contains(obj.clone(), vm)? {
+            if self.contains(&item?, vm)? {
                 return Ok(false);
             }
         }
@@ -233,7 +231,7 @@ impl PySetInner {
     }
 
     fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
-        let items = self.elements.values().cloned().collect();
+        let items = self.content.keys().collect();
         let set_list = vm.ctx.new_list(items);
         PyListIterator {
             position: Cell::new(0),
@@ -243,228 +241,237 @@ impl PySetInner {
 
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         let mut str_parts = vec![];
-        for elem in self.elements.values() {
-            let part = vm.to_repr(elem)?;
+        for key in self.content.keys() {
+            let part = vm.to_repr(&key)?;
             str_parts.push(part.value.clone());
         }
 
         Ok(format!("{{{}}}", str_parts.join(", ")))
     }
 
-    fn add(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        insert_into_set(vm, &mut self.elements, &item)
+    fn add(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.content.insert(vm, item, ())
     }
 
-    fn remove(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        remove_from_set(vm, &mut self.elements, &item)
+    fn remove(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.content.delete(vm, item)
     }
 
-    fn discard(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        fn discard(
-            vm: &VirtualMachine,
-            elements: &mut HashMap<u64, PyObjectRef>,
-            key: u64,
-            _value: &PyObjectRef,
-        ) -> PyResult {
-            elements.remove(&key);
-            Ok(vm.get_none())
-        }
-        perform_action_with_hash(vm, &mut self.elements, &item, &discard)
+    fn discard(&mut self, item: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.content.delete_if_exists(vm, item)
     }
 
     fn clear(&mut self) {
-        self.elements.clear();
+        self.content.clear()
     }
 
     fn pop(&mut self, vm: &VirtualMachine) -> PyResult {
-        let elements = &mut self.elements;
-        match elements.clone().keys().next() {
-            Some(key) => Ok(elements.remove(key).unwrap()),
-            None => Err(vm.new_key_error("pop from an empty set".to_string())),
+        if let Some((key, _)) = self.content.pop_front() {
+            Ok(key)
+        } else {
+            let err_msg = vm.new_str("pop from an empty set".to_string());
+            Err(vm.new_key_error(err_msg))
         }
     }
 
-    fn update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         for item in iterable.iter(vm)? {
-            insert_into_set(vm, &mut self.elements, &item?)?;
+            self.add(&item?, vm)?;
         }
-        Ok(vm.get_none())
+        Ok(())
     }
 
-    fn intersection_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn intersection_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         let temp_inner = self.copy();
         self.clear();
         for item in iterable.iter(vm)? {
             let obj = item?;
-            if temp_inner.contains(obj.clone(), vm)? {
+            if temp_inner.contains(&obj, vm)? {
                 self.add(&obj, vm)?;
             }
         }
-        Ok(vm.get_none())
+        Ok(())
     }
 
-    fn difference_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    fn difference_update(&mut self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult<()> {
         for item in iterable.iter(vm)? {
-            let obj = item?;
-            if self.contains(obj.clone(), vm)? {
-                self.remove(&obj, vm)?;
-            }
+            self.content.delete_if_exists(vm, &item?)?;
         }
-        Ok(vm.get_none())
+        Ok(())
     }
 
     fn symmetric_difference_update(
         &mut self,
         iterable: PyIterable,
         vm: &VirtualMachine,
-    ) -> PyResult {
+    ) -> PyResult<()> {
         for item in iterable.iter(vm)? {
-            let obj = item?;
-            if !self.contains(obj.clone(), vm)? {
-                self.add(&obj, vm)?;
-            } else {
-                self.remove(&obj, vm)?;
-            }
+            self.content.delete_or_insert(vm, &item?, ())?;
         }
-        Ok(vm.get_none())
+        Ok(())
     }
 }
 
-impl PySetRef {
+macro_rules! try_set_inner {
+    ($vm:expr, $other:expr, $op:expr) => {
+        match_class!($other,
+            set @ PySet => $op(&*set.inner.borrow()),
+            frozen @ PyFrozenSet => $op(&frozen.inner),
+            _ => Ok($vm.ctx.not_implemented()),
+        );
+    };
+}
+
+#[pyimpl]
+impl PySet {
+    #[pymethod(name = "__new__")]
     fn new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PySetRef> {
-        PySet {
-            inner: RefCell::new(PySetInner::new(iterable, vm)?),
+        Self {
+            inner: RefCell::new(PySetInner::from_arg(iterable, vm)?),
         }
         .into_ref_with_type(vm, cls)
     }
 
-    fn len(self, _vm: &VirtualMachine) -> usize {
+    #[pymethod(name = "__len__")]
+    fn len(&self, _vm: &VirtualMachine) -> usize {
         self.inner.borrow().len()
     }
 
-    fn copy(self, _vm: &VirtualMachine) -> PySet {
-        PySet {
+    #[pymethod]
+    fn copy(&self, _vm: &VirtualMachine) -> Self {
+        Self {
             inner: RefCell::new(self.inner.borrow().copy()),
         }
     }
 
-    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.borrow().contains(needle, vm)
+    #[pymethod(name = "__contains__")]
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.borrow().contains(&needle, vm)
     }
 
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().eq(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().eq(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__eq__")]
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.borrow().eq(other, vm))
     }
 
-    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().ge(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().ge(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__ge__")]
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.borrow().ge(other, vm))
     }
 
-    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().gt(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().gt(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__gt__")]
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.borrow().gt(other, vm))
     }
 
-    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().le(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().le(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__le__")]
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.borrow().le(other, vm))
     }
 
-    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.borrow().lt(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.borrow().lt(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__lt__")]
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.borrow().lt(other, vm))
     }
 
-    fn union(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(self.inner.borrow().union(other, vm)?),
-            },
-            PySet::class(vm),
-            None,
-        ))
+    #[pymethod]
+    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: RefCell::new(self.inner.borrow().union(other, vm)?),
+        })
     }
 
-    fn intersection(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(self.inner.borrow().intersection(other, vm)?),
-            },
-            PySet::class(vm),
-            None,
-        ))
+    #[pymethod]
+    fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: RefCell::new(self.inner.borrow().intersection(other, vm)?),
+        })
     }
 
-    fn difference(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(self.inner.borrow().difference(other, vm)?),
-            },
-            PySet::class(vm),
-            None,
-        ))
+    #[pymethod]
+    fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: RefCell::new(self.inner.borrow().difference(other, vm)?),
+        })
     }
 
-    fn symmetric_difference(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PySet {
-                inner: RefCell::new(self.inner.borrow().symmetric_difference(other, vm)?),
-            },
-            PySet::class(vm),
-            None,
-        ))
+    #[pymethod]
+    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: RefCell::new(self.inner.borrow().symmetric_difference(other, vm)?),
+        })
     }
 
-    fn isdisjoint(self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+        self.inner.borrow().issubset(other, vm)
+    }
+
+    #[pymethod]
+    fn issuperset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.borrow().issuperset(other, vm)
+    }
+
+    #[pymethod]
+    fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.borrow().isdisjoint(other, vm)
     }
 
-    fn or(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__or__")]
+    fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.union(other.iterable, vm)
     }
 
-    fn and(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__ror__")]
+    fn ror(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.or(other, vm)
+    }
+
+    #[pymethod(name = "__and__")]
+    fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.intersection(other.iterable, vm)
     }
 
-    fn sub(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__rand__")]
+    fn rand(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.and(other, vm)
+    }
+
+    #[pymethod(name = "__sub__")]
+    fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.difference(other.iterable, vm)
     }
 
-    fn xor(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__rsub__")]
+    fn rsub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.sub(other, vm)
+    }
+
+    #[pymethod(name = "__xor__")]
+    fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.symmetric_difference(other.iterable, vm)
     }
 
-    fn iter(self, vm: &VirtualMachine) -> PyListIterator {
+    #[pymethod(name = "__rxor__")]
+    fn rxor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.xor(other, vm)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
         self.inner.borrow().iter(vm)
     }
 
-    fn repr(self, vm: &VirtualMachine) -> PyResult {
-        let inner = self.inner.borrow();
+    #[pymethod(name = "__repr__")]
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let inner = zelf.inner.borrow();
         let s = if inner.len() == 0 {
             "set()".to_string()
-        } else if let Some(_guard) = ReprGuard::enter(self.as_object()) {
+        } else if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
             inner.repr(vm)?
         } else {
             "set(...)".to_string()
@@ -472,270 +479,251 @@ impl PySetRef {
         Ok(vm.new_str(s))
     }
 
-    fn add(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().add(&item, vm)
+    #[pymethod]
+    pub fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().add(&item, vm)?;
+        Ok(())
     }
 
-    fn remove(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.borrow_mut().remove(&item, vm)
     }
 
-    fn discard(self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().discard(&item, vm)
+    #[pymethod]
+    fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.inner.borrow_mut().discard(&item, vm)?;
+        Ok(())
     }
 
-    fn clear(self, _vm: &VirtualMachine) {
+    #[pymethod]
+    fn clear(&self, _vm: &VirtualMachine) {
         self.inner.borrow_mut().clear()
     }
 
-    fn pop(self, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn pop(&self, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow_mut().pop(vm)
     }
 
-    fn ior(self, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
-        self.inner.borrow_mut().update(iterable.iterable, vm)?;
-        Ok(self.as_object().clone())
+    #[pymethod(name = "__ior__")]
+    fn ior(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+        zelf.inner.borrow_mut().update(iterable.iterable, vm)?;
+        Ok(zelf.as_object().clone())
     }
 
-    fn update(self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn update(&self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow_mut().update(iterable, vm)?;
         Ok(vm.get_none())
     }
 
-    fn intersection_update(self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn intersection_update(&self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow_mut().intersection_update(iterable, vm)?;
         Ok(vm.get_none())
     }
 
-    fn iand(self, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
-        self.inner
+    #[pymethod(name = "__iand__")]
+    fn iand(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+        zelf.inner
             .borrow_mut()
             .intersection_update(iterable.iterable, vm)?;
-        Ok(self.as_object().clone())
+        Ok(zelf.as_object().clone())
     }
 
-    fn difference_update(self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn difference_update(&self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
         self.inner.borrow_mut().difference_update(iterable, vm)?;
         Ok(vm.get_none())
     }
 
-    fn isub(self, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
-        self.inner
+    #[pymethod(name = "__isub__")]
+    fn isub(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+        zelf.inner
             .borrow_mut()
             .difference_update(iterable.iterable, vm)?;
-        Ok(self.as_object().clone())
+        Ok(zelf.as_object().clone())
     }
 
-    fn symmetric_difference_update(self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod]
+    fn symmetric_difference_update(&self, iterable: PyIterable, vm: &VirtualMachine) -> PyResult {
         self.inner
             .borrow_mut()
             .symmetric_difference_update(iterable, vm)?;
         Ok(vm.get_none())
     }
 
-    fn ixor(self, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
-        self.inner
+    #[pymethod(name = "__ixor__")]
+    fn ixor(zelf: PyRef<Self>, iterable: SetIterable, vm: &VirtualMachine) -> PyResult {
+        zelf.inner
             .borrow_mut()
             .symmetric_difference_update(iterable.iterable, vm)?;
-        Ok(self.as_object().clone())
+        Ok(zelf.as_object().clone())
+    }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_type_error("unhashable type".to_string()))
     }
 }
 
-impl PyFrozenSetRef {
+#[pyimpl]
+impl PyFrozenSet {
+    #[pymethod(name = "__new__")]
     fn new(
         cls: PyClassRef,
         iterable: OptionalArg<PyIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<PyFrozenSetRef> {
-        PyFrozenSet {
-            inner: PySetInner::new(iterable, vm)?,
+        Self {
+            inner: PySetInner::from_arg(iterable, vm)?,
         }
         .into_ref_with_type(vm, cls)
     }
 
-    fn len(self, _vm: &VirtualMachine) -> usize {
+    #[pymethod(name = "__len__")]
+    fn len(&self, _vm: &VirtualMachine) -> usize {
         self.inner.len()
     }
 
-    fn copy(self, _vm: &VirtualMachine) -> PyFrozenSet {
-        PyFrozenSet {
+    #[pymethod]
+    fn copy(&self, _vm: &VirtualMachine) -> Self {
+        Self {
             inner: self.inner.copy(),
         }
     }
 
-    fn contains(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.inner.contains(needle, vm)
+    #[pymethod(name = "__contains__")]
+    fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.contains(&needle, vm)
     }
 
-    fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.eq(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.eq(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__eq__")]
+    fn eq(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.eq(other, vm))
     }
 
-    fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.ge(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.ge(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__ge__")]
+    fn ge(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.ge(other, vm))
     }
 
-    fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.gt(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.gt(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__gt__")]
+    fn gt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.gt(other, vm))
     }
 
-    fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.le(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.le(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__le__")]
+    fn le(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.le(other, vm))
     }
 
-    fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        set @ PySet => self.inner.lt(&set.inner.borrow(), vm),
-        frozen @ PyFrozenSet => self.inner.lt(&frozen.inner, vm),
-        other =>  {return Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", other.class())));},
-        )
+    #[pymethod(name = "__lt__")]
+    fn lt(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        try_set_inner!(vm, other, |other| self.inner.lt(other, vm))
     }
 
-    fn union(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: self.inner.union(other, vm)?,
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
+    #[pymethod]
+    fn union(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.union(other, vm)?,
+        })
     }
 
-    fn intersection(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: self.inner.intersection(other, vm)?,
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
+    #[pymethod]
+    fn intersection(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.intersection(other, vm)?,
+        })
     }
 
-    fn difference(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: self.inner.difference(other, vm)?,
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
+    #[pymethod]
+    fn difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.difference(other, vm)?,
+        })
     }
 
-    fn symmetric_difference(self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
-        Ok(PyObject::new(
-            PyFrozenSet {
-                inner: self.inner.symmetric_difference(other, vm)?,
-            },
-            PyFrozenSet::class(vm),
-            None,
-        ))
+    #[pymethod]
+    fn symmetric_difference(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(Self {
+            inner: self.inner.symmetric_difference(other, vm)?,
+        })
     }
 
-    fn isdisjoint(self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+    #[pymethod]
+    fn issubset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult {
+        self.inner.issubset(other, vm)
+    }
+
+    #[pymethod]
+    fn issuperset(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.issuperset(other, vm)
+    }
+
+    #[pymethod]
+    fn isdisjoint(&self, other: PyIterable, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.isdisjoint(other, vm)
     }
 
-    fn or(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__or__")]
+    fn or(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.union(other.iterable, vm)
     }
 
-    fn and(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__ror__")]
+    fn ror(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.or(other, vm)
+    }
+
+    #[pymethod(name = "__and__")]
+    fn and(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.intersection(other.iterable, vm)
     }
 
-    fn sub(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__rand__")]
+    fn rand(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.and(other, vm)
+    }
+
+    #[pymethod(name = "__sub__")]
+    fn sub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.difference(other.iterable, vm)
     }
 
-    fn xor(self, other: SetIterable, vm: &VirtualMachine) -> PyResult {
+    #[pymethod(name = "__rsub__")]
+    fn rsub(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.sub(other, vm)
+    }
+
+    #[pymethod(name = "__xor__")]
+    fn xor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
         self.symmetric_difference(other.iterable, vm)
     }
 
-    fn iter(self, vm: &VirtualMachine) -> PyListIterator {
+    #[pymethod(name = "__rxor__")]
+    fn rxor(&self, other: SetIterable, vm: &VirtualMachine) -> PyResult<Self> {
+        self.xor(other, vm)
+    }
+
+    #[pymethod(name = "__iter__")]
+    fn iter(&self, vm: &VirtualMachine) -> PyListIterator {
         self.inner.iter(vm)
     }
 
-    fn repr(self, vm: &VirtualMachine) -> PyResult {
-        let inner = &self.inner;
+    #[pymethod(name = "__repr__")]
+    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let inner = &zelf.inner;
         let s = if inner.len() == 0 {
             "frozenset()".to_string()
-        } else if let Some(_guard) = ReprGuard::enter(self.as_object()) {
+        } else if let Some(_guard) = ReprGuard::enter(zelf.as_object()) {
             format!("frozenset({})", inner.repr(vm)?)
         } else {
             "frozenset(...)".to_string()
         };
         Ok(vm.new_str(s))
     }
-}
-
-fn perform_action_with_hash(
-    vm: &VirtualMachine,
-    elements: &mut HashMap<u64, PyObjectRef>,
-    item: &PyObjectRef,
-    f: &Fn(&VirtualMachine, &mut HashMap<u64, PyObjectRef>, u64, &PyObjectRef) -> PyResult,
-) -> PyResult {
-    let hash: PyObjectRef = vm.call_method(item, "__hash__", vec![])?;
-
-    let hash_value = objint::get_value(&hash);
-    let mut hasher = DefaultHasher::new();
-    hash_value.hash(&mut hasher);
-    let key = hasher.finish();
-    f(vm, elements, key, item)
-}
-
-fn insert_into_set(
-    vm: &VirtualMachine,
-    elements: &mut HashMap<u64, PyObjectRef>,
-    item: &PyObjectRef,
-) -> PyResult {
-    fn insert(
-        vm: &VirtualMachine,
-        elements: &mut HashMap<u64, PyObjectRef>,
-        key: u64,
-        value: &PyObjectRef,
-    ) -> PyResult {
-        elements.insert(key, value.clone());
-        Ok(vm.get_none())
-    }
-    perform_action_with_hash(vm, elements, item, &insert)
-}
-
-fn remove_from_set(
-    vm: &VirtualMachine,
-    elements: &mut HashMap<u64, PyObjectRef>,
-    item: &PyObjectRef,
-) -> PyResult {
-    fn remove(
-        vm: &VirtualMachine,
-        elements: &mut HashMap<u64, PyObjectRef>,
-        key: u64,
-        value: &PyObjectRef,
-    ) -> PyResult {
-        match elements.remove(&key) {
-            None => {
-                let item_str = format!("{:?}", value);
-                Err(vm.new_key_error(item_str))
-            }
-            Some(_) => Ok(vm.get_none()),
-        }
-    }
-    perform_action_with_hash(vm, elements, item, &remove)
 }
 
 struct SetIterable {
@@ -759,86 +747,7 @@ impl TryFromObject for SetIterable {
     }
 }
 
-fn set_hash(_zelf: PySetRef, vm: &VirtualMachine) -> PyResult {
-    Err(vm.new_type_error("unhashable type".to_string()))
-}
-
 pub fn init(context: &PyContext) {
-    let set_type = &context.set_type;
-
-    let set_doc = "set() -> new empty set object\n\
-                   set(iterable) -> new set object\n\n\
-                   Build an unordered collection of unique elements.";
-
-    extend_class!(context, set_type, {
-        "__hash__" => context.new_rustfunc(set_hash),
-        "__contains__" => context.new_rustfunc(PySetRef::contains),
-        "__len__" => context.new_rustfunc(PySetRef::len),
-        "__new__" => context.new_rustfunc(PySetRef::new),
-        "__repr__" => context.new_rustfunc(PySetRef::repr),
-        "__eq__" => context.new_rustfunc(PySetRef::eq),
-        "__ge__" => context.new_rustfunc(PySetRef::ge),
-        "__gt__" => context.new_rustfunc(PySetRef::gt),
-        "__le__" => context.new_rustfunc(PySetRef::le),
-        "__lt__" => context.new_rustfunc(PySetRef::lt),
-        "issubset" => context.new_rustfunc(PySetRef::le),
-        "issuperset" => context.new_rustfunc(PySetRef::ge),
-        "union" => context.new_rustfunc(PySetRef::union),
-        "__or__" => context.new_rustfunc(PySetRef::or),
-        "intersection" => context.new_rustfunc(PySetRef::intersection),
-        "__and__" => context.new_rustfunc(PySetRef::and),
-        "difference" => context.new_rustfunc(PySetRef::difference),
-        "__sub__" => context.new_rustfunc(PySetRef::sub),
-        "symmetric_difference" => context.new_rustfunc(PySetRef::symmetric_difference),
-        "__xor__" => context.new_rustfunc(PySetRef::xor),
-        "__doc__" => context.new_str(set_doc.to_string()),
-        "add" => context.new_rustfunc(PySetRef::add),
-        "remove" => context.new_rustfunc(PySetRef::remove),
-        "discard" => context.new_rustfunc(PySetRef::discard),
-        "clear" => context.new_rustfunc(PySetRef::clear),
-        "copy" => context.new_rustfunc(PySetRef::copy),
-        "pop" => context.new_rustfunc(PySetRef::pop),
-        "update" => context.new_rustfunc(PySetRef::update),
-        "__ior__" => context.new_rustfunc(PySetRef::ior),
-        "intersection_update" => context.new_rustfunc(PySetRef::intersection_update),
-        "__iand__" => context.new_rustfunc(PySetRef::iand),
-        "difference_update" => context.new_rustfunc(PySetRef::difference_update),
-        "__isub__" => context.new_rustfunc(PySetRef::isub),
-        "symmetric_difference_update" => context.new_rustfunc(PySetRef::symmetric_difference_update),
-        "__ixor__" => context.new_rustfunc(PySetRef::ixor),
-        "__iter__" => context.new_rustfunc(PySetRef::iter),
-        "isdisjoint" => context.new_rustfunc(PySetRef::isdisjoint),
-    });
-
-    let frozenset_type = &context.frozenset_type;
-
-    let frozenset_doc = "frozenset() -> empty frozenset object\n\
-                         frozenset(iterable) -> frozenset object\n\n\
-                         Build an immutable unordered collection of unique elements.";
-
-    extend_class!(context, frozenset_type, {
-        "__new__" => context.new_rustfunc(PyFrozenSetRef::new),
-        "__eq__" => context.new_rustfunc(PyFrozenSetRef::eq),
-        "__ge__" => context.new_rustfunc(PyFrozenSetRef::ge),
-        "__gt__" => context.new_rustfunc(PyFrozenSetRef::gt),
-        "__le__" => context.new_rustfunc(PyFrozenSetRef::le),
-        "__lt__" => context.new_rustfunc(PyFrozenSetRef::lt),
-        "issubset" => context.new_rustfunc(PyFrozenSetRef::le),
-        "issuperset" => context.new_rustfunc(PyFrozenSetRef::ge),
-        "union" => context.new_rustfunc(PyFrozenSetRef::union),
-        "__or__" => context.new_rustfunc(PyFrozenSetRef::or),
-        "intersection" => context.new_rustfunc(PyFrozenSetRef::intersection),
-        "__and__" => context.new_rustfunc(PyFrozenSetRef::and),
-        "difference" => context.new_rustfunc(PyFrozenSetRef::difference),
-        "__sub__" => context.new_rustfunc(PyFrozenSetRef::sub),
-        "symmetric_difference" => context.new_rustfunc(PyFrozenSetRef::symmetric_difference),
-        "__xor__" => context.new_rustfunc(PyFrozenSetRef::xor),
-        "__contains__" => context.new_rustfunc(PyFrozenSetRef::contains),
-        "__len__" => context.new_rustfunc(PyFrozenSetRef::len),
-        "__doc__" => context.new_str(frozenset_doc.to_string()),
-        "__repr__" => context.new_rustfunc(PyFrozenSetRef::repr),
-        "copy" => context.new_rustfunc(PyFrozenSetRef::copy),
-        "__iter__" => context.new_rustfunc(PyFrozenSetRef::iter),
-        "isdisjoint" => context.new_rustfunc(PyFrozenSetRef::isdisjoint),
-    });
+    PySet::extend_class(context, &context.set_type);
+    PyFrozenSet::extend_class(context, &context.frozenset_type);
 }

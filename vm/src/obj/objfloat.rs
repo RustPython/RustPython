@@ -3,15 +3,18 @@ use super::objint;
 use super::objstr;
 use super::objtype;
 use crate::function::OptionalArg;
+use crate::obj::objstr::PyStringRef;
 use crate::obj::objtype::PyClassRef;
+use crate::pyhash;
 use crate::pyobject::{
     IdProtocol, IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use hexf;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::{ToPrimitive, Zero};
+use num_traits::{float::Float, ToPrimitive, Zero};
 
 /// Convert a string or number to a floating point number, if possible.
 #[pyclass(name = "float")]
@@ -259,7 +262,7 @@ impl PyFloat {
                 Err(_) => {
                     let arg_repr = vm.to_pystr(&arg)?;
                     return Err(vm.new_value_error(format!(
-                        "could not convert string to float: {}",
+                        "could not convert string to float: '{}'",
                         arg_repr
                     )));
                 }
@@ -270,7 +273,7 @@ impl PyFloat {
                 Err(_) => {
                     let arg_repr = vm.to_pystr(&arg)?;
                     return Err(vm.new_value_error(format!(
-                        "could not convert string to float: {}",
+                        "could not convert string to float: '{}'",
                         arg_repr
                     )));
                 }
@@ -295,6 +298,11 @@ impl PyFloat {
             || Ok(vm.ctx.not_implemented()),
             |other| inner_mod(other, self.value, vm)?.into_pyobject(vm),
         )
+    }
+
+    #[pymethod(name = "__pos__")]
+    fn pos(&self, _vm: &VirtualMachine) -> f64 {
+        self.value
     }
 
     #[pymethod(name = "__neg__")]
@@ -335,8 +343,12 @@ impl PyFloat {
     }
 
     #[pymethod(name = "__repr__")]
-    fn repr(&self, _vm: &VirtualMachine) -> String {
-        self.value.to_string()
+    fn repr(&self, vm: &VirtualMachine) -> String {
+        if self.is_integer(vm) {
+            format!("{:.1}", self.value)
+        } else {
+            self.value.to_string()
+        }
     }
 
     #[pymethod(name = "__truediv__")]
@@ -399,7 +411,7 @@ impl PyFloat {
         };
         if ndigits.is_none() {
             let fract = self.value.fract();
-            let value = if fract.abs() == 0.5 {
+            let value = if (fract.abs() - 0.5).abs() < std::f64::EPSILON {
                 if self.value.trunc() % 2.0 == 0.0 {
                     self.value - fract
                 } else {
@@ -423,6 +435,11 @@ impl PyFloat {
     #[pymethod(name = "__float__")]
     fn float(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyFloatRef {
         zelf
+    }
+
+    #[pymethod(name = "__hash__")]
+    fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        pyhash::hash_float(self.value)
     }
 
     #[pyproperty(name = "real")]
@@ -463,6 +480,70 @@ impl PyFloat {
         let denom = vm.ctx.new_int(ratio.denom().clone());
         Ok(vm.ctx.new_tuple(vec![numer, denom]))
     }
+
+    #[pymethod]
+    fn fromhex(repr: PyStringRef, vm: &VirtualMachine) -> PyResult<f64> {
+        hexf::parse_hexf64(&repr.value, false).or_else(|_| match repr.value.as_ref() {
+            "nan" => Ok(std::f64::NAN),
+            "inf" => Ok(std::f64::INFINITY),
+            "-inf" => Ok(std::f64::NEG_INFINITY),
+            _ => Err(vm.new_value_error("invalid hexadecimal floating-point string".to_string())),
+        })
+    }
+
+    #[pymethod]
+    fn hex(&self, _vm: &VirtualMachine) -> String {
+        to_hex(self.value)
+    }
+}
+
+fn to_hex(value: f64) -> String {
+    let (mantissa, exponent, sign) = value.integer_decode();
+    let sign_fmt = if sign < 0 { "-" } else { "" };
+    match value {
+        value if value.is_zero() => format!("{}0x0.0p+0", sign_fmt),
+        value if value.is_infinite() => format!("{}inf", sign_fmt),
+        value if value.is_nan() => "nan".to_string(),
+        _ => {
+            const BITS: i16 = 52;
+            const FRACT_MASK: u64 = 0xf_ffff_ffff_ffff;
+            format!(
+                "{}0x{:x}.{:013x}p{:+}",
+                sign_fmt,
+                mantissa >> BITS,
+                mantissa & FRACT_MASK,
+                exponent + BITS
+            )
+        }
+    }
+}
+
+#[test]
+fn test_to_hex() {
+    use rand::Rng;
+    for _ in 0..20000 {
+        let bytes = rand::thread_rng().gen::<[u64; 1]>();
+        let f = f64::from_bits(bytes[0]);
+        if !f.is_finite() {
+            continue;
+        }
+        let hex = to_hex(f);
+        // println!("{} -> {}", f, hex);
+        let roundtrip = hexf::parse_hexf64(&hex, false).unwrap();
+        // println!("  -> {}", roundtrip);
+        assert!(f == roundtrip, "{} {} {}", f, hex, roundtrip);
+    }
+}
+
+pub fn ufrexp(value: f64) -> (f64, i32) {
+    if 0.0 == value {
+        (0.0, 0i32)
+    } else {
+        let bits = value.to_bits();
+        let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022;
+        let mantissa_bits = bits & (0x000f_ffff_ffff_ffff) | (1022 << 52);
+        (f64::from_bits(mantissa_bits), exponent)
+    }
 }
 
 pub type PyFloatRef = PyRef<PyFloat>;
@@ -475,11 +556,15 @@ pub fn get_value(obj: &PyObjectRef) -> f64 {
 pub fn make_float(vm: &VirtualMachine, obj: &PyObjectRef) -> PyResult<f64> {
     if objtype::isinstance(obj, &vm.ctx.float_type()) {
         Ok(get_value(obj))
-    } else if let Ok(method) = vm.get_method(obj.clone(), "__float__") {
-        let res = vm.invoke(method, vec![])?;
-        Ok(get_value(&res))
     } else {
-        Err(vm.new_type_error(format!("Cannot cast {} to float", obj)))
+        let method = vm.get_method_or_type_error(obj.clone(), "__float__", || {
+            format!(
+                "float() argument must be a string or a number, not '{}'",
+                obj.class().name
+            )
+        })?;
+        let result = vm.invoke(method, vec![])?;
+        Ok(get_value(&result))
     }
 }
 

@@ -248,7 +248,7 @@ pub fn type_new(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         let (typ, name, bases, dict) = args.bind(vm)?;
         type_new_class(vm, typ, name, bases, dict).map(PyRef::into_object)
     } else {
-        Err(vm.new_type_error(format!(": type_new: {:?}", args)))
+        Err(vm.new_type_error("type() takes 1 or 3 arguments".to_string()))
     }
 }
 
@@ -270,8 +270,9 @@ pub fn type_call(class: PyClassRef, args: Args, kwargs: KwArgs, vm: &VirtualMach
     let new_wrapped = vm.call_get_descriptor(new, class.into_object())?;
     let obj = vm.invoke(new_wrapped, (&args, &kwargs))?;
 
-    if let Ok(init) = vm.get_method(obj.clone(), "__init__") {
-        let res = vm.invoke(init, (&args, &kwargs))?;
+    if let Some(init_method_or_err) = vm.get_method(obj.clone(), "__init__") {
+        let init_method = init_method_or_err?;
+        let res = vm.invoke(init_method, (&args, &kwargs))?;
         if !res.is(&vm.get_none()) {
             return Err(vm.new_type_error("__init__ must return None".to_string()));
         }
@@ -289,7 +290,7 @@ fn type_dict_setter(_instance: PyClassRef, _value: PyObjectRef, vm: &VirtualMach
     ))
 }
 
-// This is the internal get_attr implementation for fast lookup on a class.
+/// This is the internal get_attr implementation for fast lookup on a class.
 pub fn class_get_attr(class: &PyClassRef, attr_name: &str) -> Option<PyObjectRef> {
     if let Some(item) = class.attributes.borrow().get(attr_name).cloned() {
         return Some(item);

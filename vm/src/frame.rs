@@ -23,6 +23,7 @@ use crate::pyobject::{
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
 use itertools::Itertools;
 
 /*
@@ -98,6 +99,20 @@ impl Scope {
         Scope { locals, globals }
     }
 
+    pub fn with_builtins(
+        locals: Option<PyDictRef>,
+        globals: PyDictRef,
+        vm: &VirtualMachine,
+    ) -> Scope {
+        if !globals.contains_key("__builtins__", vm) {
+            globals
+                .clone()
+                .set_item("__builtins__", vm.builtins.clone(), vm)
+                .unwrap();
+        }
+        Scope::new(locals, globals)
+    }
+
     pub fn get_locals(&self) -> PyDictRef {
         match self.locals.iter().next() {
             Some(dict) => dict.clone(),
@@ -109,22 +124,22 @@ impl Scope {
         self.locals.iter().next().cloned()
     }
 
-    pub fn child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
+    pub fn new_child_scope_with_locals(&self, locals: PyDictRef) -> Scope {
         Scope {
             locals: self.locals.clone().insert(locals),
             globals: self.globals.clone(),
         }
     }
 
-    pub fn child_scope(&self, ctx: &PyContext) -> Scope {
-        self.child_scope_with_locals(ctx.new_dict())
+    pub fn new_child_scope(&self, ctx: &PyContext) -> Scope {
+        self.new_child_scope_with_locals(ctx.new_dict())
     }
 }
 
 pub trait NameProtocol {
     fn load_name(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_name(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
-    fn delete_name(&self, vm: &VirtualMachine, name: &str);
+    fn delete_name(&self, vm: &VirtualMachine, name: &str) -> PyResult;
     fn load_cell(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
     fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef);
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef>;
@@ -158,8 +173,7 @@ impl NameProtocol for Scope {
     fn store_cell(&self, vm: &VirtualMachine, name: &str, value: PyObjectRef) {
         self.locals
             .iter()
-            .skip(1)
-            .next()
+            .nth(1)
             .expect("no outer scope for non-local")
             .set_item(name, value, vm)
             .unwrap();
@@ -169,8 +183,8 @@ impl NameProtocol for Scope {
         self.get_locals().set_item(key, value, vm).unwrap();
     }
 
-    fn delete_name(&self, vm: &VirtualMachine, key: &str) {
-        self.get_locals().del_item(key, vm).unwrap();
+    fn delete_name(&self, vm: &VirtualMachine, key: &str) -> PyResult {
+        self.get_locals().del_item(key, vm)
     }
 
     fn load_global(&self, vm: &VirtualMachine, name: &str) -> Option<PyObjectRef> {
@@ -229,7 +243,7 @@ pub enum ExecutionResult {
     Yield(PyObjectRef),
 }
 
-// A valid execution result, or an exception
+/// A valid execution result, or an exception
 pub type FrameResult = Result<Option<ExecutionResult>, PyObjectRef>;
 
 impl Frame {
@@ -271,9 +285,11 @@ impl Frame {
                 Ok(Some(value)) => {
                     break Ok(value);
                 }
+                // Instruction raised an exception
                 Err(exception) => {
-                    // unwind block stack on exception and find any handlers.
-                    // Add an entry in the traceback:
+                    // 1. Extract traceback from exception's '__traceback__' attr.
+                    // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
+                    // 3. Unwind block stack till appropriate handler is found.
                     assert!(objtype::isinstance(
                         &exception,
                         &vm.ctx.exceptions.base_exception_type
@@ -282,13 +298,12 @@ impl Frame {
                         .get_attribute(exception.clone(), "__traceback__")
                         .unwrap();
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
-                    let pos = vm.ctx.new_tuple(vec![
+                    let raise_location = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
                         vm.ctx.new_int(lineno.get_row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
-                    objlist::PyListRef::try_from_object(vm, traceback)?.append(pos, vm);
-                    // exception.__trace
+                    objlist::PyListRef::try_from_object(vm, traceback)?.append(raise_location, vm);
                     match self.unwind_exception(vm, exception) {
                         None => {}
                         Some(exception) => {
@@ -319,7 +334,7 @@ impl Frame {
         ins2
     }
 
-    // Execute a single instruction:
+    /// Execute a single instruction.
     fn execute_instruction(&self, vm: &VirtualMachine) -> FrameResult {
         let instruction = self.fetch_instruction();
         {
@@ -342,8 +357,8 @@ impl Frame {
             }
             bytecode::Instruction::Import {
                 ref name,
-                ref symbol,
-            } => self.import(vm, name, symbol),
+                ref symbols,
+            } => self.import(vm, name, symbols),
             bytecode::Instruction::ImportStar { ref name } => self.import_star(vm, name),
             bytecode::Instruction::LoadName {
                 ref name,
@@ -551,9 +566,7 @@ impl Frame {
                 } = &block.typ
                 {
                     debug_assert!(end1 == end2);
-
-                    // call exit now with no exception:
-                    self.with_exit(vm, &context_manager, None)?;
+                    self.call_context_manager_exit_no_exception(vm, &context_manager)?;
                 } else {
                     unreachable!("Block stack is incorrect, expected a with block");
                 }
@@ -636,22 +649,22 @@ impl Frame {
                 // pop argc arguments
                 // argument: name, args, globals
                 let scope = self.scope.clone();
-                let obj = vm
+                let func_obj = vm
                     .ctx
                     .new_function(code_obj, scope, defaults, kw_only_defaults);
 
                 let name = qualified_name.value.split('.').next_back().unwrap();
-                vm.set_attr(&obj, "__name__", vm.new_str(name.to_string()))?;
-                vm.set_attr(&obj, "__qualname__", qualified_name)?;
+                vm.set_attr(&func_obj, "__name__", vm.new_str(name.to_string()))?;
+                vm.set_attr(&func_obj, "__qualname__", qualified_name)?;
                 let module = self
                     .scope
                     .globals
                     .get_item_option("__name__", vm)?
                     .unwrap_or_else(|| vm.get_none());
-                vm.set_attr(&obj, "__module__", module)?;
-                vm.set_attr(&obj, "__annotations__", annotations)?;
+                vm.set_attr(&func_obj, "__module__", module)?;
+                vm.set_attr(&func_obj, "__annotations__", annotations)?;
 
-                self.push_value(obj);
+                self.push_value(func_obj);
                 Ok(None)
             }
             bytecode::Instruction::CallFunction { typ } => {
@@ -660,7 +673,7 @@ impl Frame {
                         let args: Vec<PyObjectRef> = self.pop_multiple(*count);
                         PyFuncArgs {
                             args,
-                            kwargs: vec![],
+                            kwargs: IndexMap::new(),
                         }
                     }
                     bytecode::CallType::Keyword(count) => {
@@ -683,7 +696,7 @@ impl Frame {
                                 .map(|elem| (objstr::get_value(&elem.0), elem.1))
                                 .collect()
                         } else {
-                            vec![]
+                            IndexMap::new()
                         };
                         let args = self.pop_value();
                         let args = vm.extract_elements(&args)?;
@@ -894,26 +907,31 @@ impl Frame {
         }
     }
 
-    fn import(&self, vm: &VirtualMachine, module: &str, symbol: &Option<String>) -> FrameResult {
-        let module = vm.import(module)?;
+    fn import(&self, vm: &VirtualMachine, module: &str, symbols: &Vec<String>) -> FrameResult {
+        let from_list = symbols
+            .iter()
+            .map(|symbol| vm.ctx.new_str(symbol.to_string()))
+            .collect();
+        let level = module.chars().take_while(|char| *char == '.').count();
+        let module_name = &module[level..];
+        let module = vm.import(module_name, &vm.ctx.new_tuple(from_list), level)?;
 
-        // If we're importing a symbol, look it up and use it, otherwise construct a module and return
-        // that
-        let obj = match symbol {
-            Some(symbol) => vm.get_attribute(module, symbol.as_str()).map_err(|_| {
-                let import_error = vm.context().exceptions.import_error.clone();
-                vm.new_exception(import_error, format!("cannot import name '{}'", symbol))
-            }),
-            None => Ok(module),
-        };
-
-        // Push module on stack:
-        self.push_value(obj?);
+        if symbols.is_empty() {
+            self.push_value(module);
+        } else {
+            for symbol in symbols {
+                let obj = vm
+                    .get_attribute(module.clone(), symbol.as_str())
+                    .map_err(|_| vm.new_import_error(format!("cannot import name '{}'", symbol)));
+                self.push_value(obj?);
+            }
+        }
         Ok(None)
     }
 
     fn import_star(&self, vm: &VirtualMachine, module: &str) -> FrameResult {
-        let module = vm.import(module)?;
+        let level = module.chars().take_while(|char| *char == '.').count();
+        let module = vm.import(module, &vm.ctx.new_tuple(vec![]), level)?;
 
         // Grab all the names from the module and put them in the context
         if let Some(dict) = &module.dict {
@@ -935,7 +953,7 @@ impl Frame {
                 BlockType::With {
                     context_manager, ..
                 } => {
-                    match self.with_exit(vm, &context_manager, None) {
+                    match self.call_context_manager_exit_no_exception(vm, &context_manager) {
                         Ok(..) => {}
                         Err(exc) => {
                             // __exit__ went wrong,
@@ -962,7 +980,7 @@ impl Frame {
                 }
                 BlockType::With {
                     context_manager, ..
-                } => match self.with_exit(vm, &context_manager, None) {
+                } => match self.call_context_manager_exit_no_exception(vm, &context_manager) {
                     Ok(..) => {}
                     Err(exc) => {
                         panic!("Exception in with __exit__ {:?}", exc);
@@ -992,12 +1010,12 @@ impl Frame {
                     end,
                     context_manager,
                 } => {
-                    match self.with_exit(vm, &context_manager, Some(exc.clone())) {
-                        Ok(exit_action) => {
-                            match objbool::boolval(vm, exit_action) {
-                                Ok(handle_exception) => {
-                                    if handle_exception {
-                                        // We handle the exception, so return!
+                    match self.call_context_manager_exit(vm, &context_manager, exc.clone()) {
+                        Ok(exit_result_obj) => {
+                            match objbool::boolval(vm, exit_result_obj) {
+                                // If __exit__ method returned True, suppress the exception and continue execution.
+                                Ok(suppress_exception) => {
+                                    if suppress_exception {
                                         self.jump(end);
                                         return None;
                                     } else {
@@ -1008,7 +1026,6 @@ impl Frame {
                                     return Some(exit_exc);
                                 }
                             }
-                            // if objtype::isinstance
                         }
                         Err(exit_exc) => {
                             // TODO: what about original exception?
@@ -1017,36 +1034,39 @@ impl Frame {
                     }
                 }
                 BlockType::Loop { .. } => {}
-                // Exception was already poped on Raised.
+                // Exception was already popped on Raised.
                 BlockType::ExceptHandler => {}
             }
         }
         Some(exc)
     }
 
-    fn with_exit(
+    fn call_context_manager_exit_no_exception(
         &self,
         vm: &VirtualMachine,
         context_manager: &PyObjectRef,
-        exc: Option<PyObjectRef>,
     ) -> PyResult {
-        // Assume top of stack is __exit__ method:
         // TODO: do we want to put the exit call on the stack?
-        // let exit_method = self.pop_value();
-        // let args = PyFuncArgs::default();
-        // TODO: what happens when we got an error during handling exception?
-        let args = if let Some(exc) = exc {
-            let exc_type = exc.class().into_object();
-            let exc_val = exc.clone();
-            let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
-            vec![exc_type, exc_val, exc_tb]
-        } else {
-            let exc_type = vm.ctx.none();
-            let exc_val = vm.ctx.none();
-            let exc_tb = vm.ctx.none();
-            vec![exc_type, exc_val, exc_tb]
-        };
-        vm.call_method(context_manager, "__exit__", args)
+        // TODO: what happens when we got an error during execution of __exit__?
+        vm.call_method(
+            context_manager,
+            "__exit__",
+            vec![vm.ctx.none(), vm.ctx.none(), vm.ctx.none()],
+        )
+    }
+
+    fn call_context_manager_exit(
+        &self,
+        vm: &VirtualMachine,
+        context_manager: &PyObjectRef,
+        exc: PyObjectRef,
+    ) -> PyResult {
+        // TODO: do we want to put the exit call on the stack?
+        // TODO: what happens when we got an error during execution of __exit__?
+        let exc_type = exc.class().into_object();
+        let exc_val = exc.clone();
+        let exc_tb = vm.ctx.none(); // TODO: retrieve traceback?
+        vm.call_method(context_manager, "__exit__", vec![exc_type, exc_val, exc_tb])
     }
 
     fn store_name(
@@ -1071,8 +1091,10 @@ impl Frame {
     }
 
     fn delete_name(&self, vm: &VirtualMachine, name: &str) -> FrameResult {
-        self.scope.delete_name(vm, name);
-        Ok(None)
+        match self.scope.delete_name(vm, name) {
+            Ok(_) => Ok(None),
+            Err(_) => Err(vm.new_name_error(format!("name '{}' is not defined", name))),
+        }
     }
 
     fn load_name(
@@ -1090,10 +1112,7 @@ impl Frame {
         let value = match optional_value {
             Some(value) => value,
             None => {
-                let name_error_type = vm.ctx.exceptions.name_error.clone();
-                let msg = format!("name '{}' is not defined", name);
-                let name_error = vm.new_exception(name_error_type, msg);
-                return Err(name_error);
+                return Err(vm.new_name_error(format!("name '{}' is not defined", name)));
             }
         };
 
@@ -1118,7 +1137,7 @@ impl Frame {
 
     fn jump(&self, label: bytecode::Label) {
         let target_pc = self.code.label_map[&label];
-        trace!("program counter from {:?} to {:?}", self.lasti, target_pc);
+        trace!("jump from {:?} to {:?}", self.lasti, target_pc);
         *self.lasti.borrow_mut() = target_pc;
     }
 
@@ -1304,14 +1323,14 @@ impl Frame {
             || objtype::isinstance(&exception, &vm.ctx.exceptions.base_exception_type)
         {
             Ok(exception)
-        } else if let Ok(exception) = PyClassRef::try_from_object(vm, exception) {
-            if objtype::issubclass(&exception, &vm.ctx.exceptions.base_exception_type) {
-                let exception = vm.new_empty_exception(exception)?;
+        } else if let Ok(exc_type) = PyClassRef::try_from_object(vm, exception) {
+            if objtype::issubclass(&exc_type, &vm.ctx.exceptions.base_exception_type) {
+                let exception = vm.new_empty_exception(exc_type)?;
                 Ok(exception)
             } else {
                 let msg = format!(
                     "Can only raise BaseException derived types, not {}",
-                    exception
+                    exc_type
                 );
                 Err(vm.new_type_error(msg))
             }

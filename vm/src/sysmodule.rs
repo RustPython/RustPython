@@ -4,7 +4,7 @@ use std::{env, mem};
 use crate::frame::FrameRef;
 use crate::function::{OptionalArg, PyFuncArgs};
 use crate::obj::objstr::PyStringRef;
-use crate::pyobject::{ItemProtocol, PyContext, PyObjectRef, PyResult};
+use crate::pyobject::{IntoPyObject, ItemProtocol, PyClassImpl, PyContext, PyObjectRef, PyResult};
 use crate::vm::VirtualMachine;
 
 /*
@@ -27,6 +27,44 @@ fn getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRe
     Ok(frame.clone())
 }
 
+/// sys.flags
+///
+/// Flags provided through command line arguments or environment vars.
+#[pystruct_sequence(name = "flags")]
+#[derive(Default, Debug)]
+struct SysFlags {
+    /// -d
+    debug: bool,
+    /// -i
+    inspect: bool,
+    /// -i
+    interactive: bool,
+    /// -O or -OO
+    optimize: u8,
+    /// -B
+    dont_write_bytecode: bool,
+    /// -s
+    no_user_site: bool,
+    /// -S
+    no_site: bool,
+    /// -E
+    ignore_environment: bool,
+    /// -v
+    verbose: bool,
+    /// -b
+    bytes_warning: bool,
+    /// -q
+    quiet: bool,
+    /// -R
+    hash_randomization: bool,
+    /// -I
+    isolated: bool,
+    /// -X dev
+    dev_mode: bool,
+    /// -X utf8
+    utf8_mode: bool,
+}
+
 fn sys_getrefcount(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(object, None)]);
     let size = Rc::strong_count(&object);
@@ -40,6 +78,21 @@ fn sys_getsizeof(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     Ok(vm.ctx.new_int(size))
 }
 
+fn sys_getfilesystemencoding(_vm: &VirtualMachine) -> String {
+    // TODO: implmement non-utf-8 mode.
+    "utf-8".to_string()
+}
+
+#[cfg(not(windows))]
+fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
+    "surrogateescape".to_string()
+}
+
+#[cfg(windows)]
+fn sys_getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
+    "surrogatepass".to_string()
+}
+
 // TODO implement string interning, this will be key for performance
 fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
     value
@@ -48,19 +101,55 @@ fn sys_intern(value: PyStringRef, _vm: &VirtualMachine) -> PyStringRef {
 pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectRef) {
     let ctx = &vm.ctx;
 
-    let path_list = match env::var_os("PYTHONPATH") {
-        Some(paths) => env::split_paths(&paths)
-            .map(|path| {
-                ctx.new_str(
-                    path.to_str()
-                        .expect("PYTHONPATH isn't valid unicode")
-                        .to_string(),
-                )
-            })
-            .collect(),
-        None => vec![],
+    let flags_type = SysFlags::make_class(ctx);
+    // TODO parse command line arguments and environment variables to populate SysFlags
+    let flags = SysFlags::default()
+        .into_struct_sequence(vm, flags_type)
+        .unwrap();
+
+    // TODO Add crate version to this namespace
+    let implementation = py_namespace!(vm, {
+        "name" => ctx.new_str("RustPython".to_string()),
+        "cache_tag" => ctx.new_str("rustpython-01".to_string()),
+    });
+
+    let path_list = if cfg!(target_arch = "wasm32") {
+        vec![]
+    } else {
+        fn get_paths(env_variable_name: &str) -> Vec<String> {
+            let paths = env::var_os(env_variable_name);
+            match paths {
+                Some(paths) => env::split_paths(&paths)
+                    .map(|path| {
+                        path.into_os_string()
+                            .into_string()
+                            .expect(&format!("{} isn't valid unicode", env_variable_name))
+                    })
+                    .collect(),
+                None => vec![],
+            }
+        }
+
+        get_paths("RUSTPYTHONPATH")
+            .into_iter()
+            .chain(get_paths("PYTHONPATH").into_iter())
+            .map(|path| ctx.new_str(path))
+            .collect()
     };
     let path = ctx.new_list(path_list);
+
+    let platform = if cfg!(target_os = "linux") {
+        "linux".to_string()
+    } else if cfg!(target_os = "macos") {
+        "darwin".to_string()
+    } else if cfg!(target_os = "windows") {
+        "win32".to_string()
+    } else if cfg!(target_os = "android") {
+        // Linux as well. see https://bugs.python.org/issue32637
+        "linux".to_string()
+    } else {
+        "unknown".to_string()
+    };
 
     let sys_doc = "This module provides access to some objects used or maintained by the
 interpreter and to functions that interact strongly with the interpreter.
@@ -131,11 +220,21 @@ setprofile() -- set the global profiling function
 setrecursionlimit() -- set the max recursion depth for the interpreter
 settrace() -- set the global debug tracing function
 ";
+    let mut module_names: Vec<_> = vm.stdlib_inits.borrow().keys().cloned().collect();
+    module_names.push("sys".to_string());
+    module_names.push("builtins".to_string());
+    module_names.sort();
     let modules = ctx.new_dict();
     extend_module!(vm, module, {
+      "__name__" => ctx.new_str(String::from("sys")),
       "argv" => argv(ctx),
+      "builtin_module_names" => ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm).unwrap()).collect()),
+      "flags" => flags,
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
+      "implementation" => implementation,
+      "getfilesystemencoding" => ctx.new_rustfunc(sys_getfilesystemencoding),
+      "getfilesystemencodeerrors" => ctx.new_rustfunc(sys_getfilesystemencodeerrors),
       "intern" => ctx.new_rustfunc(sys_intern),
       "maxsize" => ctx.new_int(std::usize::MAX),
       "path" => path,
@@ -145,6 +244,12 @@ settrace() -- set the global debug tracing function
       "_getframe" => ctx.new_rustfunc(getframe),
       "modules" => modules.clone(),
       "warnoptions" => ctx.new_list(vec![]),
+      "platform" => ctx.new_str(platform),
+      "meta_path" => ctx.new_list(vec![]),
+      "path_hooks" => ctx.new_list(vec![]),
+      "path_importer_cache" => ctx.new_dict(),
+      "pycache_prefix" => vm.get_none(),
+      "dont_write_bytecode" => vm.new_bool(true),
     });
 
     modules.set_item("sys", module.clone(), vm).unwrap();

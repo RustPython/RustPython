@@ -2,10 +2,16 @@ use super::Diagnostic;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use std::collections::HashMap;
-use syn::{Attribute, AttributeArgs, Ident, ImplItem, Item, Lit, Meta, MethodSig, NestedMeta};
+use syn::{
+    Attribute, AttributeArgs, Ident, ImplItem, Index, Item, Lit, Meta, MethodSig, NestedMeta,
+};
 
 enum ClassItem {
     Method {
+        item_ident: Ident,
+        py_name: String,
+    },
+    ClassMethod {
         item_ident: Ident,
         py_name: String,
     },
@@ -47,8 +53,8 @@ impl ClassItem {
                 let nesteds = meta_to_vec(meta).map_err(|meta| {
                     err_span!(
                         meta,
-                        "#[pyproperty = \"...\"] cannot be a name/value, you probably meant \
-                         #[pyproperty(name = \"...\")]",
+                        "#[pymethod = \"...\"] cannot be a name/value, you probably meant \
+                         #[pymethod(name = \"...\")]",
                     )
                 })?;
                 let mut py_name = None;
@@ -74,6 +80,47 @@ impl ClassItem {
                     }
                 }
                 item = Some(ClassItem::Method {
+                    item_ident: sig.ident.clone(),
+                    py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
+                });
+                attr_idx = Some(i);
+            } else if name == "pyclassmethod" {
+                if item.is_some() {
+                    bail_span!(
+                        sig.ident,
+                        "You can only have one #[py*] attribute on an impl item"
+                    )
+                }
+                let nesteds = meta_to_vec(meta).map_err(|meta| {
+                    err_span!(
+                        meta,
+                        "#[pyclassmethod = \"...\"] cannot be a name/value, you probably meant \
+                         #[pyclassmethod(name = \"...\")]",
+                    )
+                })?;
+                let mut py_name = None;
+                for meta in nesteds {
+                    let meta = match meta {
+                        NestedMeta::Meta(meta) => meta,
+                        NestedMeta::Literal(_) => continue,
+                    };
+                    match meta {
+                        Meta::NameValue(name_value) => {
+                            if name_value.ident == "name" {
+                                if let Lit::Str(s) = &name_value.lit {
+                                    py_name = Some(s.value());
+                                } else {
+                                    bail_span!(
+                                        &sig.ident,
+                                        "#[pyclassmethod(name = ...)] must be a string"
+                                    );
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                item = Some(ClassItem::ClassMethod {
                     item_ident: sig.ident.clone(),
                     py_name: py_name.unwrap_or_else(|| sig.ident.to_string()),
                 });
@@ -208,18 +255,20 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
             _ => {}
         }
     }
-    let methods = items.iter().filter_map(|item| {
-        if let ClassItem::Method {
+    let methods = items.iter().filter_map(|item| match item {
+        ClassItem::Method {
             item_ident,
             py_name,
-        } = item
-        {
-            Some(quote! {
-                class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
-            })
-        } else {
-            None
-        }
+        } => Some(quote! {
+            class.set_str_attr(#py_name, ctx.new_rustfunc(Self::#item_ident));
+        }),
+        ClassItem::ClassMethod {
+            item_ident,
+            py_name,
+        } => Some(quote! {
+            class.set_str_attr(#py_name, ctx.new_classmethod(Self::#item_ident));
+        }),
+        _ => None,
     });
     let properties = properties
         .iter()
@@ -266,16 +315,12 @@ pub fn impl_pyimpl(_attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
     Ok(ret)
 }
 
-pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
-    let (item, ident, attrs) = match item {
-        Item::Struct(struc) => (quote!(#struc), struc.ident, struc.attrs),
-        Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
-        other => bail_span!(
-            other,
-            "#[pyclass] can only be on a struct or enum declaration"
-        ),
-    };
-
+fn generate_class_def(
+    ident: &Ident,
+    attr_name: &'static str,
+    attr: AttributeArgs,
+    attrs: &Vec<Attribute>,
+) -> Result<TokenStream2, Diagnostic> {
     let mut class_name = None;
     for attr in attr {
         if let NestedMeta::Meta(meta) = attr {
@@ -284,7 +329,11 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
                     if let Lit::Str(s) = name_value.lit {
                         class_name = Some(s.value());
                     } else {
-                        bail_span!(name_value.lit, "#[pyclass(name = ...)] must be a string");
+                        bail_span!(
+                            name_value.lit,
+                            "#[{}(name = ...)] must be a string",
+                            attr_name
+                        );
                     }
                 }
             }
@@ -316,10 +365,98 @@ pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Dia
     };
 
     let ret = quote! {
-        #item
         impl ::rustpython_vm::pyobject::PyClassDef for #ident {
             const NAME: &'static str = #class_name;
             const DOC: Option<&'static str> = #doc;
+        }
+    };
+    Ok(ret)
+}
+
+pub fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
+    let (item, ident, attrs) = match item {
+        Item::Struct(struc) => (quote!(#struc), struc.ident, struc.attrs),
+        Item::Enum(enu) => (quote!(#enu), enu.ident, enu.attrs),
+        other => bail_span!(
+            other,
+            "#[pyclass] can only be on a struct or enum declaration"
+        ),
+    };
+
+    let class_def = generate_class_def(&ident, "pyclass", attr, &attrs)?;
+
+    let ret = quote! {
+        #item
+        #class_def
+    };
+    Ok(ret)
+}
+
+pub fn impl_pystruct_sequence(attr: AttributeArgs, item: Item) -> Result<TokenStream2, Diagnostic> {
+    let struc = if let Item::Struct(struc) = item {
+        struc
+    } else {
+        bail_span!(
+            item,
+            "#[pystruct_sequence] can only be on a struct declaration"
+        )
+    };
+    let class_def = generate_class_def(&struc.ident, "pystruct_sequence", attr, &struc.attrs)?;
+    let mut properties = Vec::new();
+    let mut field_names = Vec::new();
+    for (i, field) in struc.fields.iter().enumerate() {
+        let idx = Index::from(i);
+        if let Some(ref field_name) = field.ident {
+            let field_name_str = field_name.to_string();
+            // TODO add doc to the generated property
+            let property = quote! {
+                class.set_str_attr(
+                    #field_name_str,
+                    ::rustpython_vm::obj::objproperty::PropertyBuilder::new(ctx)
+                        .add_getter(|zelf: &::rustpython_vm::obj::objtuple::PyTuple,
+                                     _vm: &::rustpython_vm::vm::VirtualMachine|
+                                     zelf.fast_getitem(#idx))
+                        .create(),
+                );
+            };
+            properties.push(property);
+            field_names.push(quote!(#field_name));
+        } else {
+            field_names.push(quote!(#idx));
+        }
+    }
+
+    let ty = &struc.ident;
+    let ret = quote! {
+        #struc
+        #class_def
+        impl #ty {
+            fn into_struct_sequence(&self,
+                vm: &::rustpython_vm::vm::VirtualMachine,
+                cls: ::rustpython_vm::obj::objtype::PyClassRef,
+            ) -> ::rustpython_vm::pyobject::PyResult<::rustpython_vm::obj::objtuple::PyTupleRef> {
+                let tuple: ::rustpython_vm::obj::objtuple::PyTuple =
+                    vec![#(::rustpython_vm::pyobject::IntoPyObject
+                                ::into_pyobject(self.#field_names, vm)?
+                         ),*].into();
+                ::rustpython_vm::pyobject::PyValue::into_ref_with_type(tuple, vm, cls)
+            }
+        }
+        impl ::rustpython_vm::pyobject::PyClassImpl for #ty {
+            fn impl_extend_class(
+                ctx: &::rustpython_vm::pyobject::PyContext,
+                class: &::rustpython_vm::obj::objtype::PyClassRef,
+            ) {
+                #(#properties)*
+            }
+
+            fn make_class(
+                ctx: &::rustpython_vm::pyobject::PyContext
+            ) -> ::rustpython_vm::obj::objtype::PyClassRef {
+                let py_class = ctx.new_class(<Self as ::rustpython_vm::pyobject::PyClassDef>::NAME, ctx.tuple_type());
+                Self::extend_class(ctx, &py_class);
+                py_class
+            }
         }
     };
     Ok(ret)

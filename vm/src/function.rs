@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::mem;
 use std::ops::RangeInclusive;
 
+use indexmap::IndexMap;
+
+use crate::obj::objtuple::PyTuple;
 use crate::obj::objtype::{isinstance, PyClassRef};
 use crate::pyobject::{
     IntoPyObject, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject, TypeProtocol,
@@ -16,7 +19,8 @@ use self::OptionalArg::*;
 #[derive(Debug, Default, Clone)]
 pub struct PyFuncArgs {
     pub args: Vec<PyObjectRef>,
-    pub kwargs: Vec<(String, PyObjectRef)>,
+    // sorted map, according to https://www.python.org/dev/peps/pep-0468/
+    pub kwargs: IndexMap<String, PyObjectRef>,
 }
 
 /// Conversion from vector of python objects to function arguments.
@@ -24,7 +28,7 @@ impl From<Vec<PyObjectRef>> for PyFuncArgs {
     fn from(args: Vec<PyObjectRef>) -> Self {
         PyFuncArgs {
             args,
-            kwargs: vec![],
+            kwargs: IndexMap::new(),
         }
     }
 }
@@ -33,7 +37,7 @@ impl From<PyObjectRef> for PyFuncArgs {
     fn from(arg: PyObjectRef) -> Self {
         PyFuncArgs {
             args: vec![arg],
-            kwargs: vec![],
+            kwargs: IndexMap::new(),
         }
     }
 }
@@ -57,9 +61,12 @@ impl FromArgs for PyFuncArgs {
 
 impl PyFuncArgs {
     pub fn new(mut args: Vec<PyObjectRef>, kwarg_names: Vec<String>) -> PyFuncArgs {
-        let mut kwargs = vec![];
-        for name in kwarg_names.iter().rev() {
-            kwargs.push((name.clone(), args.pop().unwrap()));
+        // last `kwarg_names.len()` elements of args in order of appearance in the call signature
+        let kwarg_values = args.drain((args.len() - kwarg_names.len())..);
+
+        let mut kwargs = IndexMap::new();
+        for (name, value) in kwarg_names.iter().zip(kwarg_values) {
+            kwargs.insert(name.clone(), value);
         }
         PyFuncArgs { args, kwargs }
     }
@@ -78,21 +85,14 @@ impl PyFuncArgs {
     }
 
     pub fn get_kwarg(&self, key: &str, default: PyObjectRef) -> PyObjectRef {
-        for (arg_name, arg_value) in self.kwargs.iter() {
-            if arg_name == key {
-                return arg_value.clone();
-            }
-        }
-        default.clone()
+        self.kwargs
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| default.clone())
     }
 
     pub fn get_optional_kwarg(&self, key: &str) -> Option<PyObjectRef> {
-        for (arg_name, arg_value) in self.kwargs.iter() {
-            if arg_name == key {
-                return Some(arg_value.clone());
-            }
-        }
-        None
+        self.kwargs.get(key).cloned()
     }
 
     pub fn get_optional_kwarg_with_type(
@@ -131,19 +131,12 @@ impl PyFuncArgs {
     }
 
     pub fn take_keyword(&mut self, name: &str) -> Option<PyObjectRef> {
-        // TODO: change kwarg representation so this scan isn't necessary
-        if let Some(index) = self
-            .kwargs
-            .iter()
-            .position(|(arg_name, _)| arg_name == name)
-        {
-            Some(self.kwargs.remove(index).1)
-        } else {
-            None
-        }
+        self.kwargs.remove(name)
     }
 
-    pub fn remaining_keyword<'a>(&'a mut self) -> impl Iterator<Item = (String, PyObjectRef)> + 'a {
+    pub fn remaining_keywords<'a>(
+        &'a mut self,
+    ) -> impl Iterator<Item = (String, PyObjectRef)> + 'a {
         self.kwargs.drain(..)
     }
 
@@ -191,7 +184,10 @@ impl PyFuncArgs {
                 given_args,
             )))
         } else if !self.kwargs.is_empty() {
-            Err(vm.new_type_error(format!("Unexpected keyword argument {}", self.kwargs[0].0)))
+            Err(vm.new_type_error(format!(
+                "Unexpected keyword argument {}",
+                self.kwargs.keys().next().unwrap()
+            )))
         } else {
             Ok(bound)
         }
@@ -263,7 +259,7 @@ where
 {
     fn from_args(vm: &VirtualMachine, args: &mut PyFuncArgs) -> Result<Self, ArgumentError> {
         let mut kwargs = HashMap::new();
-        for (name, value) in args.remaining_keyword() {
+        for (name, value) in args.remaining_keywords() {
             kwargs.insert(name, T::try_from_object(vm, value)?);
         }
         Ok(KwArgs(kwargs))
@@ -376,6 +372,17 @@ impl<T> OptionalArg<T> {
         match self {
             Present(value) => value,
             Missing => f(),
+        }
+    }
+
+    pub fn map_or_else<U, D, F>(self, default: D, f: F) -> U
+    where
+        D: FnOnce() -> U,
+        F: FnOnce(T) -> U,
+    {
+        match self {
+            Present(value) => f(value),
+            Missing => default(),
         }
     }
 }
@@ -523,3 +530,28 @@ into_py_native_func_tuple!((a, A), (b, B));
 into_py_native_func_tuple!((a, A), (b, B), (c, C));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D));
 into_py_native_func_tuple!((a, A), (b, B), (c, C), (d, D), (e, E));
+
+/// Tests that the predicate is True on a single value, or if the value is a tuple a tuple, then
+/// test that any of the values contained within the tuples satisfies the predicate. Type parameter
+/// T specifies the type that is expected, if the input value is not of that type or a tuple of
+/// values of that type, then a TypeError is raised.
+pub fn single_or_tuple_any<T: PyValue, F: Fn(PyRef<T>) -> PyResult<bool>>(
+    obj: PyObjectRef,
+    predicate: F,
+    message: fn(&PyObjectRef) -> String,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    match_class!(obj,
+        obj @ T => predicate(obj),
+        tuple @ PyTuple => {
+            for obj in tuple.elements.iter() {
+                let inner_val = PyRef::<T>::try_from_object(vm, obj.clone())?;
+                if predicate(inner_val)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        },
+        obj => Err(vm.new_type_error(message(&obj)))
+    )
+}

@@ -1,18 +1,20 @@
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
-use num_bigint::BigInt;
+use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, Signed, ToPrimitive, Zero};
 
 use crate::format::FormatSpec;
-use crate::function::{OptionalArg, PyFuncArgs};
+use crate::function::{KwArgs, OptionalArg, PyFuncArgs};
+use crate::pyhash;
 use crate::pyobject::{
     IntoPyObject, PyClassImpl, PyContext, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
     TypeProtocol,
 };
 use crate::vm::VirtualMachine;
 
+use super::objbyteinner::PyByteInner;
+use super::objbytes::PyBytes;
 use super::objstr::{PyString, PyStringRef};
 use super::objtype;
 use crate::obj::objtype::PyClassRef;
@@ -110,8 +112,9 @@ impl_try_from_object_int!(
     (u64, to_u64),
 );
 
+#[allow(clippy::collapsible_if)]
 fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
-    Ok(if int2.value.is_negative() {
+    let result = if int2.value.is_negative() {
         let v1 = int1.float(vm)?;
         let v2 = int2.float(vm)?;
         vm.ctx.new_float(v1.pow(v2))
@@ -131,7 +134,8 @@ fn inner_pow(int1: &PyInt, int2: &PyInt, vm: &VirtualMachine) -> PyResult {
             // practically, exp over u64 is not possible to calculate anyway
             vm.ctx.not_implemented()
         }
-    })
+    };
+    Ok(result)
 }
 
 #[pyimpl]
@@ -259,7 +263,8 @@ impl PyInt {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let v2 = get_value(&other);
             if *v2 != BigInt::zero() {
-                Ok(vm.ctx.new_int((&self.value) / v2))
+                let modulo = (&self.value % v2 + v2) % v2;
+                Ok(vm.ctx.new_int((&self.value - modulo) / v2))
             } else {
                 Err(vm.new_zero_division_error("integer floordiv by zero".to_string()))
             }
@@ -398,10 +403,11 @@ impl PyInt {
     }
 
     #[pymethod(name = "__hash__")]
-    fn hash(&self, _vm: &VirtualMachine) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.value.hash(&mut hasher);
-        hasher.finish()
+    pub fn hash(&self, _vm: &VirtualMachine) -> pyhash::PyHash {
+        match self.value.to_i64() {
+            Some(value) => (value % pyhash::MODULUS as i64),
+            None => (&self.value % pyhash::MODULUS).to_i64().unwrap(),
+        }
     }
 
     #[pymethod(name = "__abs__")]
@@ -489,6 +495,111 @@ impl PyInt {
         zelf
     }
 
+    #[pymethod]
+    #[allow(clippy::match_bool)]
+    fn from_bytes(
+        bytes: PyByteInner,
+        byteorder: PyStringRef,
+        kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<BigInt> {
+        let mut signed = false;
+        for (key, value) in kwargs.into_iter() {
+            if key == "signed" {
+                signed = match_class!(value,
+
+                    b @ PyInt => !b.as_bigint().is_zero(),
+                    _ => false,
+                );
+            }
+        }
+        let x;
+        if byteorder.value == "big" {
+            x = match signed {
+                true => BigInt::from_signed_bytes_be(&bytes.elements),
+                false => BigInt::from_bytes_be(Sign::Plus, &bytes.elements),
+            }
+        } else if byteorder.value == "little" {
+            x = match signed {
+                true => BigInt::from_signed_bytes_le(&bytes.elements),
+                false => BigInt::from_bytes_le(Sign::Plus, &bytes.elements),
+            }
+        } else {
+            return Err(
+                vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
+            );
+        }
+        Ok(x)
+    }
+    #[pymethod]
+    #[allow(clippy::match_bool)]
+    fn to_bytes(
+        &self,
+        length: PyIntRef,
+        byteorder: PyStringRef,
+        kwargs: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytes> {
+        let mut signed = false;
+        let value = self.as_bigint();
+        for (key, value) in kwargs.into_iter() {
+            if key == "signed" {
+                signed = match_class!(value,
+
+                    b @ PyInt => !b.as_bigint().is_zero(),
+                    _ => false,
+                );
+            }
+        }
+        if value.sign() == Sign::Minus && !signed {
+            return Err(vm.new_overflow_error("can't convert negative int to unsigned".to_string()));
+        }
+        let byte_len;
+        if let Some(temp) = length.as_bigint().to_usize() {
+            byte_len = temp;
+        } else {
+            return Err(vm.new_value_error("length parameter is illegal".to_string()));
+        }
+
+        let mut origin_bytes = match byteorder.value.as_str() {
+            "big" => match signed {
+                true => value.to_signed_bytes_be(),
+                false => value.to_bytes_be().1,
+            },
+            "little" => match signed {
+                true => value.to_signed_bytes_le(),
+                false => value.to_bytes_le().1,
+            },
+            _ => {
+                return Err(
+                    vm.new_value_error("byteorder must be either 'little' or 'big'".to_string())
+                );
+            }
+        };
+        let origin_len = origin_bytes.len();
+        if origin_len > byte_len {
+            return Err(vm.new_value_error("int too big to convert".to_string()));
+        }
+
+        let mut append_bytes = match value.sign() {
+            Sign::Minus => vec![255u8; byte_len - origin_len],
+            _ => vec![0u8; byte_len - origin_len],
+        };
+        let mut bytes = vec![];
+        match byteorder.value.as_str() {
+            "big" => {
+                bytes = append_bytes;
+                bytes.append(&mut origin_bytes);
+            }
+            "little" => {
+                bytes = origin_bytes;
+                bytes.append(&mut append_bytes);
+            }
+            _ => (),
+        }
+
+        Ok(PyBytes::new(bytes))
+    }
     #[pyproperty]
     fn real(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyIntRef {
         zelf
@@ -546,18 +657,14 @@ pub fn to_int(vm: &VirtualMachine, obj: &PyObjectRef, base: u32) -> PyResult<Big
                 )))
         },
         obj => {
-            if let Ok(f) = vm.get_method(obj.clone(), "__int__") {
-                let int_res = vm.invoke(f, PyFuncArgs::default())?;
-                match int_res.payload::<PyInt>() {
-                    Some(i) => Ok(i.as_bigint().clone()),
-                    None => Err(vm.new_type_error(format!(
-                        "TypeError: __int__ returned non-int (type '{}')", int_res.class().name))),
-                }
-            } else {
-                Err(vm.new_type_error(format!(
-                    "int() argument must be a string or a number, not '{}'",
-                    obj.class().name
-                )))
+            let method = vm.get_method_or_type_error(obj.clone(), "__int__", || {
+                format!("int() argument must be a string or a number, not '{}'", obj.class().name)
+            })?;
+            let result = vm.invoke(method, PyFuncArgs::default())?;
+            match result.payload::<PyInt>() {
+                Some(int_obj) => Ok(int_obj.as_bigint().clone()),
+                None => Err(vm.new_type_error(format!(
+                    "TypeError: __int__ returned non-int (type '{}')", result.class().name))),
             }
         }
     )

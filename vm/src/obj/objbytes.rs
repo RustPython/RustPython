@@ -2,6 +2,7 @@ use crate::obj::objint::PyIntRef;
 use crate::obj::objslice::PySliceRef;
 use crate::obj::objstr::PyStringRef;
 use crate::obj::objtuple::PyTupleRef;
+use crate::pyhash;
 
 use crate::pyobject::Either;
 use crate::vm::VirtualMachine;
@@ -9,15 +10,19 @@ use core::cell::Cell;
 use std::ops::Deref;
 
 use crate::function::OptionalArg;
-use crate::pyobject::{PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue};
+use crate::pyobject::{
+    PyClassImpl, PyContext, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, TryFromObject,
+};
 
 use super::objbyteinner::{
-    ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerPosition,
+    ByteInnerExpandtabsOptions, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+    ByteInnerPosition, ByteInnerSplitOptions, ByteInnerSplitlinesOptions,
     ByteInnerTranslateOptions, PyByteInner,
 };
 use super::objiter;
 
 use super::objtype::PyClassRef;
+
 /// "bytes(iterable_of_ints) -> bytes\n\
 /// bytes(string, encoding[, errors]) -> bytes\n\
 /// bytes(bytes_or_buffer) -> immutable copy of bytes_or_buffer\n\
@@ -40,6 +45,13 @@ impl PyBytes {
             inner: PyByteInner { elements },
         }
     }
+
+    pub fn from_string(value: &str, encoding: &str, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(PyBytes {
+            inner: PyByteInner::from_string(value, encoding, vm)?,
+        })
+    }
+
     pub fn get_value(&self) -> &[u8] {
         &self.inner.elements
     }
@@ -100,37 +112,27 @@ impl PyBytesRef {
 
     #[pymethod(name = "__eq__")]
     fn eq(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.eq(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.eq(other, vm)
     }
-
     #[pymethod(name = "__ge__")]
     fn ge(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.ge(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.ge(other, vm)
     }
     #[pymethod(name = "__le__")]
     fn le(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.le(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.le(other, vm)
     }
     #[pymethod(name = "__gt__")]
     fn gt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.gt(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.gt(other, vm)
     }
     #[pymethod(name = "__lt__")]
     fn lt(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => self.inner.lt(&bytes.inner, vm),
-        _  => Ok(vm.ctx.not_implemented()))
+        self.inner.lt(other, vm)
     }
+
     #[pymethod(name = "__hash__")]
-    fn hash(self, _vm: &VirtualMachine) -> usize {
+    fn hash(self, _vm: &VirtualMachine) -> pyhash::PyHash {
         self.inner.hash()
     }
 
@@ -144,9 +146,11 @@ impl PyBytesRef {
 
     #[pymethod(name = "__add__")]
     fn add(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        match_class!(other,
-        bytes @ PyBytes => Ok(vm.ctx.new_bytes(self.inner.add(&bytes.inner, vm))),
-        _  => Ok(vm.ctx.not_implemented()))
+        if let Ok(other) = PyByteInner::try_from_object(vm, other) {
+            Ok(vm.ctx.new_bytearray(self.inner.add(other)))
+        } else {
+            Ok(vm.ctx.not_implemented())
+        }
     }
 
     #[pymethod(name = "__contains__")]
@@ -327,6 +331,94 @@ impl PyBytesRef {
         Ok(vm
             .ctx
             .new_bytes(self.inner.strip(chars, ByteInnerPosition::Right, vm)?))
+    }
+
+    #[pymethod(name = "split")]
+    fn split(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .split(options, false)?
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "rsplit")]
+    fn rsplit(self, options: ByteInnerSplitOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .split(options, true)?
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "partition")]
+    fn partition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
+
+        let (left, right) = self.inner.partition(&sepa, false)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
+    }
+    #[pymethod(name = "rpartition")]
+    fn rpartition(self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let sepa = PyByteInner::try_from_object(vm, sep.clone())?;
+
+        let (left, right) = self.inner.partition(&sepa, true)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![vm.ctx.new_bytes(left), sep, vm.ctx.new_bytes(right)]))
+    }
+
+    #[pymethod(name = "expandtabs")]
+    fn expandtabs(self, options: ByteInnerExpandtabsOptions, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.expandtabs(options)))
+    }
+
+    #[pymethod(name = "splitlines")]
+    fn splitlines(self, options: ByteInnerSplitlinesOptions, vm: &VirtualMachine) -> PyResult {
+        let as_bytes = self
+            .inner
+            .splitlines(options)
+            .iter()
+            .map(|x| vm.ctx.new_bytes(x.to_vec()))
+            .collect::<Vec<PyObjectRef>>();
+        Ok(vm.ctx.new_list(as_bytes))
+    }
+
+    #[pymethod(name = "zfill")]
+    fn zfill(self, width: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.zfill(width)))
+    }
+
+    #[pymethod(name = "replace")]
+    fn replace(
+        self,
+        old: PyByteInner,
+        new: PyByteInner,
+        count: OptionalArg<PyIntRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.replace(old, new, count)?))
+    }
+
+    #[pymethod(name = "title")]
+    fn title(self, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.title()))
+    }
+
+    #[pymethod(name = "__mul__")]
+    fn repeat(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.new_bytes(self.inner.repeat(n, vm)?))
+    }
+
+    #[pymethod(name = "__rmul__")]
+    fn rmul(self, n: PyIntRef, vm: &VirtualMachine) -> PyResult {
+        self.repeat(n, vm)
     }
 }
 

@@ -40,6 +40,7 @@ use crate::obj::objmap;
 use crate::obj::objmappingproxy;
 use crate::obj::objmemory;
 use crate::obj::objmodule::{self, PyModule};
+use crate::obj::objnamespace::{self, PyNamespace};
 use crate::obj::objnone::{self, PyNone, PyNoneRef};
 use crate::obj::objobject;
 use crate::obj::objproperty;
@@ -56,6 +57,7 @@ use crate::obj::objweakproxy;
 use crate::obj::objweakref;
 use crate::obj::objzip;
 use crate::vm::VirtualMachine;
+use indexmap::IndexMap;
 
 /* Python objects and references.
 
@@ -85,6 +87,7 @@ pub type PyResult<T = PyObjectRef> = Result<T, PyObjectRef>; // A valid value, o
 
 /// For attributes we do not use a dict, but a hashmap. This is probably
 /// faster, unordered, and only supports strings as keys.
+/// TODO: class attributes should maintain insertion order (use IndexMap here)
 pub type PyAttributes = HashMap<String, PyObjectRef>;
 
 impl fmt::Display for PyObject<dyn PyObjectPayload> {
@@ -158,6 +161,7 @@ pub struct PyContext {
     pub property_type: PyClassRef,
     pub readonly_property_type: PyClassRef,
     pub module_type: PyClassRef,
+    pub namespace_type: PyClassRef,
     pub bound_method_type: PyClassRef,
     pub weakref_type: PyClassRef,
     pub weakproxy_type: PyClassRef,
@@ -250,6 +254,7 @@ impl PyContext {
 
         let dict_type = create_type("dict", &type_type, &object_type);
         let module_type = create_type("module", &type_type, &object_type);
+        let namespace_type = create_type("SimpleNamespace", &type_type, &object_type);
         let classmethod_type = create_type("classmethod", &type_type, &object_type);
         let staticmethod_type = create_type("staticmethod", &type_type, &object_type);
         let function_type = create_type("function", &type_type, &object_type);
@@ -290,7 +295,7 @@ impl PyContext {
         let zip_type = create_type("zip", &type_type, &object_type);
         let bool_type = create_type("bool", &type_type, &int_type);
         let memoryview_type = create_type("memoryview", &type_type, &object_type);
-        let code_type = create_type("code", &type_type, &int_type);
+        let code_type = create_type("code", &type_type, &object_type);
         let range_type = create_type("range", &type_type, &object_type);
         let rangeiterator_type = create_type("range_iterator", &type_type, &object_type);
         let slice_type = create_type("slice", &type_type, &object_type);
@@ -366,6 +371,7 @@ impl PyContext {
             readonly_property_type,
             generator_type,
             module_type,
+            namespace_type,
             bound_method_type,
             weakref_type,
             weakproxy_type,
@@ -407,6 +413,7 @@ impl PyContext {
         objweakproxy::init(&context);
         objnone::init(&context);
         objmodule::init(&context);
+        objnamespace::init(&context);
         objmappingproxy::init(&context);
         exceptions::init(&context);
         context
@@ -462,6 +469,10 @@ impl PyContext {
 
     pub fn module_type(&self) -> PyClassRef {
         self.module_type.clone()
+    }
+
+    pub fn namespace_type(&self) -> PyClassRef {
+        self.namespace_type.clone()
     }
 
     pub fn set_type(&self) -> PyClassRef {
@@ -648,10 +659,6 @@ impl PyContext {
         objtype::new(self.type_type(), name, vec![base], PyAttributes::new()).unwrap()
     }
 
-    pub fn new_scope(&self) -> Scope {
-        Scope::new(None, self.new_dict())
-    }
-
     pub fn new_module(&self, name: &str, dict: PyDictRef) -> PyObjectRef {
         PyObject::new(
             PyModule {
@@ -660,6 +667,10 @@ impl PyContext {
             self.module_type.clone(),
             Some(dict),
         )
+    }
+
+    pub fn new_namespace(&self) -> PyObjectRef {
+        PyObject::new(PyNamespace, self.namespace_type(), Some(self.new_dict()))
     }
 
     pub fn new_rustfunc<F, T, R>(&self, f: F) -> PyObjectRef
@@ -823,6 +834,7 @@ impl<T: PyValue> PyRef<T> {
     pub fn as_object(&self) -> &PyObjectRef {
         &self.obj
     }
+
     pub fn into_object(self) -> PyObjectRef {
         self.obj
     }
@@ -1079,7 +1091,7 @@ impl<T> PyIterable<T> {
             self.method.clone(),
             PyFuncArgs {
                 args: vec![],
-                kwargs: vec![],
+                kwargs: IndexMap::new(),
             },
         )?;
 
@@ -1122,23 +1134,26 @@ where
     T: TryFromObject,
 {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if let Ok(method) = vm.get_method(obj.clone(), "__iter__") {
+        if let Some(method_or_err) = vm.get_method(obj.clone(), "__iter__") {
+            let method = method_or_err?;
             Ok(PyIterable {
                 method,
                 _item: std::marker::PhantomData,
             })
-        } else if vm.get_method(obj.clone(), "__getitem__").is_ok() {
+        } else {
+            vm.get_method_or_type_error(obj.clone(), "__getitem__", || {
+                format!("'{}' object is not iterable", obj.class().name)
+            })?;
             Self::try_from_object(
                 vm,
                 objiter::PySequenceIterator {
                     position: Cell::new(0),
                     obj: obj.clone(),
+                    reversed: false,
                 }
                 .into_ref(vm)
                 .into_object(),
             )
-        } else {
-            Err(vm.new_type_error(format!("'{}' object is not iterable", obj.class().name)))
         }
     }
 }
@@ -1228,6 +1243,7 @@ impl<T> PyObject<T>
 where
     T: Sized + PyObjectPayload,
 {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(payload: T, typ: PyClassRef, dict: Option<PyDictRef>) -> PyObjectRef {
         PyObject { typ, dict, payload }.into_ref()
     }
@@ -1363,7 +1379,11 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn make_class(ctx: &PyContext) -> PyClassRef {
-        let py_class = ctx.new_class(Self::NAME, ctx.object());
+        Self::make_class_with_base(ctx, ctx.object())
+    }
+
+    fn make_class_with_base(ctx: &PyContext, base: PyClassRef) -> PyClassRef {
+        let py_class = ctx.new_class(Self::NAME, base);
         Self::extend_class(ctx, &py_class);
         py_class
     }

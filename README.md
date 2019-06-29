@@ -118,7 +118,7 @@ To do this, follow this method:
 ```shell
 $ cd ~/GIT
 $ git clone git@github.com:pybee/ouroboros.git
-$ export PYTHONPATH=~/GIT/ouroboros/ouroboros
+$ export RUSTPYTHONPATH=~/GIT/ouroboros/ouroboros
 $ cd RustPython
 $ cargo run -- -c 'import statistics'
 ```
@@ -197,7 +197,7 @@ crate and webpack.
 
 # Code style
 
-The code style used is the default rustfmt codestyle. Please format your code accordingly.
+The code style used is the default [rustfmt](https://github.com/rust-lang/rustfmt) codestyle. Please format your code accordingly.
 
 # Community
 

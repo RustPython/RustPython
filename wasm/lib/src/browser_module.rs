@@ -312,41 +312,6 @@ impl Element {
     }
 }
 
-fn browser_alert(message: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    window()
-        .alert_with_message(message.as_str())
-        .expect("alert() not to fail");
-
-    Ok(vm.get_none())
-}
-
-fn browser_confirm(message: PyStringRef, vm: &VirtualMachine) -> PyResult {
-    let result = window()
-        .confirm_with_message(message.as_str())
-        .expect("confirm() not to fail");
-
-    Ok(vm.new_bool(result))
-}
-
-fn browser_prompt(
-    message: PyStringRef,
-    default: OptionalArg<PyStringRef>,
-    vm: &VirtualMachine,
-) -> PyResult {
-    let result = if let OptionalArg::Present(default) = default {
-        window().prompt_with_message_and_default(message.as_str(), default.as_str())
-    } else {
-        window().prompt_with_message(message.as_str())
-    };
-
-    let result = match result.expect("prompt() not to fail") {
-        Some(result) => vm.new_str(result),
-        None => vm.get_none(),
-    };
-
-    Ok(result)
-}
-
 fn browser_load_module(module: PyStringRef, path: PyStringRef, vm: &VirtualMachine) -> PyResult {
     let weak_vm = weak_vm(vm);
 
@@ -408,9 +373,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "Document" => document_class,
         "document" => document,
         "Element" => element,
-        "alert" => ctx.new_rustfunc(browser_alert),
-        "confirm" => ctx.new_rustfunc(browser_confirm),
-        "prompt" => ctx.new_rustfunc(browser_prompt),
         "load_module" => ctx.new_rustfunc(browser_load_module),
     })
 }
@@ -418,5 +380,9 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub fn setup_browser_module(vm: &VirtualMachine) {
     vm.stdlib_inits
         .borrow_mut()
-        .insert("browser".to_string(), Box::new(make_module));
+        .insert("_browser".to_string(), Box::new(make_module));
+    vm.frozen.borrow_mut().insert(
+        "browser".to_string(),
+        py_compile_bytecode!(file = "src/browser.py"),
+    );
 }

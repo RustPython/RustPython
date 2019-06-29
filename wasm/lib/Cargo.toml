@@ -16,6 +16,8 @@ rustpython_vm = { path = "../../vm" }
 cfg-if = "0.1.2"
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.3"
+serde-wasm-bindgen = "0.1"
+serde = "1.0"
 js-sys = "0.3"
 futures = "0.1"
 num-traits = "0.2"

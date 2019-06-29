@@ -206,7 +206,7 @@ ImportStatement: ast::LocatedStatement = {
             .map(|(n, a)|
                 ast::SingleImport {
                     module: n.to_string(),
-                    symbol: None,
+                    symbols: vec![],
                     alias: a.clone()
                 })
             .collect()
@@ -217,15 +217,18 @@ ImportStatement: ast::LocatedStatement = {
     ast::LocatedStatement {
       location: loc,
       node: ast::Statement::Import {
-        import_parts: i
-            .iter()
-            .map(|(i, a)|
-                ast::SingleImport {
-                    module: n.to_string(),
-                    symbol: Some(i.to_string()),
-                    alias: a.clone()
-                })
-            .collect()
+        import_parts: vec![
+            ast::SingleImport {
+                module: n.to_string(),
+                symbols: i.iter()
+                    .map(|(i, a)|
+                        ast::ImportSymbol {
+                            symbol: i.to_string(),
+                            alias: a.clone(),
+                        })
+                    .collect(),
+                alias: None
+        }]
       },
     }
   },
@@ -348,13 +351,14 @@ WhileStatement: ast::LocatedStatement = {
 };
 
 ForStatement: ast::LocatedStatement = {
-    <loc:@L> "for" <e:ExpressionList> "in" <t:TestList> ":" <s:Suite> <s2:("else" ":" Suite)?> => {
-        let or_else = s2.map(|s| s.2);
+    <loc:@L> <is_async:"async"?> "for" <target:ExpressionList> "in" <iter:TestList> ":" <body:Suite> <s2:("else" ":" Suite)?> => {
+        let orelse = s2.map(|s| s.2);
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::For {
-                target: e,
-                iter: t, body: s, orelse: or_else
+            node: if is_async.is_some() {
+                ast::Statement::AsyncFor { target, iter, body, orelse }
+            } else {
+                ast::Statement::For { target, iter, body, orelse }
             },
         }
     },
@@ -410,16 +414,26 @@ WithItem: ast::WithItem = {
 };
 
 FuncDef: ast::LocatedStatement = {
-    <d:Decorator*> <loc:@L> "def" <i:Identifier> <a:Parameters> <r:("->" Test)?> ":" <s:Suite> => {
+    <d:Decorator*> <loc:@L> <is_async:"async"?> "def" <i:Identifier> <a:Parameters> <r:("->" Test)?> ":" <s:Suite> => {
         ast::LocatedStatement {
             location: loc,
-            node: ast::Statement::FunctionDef {
-                name: i,
-                args: a,
-                body: s,
-                decorator_list: d,
-                returns: r.map(|x| x.1),
-            }
+            node: if is_async.is_some() {
+                    ast::Statement::AsyncFunctionDef {
+                        name: i,
+                        args: a,
+                        body: s,
+                        decorator_list: d,
+                        returns: r.map(|x| x.1),
+                    }
+                } else {
+                    ast::Statement::FunctionDef {
+                        name: i,
+                        args: a,
+                        body: s,
+                        decorator_list: d,
+                        returns: r.map(|x| x.1),
+                    }
+                }
         }
     },
 };
@@ -736,10 +750,20 @@ Power: ast::Expression = {
 };
 
 AtomExpr: ast::Expression = {
+    <is_await:"await"?> <atom:AtomExpr2> => {
+        if is_await.is_some() {
+            ast::Expression::Await { value: Box::new(atom) }
+        } else {
+            atom
+        }
+    }
+}
+
+AtomExpr2: ast::Expression = {
     Atom,
-    <f:AtomExpr>  "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
-    <e:AtomExpr>  "[" <s:SubscriptList> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
-    <e:AtomExpr> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
+    <f:AtomExpr2> "(" <a:ArgumentList> ")" => ast::Expression::Call { function: Box::new(f), args: a.0, keywords: a.1 },
+    <e:AtomExpr2> "[" <s:SubscriptList> "]" => ast::Expression::Subscript { a: Box::new(e), b: Box::new(s) },
+    <e:AtomExpr2> "." <n:Identifier> => ast::Expression::Attribute { value: Box::new(e), name: n },
 };
 
 SubscriptList: ast::Expression = {
@@ -812,8 +836,8 @@ TestListComp2: ast::Expression = {
     },
 };
 
-TestDict: Vec<(ast::Expression, ast::Expression)> = {
-    <elements:OneOrMore<DictEntry>> <_trailing_comma:","?> => elements,
+TestDict: Vec<(Option<ast::Expression>, ast::Expression)> = {
+    <elements:OneOrMore<DictElement>> <_trailing_comma:","?> => elements,
 };
 
 TestDictComp: ast::Expression = {
@@ -827,6 +851,11 @@ TestDictComp: ast::Expression = {
 
 DictEntry: (ast::Expression, ast::Expression) = {
     <e1: Test> ":" <e2: Test> => (e1, e2),
+};
+
+DictElement: (Option<ast::Expression>, ast::Expression) = {
+    <e:DictEntry> => (Some(e.0), e.1),
+    "**" <e:Expression> => (None, e),
 };
 
 TestSet: Vec<ast::Expression> = {
@@ -1045,6 +1074,8 @@ extern {
         "and" => lexer::Tok::And,
         "as" => lexer::Tok::As,
         "assert" => lexer::Tok::Assert,
+        "async" => lexer::Tok::Async,
+        "await" => lexer::Tok::Await,
         "break" => lexer::Tok::Break,
         "class" => lexer::Tok::Class,
         "continue" => lexer::Tok::Continue,

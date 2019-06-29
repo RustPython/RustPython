@@ -44,3 +44,23 @@ assert g['x'] == x
 
 exec("del x")
 assert 'x' not in g
+
+assert 'g' in globals()
+assert 'g' in locals()
+exec("assert 'g' in globals()")
+exec("assert 'g' in locals()")
+exec("assert 'g' not in globals()", {})
+exec("assert 'g' not in locals()", {})
+
+del g
+
+def f():
+    g = 1
+    assert 'g' not in globals()
+    assert 'g' in locals()
+    exec("assert 'g' not in globals()")
+    exec("assert 'g' in locals()")
+    exec("assert 'g' not in globals()", {})
+    exec("assert 'g' not in locals()", {})
+
+f()

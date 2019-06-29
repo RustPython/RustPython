@@ -7,11 +7,7 @@
 
 use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use crate::error::{CompileError, CompileErrorType};
-use crate::obj::objcode;
-use crate::obj::objcode::PyCodeRef;
-use crate::pyobject::PyValue;
 use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolRole, SymbolScope};
-use crate::VirtualMachine;
 use num_complex::Complex64;
 use rustpython_parser::{ast, parser};
 
@@ -27,37 +23,65 @@ struct Compiler {
 }
 
 /// Compile a given sourcecode into a bytecode object.
-pub fn compile(
-    vm: &VirtualMachine,
-    source: &str,
-    mode: &Mode,
-    source_path: String,
-) -> Result<PyCodeRef, CompileError> {
-    let mut compiler = Compiler::new();
-    compiler.source_path = Some(source_path);
-    compiler.push_new_code_object("<module>".to_string());
-
+pub fn compile(source: &str, mode: &Mode, source_path: String) -> Result<CodeObject, CompileError> {
     match mode {
         Mode::Exec => {
             let ast = parser::parse_program(source)?;
-            let symbol_table = make_symbol_table(&ast)?;
-            compiler.compile_program(&ast, symbol_table)
+            compile_program(ast, source_path)
         }
         Mode::Eval => {
             let statement = parser::parse_statement(source)?;
-            let symbol_table = statements_to_symbol_table(&statement)?;
-            compiler.compile_statement_eval(&statement, symbol_table)
+            compile_statement_eval(statement, source_path)
         }
         Mode::Single => {
             let ast = parser::parse_program(source)?;
-            let symbol_table = make_symbol_table(&ast)?;
-            compiler.compile_program_single(&ast, symbol_table)
+            compile_program_single(ast, source_path)
         }
-    }?;
+    }
+}
 
+/// A helper function for the shared code of the different compile functions
+fn with_compiler(
+    source_path: String,
+    f: impl FnOnce(&mut Compiler) -> Result<(), CompileError>,
+) -> Result<CodeObject, CompileError> {
+    let mut compiler = Compiler::new();
+    compiler.source_path = Some(source_path);
+    compiler.push_new_code_object("<module>".to_string());
+    f(&mut compiler)?;
     let code = compiler.pop_code_object();
     trace!("Compilation completed: {:?}", code);
-    Ok(objcode::PyCode::new(code).into_ref(vm))
+    Ok(code)
+}
+
+/// Compile a standard Python program to bytecode
+pub fn compile_program(ast: ast::Program, source_path: String) -> Result<CodeObject, CompileError> {
+    with_compiler(source_path, |compiler| {
+        let symbol_table = make_symbol_table(&ast)?;
+        compiler.compile_program(&ast, symbol_table)
+    })
+}
+
+/// Compile a single Python expression to bytecode
+pub fn compile_statement_eval(
+    statement: Vec<ast::LocatedStatement>,
+    source_path: String,
+) -> Result<CodeObject, CompileError> {
+    with_compiler(source_path, |compiler| {
+        let symbol_table = statements_to_symbol_table(&statement)?;
+        compiler.compile_statement_eval(&statement, symbol_table)
+    })
+}
+
+/// Compile a Python program to bytecode for the context of a REPL
+pub fn compile_program_single(
+    ast: ast::Program,
+    source_path: String,
+) -> Result<CodeObject, CompileError> {
+    with_compiler(source_path, |compiler| {
+        let symbol_table = make_symbol_table(&ast)?;
+        compiler.compile_program_single(&ast, symbol_table)
+    })
 }
 
 pub enum Mode {
@@ -130,18 +154,35 @@ impl Compiler {
         symbol_scope: SymbolScope,
     ) -> Result<(), CompileError> {
         self.scope_stack.push(symbol_scope);
-        for statement in &program.statements {
+
+        let mut emitted_return = false;
+
+        for (i, statement) in program.statements.iter().enumerate() {
+            let is_last = i == program.statements.len() - 1;
+
             if let ast::Statement::Expression { ref expression } = statement.node {
                 self.compile_expression(expression)?;
-                self.emit(Instruction::PrintExpr);
+
+                if is_last {
+                    self.emit(Instruction::Duplicate);
+                    self.emit(Instruction::PrintExpr);
+                    self.emit(Instruction::ReturnValue);
+                    emitted_return = true;
+                } else {
+                    self.emit(Instruction::PrintExpr);
+                }
             } else {
                 self.compile_statement(&statement)?;
             }
         }
-        self.emit(Instruction::LoadConst {
-            value: bytecode::Constant::None,
-        });
-        self.emit(Instruction::ReturnValue);
+
+        if !emitted_return {
+            self.emit(Instruction::LoadConst {
+                value: bytecode::Constant::None,
+            });
+            self.emit(Instruction::ReturnValue);
+        }
+
         Ok(())
     }
 
@@ -209,29 +250,50 @@ impl Compiler {
             ast::Statement::Import { import_parts } => {
                 for ast::SingleImport {
                     module,
-                    symbol,
+                    symbols,
                     alias,
                 } in import_parts
                 {
-                    match symbol {
-                        Some(name) if name == "*" => {
+                    if let Some(alias) = alias {
+                        // import module as alias
+                        self.emit(Instruction::Import {
+                            name: module.clone(),
+                            symbols: vec![],
+                        });
+                        self.store_name(&alias);
+                    } else if symbols.is_empty() {
+                        // import module
+                        self.emit(Instruction::Import {
+                            name: module.clone(),
+                            symbols: vec![],
+                        });
+                        self.store_name(&module.clone());
+                    } else {
+                        let import_star = symbols
+                            .iter()
+                            .any(|import_symbol| import_symbol.symbol == "*");
+                        if import_star {
+                            // from module import *
                             self.emit(Instruction::ImportStar {
                                 name: module.clone(),
                             });
-                        }
-                        _ => {
+                        } else {
+                            // from module import symbol
+                            // from module import symbol as alias
+                            let (names, symbols_strings): (Vec<String>, Vec<String>) = symbols
+                                .iter()
+                                .map(|ast::ImportSymbol { symbol, alias }| {
+                                    (
+                                        alias.clone().unwrap_or_else(|| symbol.to_string()),
+                                        symbol.to_string(),
+                                    )
+                                })
+                                .unzip();
                             self.emit(Instruction::Import {
                                 name: module.clone(),
-                                symbol: symbol.clone(),
+                                symbols: symbols_strings,
                             });
-                            let name = match alias {
-                                Some(alias) => alias.clone(),
-                                None => match symbol {
-                                    Some(symbol) => symbol.clone(),
-                                    None => module.clone(),
-                                },
-                            };
-                            self.store_name(&name);
+                            names.iter().rev().for_each(|name| self.store_name(&name));
                         }
                     }
                 }
@@ -322,6 +384,9 @@ impl Compiler {
                 body,
                 orelse,
             } => self.compile_for(target, iter, body, orelse)?,
+            ast::Statement::AsyncFor { .. } => {
+                unimplemented!("async for");
+            }
             ast::Statement::Raise { exception, cause } => match exception {
                 Some(value) => {
                     self.compile_expression(value)?;
@@ -352,6 +417,9 @@ impl Compiler {
                 decorator_list,
                 returns,
             } => self.compile_function_def(name, args, body, decorator_list, returns)?,
+            ast::Statement::AsyncFunctionDef { .. } => {
+                unimplemented!("async def");
+            }
             ast::Statement::ClassDef {
                 name,
                 body,
@@ -1233,13 +1301,25 @@ impl Compiler {
             }
             ast::Expression::Dict { elements } => {
                 let size = elements.len();
+                let has_double_star = elements.iter().any(|e| e.0.is_none());
                 for (key, value) in elements {
-                    self.compile_expression(key)?;
-                    self.compile_expression(value)?;
+                    if let Some(key) = key {
+                        self.compile_expression(key)?;
+                        self.compile_expression(value)?;
+                        if has_double_star {
+                            self.emit(Instruction::BuildMap {
+                                size: 1,
+                                unpack: false,
+                            });
+                        }
+                    } else {
+                        // dict unpacking
+                        self.compile_expression(value)?;
+                    }
                 }
                 self.emit(Instruction::BuildMap {
                     size,
-                    unpack: false,
+                    unpack: has_double_star,
                 });
             }
             ast::Expression::Slice { elements } => {
@@ -1264,6 +1344,9 @@ impl Compiler {
                     }),
                 };
                 self.emit(Instruction::YieldValue);
+            }
+            ast::Expression::Await { .. } => {
+                unimplemented!("await");
             }
             ast::Expression::YieldFrom { value } => {
                 self.mark_generator();

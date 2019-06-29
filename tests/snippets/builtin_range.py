@@ -17,6 +17,7 @@ assert_raises(ValueError, lambda: range(10).index(-1), 'out of bounds')
 assert_raises(ValueError, lambda: range(10).index(10), 'out of bounds')
 assert_raises(ValueError, lambda: range(4, 10, 2).index(5), 'out of step')
 assert_raises(ValueError, lambda: range(10).index('foo'), 'not an int')
+assert_raises(ValueError, lambda: range(1, 10, 0), 'step is zero')
 
 # count tests
 assert range(10).count(2) == 1

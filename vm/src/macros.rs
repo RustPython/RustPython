@@ -118,6 +118,7 @@ macro_rules! no_kwargs {
 macro_rules! py_module {
     ( $vm:expr, $module_name:expr, { $($name:expr => $value:expr),* $(,)* }) => {{
         let module = $vm.ctx.new_module($module_name, $vm.ctx.new_dict());
+        $vm.set_attr(&module, "__name__", $vm.ctx.new_str($module_name.to_string())).unwrap();
         $(
             $vm.set_attr(&module, $name, $value).unwrap();
         )*
@@ -154,6 +155,19 @@ macro_rules! extend_class {
         $(
             class.set_str_attr($name, $value);
         )*
+    }
+}
+
+#[macro_export]
+macro_rules! py_namespace {
+    ( $vm:expr, { $($name:expr => $value:expr),* $(,)* }) => {
+        {
+            let namespace = $vm.ctx.new_namespace();
+            $(
+                $vm.set_attr(&namespace, $name, $value).unwrap();
+            )*
+            namespace
+        }
     }
 }
 

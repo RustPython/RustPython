@@ -96,6 +96,26 @@ fn statement_to_ast(
                 returns => py_returns
             })
         }
+        ast::Statement::AsyncFunctionDef {
+            name,
+            args,
+            body,
+            decorator_list,
+            returns,
+        } => {
+            let py_returns = if let Some(hint) = returns {
+                expression_to_ast(vm, hint)?.into_object()
+            } else {
+                vm.ctx.none()
+            };
+            node!(vm, AsyncFunctionDef, {
+                name => vm.ctx.new_str(name.to_string()),
+                args => parameters_to_ast(vm, args)?,
+                body => statements_to_ast(vm, body)?,
+                decorator_list => expressions_to_ast(vm, decorator_list)?,
+                returns => py_returns
+            })
+        }
         ast::Statement::Continue => node!(vm, Continue),
         ast::Statement::Break => node!(vm, Break),
         ast::Statement::Pass => node!(vm, Pass),
@@ -143,6 +163,21 @@ fn statement_to_ast(
             body,
             orelse,
         } => node!(vm, For, {
+            target => expression_to_ast(vm, target)?,
+            iter => expression_to_ast(vm, iter)?,
+            body => statements_to_ast(vm, body)?,
+            or_else => if let Some(orelse) = orelse {
+                statements_to_ast(vm, orelse)?.into_object()
+            } else {
+                vm.ctx.none()
+            }
+        }),
+        ast::Statement::AsyncFor {
+            target,
+            iter,
+            body,
+            orelse,
+        } => node!(vm, AsyncFor, {
             target => expression_to_ast(vm, target)?,
             iter => expression_to_ast(vm, iter)?,
             body => statements_to_ast(vm, body)?,
@@ -323,7 +358,11 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
             let mut keys = Vec::new();
             let mut values = Vec::new();
             for (k, v) in elements {
-                keys.push(expression_to_ast(vm, k)?.into_object());
+                if let Some(k) = k {
+                    keys.push(expression_to_ast(vm, k)?.into_object());
+                } else {
+                    keys.push(vm.ctx.none());
+                }
                 values.push(expression_to_ast(vm, v)?.into_object());
             }
 
@@ -349,6 +388,12 @@ fn expression_to_ast(vm: &VirtualMachine, expression: &ast::Expression) -> PyRes
                     node!(vm, DictComp, {generators => py_generators})
                 }
             }
+        }
+        ast::Expression::Await { value } => {
+            let py_value = expression_to_ast(vm, value)?;
+            node!(vm, Await, {
+                value => py_value
+            })
         }
         ast::Expression::Yield { value } => {
             let py_value = match value {
@@ -412,7 +457,7 @@ fn parameter_to_ast(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult
 fn map_ast<T>(
     f: fn(vm: &VirtualMachine, &T) -> PyResult<AstNodeRef>,
     vm: &VirtualMachine,
-    items: &Vec<T>,
+    items: &[T],
 ) -> PyResult<PyObjectRef> {
     let list: PyResult<Vec<PyObjectRef>> =
         items.iter().map(|x| Ok(f(vm, x)?.into_object())).collect();
@@ -462,8 +507,11 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         // TODO: There's got to be a better way!
         "arg" => py_class!(ctx, "_ast.arg", ast_base.clone(), {}),
         "arguments" => py_class!(ctx, "_ast.arguments", ast_base.clone(), {}),
+        "AsyncFor" => py_class!(ctx, "_ast.AsyncFor", ast_base.clone(), {}),
+        "AsyncFunctionDef" => py_class!(ctx, "_ast.AsyncFunctionDef", ast_base.clone(), {}),
         "Assert" => py_class!(ctx, "_ast.Assert", ast_base.clone(), {}),
         "Attribute" => py_class!(ctx, "_ast.Attribute", ast_base.clone(), {}),
+        "Await" => py_class!(ctx, "_ast.Await", ast_base.clone(), {}),
         "BinOp" => py_class!(ctx, "_ast.BinOp", ast_base.clone(), {}),
         "BoolOp" => py_class!(ctx, "_ast.BoolOp", ast_base.clone(), {}),
         "Break" => py_class!(ctx, "_ast.Break", ast_base.clone(), {}),

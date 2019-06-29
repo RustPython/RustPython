@@ -16,7 +16,8 @@ pub fn make_symbol_table(program: &ast::Program) -> Result<SymbolScope, SymbolTa
     let mut builder = SymbolTableBuilder::new();
     builder.enter_scope();
     builder.scan_program(program)?;
-    assert!(builder.scopes.len() == 1);
+    assert_eq!(builder.scopes.len(), 1);
+
     let symbol_table = builder.scopes.pop().unwrap();
     analyze_symbol_table(&symbol_table, None)?;
     Ok(symbol_table)
@@ -28,7 +29,8 @@ pub fn statements_to_symbol_table(
     let mut builder = SymbolTableBuilder::new();
     builder.enter_scope();
     builder.scan_statements(statements)?;
-    assert!(builder.scopes.len() == 1);
+    assert_eq!(builder.scopes.len(), 1);
+
     let symbol_table = builder.scopes.pop().unwrap();
     analyze_symbol_table(&symbol_table, None)?;
     Ok(symbol_table)
@@ -42,8 +44,7 @@ pub enum SymbolRole {
     Assigned,
 }
 
-/// Symbolscope captures all symbols in the current scope, and
-/// has a list of subscopes in this scope.
+/// Captures all symbols in the current scope, and has a list of subscopes in this scope.
 pub struct SymbolScope {
     /// A set of symbols present on this scope level.
     pub symbols: HashMap<String, SymbolRole>,
@@ -101,7 +102,6 @@ fn analyze_symbol_table(
     symbol_scope: &SymbolScope,
     parent_symbol_scope: Option<&SymbolScope>,
 ) -> SymbolTableResult {
-    // println!("Analyzing {:?}, parent={:?} symbols={:?}", symbol_scope,  parent_symbol_scope, symbol_scope.symbols);
     // Analyze sub scopes:
     for sub_scope in &symbol_scope.sub_scopes {
         analyze_symbol_table(&sub_scope, Some(symbol_scope))?;
@@ -115,6 +115,7 @@ fn analyze_symbol_table(
     Ok(())
 }
 
+#[allow(clippy::single_match)]
 fn analyze_symbol(
     symbol_name: &str,
     symbol_role: &SymbolRole,
@@ -157,7 +158,6 @@ impl SymbolTableBuilder {
     }
 
     pub fn enter_scope(&mut self) {
-        // Create new scope and push into scope stack.
         let scope = SymbolScope::new();
         self.scopes.push(scope);
     }
@@ -223,6 +223,13 @@ impl SymbolTableBuilder {
                 args,
                 decorator_list,
                 returns,
+            }
+            | ast::Statement::AsyncFunctionDef {
+                name,
+                body,
+                args,
+                decorator_list,
+                returns,
             } => {
                 self.scan_expressions(decorator_list)?;
                 self.register_name(name, SymbolRole::Assigned)?;
@@ -265,6 +272,12 @@ impl SymbolTableBuilder {
                 iter,
                 body,
                 orelse,
+            }
+            | ast::Statement::AsyncFor {
+                target,
+                iter,
+                body,
+                orelse,
             } => {
                 self.scan_expression(target)?;
                 self.scan_expression(iter)?;
@@ -286,12 +299,22 @@ impl SymbolTableBuilder {
             ast::Statement::Import { import_parts } => {
                 for part in import_parts {
                     if let Some(alias) = &part.alias {
+                        // `import mymodule as myalias`
                         self.register_name(alias, SymbolRole::Assigned)?;
                     } else {
-                        if let Some(symbol) = &part.symbol {
-                            self.register_name(symbol, SymbolRole::Assigned)?;
-                        } else {
+                        if part.symbols.is_empty() {
+                            // `import module`
                             self.register_name(&part.module, SymbolRole::Assigned)?;
+                        } else {
+                            // `from mymodule import myimport`
+                            for symbol in &part.symbols {
+                                if let Some(alias) = &symbol.alias {
+                                    // `from mymodule import myimportname as myalias`
+                                    self.register_name(alias, SymbolRole::Assigned)?;
+                                } else {
+                                    self.register_name(&symbol.symbol, SymbolRole::Assigned)?;
+                                }
+                            }
                         }
                     }
                 }
@@ -391,9 +414,16 @@ impl SymbolTableBuilder {
             }
             ast::Expression::Dict { elements } => {
                 for (key, value) in elements {
-                    self.scan_expression(key)?;
+                    if let Some(key) = key {
+                        self.scan_expression(key)?;
+                    } else {
+                        // dict unpacking marker
+                    }
                     self.scan_expression(value)?;
                 }
+            }
+            ast::Expression::Await { value } => {
+                self.scan_expression(value)?;
             }
             ast::Expression::Yield { value } => {
                 if let Some(expression) = value {
@@ -474,7 +504,7 @@ impl SymbolTableBuilder {
     }
 
     fn enter_function(&mut self, args: &ast::Parameters) -> SymbolTableResult {
-        // Evaulate eventual default parameters:
+        // Evaluate eventual default parameters:
         self.scan_expressions(&args.defaults)?;
         for kw_default in &args.kw_defaults {
             if let Some(expression) = kw_default {
@@ -521,13 +551,13 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
+    #[allow(clippy::single_match)]
     fn register_name(&mut self, name: &str, role: SymbolRole) -> SymbolTableResult {
         let scope_depth = self.scopes.len();
         let current_scope = self.scopes.last_mut().unwrap();
         let location = Default::default();
-        if let Some(_old_role) = current_scope.symbols.get(name) {
+        if current_scope.symbols.contains_key(name) {
             // Role already set..
-            // debug!("TODO: {:?}", old_role);
             match role {
                 SymbolRole::Global => {
                     return Err(SymbolTableError {

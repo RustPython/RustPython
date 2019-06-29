@@ -206,12 +206,11 @@ impl PyDictRef {
         if let Some(value) = self.entries.borrow().get(vm, &key)? {
             return Ok(value);
         }
-
-        if let Ok(method) = vm.get_method(self.clone().into_object(), "__missing__") {
+        if let Some(method_or_err) = vm.get_method(self.clone().into_object(), "__missing__") {
+            let method = method_or_err?;
             return vm.invoke(method, vec![key]);
         }
-
-        Err(vm.new_key_error(format!("Key not found: {}", vm.to_pystr(&key)?)))
+        Err(vm.new_key_error(key.clone()))
     }
 
     fn get(
@@ -264,15 +263,12 @@ impl PyDictRef {
 
     fn popitem(self, vm: &VirtualMachine) -> PyResult {
         let mut entries = self.entries.borrow_mut();
-        let (key, value) = match entries.next_entry(&mut 0) {
-            Some((key, value)) => (key.clone(), value.clone()),
-            None => {
-                return Err(vm.new_key_error("popitem(): dictionary is empty".to_string()));
-            }
-        };
-
-        entries.delete(vm, &key)?;
-        Ok(vm.ctx.new_tuple(vec![key, value]))
+        if let Some((key, value)) = entries.pop_front() {
+            Ok(vm.ctx.new_tuple(vec![key, value]))
+        } else {
+            let err_msg = vm.new_str("popitem(): dictionary is empty".to_string());
+            Err(vm.new_key_error(err_msg))
+        }
     }
 
     /// Take a python dictionary and convert it to attributes.
@@ -298,7 +294,7 @@ impl PyDictRef {
         Ok(PyDict { entries }.into_ref(vm))
     }
 
-    fn hash(self, vm: &VirtualMachine) -> PyResult {
+    fn hash(self, vm: &VirtualMachine) -> PyResult<()> {
         Err(vm.new_type_error("unhashable type".to_string()))
     }
 
