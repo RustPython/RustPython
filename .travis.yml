@@ -111,6 +111,8 @@ matrix:
           - target
       script:
         - tests/.travis-runner.sh
+      # Only do code coverage on master via a cron job.
+      if: branch = master AND type = cron
       env:
         - TRAVIS_RUST_VERSION=nightly
         - REGULAR_TEST=false
