@@ -38,6 +38,7 @@ pub struct SingleImport {
     pub module: String,
     pub alias: Option<String>,
     pub symbols: Vec<ImportSymbol>,
+    pub level: usize,
 }
 
 #[derive(Debug, PartialEq)]
