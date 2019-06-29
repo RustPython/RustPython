@@ -858,6 +858,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
 
         // Constants
         "NotImplemented" => ctx.not_implemented(),
+        "Ellipsis" => vm.ctx.ellipsis.clone(),
 
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.clone(),
