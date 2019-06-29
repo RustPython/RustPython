@@ -135,3 +135,9 @@ msg = 'int too large to convert to float'
 assert_raises(OverflowError, lambda: complex(10 ** 1000, 0), msg)
 assert_raises(OverflowError, lambda: complex(0, 10 ** 1000), msg)
 assert_raises(OverflowError, lambda: 0j + 10 ** 1000, msg)
+
+# str/repr
+assert '(1+1j)' == str(1+1j)
+assert '(1-1j)' == str(1-1j)
+assert '(1+1j)' == repr(1+1j)
+assert '(1-1j)' == repr(1-1j)

@@ -204,7 +204,7 @@ impl PyComplex {
         if re == 0.0 {
             format!("{}j", im)
         } else {
-            format!("({}+{}j)", re, im)
+            format!("({}{:+}j)", re, im)
         }
     }
 
