@@ -385,7 +385,7 @@ impl PyInt {
     }
 
     #[pymethod(name = "__rmod__")]
-    fn rmod_(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn rmod(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if objtype::isinstance(&other, &vm.ctx.int_type()) {
             let other = other.payload::<PyInt>().unwrap();
             inner_mod(&other, self, vm)
