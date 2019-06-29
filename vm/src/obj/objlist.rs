@@ -691,13 +691,14 @@ fn list_new(
 fn quicksort(
     vm: &VirtualMachine,
     keys: &mut [PyObjectRef],
+    indices: &mut [usize],
     values: &mut [PyObjectRef],
 ) -> PyResult<()> {
     let len = values.len();
     if len >= 2 {
-        let pivot = partition(vm, keys, values)?;
-        quicksort(vm, &mut keys[0..pivot], &mut values[0..pivot])?;
-        quicksort(vm, &mut keys[pivot + 1..len], &mut values[pivot + 1..len])?;
+        let pivot = partition(vm, keys, indices, values)?;
+        quicksort(vm, &mut keys[0..pivot], &mut indices[0..pivot], &mut values[0..pivot])?;
+        quicksort(vm, &mut keys[pivot + 1..len], &mut indices[pivot + 1..len], &mut values[pivot + 1..len])?;
     }
     Ok(())
 }
@@ -705,6 +706,7 @@ fn quicksort(
 fn partition(
     vm: &VirtualMachine,
     keys: &mut [PyObjectRef],
+    indices: &mut [usize],
     values: &mut [PyObjectRef],
 ) -> PyResult<usize> {
     let len = values.len();
@@ -712,20 +714,28 @@ fn partition(
 
     values.swap(pivot, len - 1);
     keys.swap(pivot, len - 1);
+    indices.swap(pivot, len - 1);
 
     let mut store_idx = 0;
     for i in 0..len - 1 {
-        let result = vm._lt(keys[i].clone(), keys[len - 1].clone())?;
-        let boolval = objbool::boolval(vm, result)?;
-        if boolval {
+        let eq = vm._eq(keys[i].clone(), keys[len - 1].clone())?;
+        let stable_lt = if objbool::boolval(vm, eq)? {
+            indices[i] < indices[len - 1]
+        } else {
+            let lt = vm._lt(keys[i].clone(), keys[len - 1].clone())?;
+            objbool::boolval(vm, lt)?
+        };
+        if stable_lt {
             values.swap(i, store_idx);
             keys.swap(i, store_idx);
+            indices.swap(i, store_idx);
             store_idx += 1;
         }
     }
 
     values.swap(store_idx, len - 1);
     keys.swap(store_idx, len - 1);
+    indices.swap(store_idx, len - 1);
     Ok(store_idx)
 }
 
@@ -744,7 +754,8 @@ fn do_sort(
         });
     }
 
-    quicksort(vm, &mut keys, values)?;
+    let mut indices: Vec<_> = (0..keys.len()).collect();
+    quicksort(vm, &mut keys, &mut indices, values)?;
 
     if reverse {
         values.reverse();
