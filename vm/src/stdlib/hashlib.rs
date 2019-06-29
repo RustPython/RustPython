@@ -106,10 +106,9 @@ fn hashlib_new(
         other => Err(vm.new_value_error(format!("Unknown hashing algorithm: {}", other))),
     }?;
 
-    match data {
-        OptionalArg::Present(data) => hasher.update(data, vm).map(|_| ())?,
-        OptionalArg::Missing => (),
-    };
+    if let OptionalArg::Present(data) = data {
+        hasher.update(data, vm)?;
+    }
 
     Ok(hasher)
 }
