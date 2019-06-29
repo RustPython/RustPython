@@ -151,6 +151,15 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef, builtins: PyObjectR
         "unknown".to_string()
     };
 
+    // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
+    let bytorder = if cfg!(target_endian = "little") {
+        "little".to_string()
+    } else if cfg!(target_endian = "big") {
+        "big".to_string()
+    } else {
+        "unknown".to_string()
+    };
+
     let sys_doc = "This module provides access to some objects used or maintained by the
 interpreter and to functions that interact strongly with the interpreter.
 
@@ -229,6 +238,7 @@ settrace() -- set the global debug tracing function
       "__name__" => ctx.new_str(String::from("sys")),
       "argv" => argv(ctx),
       "builtin_module_names" => ctx.new_tuple(module_names.iter().map(|v| v.into_pyobject(vm).unwrap()).collect()),
+      "byteorder" => ctx.new_str(bytorder),
       "flags" => flags,
       "getrefcount" => ctx.new_rustfunc(sys_getrefcount),
       "getsizeof" => ctx.new_rustfunc(sys_getsizeof),
