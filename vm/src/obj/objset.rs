@@ -269,7 +269,8 @@ impl PySetInner {
         if let Some((key, _)) = self.content.pop_front() {
             Ok(key)
         } else {
-            Err(vm.new_key_error("pop from an empty set".to_string()))
+            let err_msg = vm.new_str("pop from an empty set".to_string());
+            Err(vm.new_key_error(err_msg))
         }
     }
 

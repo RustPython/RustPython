@@ -48,7 +48,7 @@ fn pwd_getpwnam(name: PyStringRef, vm: &VirtualMachine) -> PyResult<Passwd> {
         Ok(Some(passwd)) => Ok(passwd),
         _ => {
             let name_repr = vm.to_repr(name.as_object())?;
-            let message = format!("getpwnam(): name not found: {}", name_repr);
+            let message = vm.new_str(format!("getpwnam(): name not found: {}", name_repr));
             Err(vm.new_key_error(message))
         }
     }
@@ -58,7 +58,7 @@ fn pwd_getpwuid(uid: u32, vm: &VirtualMachine) -> PyResult<Passwd> {
     match Passwd::from_uid(uid) {
         Some(passwd) => Ok(passwd),
         _ => {
-            let message = format!("getpwuid(): uid not found: {}", uid);
+            let message = vm.new_str(format!("getpwuid(): uid not found: {}", uid));
             Err(vm.new_key_error(message))
         }
     }

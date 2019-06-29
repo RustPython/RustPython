@@ -2,9 +2,7 @@
  * I/O core tools.
  */
 use std::cell::RefCell;
-use std::fs::File;
 use std::io::prelude::*;
-use std::io::BufReader;
 use std::io::Cursor;
 use std::io::SeekFrom;
 
@@ -18,9 +16,12 @@ use crate::function::{OptionalArg, PyFuncArgs};
 use crate::import;
 use crate::obj::objbytearray::PyByteArray;
 use crate::obj::objbytes;
+use crate::obj::objbytes::PyBytes;
 use crate::obj::objint;
 use crate::obj::objstr;
+use crate::obj::objtype;
 use crate::obj::objtype::PyClassRef;
+use crate::pyobject::TypeProtocol;
 use crate::pyobject::{BufferProtocol, PyObjectRef, PyRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 
@@ -284,16 +285,19 @@ fn buffered_reader_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn compute_c_flag(mode: &str) -> u32 {
-    let flags = match mode {
-        "w" => os::FileCreationFlags::O_WRONLY | os::FileCreationFlags::O_CREAT,
-        "x" => {
-            os::FileCreationFlags::O_WRONLY
-                | os::FileCreationFlags::O_CREAT
-                | os::FileCreationFlags::O_EXCL
-        }
-        "a" => os::FileCreationFlags::O_APPEND,
-        "+" => os::FileCreationFlags::O_RDWR,
-        _ => os::FileCreationFlags::O_RDONLY,
+    let flags = match mode.chars().next() {
+        Some(mode) => match mode {
+            'w' => os::FileCreationFlags::O_WRONLY | os::FileCreationFlags::O_CREAT,
+            'x' => {
+                os::FileCreationFlags::O_WRONLY
+                    | os::FileCreationFlags::O_CREAT
+                    | os::FileCreationFlags::O_EXCL
+            }
+            'a' => os::FileCreationFlags::O_APPEND,
+            '+' => os::FileCreationFlags::O_RDWR,
+            _ => os::FileCreationFlags::O_RDONLY,
+        },
+        None => os::FileCreationFlags::O_RDONLY,
     };
     flags.bits()
 }
@@ -302,47 +306,43 @@ fn file_io_init(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(
         vm,
         args,
-        required = [(file_io, None), (name, Some(vm.ctx.str_type()))],
+        required = [(file_io, None), (name, None)],
         optional = [(mode, Some(vm.ctx.str_type()))]
     );
 
-    let rust_mode = mode.map_or("r".to_string(), objstr::get_value);
+    let file_no = if objtype::isinstance(&name, &vm.ctx.str_type()) {
+        let rust_mode = mode.map_or("r".to_string(), objstr::get_value);
+        let args = vec![
+            name.clone(),
+            vm.ctx
+                .new_int(compute_c_flag(&rust_mode).to_bigint().unwrap()),
+        ];
+        os::os_open(vm, PyFuncArgs::new(args, vec![]))?
+    } else if objtype::isinstance(&name, &vm.ctx.int_type()) {
+        name.clone()
+    } else {
+        return Err(vm.new_type_error("name parameter must be string or int".to_string()));
+    };
 
-    match compute_c_flag(&rust_mode).to_bigint() {
-        Some(os_mode) => {
-            let args = vec![name.clone(), vm.ctx.new_int(os_mode)];
-            let file_no = os::os_open(vm, PyFuncArgs::new(args, vec![]))?;
-
-            vm.set_attr(file_io, "name", name.clone())?;
-            vm.set_attr(file_io, "fileno", file_no)?;
-            vm.set_attr(file_io, "closefd", vm.new_bool(false))?;
-            vm.set_attr(file_io, "closed", vm.new_bool(false))?;
-
-            Ok(vm.get_none())
-        }
-        None => Err(vm.new_type_error(format!("invalid mode {}", rust_mode))),
-    }
+    vm.set_attr(file_io, "name", name.clone())?;
+    vm.set_attr(file_io, "fileno", file_no)?;
+    vm.set_attr(file_io, "closefd", vm.new_bool(false))?;
+    vm.set_attr(file_io, "closed", vm.new_bool(false))?;
+    Ok(vm.get_none())
 }
 
 fn file_io_read(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     arg_check!(vm, args, required = [(file_io, None)]);
-    let py_name = vm.get_attribute(file_io.clone(), "name")?;
-    let f = match File::open(objstr::get_value(&py_name)) {
-        Ok(v) => Ok(v),
-        Err(_) => Err(vm.new_type_error("Error opening file".to_string())),
-    };
 
-    let buffer = match f {
-        Ok(v) => Ok(BufReader::new(v)),
-        Err(_) => Err(vm.new_type_error("Error reading from file".to_string())),
-    };
+    let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
+    let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
+
+    let mut handle = os::rust_file(raw_fd);
 
     let mut bytes = vec![];
-    if let Ok(mut buff) = buffer {
-        match buff.read_to_end(&mut bytes) {
-            Ok(_) => {}
-            Err(_) => return Err(vm.new_value_error("Error reading from Buffer".to_string())),
-        }
+    match handle.read_to_end(&mut bytes) {
+        Ok(_) => {}
+        Err(_) => return Err(vm.new_value_error("Error reading from Buffer".to_string())),
     }
 
     Ok(vm.ctx.new_bytes(bytes))
@@ -385,11 +385,7 @@ fn file_io_readinto(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
 }
 
 fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
-    arg_check!(
-        vm,
-        args,
-        required = [(file_io, None), (obj, Some(vm.ctx.bytes_type()))]
-    );
+    arg_check!(vm, args, required = [(file_io, None), (obj, None)]);
 
     let file_no = vm.get_attribute(file_io.clone(), "fileno")?;
     let raw_fd = objint::get_value(&file_no).to_i64().unwrap();
@@ -399,22 +395,25 @@ fn file_io_write(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
     //to support windows - i.e. raw file_handles
     let mut handle = os::rust_file(raw_fd);
 
-    match obj.payload::<PyByteArray>() {
-        Some(bytes) => {
-            let value_mut = &mut bytes.inner.borrow_mut().elements;
-            match handle.write(&value_mut[..]) {
-                Ok(len) => {
-                    //reset raw fd on the FileIO object
-                    let updated = os::raw_file_number(handle);
-                    vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
+    let bytes = match_class!(obj.clone(),
+        i @ PyBytes => Ok(i.get_value().to_vec()),
+        j @ PyByteArray => Ok(j.inner.borrow().elements.to_vec()),
+        obj => Err(vm.new_type_error(format!(
+                    "a bytes-like object is required, not {}",
+                    obj.class()
+                )))
+    );
 
-                    //return number of bytes written
-                    Ok(vm.ctx.new_int(len))
-                }
-                Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string())),
-            }
+    match handle.write(&bytes?) {
+        Ok(len) => {
+            //reset raw fd on the FileIO object
+            let updated = os::raw_file_number(handle);
+            vm.set_attr(file_io, "fileno", vm.ctx.new_int(updated))?;
+
+            //return number of bytes written
+            Ok(vm.ctx.new_int(len))
         }
-        None => Err(vm.new_value_error("Expected Bytes Object".to_string())),
+        Err(_) => Err(vm.new_value_error("Error Writing Bytes to Handle".to_string())),
     }
 }
 

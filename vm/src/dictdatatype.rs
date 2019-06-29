@@ -129,8 +129,7 @@ impl<T: Clone> Dict<T> {
         if self.delete_if_exists(vm, key)? {
             Ok(())
         } else {
-            let key_repr = vm.to_pystr(key)?;
-            Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
+            Err(vm.new_key_error(key.clone()))
         }
     }
 
@@ -247,8 +246,7 @@ impl<T: Clone> Dict<T> {
             self.unchecked_delete(index);
             Ok(value)
         } else {
-            let key_repr = vm.to_pystr(key)?;
-            Err(vm.new_key_error(format!("Key not found: {}", key_repr)))
+            Err(vm.new_key_error(key.clone()))
         }
     }
 
