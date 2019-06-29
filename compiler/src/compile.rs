@@ -252,13 +252,16 @@ impl Compiler {
                     module,
                     symbols,
                     alias,
+                    level,
                 } in import_parts
                 {
+                    let level = *level;
                     if let Some(alias) = alias {
                         // import module as alias
                         self.emit(Instruction::Import {
                             name: module.clone(),
                             symbols: vec![],
+                            level,
                         });
                         self.store_name(&alias);
                     } else if symbols.is_empty() {
@@ -266,6 +269,7 @@ impl Compiler {
                         self.emit(Instruction::Import {
                             name: module.clone(),
                             symbols: vec![],
+                            level,
                         });
                         self.store_name(&module.clone());
                     } else {
@@ -276,6 +280,7 @@ impl Compiler {
                             // from module import *
                             self.emit(Instruction::ImportStar {
                                 name: module.clone(),
+                                level,
                             });
                         } else {
                             // from module import symbol
@@ -292,6 +297,7 @@ impl Compiler {
                             self.emit(Instruction::Import {
                                 name: module.clone(),
                                 symbols: symbols_strings,
+                                level,
                             });
                             names.iter().rev().for_each(|name| self.store_name(&name));
                         }

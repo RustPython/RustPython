@@ -51,9 +51,11 @@ pub enum Instruction {
     Import {
         name: String,
         symbols: Vec<String>,
+        level: usize,
     },
     ImportStar {
         name: String,
+        level: usize,
     },
     LoadName {
         name: String,
@@ -327,11 +329,25 @@ impl Instruction {
             ($variant:ident, $var1:expr, $var2:expr) => {
                 write!(f, "{:20} ({}, {})\n", stringify!($variant), $var1, $var2)
             };
+            ($variant:ident, $var1:expr, $var2:expr, $var3:expr) => {
+                write!(
+                    f,
+                    "{:20} ({}, {}, {})\n",
+                    stringify!($variant),
+                    $var1,
+                    $var2,
+                    $var3
+                )
+            };
         }
 
         match self {
-            Import { name, symbols } => w!(Import, name, format!("{:?}", symbols)),
-            ImportStar { name } => w!(ImportStar, name),
+            Import {
+                name,
+                symbols,
+                level,
+            } => w!(Import, name, format!("{:?}", symbols), level),
+            ImportStar { name, level } => w!(ImportStar, name, level),
             LoadName { name, scope } => w!(LoadName, name, format!("{:?}", scope)),
             StoreName { name, scope } => w!(StoreName, name, format!("{:?}", scope)),
             DeleteName { name } => w!(DeleteName, name),
