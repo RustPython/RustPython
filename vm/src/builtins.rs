@@ -733,9 +733,19 @@ fn builtin_round(vm: &VirtualMachine, args: PyFuncArgs) -> PyResult {
         optional = [(ndigits, None)]
     );
     if let Some(ndigits) = ndigits {
-        let ndigits = vm.call_method(ndigits, "__int__", vec![])?;
-        let rounded = vm.call_method(number, "__round__", vec![ndigits])?;
-        Ok(rounded)
+        if objtype::isinstance(ndigits, &vm.ctx.int_type()) {
+            let ndigits = vm.call_method(ndigits, "__int__", vec![])?;
+            let rounded = vm.call_method(number, "__round__", vec![ndigits])?;
+            Ok(rounded)
+        } else if vm.ctx.none().is(ndigits) {
+            let rounded = &vm.call_method(number, "__round__", vec![])?;
+            Ok(vm.ctx.new_int(objint::get_value(rounded).clone()))
+        } else {
+            Err(vm.new_type_error(format!(
+                "'{}' object cannot be interpreted as an integer",
+                ndigits.class().name
+            )))
+        }
     } else {
         // without a parameter, the result type is coerced to int
         let rounded = &vm.call_method(number, "__round__", vec![])?;
