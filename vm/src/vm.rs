@@ -252,7 +252,7 @@ impl VirtualMachine {
     pub fn new_syntax_error(&self, error: &CompileError) -> PyObjectRef {
         let syntax_error_type = self.ctx.exceptions.syntax_error.clone();
         let syntax_error = self.new_exception(syntax_error_type, error.to_string());
-        let lineno = self.new_int(error.location.get_row());
+        let lineno = self.new_int(error.location.row());
         self.set_attr(&syntax_error, "lineno", lineno).unwrap();
         syntax_error
     }

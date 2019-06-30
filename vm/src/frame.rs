@@ -298,7 +298,7 @@ impl Frame {
                     trace!("Adding to traceback: {:?} {:?}", traceback, lineno);
                     let raise_location = vm.ctx.new_tuple(vec![
                         vm.ctx.new_str(filename.clone()),
-                        vm.ctx.new_int(lineno.get_row()),
+                        vm.ctx.new_int(lineno.row()),
                         vm.ctx.new_str(run_obj_name.clone()),
                     ]);
                     objlist::PyListRef::try_from_object(vm, traceback)?.append(raise_location, vm);
