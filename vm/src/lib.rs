@@ -23,7 +23,6 @@ extern crate log;
 extern crate maplit;
 // extern crate env_logger;
 
-extern crate rustpython_parser;
 #[macro_use]
 extern crate rustpython_derive;
 

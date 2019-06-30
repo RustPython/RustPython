@@ -4,10 +4,30 @@
 use bitflags::bitflags;
 use num_bigint::BigInt;
 use num_complex::Complex64;
-use rustpython_parser::ast;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+
+/// Sourcode location.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Location {
+    row: usize,
+    column: usize,
+}
+
+impl Location {
+    pub fn new(row: usize, column: usize) -> Self {
+        Location { row, column }
+    }
+
+    pub fn get_row(&self) -> usize {
+        self.row
+    }
+
+    pub fn get_column(&self) -> usize {
+        self.column
+    }
+}
 
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
@@ -16,7 +36,7 @@ pub struct CodeObject {
     pub instructions: Vec<Instruction>,
     /// Jump targets.
     pub label_map: HashMap<Label, usize>,
-    pub locations: Vec<ast::Location>,
+    pub locations: Vec<Location>,
     pub arg_names: Vec<String>, // Names of positional arguments
     pub varargs: Varargs,       // *args or *
     pub kwonlyarg_names: Vec<String>,
@@ -43,6 +63,17 @@ pub enum NameScope {
     Local,
     NonLocal,
     Global,
+}
+
+/// Transforms a value prior to formatting it.
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ConversionFlag {
+    /// Converts by calling `str(<value>)`.
+    Str,
+    /// Converts by calling `ascii(<value>)`.
+    Ascii,
+    /// Converts by calling `repr(<value>)`.
+    Repr,
 }
 
 /// A Single bytecode instruction.
@@ -181,7 +212,7 @@ pub enum Instruction {
     },
     Unpack,
     FormatValue {
-        conversion: Option<ast::ConversionFlag>,
+        conversion: Option<ConversionFlag>,
         spec: String,
     },
     PopException,
@@ -434,25 +465,5 @@ impl fmt::Debug for CodeObject {
             "<code object {} at ??? file {:?}, line {}>",
             self.obj_name, self.source_path, self.first_line_number
         )
-    }
-}
-
-impl From<ast::Varargs> for Varargs {
-    fn from(varargs: ast::Varargs) -> Varargs {
-        match varargs {
-            ast::Varargs::None => Varargs::None,
-            ast::Varargs::Unnamed => Varargs::Unnamed,
-            ast::Varargs::Named(param) => Varargs::Named(param.arg),
-        }
-    }
-}
-
-impl<'a> From<&'a ast::Varargs> for Varargs {
-    fn from(varargs: &'a ast::Varargs) -> Varargs {
-        match varargs {
-            ast::Varargs::None => Varargs::None,
-            ast::Varargs::Unnamed => Varargs::Unnamed,
-            ast::Varargs::Named(ref param) => Varargs::Named(param.arg.clone()),
-        }
     }
 }

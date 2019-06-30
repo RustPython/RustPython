@@ -2,8 +2,6 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use rustpython_parser::ast;
-
 use crate::builtins;
 use crate::bytecode;
 use crate::function::PyFuncArgs;
@@ -865,7 +863,7 @@ impl Frame {
                 Ok(None)
             }
             bytecode::Instruction::FormatValue { conversion, spec } => {
-                use ast::ConversionFlag::*;
+                use bytecode::ConversionFlag::*;
                 let value = match conversion {
                     Some(Str) => vm.to_str(&self.pop_value())?.into_object(),
                     Some(Repr) => vm.to_repr(&self.pop_value())?.into_object(),
@@ -1277,7 +1275,7 @@ impl Frame {
         Ok(None)
     }
 
-    pub fn get_lineno(&self) -> ast::Location {
+    pub fn get_lineno(&self) -> bytecode::Location {
         self.code.locations[*self.lasti.borrow()].clone()
     }
 
