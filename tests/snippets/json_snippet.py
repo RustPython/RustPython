@@ -1,3 +1,4 @@
+from testutils import assert_raises
 import json
 
 def round_trip_test(obj):
@@ -27,6 +28,12 @@ assert [1, "string", 1.0, True] == json.loads(json.dumps((1, "string", 1.0, True
 assert '{}' == json.dumps({})
 round_trip_test({'a': 'b'})
 
+# should reject non-str keys in jsons
+assert_raises(json.JSONDecodeError, lambda: json.loads('{3: "abc"}'))
+
+# should serialize non-str keys as strings
+assert json.dumps({'3': 'abc'}) == json.dumps({3: 'abc'})
+
 assert 1 == json.loads("1")
 assert -1 == json.loads("-1")
 assert 1.0 == json.loads("1.0")
@@ -44,12 +51,23 @@ class String(str): pass
 assert "string" == json.loads(String('"string"'))
 assert '"string"' == json.dumps(String("string"))
 
-# TODO: Uncomment and test once int/float construction is supported
-# class Int(int): pass
-# class Float(float): pass
+class Int(int): pass
+class Float(float): pass
 
-# TODO: Uncomment and test once sequence/dict subclasses are supported by
-# json.dumps
-# class List(list): pass
-# class Tuple(tuple): pass
-# class Dict(dict): pass
+assert '1' == json.dumps(Int(1))
+assert '0.5' == json.dumps(Float(0.5))
+
+class List(list): pass
+class Tuple(tuple): pass
+class Dict(dict): pass
+
+assert '[1]' == json.dumps(List([1]))
+assert json.dumps((1, "string", 1.0, True)) == json.dumps(Tuple((1, "string", 1.0, True)))
+assert json.dumps({'a': 'b'}) == json.dumps(Dict({'a': 'b'}))
+
+# big ints should not crash VM
+# TODO: test for correct output when actual serialization implemented and doesn’t throw
+try:
+  json.dumps(7*500)
+except:
+  pass
