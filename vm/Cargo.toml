@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 # Crypto:
-digest = "0.8"
+digest = "0.8.1"
 md-5 = "0.8"
 sha-1 = "0.8"
 sha2 = "0.8"

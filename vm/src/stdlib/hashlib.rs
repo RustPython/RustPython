@@ -5,8 +5,6 @@ use crate::obj::objtype::PyClassRef;
 use crate::pyobject::{PyClassImpl, PyObjectRef, PyResult, PyValue};
 use crate::vm::VirtualMachine;
 use std::cell::RefCell;
-// use std::clone::Clone;
-// use std::ops::Deref;
 use std::fmt;
 
 use blake2::{Blake2b, Blake2s};
@@ -79,7 +77,7 @@ impl PyHasher {
     }
 
     fn get_digest(&self) -> Vec<u8> {
-        self.buffer.borrow_mut().get_digest()
+        self.buffer.borrow().get_digest()
     }
 }
 
@@ -201,7 +199,6 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 /// Generic wrapper patching around the hashing libraries.
 struct HashWrapper {
     inner: Box<DynDigest>,
-    data: Vec<u8>,
 }
 
 impl HashWrapper {
@@ -210,10 +207,7 @@ impl HashWrapper {
         D: DynDigest,
         D: Sized,
     {
-        HashWrapper {
-            inner: Box::new(d),
-            data: vec![],
-        }
+        HashWrapper { inner: Box::new(d) }
     }
 
     fn md5() -> Self {
@@ -274,18 +268,15 @@ impl HashWrapper {
     }
 
     fn input(&mut self, data: &[u8]) {
-        // TODO: this is super not efficient. Find a better way for this.
-        self.data.extend(data);
+        self.inner.input(data);
     }
 
     fn digest_size(&self) -> usize {
         self.inner.output_size()
     }
 
-    fn get_digest(&mut self) -> Vec<u8> {
-        // TODO: this is super not efficient. Find a better way for this:
-        self.inner.input(&self.data);
-        let res = self.inner.result_reset().to_vec();
-        res
+    fn get_digest(&self) -> Vec<u8> {
+        let cloned = self.inner.clone();
+        cloned.result().to_vec()
     }
 }
