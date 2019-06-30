@@ -98,8 +98,7 @@ fn run_command(vm: &VirtualMachine, mut source: String) -> PyResult {
 
 fn run_module(vm: &VirtualMachine, module: &str) -> PyResult {
     debug!("Running module {}", module);
-    let current_path = PathBuf::from(".");
-    import::import_module(vm, current_path, module)
+    vm.import(module, &vm.ctx.new_tuple(vec![]), 0)
 }
 
 fn run_script(vm: &VirtualMachine, script_file: &str) -> PyResult {
