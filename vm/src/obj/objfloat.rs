@@ -14,7 +14,7 @@ use crate::vm::VirtualMachine;
 use hexf;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::Ratio;
-use num_traits::{float::Float, ToPrimitive, Zero};
+use num_traits::{float::Float, sign::Signed, ToPrimitive, Zero};
 
 /// Convert a string or number to a floating point number, if possible.
 #[pyclass(name = "float")]
@@ -79,7 +79,7 @@ fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
         None => {
             if value.is_infinite() {
                 Err(vm.new_overflow_error(
-                    "OverflowError: cannot convert float NaN to integer".to_string(),
+                    "OverflowError: cannot convert float infinity to integer".to_string(),
                 ))
             } else if value.is_nan() {
                 Err(vm
@@ -111,6 +111,32 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
     }
 }
 
+fn inner_lt_int(value: f64, other_int: &BigInt) -> bool {
+    match (value.to_bigint(), other_int.to_f64()) {
+        (Some(self_int), Some(other_float)) => value < other_float || self_int < *other_int,
+        // finite float, other_int too big for float,
+        // the result depends only on other_int’s sign
+        (Some(_), None) => other_int.is_positive(),
+        // infinite float must be bigger or lower than any int, depending on its sign
+        _ if value.is_infinite() => value.is_sign_negative(),
+        // NaN, always false
+        _ => false,
+    }
+}
+
+fn inner_gt_int(value: f64, other_int: &BigInt) -> bool {
+    match (value.to_bigint(), other_int.to_f64()) {
+        (Some(self_int), Some(other_float)) => value > other_float || self_int > *other_int,
+        // finite float, other_int too big for float,
+        // the result depends only on other_int’s sign
+        (Some(_), None) => other_int.is_negative(),
+        // infinite float must be bigger or lower than any int, depending on its sign
+        _ if value.is_infinite() => value.is_sign_positive(),
+        // NaN, always false
+        _ => false,
+    }
+}
+
 #[pyimpl]
 impl PyFloat {
     #[pymethod(name = "__eq__")]
@@ -139,8 +165,9 @@ impl PyFloat {
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 < get_value(&i2))
         } else if objtype::isinstance(&i2, &vm.ctx.int_type()) {
-            vm.ctx
-                .new_bool(v1 < objint::get_value(&i2).to_f64().unwrap())
+            let other_int = objint::get_value(&i2);
+
+            vm.ctx.new_bool(inner_lt_int(self.value, other_int))
         } else {
             vm.ctx.not_implemented()
         }
@@ -152,8 +179,18 @@ impl PyFloat {
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 <= get_value(&i2))
         } else if objtype::isinstance(&i2, &vm.ctx.int_type()) {
-            vm.ctx
-                .new_bool(v1 <= objint::get_value(&i2).to_f64().unwrap())
+            let other_int = objint::get_value(&i2);
+
+            let result = if let (Some(self_int), Some(other_float)) =
+                (self.value.to_bigint(), other_int.to_f64())
+            {
+                self.value <= other_float && self_int <= *other_int
+            } else {
+                // certainly not equal, forward to inner_lt_int
+                inner_lt_int(self.value, other_int)
+            };
+
+            vm.ctx.new_bool(result)
         } else {
             vm.ctx.not_implemented()
         }
@@ -165,8 +202,9 @@ impl PyFloat {
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 > get_value(&i2))
         } else if objtype::isinstance(&i2, &vm.ctx.int_type()) {
-            vm.ctx
-                .new_bool(v1 > objint::get_value(&i2).to_f64().unwrap())
+            let other_int = objint::get_value(&i2);
+
+            vm.ctx.new_bool(inner_gt_int(self.value, other_int))
         } else {
             vm.ctx.not_implemented()
         }
@@ -178,8 +216,18 @@ impl PyFloat {
         if objtype::isinstance(&i2, &vm.ctx.float_type()) {
             vm.ctx.new_bool(v1 >= get_value(&i2))
         } else if objtype::isinstance(&i2, &vm.ctx.int_type()) {
-            vm.ctx
-                .new_bool(v1 >= objint::get_value(&i2).to_f64().unwrap())
+            let other_int = objint::get_value(&i2);
+
+            let result = if let (Some(self_int), Some(other_float)) =
+                (self.value.to_bigint(), other_int.to_f64())
+            {
+                self.value >= other_float && self_int >= *other_int
+            } else {
+                // certainly not equal, forward to inner_gt_int
+                inner_gt_int(self.value, other_int)
+            };
+
+            vm.ctx.new_bool(result)
         } else {
             vm.ctx.not_implemented()
         }
