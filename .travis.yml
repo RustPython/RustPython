@@ -2,8 +2,6 @@ language: rust
 
 rust:
   - stable
-  - beta
-  - nightly
 
 script:
   - cargo build --verbose --all
@@ -34,20 +32,6 @@ matrix:
         - REGULAR_TEST=false
         - CODE_COVERAGE=false
       script: tests/.travis-runner.sh
-    - language: python
-      python: 3.6
-      cache:
-        pip: true
-        # Because we're using the Python Travis environment, we can't use
-        # the built-in cargo cacher
-        directories:
-          - /home/travis/.cargo
-          - target
-      env:
-        - TRAVIS_RUST_VERSION=beta
-        - REGULAR_TEST=false
-        - CODE_COVERAGE=false
-      script: tests/.travis-runner.sh
     - name: rustfmt
       language: rust
       rust: stable
@@ -75,7 +59,7 @@ matrix:
         - DEPLOY_DOC=true
     - name: WASM online demo
       language: rust
-      rust: nightly
+      rust: stable
       cache: cargo
       install:
         - nvm install node
@@ -138,8 +122,6 @@ matrix:
         - REGULAR_TEST=true
         - TRAVIS_RUST_VERSION=stable
   allow_failures:
-    - rust: nightly
-      env: REGULAR_TEST=true
     - name: cargo-clippy
 
 deploy:
