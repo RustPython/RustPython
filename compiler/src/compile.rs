@@ -5,10 +5,10 @@
 //!   https://github.com/python/cpython/blob/master/Python/compile.c
 //!   https://github.com/micropython/micropython/blob/master/py/compile.c
 
-use crate::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use crate::error::{CompileError, CompileErrorType};
 use crate::symboltable::{make_symbol_table, statements_to_symbol_table, SymbolRole, SymbolScope};
 use num_complex::Complex64;
+use rustpython_bytecode::bytecode::{self, CallType, CodeObject, Instruction, Varargs};
 use rustpython_parser::{ast, parser};
 
 struct Compiler {
