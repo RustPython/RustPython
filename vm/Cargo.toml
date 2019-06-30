@@ -5,6 +5,14 @@ authors = ["Shing Lyu <shing.lyu@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+# Crypto:
+digest = "0.8.1"
+md-5 = "0.8"
+sha-1 = "0.8"
+sha2 = "0.8"
+sha3 = "0.8"
+blake2 = "0.8"
+
 num-complex = { version = "0.2", features = ["serde"] }
 num-bigint = { version = "0.2.1", features = ["serde"] }
 num-traits = "0.2"
@@ -27,6 +35,7 @@ unicode-xid = "0.1.0"
 lazy_static = "^1.0.1"
 lexical = "2.0.0"
 itertools = "^0.8.0"
+hex = "0.3.2"
 hexf = "0.1.0"
 indexmap = "1.0.2"
 crc = "^1.0.0"
