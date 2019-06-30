@@ -309,17 +309,20 @@ impl VirtualMachine {
                 .get_attribute(self.builtins.clone(), "__import__")
                 .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
 
-            let locals = if let Some(frame) = self.current_frame() {
-                frame.scope.get_locals().into_object()
+            let (locals, globals) = if let Some(frame) = self.current_frame() {
+                (
+                    frame.scope.get_locals().into_object(),
+                    frame.scope.globals.clone().into_object(),
+                )
             } else {
-                self.get_none()
+                (self.get_none(), self.get_none())
             };
             self.invoke(
                 import_func,
                 vec![
                     self.ctx.new_str(module.to_string()),
+                    globals,
                     locals,
-                    self.get_none(),
                     from_list.clone(),
                     self.ctx.new_int(level),
                 ],
