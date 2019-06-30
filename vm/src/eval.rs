@@ -1,7 +1,7 @@
-use crate::compile;
 use crate::frame::Scope;
 use crate::pyobject::PyResult;
 use crate::vm::VirtualMachine;
+use rustpython_compiler::compile;
 
 pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
     match vm.compile(source, &compile::Mode::Eval, source_path.to_string()) {

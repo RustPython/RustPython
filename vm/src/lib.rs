@@ -44,6 +44,7 @@ pub mod macros;
 mod builtins;
 pub mod cformat;
 mod dictdatatype;
+#[cfg(feature = "rustpython_compiler")]
 pub mod eval;
 mod exceptions;
 pub mod format;
@@ -65,7 +66,6 @@ mod vm;
 pub use self::exceptions::print_exception;
 pub use self::vm::VirtualMachine;
 pub use rustpython_bytecode::*;
-pub use rustpython_compiler::*;
 
 #[doc(hidden)]
 pub mod __exports {

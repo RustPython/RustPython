@@ -12,8 +12,6 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::builtins;
 use crate::bytecode;
-use crate::compile;
-use crate::error::CompileError;
 use crate::frame::{ExecutionResult, Frame, FrameRef, Scope};
 use crate::frozen;
 use crate::function::PyFuncArgs;
@@ -38,6 +36,10 @@ use crate::pyobject::{
 use crate::stdlib;
 use crate::sysmodule;
 use num_bigint::BigInt;
+#[cfg(feature = "rustpython_compiler")]
+use rustpython_compiler::compile;
+#[cfg(feature = "rustpython_compiler")]
+use rustpython_compiler::error::CompileError;
 
 // use objects::objects;
 
@@ -249,6 +251,7 @@ impl VirtualMachine {
         self.new_exception(overflow_error, msg)
     }
 
+    #[cfg(feature = "rustpython_compiler")]
     pub fn new_syntax_error(&self, error: &CompileError) -> PyObjectRef {
         let syntax_error_type = self.ctx.exceptions.syntax_error.clone();
         let syntax_error = self.new_exception(syntax_error_type, error.to_string());
@@ -727,6 +730,7 @@ impl VirtualMachine {
         )
     }
 
+    #[cfg(feature = "rustpython_compiler")]
     pub fn compile(
         &self,
         source: &str,

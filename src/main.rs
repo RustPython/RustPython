@@ -8,11 +8,9 @@ extern crate rustpython_vm;
 extern crate rustyline;
 
 use clap::{App, Arg};
+use rustpython_compiler::{compile, error::CompileError, error::CompileErrorType};
 use rustpython_parser::error::ParseError;
 use rustpython_vm::{
-    compile,
-    error::CompileError,
-    error::CompileErrorType,
     frame::Scope,
     import,
     obj::objstr,
@@ -20,6 +18,7 @@ use rustpython_vm::{
     pyobject::{ItemProtocol, PyResult},
     util, VirtualMachine,
 };
+
 use rustyline::{error::ReadlineError, Editor};
 use std::path::PathBuf;
 
