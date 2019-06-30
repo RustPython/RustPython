@@ -207,7 +207,8 @@ ImportStatement: ast::LocatedStatement = {
                 ast::SingleImport {
                     module: n.to_string(),
                     symbols: vec![],
-                    alias: a.clone()
+                    alias: a.clone(),
+                    level: 0,
                 })
             .collect()
       },
@@ -219,7 +220,7 @@ ImportStatement: ast::LocatedStatement = {
       node: ast::Statement::Import {
         import_parts: vec![
             ast::SingleImport {
-                module: n.to_string(),
+                module: n.0.to_string(),
                 symbols: i.iter()
                     .map(|(i, a)|
                         ast::ImportSymbol {
@@ -227,28 +228,20 @@ ImportStatement: ast::LocatedStatement = {
                             alias: a.clone(),
                         })
                     .collect(),
-                alias: None
+                alias: None,
+                level: n.1
         }]
       },
     }
   },
 };
 
-ImportFromLocation: String = {
+ImportFromLocation: (String, usize) = {
     <dots: "."*> <name:DottedName> => {
-       let mut r = "".to_string();
-       for _dot in dots {
-         r.push_str(".");
-       }
-      r.push_str(&name);
-      r
+       (name, dots.len())
     },
     <dots: "."+> => {
-       let mut r = "".to_string();
-       for _dot in dots {
-         r.push_str(".");
-       }
-      r
+       ("".to_string(), dots.len())
     },
 };
 

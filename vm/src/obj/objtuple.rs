@@ -168,6 +168,11 @@ impl PyTupleRef {
         vm.ctx.new_tuple(new_elements)
     }
 
+    fn rmul(self, counter: isize, vm: &VirtualMachine) -> PyObjectRef {
+        let new_elements = seq_mul(&self.elements, counter);
+        vm.ctx.new_tuple(new_elements)
+    }
+
     fn getitem(self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         get_item(vm, self.as_object(), &self.elements, needle.clone())
     }
@@ -263,6 +268,7 @@ If the argument is a tuple, the return value is the same object.";
         "__len__" => context.new_rustfunc(PyTupleRef::len),
         "__new__" => context.new_rustfunc(tuple_new),
         "__mul__" => context.new_rustfunc(PyTupleRef::mul),
+        "__rmul__" => context.new_rustfunc(PyTupleRef::rmul),
         "__repr__" => context.new_rustfunc(PyTupleRef::repr),
         "count" => context.new_rustfunc(PyTupleRef::count),
         "__lt__" => context.new_rustfunc(PyTupleRef::lt),

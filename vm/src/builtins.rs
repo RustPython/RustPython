@@ -858,6 +858,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
 
         // Constants
         "NotImplemented" => ctx.not_implemented(),
+        "Ellipsis" => vm.ctx.ellipsis.clone(),
 
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.clone(),
@@ -882,6 +883,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "KeyError" => ctx.exceptions.key_error.clone(),
         "OSError" => ctx.exceptions.os_error.clone(),
         "ModuleNotFoundError" => ctx.exceptions.module_not_found_error.clone(),
+        "EOFError" => ctx.exceptions.eof_error.clone(),
 
         // Warnings
         "Warning" => ctx.exceptions.warning.clone(),

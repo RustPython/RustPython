@@ -14,6 +14,8 @@ assert isinstance(sys.implementation.cache_tag, str)
 assert sys.getfilesystemencoding() == 'utf-8'
 assert sys.getfilesystemencodeerrors().startswith('surrogate')
 
+assert sys.byteorder == "little" or sys.byteorder == "big"
+
 assert isinstance(sys.flags, tuple)
 assert type(sys.flags).__name__ == "flags"
 assert type(sys.flags.optimize) is int

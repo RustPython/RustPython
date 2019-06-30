@@ -38,7 +38,7 @@ fn lookup(name: PyStringRef, vm: &VirtualMachine) -> PyResult {
     if let Some(character) = unicode_names2::character(&name.value) {
         Ok(vm.new_str(character.to_string()))
     } else {
-        Err(vm.new_key_error(format!("undefined character name '{}'", name)))
+        Err(vm.new_key_error(vm.new_str(format!("undefined character name '{}'", name))))
     }
 }
 

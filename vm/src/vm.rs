@@ -167,20 +167,20 @@ impl VirtualMachine {
         self.ctx.new_bool(b)
     }
 
-    pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
+    fn new_exception_obj(&self, exc_type: PyClassRef, args: Vec<PyObjectRef>) -> PyResult {
+        // TODO: add repr of args into logging?
         info!("New exception created: {}", exc_type.name);
-        let args = PyFuncArgs::default();
         self.invoke(exc_type.into_object(), args)
+    }
+
+    pub fn new_empty_exception(&self, exc_type: PyClassRef) -> PyResult {
+        self.new_exception_obj(exc_type, vec![])
     }
 
     /// Create Python instance of `exc_type` with message as first element of `args` tuple
     pub fn new_exception(&self, exc_type: PyClassRef, msg: String) -> PyObjectRef {
-        // TODO: exc_type may be user-defined exception, so we should return PyResult
-        // TODO: maybe there is a clearer way to create an instance:
-        info!("New exception created: {}('{}')", exc_type.name, msg);
-        let pymsg = self.new_str(msg);
-        let args: Vec<PyObjectRef> = vec![pymsg];
-        self.invoke(exc_type.into_object(), args).unwrap()
+        let pystr_msg = self.new_str(msg);
+        self.new_exception_obj(exc_type, vec![pystr_msg]).unwrap()
     }
 
     pub fn new_attribute_error(&self, msg: String) -> PyObjectRef {
@@ -224,9 +224,9 @@ impl VirtualMachine {
         self.new_exception(value_error, msg)
     }
 
-    pub fn new_key_error(&self, msg: String) -> PyObjectRef {
+    pub fn new_key_error(&self, obj: PyObjectRef) -> PyObjectRef {
         let key_error = self.ctx.exceptions.key_error.clone();
-        self.new_exception(key_error, msg)
+        self.new_exception_obj(key_error, vec![obj]).unwrap()
     }
 
     pub fn new_index_error(&self, msg: String) -> PyObjectRef {
@@ -303,33 +303,31 @@ impl VirtualMachine {
     }
 
     pub fn import(&self, module: &str, from_list: &PyObjectRef, level: usize) -> PyResult {
-        let sys_modules = self
-            .get_attribute(self.sys_module.clone(), "modules")
-            .unwrap();
-        if let Ok(module) = sys_modules.get_item(module.to_string(), self) {
-            Ok(module)
-        } else {
-            match self.get_attribute(self.builtins.clone(), "__import__") {
-                Ok(func) => self.invoke(
-                    func,
-                    vec![
-                        self.ctx.new_str(module.to_string()),
-                        if self.current_frame().is_some() {
-                            self.get_locals().into_object()
-                        } else {
-                            self.get_none()
-                        },
-                        self.get_none(),
-                        from_list.clone(),
-                        self.ctx.new_int(level),
-                    ],
-                ),
-                Err(_) => Err(self.new_exception(
-                    self.ctx.exceptions.import_error.clone(),
-                    "__import__ not found".to_string(),
-                )),
-            }
-        }
+        let sys_modules = self.get_attribute(self.sys_module.clone(), "modules")?;
+        sys_modules.get_item(module.to_string(), self).or_else(|_| {
+            let import_func = self
+                .get_attribute(self.builtins.clone(), "__import__")
+                .map_err(|_| self.new_import_error("__import__ not found".to_string()))?;
+
+            let (locals, globals) = if let Some(frame) = self.current_frame() {
+                (
+                    frame.scope.get_locals().into_object(),
+                    frame.scope.globals.clone().into_object(),
+                )
+            } else {
+                (self.get_none(), self.get_none())
+            };
+            self.invoke(
+                import_func,
+                vec![
+                    self.ctx.new_str(module.to_string()),
+                    globals,
+                    locals,
+                    from_list.clone(),
+                    self.ctx.new_int(level),
+                ],
+            )
+        })
     }
 
     /// Determines if `obj` is an instance of `cls`, either directly, indirectly or virtually via

@@ -4,16 +4,11 @@ use serde;
 use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
-use crate::obj::{
-    objbool,
-    objdict::PyDictRef,
-    objfloat, objint, objsequence,
-    objstr::{self, PyString},
-    objtype,
-};
+use crate::obj::{objbool, objdict::PyDictRef, objfloat, objint, objsequence, objstr, objtype};
 use crate::pyobject::{IdProtocol, ItemProtocol, PyObjectRef, TypeProtocol};
 use crate::VirtualMachine;
 use num_traits::cast::ToPrimitive;
+use num_traits::sign::Signed;
 
 #[inline]
 pub fn serialize<S>(
@@ -79,9 +74,16 @@ impl<'s> serde::Serialize for PyObjectSerializer<'s> {
             serializer.serialize_bool(objbool::get_value(self.pyobject))
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.int_type()) {
             let v = objint::get_value(self.pyobject);
-            serializer.serialize_i64(v.to_i64().unwrap())
-        // Although this may seem nice, it does not give the right result:
-        // v.serialize(serializer)
+            let int_too_large = || serde::ser::Error::custom("int too large to serialize");
+            // TODO: serialize BigInt when it does not fit into i64
+            // BigInt implements serialization to a tuple of sign and a list of u32s,
+            // eg. -1 is [-1, [1]], 0 is [0, []], 12345678900000654321 is [1, [2710766577,2874452364]]
+            // CPython serializes big ints as long decimal integer literals
+            if v.is_positive() {
+                serializer.serialize_u64(v.to_u64().ok_or_else(int_too_large)?)
+            } else {
+                serializer.serialize_i64(v.to_i64().ok_or_else(int_too_large)?)
+            }
         } else if objtype::isinstance(self.pyobject, &self.vm.ctx.list_type()) {
             let elements = objsequence::get_elements_list(self.pyobject);
             serialize_seq_elements(serializer, &elements)
@@ -138,35 +140,26 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         formatter.write_str("a type that can deserialise in Python")
     }
 
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_str(value.to_string()))
+        Ok(self.vm.ctx.new_bool(value))
     }
 
-    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(self.vm.ctx.new_str(value))
-    }
-
+    // Other signed integers delegate to this method by default, it’s the only one needed
     fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        // The JSON deserializer always uses the i64/u64 deserializers, so we only need to
-        // implement those for now
         Ok(self.vm.ctx.new_int(value))
     }
 
+    // Other unsigned integers delegate to this method by default, it’s the only one needed
     fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        // The JSON deserializer always uses the i64/u64 deserializers, so we only need to
-        // implement those for now
         Ok(self.vm.ctx.new_int(value))
     }
 
@@ -177,11 +170,26 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         Ok(self.vm.ctx.new_float(value))
     }
 
-    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
     where
         E: serde::de::Error,
     {
-        Ok(self.vm.ctx.new_bool(value))
+        // Owned value needed anyway, delegate to visit_string
+        self.visit_string(value.to_string())
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(self.vm.ctx.new_str(value))
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(self.vm.get_none())
     }
 
     fn visit_seq<A>(self, mut access: A) -> Result<Self::Value, A::Error>
@@ -200,23 +208,11 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
         M: serde::de::MapAccess<'de>,
     {
         let dict = self.vm.ctx.new_dict();
-        // TODO: Given keys must be strings, we can probably do something more efficient
-        // than wrapping the given object up and then unwrapping it to determine whether or
-        // not it is a string
+        // Although JSON keys must be strings, implementation accepts any keys
+        // and can be reused by other deserializers without such limit
         while let Some((key_obj, value)) = access.next_entry_seed(self.clone(), self.clone())? {
-            let key: String = match key_obj.payload::<PyString>() {
-                Some(PyString { ref value }) => value.clone(),
-                _ => unimplemented!("map keys must be strings"),
-            };
-            dict.set_item(&key, value, self.vm).unwrap();
+            dict.set_item(key_obj, value, self.vm).unwrap();
         }
         Ok(dict.into_object())
-    }
-
-    fn visit_unit<E>(self) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(self.vm.get_none())
     }
 }

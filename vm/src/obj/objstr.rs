@@ -1335,7 +1335,7 @@ fn perform_format(
                 let result = match arguments.get_optional_kwarg(&keyword) {
                     Some(argument) => call_object_format(vm, argument.clone(), &format_spec)?,
                     None => {
-                        return Err(vm.new_key_error(format!("'{}'", keyword)));
+                        return Err(vm.new_key_error(vm.new_str(keyword.to_string())));
                     }
                 };
                 get_value(&result)

@@ -33,11 +33,11 @@ assert_raises(
 assert_raises(
     OverflowError,
     lambda: round(float('inf')),
-    'OverflowError: cannot convert float NaN to integer')
+    'OverflowError: cannot convert float infinity to integer')
 assert_raises(
     OverflowError,
     lambda: round(-float('inf')),
-    'OverflowError: cannot convert float NaN to integer')
+    'OverflowError: cannot convert float infinity to integer')
 
 assert pow(0, 0) == 1
 assert pow(2, 2) == 4
