@@ -1,24 +1,22 @@
 language: rust
-
-rust:
-  - stable
-
-script:
-  - cargo build --verbose --all
-  - cargo test --verbose --all
-
-env:
-  # This is used to only capture the regular nightly test in allow_failures
-  - REGULAR_TEST=true
-
+rust: stable
 cache: cargo
 
 matrix:
   fast_finish: true
   include:
+    - name: rust unittests and doctests
+      language: rust
+      rust: stable
+      cache: cargo
+      script:
+        - cargo build --verbose --all
+        - cargo test --verbose --all
+
     # To test the snippets, we use Travis' Python environment (because
     # installing rust ourselves is a lot easier than installing Python)
-    - language: python
+    - name: python test snippets
+      language: python
       python: 3.6
       cache:
         pip: true
@@ -29,7 +27,6 @@ matrix:
           - target
       env:
         - TRAVIS_RUST_VERSION=stable
-        - REGULAR_TEST=false
         - CODE_COVERAGE=false
       script: tests/.travis-runner.sh
     - name: rustfmt
@@ -45,8 +42,6 @@ matrix:
         # creates.)
         - echo > parser/src/python.rs
         - cargo fmt --all -- --check
-      env:
-        - REGULAR_TEST=false
     - name: publish documentation
       language: rust
       rust: stable
@@ -55,7 +50,6 @@ matrix:
         - cargo doc --no-deps --all
       if: branch = release
       env:
-        - REGULAR_TEST=false
         - DEPLOY_DOC=true
     - name: WASM online demo
       language: rust
@@ -71,7 +65,6 @@ matrix:
         - npm run dist
       if: branch = release
       env:
-        - REGULAR_TEST=false
         - DEPLOY_DEMO=true
     - name: cargo-clippy
       language: rust
@@ -81,8 +74,6 @@ matrix:
         - rustup component add clippy
       script:
         - cargo clippy
-      env:
-        - REGULAR_TEST=true
     - name: Code Coverage
       language: python
       python: 3.6
@@ -99,7 +90,6 @@ matrix:
       if: branch = master AND type = cron
       env:
         - TRAVIS_RUST_VERSION=nightly
-        - REGULAR_TEST=false
         - CODE_COVERAGE=true
     - name: test WASM
       language: python
@@ -119,7 +109,6 @@ matrix:
       script:
         - wasm/tests/.travis-runner.sh
       env:
-        - REGULAR_TEST=true
         - TRAVIS_RUST_VERSION=stable
   allow_failures:
     - name: cargo-clippy
