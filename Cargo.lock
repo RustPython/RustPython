@@ -959,15 +959,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustpython_compiler"
+name = "rustpython_bytecode"
 version = "0.1.0"
 dependencies = [
  "bitflags 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-bigint 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-complex 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "rustpython_parser 0.0.1",
  "serde 1.0.92 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "rustpython_compiler"
+version = "0.1.0"
+dependencies = [
+ "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num-complex 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustpython_bytecode 0.1.0",
+ "rustpython_parser 0.0.1",
 ]
 
 [[package]]
@@ -978,6 +986,7 @@ dependencies = [
  "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2 0.4.30 (registry+https://github.com/rust-lang/crates.io-index)",
  "quote 0.6.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustpython_bytecode 0.1.0",
  "rustpython_compiler 0.1.0",
  "syn 0.15.35 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -1028,6 +1037,7 @@ dependencies = [
  "rand 0.5.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex 1.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc_version_runtime 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustpython_bytecode 0.1.0",
  "rustpython_compiler 0.1.0",
  "rustpython_derive 0.1.0",
  "rustpython_parser 0.0.1",

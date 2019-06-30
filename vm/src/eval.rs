@@ -1,5 +1,3 @@
-extern crate rustpython_parser;
-
 use crate::compile;
 use crate::frame::Scope;
 use crate::pyobject::PyResult;
