@@ -1,5 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 set -e
+
+ALL_SECTIONS=(methods modules)
 
 GREEN='[32m'
 BOLD='[1m'
@@ -23,10 +25,19 @@ cd "$(dirname "$0")"
 # run whats_left_to_implement
 cargo build
 
-whats_left_section() {
-  h "$1"
-  cargo run -q -- tests/snippets/whats_left_"$1".py
-}
+if [ $# -eq 0 ]; then
+  sections=(${ALL_SECTIONS[@]})
+else
+  sections=($@)
+fi
 
-whats_left_section methods
-whats_left_section modules
+for section in "${sections[@]}"; do
+  section=$(echo "$section" | tr "[:upper:]" "[:lower:]")
+  snippet=tests/snippets/whats_left_$section.py
+  if ! [[ -f $snippet ]]; then
+    echo "Invalid section $section" >&2
+    continue
+  fi
+  h "$section" >&2
+  cargo run -q -- "$snippet"
+done
