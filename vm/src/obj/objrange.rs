@@ -1,5 +1,5 @@
 use std::cell::Cell;
-
+use std::mem;
 use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, Zero};
@@ -245,9 +245,9 @@ impl PyRange {
         }
     }
     #[pymethod(name = "__sizeof__")]
-    fn sizeof(&self, vm: &VirtualMachine) -> PyResult<PyInt> {
-        let quo = int(self.stop-self.start /self.step);
-        quo  * size_of::<PyInt>()
+    fn sizeof(&self, vm: &VirtualMachine) -> PyInt {
+        let start = self.start.as_bigint();
+        PyInt::new(PyInt::Mult(self.len(vm)  , mem::size_of_val(start)))
     }
 
     #[pymethod(name = "index")]
