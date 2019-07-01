@@ -20,6 +20,7 @@ mod thread;
 mod time_module;
 #[cfg(feature = "rustpython_parser")]
 mod tokenize;
+mod unicodedata;
 mod warnings;
 mod weakref;
 use std::collections::HashMap;
@@ -56,6 +57,7 @@ pub fn get_module_inits() -> HashMap<String, StdlibInitFunc> {
         "time".to_string() => Box::new(time_module::make_module),
         "_weakref".to_string() => Box::new(weakref::make_module),
         "_imp".to_string() => Box::new(imp::make_module),
+        "unicodedata".to_string() => Box::new(unicodedata::make_module),
         "_warnings".to_string() => Box::new(warnings::make_module),
     };
 
