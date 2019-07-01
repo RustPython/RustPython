@@ -6,6 +6,13 @@ import pkgutil
 import os
 import sys
 
+sys.path = list(
+    filter(
+        lambda path: "site-packages" not in path and "dist-packages" not in path,
+        sys.path,
+    )
+)
+
 
 def attr_is_not_inherited(type_, attr):
     """
